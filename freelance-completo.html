@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -5458,7 +5459,6 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
       return [fila("Al día",money(edad.alDia)),fila("Por vencer",money(edad.porVencer)),fila("Vencido",money(edad.vencido)),raya,
         fila("TOTAL",money(deudaTotal)),fila("Facturas",f.nFacturas),fila("Cheq. posf.",f.nCheques),fila("Crédito",f.diasCredito+" días")].join("\n");
     };
-    const encabezado=`*ESTADO DE CUENTA*\n${nombre}\n12 jun 2026`;
     const INTROS={
       neutro:"Le comparto su estado de cuenta actualizado:",
       recordatorio:"Le recuerdo sus próximos vencimientos:",
@@ -5472,10 +5472,42 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
       abono:"Podemos acordar abonos parciales; converse conmigo y lo cuadramos.",
     };
     const compartir=()=>{
-      if(!f.tel){toast("Este cliente no tiene teléfono registrado");return;}
-      const wa=f.tel.replace(/\D/g,"").replace(/^0/,"593");
-      const msg=`${encabezado}\n${INTROS[tono]}\n\n\u0060\u0060\u0060\n${tabla()}\n\u0060\u0060\u0060\n\n${CIERRES[tono]}`;
-      window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(msg),"_blank");
+      if(!window.jspdf){ toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
+      /* saneo para las fuentes del PDF (sin emojis ni símbolos fuera de latín) */
+      const pdfTxt=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+      const doc=new window.jspdf.jsPDF();
+      const VERDE=[21,57,43], GRIS=[110,120,110];
+      /* membrete */
+      doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(...VERDE);
+      doc.text("FREELANCE",14,18);
+      doc.setFontSize(9); doc.setFont("helvetica","normal"); doc.setTextColor(...GRIS);
+      doc.text("12 jun 2026",196,18,{align:"right"});
+      doc.setFontSize(12); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
+      doc.text("ESTADO DE CUENTA",14,28);
+      doc.setFontSize(10); doc.setFont("helvetica","normal");
+      doc.text(pdfTxt(nombre),14,35);
+      doc.setTextColor(...GRIS); doc.text(pdfTxt(`RUC ${f.ruc} · ${f.ciudad}, ${f.prov}`),14,40);
+      doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,44,196,44);
+      /* intro según el tono */
+      doc.setTextColor(30,30,30); doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(pdfTxt(INTROS[tono]),180),14,52);
+      /* tabla en fuente monoespaciada (mantiene columnas) */
+      doc.setFont("courier","normal"); doc.setFontSize(10);
+      let y=62;
+      tabla().split("\n").forEach(l=>{ doc.text(pdfTxt(l)||" ",14,y); y+=5.6; });
+      /* cierre */
+      doc.setFont("helvetica","italic"); doc.setFontSize(10);
+      y+=4; doc.text(doc.splitTextToSize(pdfTxt(CIERRES[tono]),180),14,y);
+      doc.setFontSize(8); doc.setTextColor(...GRIS);
+      doc.text("Documento informativo · FREELANCE · No constituye comprobante tributario",105,285,{align:"center"});
+      /* compartir directo desde el celular */
+      const archivo=new File([doc.output("blob")],`Estado de cuenta - ${nombre}.pdf`,{type:"application/pdf"});
+      if(navigator.canShare && navigator.canShare({files:[archivo]})){
+        navigator.share({files:[archivo], title:`Estado de cuenta · ${nombre}`}).catch(()=>{});
+      } else {
+        doc.save(`Estado de cuenta - ${nombre}.pdf`);
+        toast("PDF descargado. Adjúntalo en WhatsApp desde tus archivos.");
+      }
     };
 
     return (<>{cabecera}
@@ -5505,8 +5537,8 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
             {t}{sugerido===k?" · sugerido":""}</button>)}
       </div>
 
-      <button className="cta" style={{marginTop:4}} onClick={compartir}>💬 Compartir por WhatsApp</button>
-      <div className="meta" style={{margin:"10px 2px 0",fontSize:11.5}}>El formato ★ es el predeterminado del cliente; el tono se sugiere según su cartera. La tabla llega alineada en WhatsApp. Sin precios base ni márgenes.</div>
+      <button className="cta" style={{marginTop:4}} onClick={compartir}>📄 Enviar estado de cuenta (PDF)</button>
+      <div className="meta" style={{margin:"10px 2px 0",fontSize:11.5}}>Se genera un PDF con membrete y se abre el compartir del celular: eliges WhatsApp y el contacto. El formato ★ es el predeterminado del cliente; el tono se sugiere según su cartera. Sin precios base ni márgenes.</div>
     </>);
   }
 
