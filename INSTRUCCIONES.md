@@ -36,7 +36,7 @@ Este va aparte porque vive en una carpeta oculta:
 2. En el nombre escribe EXACTO: `.github/workflows/ping.yml` (GitHub crea las carpetas solo al poner las barras)
 3. Abre el archivo `ping.yml` de esta carpeta, copia TODO su contenido y pégalo
 4. **Commit changes**
-
+6
 ## Paso 5 · Encender Pages
 
 1. En el repositorio: **Settings → Pages** (menú lateral)
@@ -68,3 +68,4 @@ Esa dirección abre la **portada** con las 5 apps. Compártela con tu equipo; ca
 - **El Sistema Web central NO va aquí** — muestra tu operación real; se publica cuando activemos el inicio de sesión (Fase 4)
 - Las apps publicadas usan **datos de demostración** — perfectas para que el equipo practique
 - Cuando actualicemos una app, solo subes el archivo de nuevo (mismo nombre) y listo
+publicado el 10/07/2026
