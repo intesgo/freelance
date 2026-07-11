@@ -4424,9 +4424,51 @@ const CARTERA_EDAD = { /* antigüedad de la deuda por cliente (demo) */
 const CRECIMIENTO_CLIENTES = [1,1,3,4,6,7]; /* acumulado ene–jun 2026 */
 const FORMATO_EC = { /* formato de estado de cuenta predeterminado por cliente (se define una vez en su ficha) */
   "Comercial Mendoza":"resumen",
-  "Distribuidora Ríos":"detalle",
+  "Distribuidora Ríos":"factura",
   "Tienda La Esquina":"simple",
   "Mayorista Santa Rosa":"calendario",
+};
+/* Detalle por factura: productos, retención, descuento y notas de crédito (demo; en Fase 4 sale de Supabase) */
+const FACTURAS_DETALLE = {
+  "Comercial Mendoza":[
+    {factura:"001-001-000103", fecha:"04 jun 2026", items:[
+      {prod:"Arroz Gustadina qq", cant:15, precio:43.00},
+      {prod:"Azúcar Valdez s50", cant:5, precio:49.00}],
+     retencion:12.00, descuento:0,
+     ncs:[{num:"NC#214", motivo:"Devolución saco roto", fecha:"08 jun 2026", valor:18.00}]},
+    {factura:"001-001-000140", fecha:"06 jun 2026", items:[
+      {prod:"Harina Ya qq", cant:20, precio:38.00}],
+     retencion:0, descuento:0, ncs:[]},
+  ],
+  "Distribuidora Ríos":[
+    {factura:"001-001-000127", fecha:"30 may 2026", items:[
+      {prod:"Arroz Gustadina qq", cant:40, precio:45.00},
+      {prod:"Harina Ya qq", cant:20, precio:38.50},
+      {prod:"Maíz Agripac qq", cant:2, precio:29.50}],
+     retencion:19.00, descuento:0, ncs:[]},
+    {factura:"001-001-000131", fecha:"02 jun 2026", items:[
+      {prod:"Azúcar Valdez s50", cant:27, precio:49.00}],
+     retencion:0, descuento:0,
+     ncs:[{num:"NC#598", motivo:"Reconocim. inventario", fecha:"05 jun 2026", valor:18.00}]},
+    {factura:"001-001-000088", fecha:"25 may 2026", items:[
+      {prod:"Arroz Conejo qq", cant:22, precio:45.50}],
+     retencion:0, descuento:21.00, ncs:[]},
+  ],
+  "Bodega El Agricultor":[
+    {factura:"001-001-000119", fecha:"15 may 2026", items:[
+      {prod:"Maíz Agripac qq", cant:45, precio:29.00}],
+     retencion:15.00, descuento:0, ncs:[]},
+  ],
+  "Tienda La Esquina":[
+    {factura:"001-001-000097", fecha:"19 may 2026", items:[
+      {prod:"Arroz Económico qq", cant:13, precio:33.50}],
+     retencion:0, descuento:5.50, ncs:[]},
+  ],
+  "Mayorista Santa Rosa":[
+    {factura:"001-001-000110", fecha:"28 may 2026", items:[
+      {prod:"Arroz Gustadina qq", cant:40, precio:43.50}],
+     retencion:0, descuento:0, ncs:[]},
+  ],
 };
 function clienteActivo(nombre){ /* compró en los últimos 30 días (fecha demo: 12 jun 2026) */
   const f=FICHA_CLIENTE[nombre];
@@ -5433,7 +5475,7 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
     const deudaTotal=edad.alDia+edad.porVencer+edad.vencido;
     const sugerido = edad.vencido>0 ? "cobro" : edad.porVencer>0 ? "recordatorio" : "neutro";
     const tono = tonoEC || sugerido;
-    const FORMATOS=[["simple","Simple"],["resumen","Resumen"],["detalle","Detalle"],["calendario","Calendario"]];
+    const FORMATOS=[["simple","Simple"],["resumen","Resumen"],["factura","Por factura"],["calendario","Calendario"]];
     const TONOS=[["neutro","Informativo"],["recordatorio","Recordatorio"],["cobro","Cobro cordial"],["abono","Proponer abonos"]];
 
     /* tabla monoespaciada: etiqueta a la izquierda, valor alineado a la derecha */
@@ -5445,11 +5487,29 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
         const prox=factOrden[0];
         return [fila("Saldo",money(deudaTotal))].concat(prox?[fila("Vence",prox.vence.replace("Vencida","Venció hace"))]:[]).join("\n");
       }
-      if(fmtEC==="detalle"){
-        const filas=factOrden.map(x=>fila(`Fact ${numF(x)}`,money(x.valor))+"  "+x.vence);
-        const tot=factOrden.reduce((s,x)=>s+x.valor,0);
-        return (filas.length?filas.join("\n"):"Sin facturas pendientes")+"\n"+raya+"\n"+fila("TOTAL",money(tot))
-          +(f.nCheques>0?"\n"+fila(`Cheq. posf ×${f.nCheques}`,money(f.chequesPosf)):"");
+      if(fmtEC==="factura"){
+        const facts=FACTURAS_DETALLE[nombre]||[];
+        if(!facts.length) return "Sin facturas pendientes";
+        const col=(p,c,pr,t)=>String(p).padEnd(17).slice(0,17)+String(c).padStart(5)+String(pr).padStart(9)+String(t).padStart(11);
+        const out=[]; let neto=0;
+        facts.forEach((fa,ix)=>{
+          const cob=COBROS_INI.find(x=>x.cli===nombre && x.factura===fa.factura);
+          out.push(`FACT ${fa.factura} · ${fa.fecha}${cob?` · ${cob.vence}`:""}`);
+          out.push(col("PRODUCTO","CANT","PRECIO","TOTAL"));
+          let sub=0;
+          fa.items.forEach(it=>{ const t=it.cant*it.precio; sub+=t; out.push(col(it.prod,it.cant,money(it.precio),money(t))); });
+          out.push(raya);
+          out.push(fila("Subtotal",money(sub),14));
+          let tot=sub;
+          if(fa.retencion>0){ tot-=fa.retencion; out.push(fila("Rte.","-"+money(fa.retencion),14)); }
+          if(fa.descuento>0){ tot-=fa.descuento; out.push(fila("Descuento","-"+money(fa.descuento),14)); }
+          (fa.ncs||[]).forEach(nc=>{ tot-=nc.valor; out.push(fila(`${nc.num} ${nc.motivo} ${nc.fecha}`.slice(0,30),"-"+money(nc.valor),30)); });
+          out.push(fila("TOTAL FACTURA",money(tot),14));
+          neto+=tot;
+          if(ix<facts.length-1) out.push("");
+        });
+        if(facts.length>1){ out.push(raya); out.push(fila("TOTAL A PAGAR",money(neto),14)); }
+        return out.join("\n");
       }
       if(fmtEC==="calendario"){
         const filas=factOrden.map(x=>fila(x.vence,money(x.valor)));
