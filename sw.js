@@ -48,3 +48,42 @@ self.addEventListener("notificationclick", (e) => {
     })
   );
 });
+
+/* ═══════════ MODO OFFLINE · la app instalada abre SIN internet ═══════════
+   Al instalar, el teléfono guarda las pantallas. En el campo sin señal, la app
+   abre igual (con la cola 4.4 protegiendo lo que se registre). Al volver la señal,
+   se actualiza sola desde internet (red primero, guardado como respaldo). */
+const CACHE = "freelance-v1";
+const PIEZAS = [
+  "./", "./index.html",
+  "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
+  "./freelance-completo.html", "./proveedor-freelance.html",
+];
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PIEZAS)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys().then((lista) =>
+      Promise.all(lista.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (e) => {
+  if (e.request.method !== "GET") return;
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return;   /* Supabase y demás siguen directo a internet */
+  e.respondWith(
+    fetch(e.request)
+      .then((resp) => {
+        const copia = resp.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copia));
+        return resp;
+      })
+      .catch(() => caches.match(e.request, { ignoreSearch: true })
+        .then((guardada) => guardada || caches.match("./index.html")))
+  );
+});
