@@ -3402,6 +3402,7 @@ function Cobros({toast, cobroInicial, onConsumir}){
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
   const [facUnica,setFacUnica]=useState(null); // si viene de Cartera: solo esta factura
   const [facExterna,setFacExterna]=useState(null); // factura traída de Cartera (puede no estar en COBROS_INI)
+  const [verVenc,setVerVenc]=useState(false);       // lista de clientes con vencido (tarjeta del dashboard)
 
   React.useEffect(()=>{
     if(!cobroInicial) return;
@@ -3511,6 +3512,58 @@ function Cobros({toast, cobroInicial, onConsumir}){
           option:c=>(<div className="o1">{c}</div>),
           picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente con cobros pendientes</div></>)
         }}/>
+      {!cli && (()=>{ /* mini-dashboard de cobros: la entrada deja de ser solo un buscador */
+        const tot=COBROS_INI.reduce((s,c)=>s+c.valor,0);
+        const venc=COBROS_INI.filter(c=>/Vencida/i.test(c.vence));
+        const totV=venc.reduce((s,c)=>s+c.valor,0);
+        const clisV=[...new Set(venc.map(c=>c.cli))];
+        const sem=COBROS_INI.filter(c=>{ if(/hoy/i.test(c.vence)) return true; const m=/En\s+(\d+)/i.exec(c.vence); return m && Number(m[1])<=7; });
+        const totS=sem.reduce((s,c)=>s+c.valor,0);
+        const fichas=Object.values(FICHA_CLIENTE);
+        const chT=fichas.reduce((s,f)=>s+(f.chequesPosf||0),0);
+        const chN=fichas.reduce((s,f)=>s+(f.nCheques||0),0);
+        const precargar=(n)=>{ setCli(n); setProv(null); setAplic({}); setLineas([]); setVerVenc(false); };
+        return (<>
+          <div className="ndash" style={{marginTop:2,marginBottom:14}}>
+            <div className="ncard" style={{cursor:"default",minHeight:0}}>
+              <span className="nk">Por cobrar</span>
+              <span className="nv money">{money(tot)}</span>
+              <span className="nsub">{COBROS_INI.length} facturas en cartera</span>
+            </div>
+            <div className={"ncard"} style={{minHeight:0,border:verVenc?"1px solid var(--clay)":undefined}} onClick={()=>setVerVenc(v=>!v)}>
+              <span className="nk" style={{color:"var(--clay)"}}>Vencido</span>
+              <span className="nv money" style={{color:"var(--clay)"}}>{money(totV)}</span>
+              <span className="nsub">{clisV.length} cliente{clisV.length!==1?"s":""} · toca para cobrar</span>
+            </div>
+            <div className="ncard" style={{cursor:"default",minHeight:0}}>
+              <span className="nk" style={{color:"var(--maize-deep)"}}>Vence esta semana</span>
+              <span className="nv money" style={{color:"var(--maize-deep)"}}>{money(totS)}</span>
+              <span className="nsub">{sem.length} factura{sem.length!==1?"s":""} por gestionar</span>
+            </div>
+            <div className="ncard" style={{cursor:"default",minHeight:0}}>
+              <span className="nk">Cheques posf.</span>
+              <span className="nv money">{money(chT)}</span>
+              <span className="nsub">{chN} cheque{chN!==1?"s":""} en cartera</span>
+            </div>
+          </div>
+          {verVenc && clisV.length>0 && (
+            <div style={{marginBottom:14}}>
+              <div className="meta" style={{fontWeight:700,margin:"0 2px 8px",color:"var(--clay)"}}>Clientes con saldo vencido — toca uno para cobrarle</div>
+              {clisV.map(n=>{ const fs=venc.filter(x=>x.cli===n); const tv=fs.reduce((s,x)=>s+x.valor,0);
+                return (
+                  <div key={n} className="card" style={{padding:"12px 15px",cursor:"pointer",marginBottom:8}} onClick={()=>precargar(n)}>
+                    <div className="row" style={{alignItems:"center"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div className="cli" style={{fontSize:14}}>{n}</div>
+                        <div className="meta">{fs.length} factura{fs.length!==1?"s":""} vencida{fs.length!==1?"s":""}</div>
+                      </div>
+                      <b className="num" style={{color:"var(--clay)"}}>{money(tv)}</b>
+                      <span className="meta" style={{fontSize:18,marginLeft:8,color:"var(--muted)"}}>›</span>
+                    </div>
+                  </div>);})}
+            </div>
+          )}
+        </>);})()}
       {cli && (
         <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setAplic({});setLineas([]);}} onClear={()=>{setProv(null);setAplic({});setLineas([]);}}
