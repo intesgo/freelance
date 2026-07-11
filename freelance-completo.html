@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -5528,6 +5529,36 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
     movsCli.forEach(m=>{ acum+=(m.debe||0)-(m.haber||0); if(Math.abs(acum)<0.005) ultCero=m.fecha; });
     const partida = fPart || ultCero || (movsCli.length?movsCli[0].fecha:"2026-01-01");
     const ddmm=x=>x.slice(8,10)+"/"+x.slice(5,7);
+    /* datos estructurados para las tablas del PDF */
+    const factsConTot=(FACTURAS_DETALLE[nombre]||[]).map(fa=>{
+      const sub=fa.items.reduce((s,it)=>s+it.cant*it.precio,0);
+      let tot=sub-(fa.retencion||0)-(fa.descuento||0);
+      (fa.ncs||[]).forEach(n=>tot-=n.valor);
+      const cob=COBROS_INI.find(x=>x.cli===nombre && x.factura===fa.factura);
+      return {...fa, sub, tot, vence:cob?cob.vence:""};
+    });
+    const netoFacturas=factsConTot.reduce((s,x)=>s+x.tot,0);
+    const cta=(()=>{
+      let s=movsCli.filter(m=>m.fecha<fDesde).reduce((a,m)=>a+(m.debe||0)-(m.haber||0),0);
+      const ini=s;
+      const filas=movsCli.filter(m=>m.fecha>=fDesde && m.fecha<=fHasta).map(m=>{ s+=(m.debe||0)-(m.haber||0); return {...m, saldo:s}; });
+      return {saldoIni:ini, filas, saldoFin:s};
+    })();
+    const liq=(()=>{
+      const rows=movsCli.filter(m=>m.debe && m.fecha>partida).map(m=>{
+        const num=m.concepto.replace("Fact ","");
+        const det=(FACTURAS_DETALLE[nombre]||[]).find(x=>x.factura.endsWith(num));
+        const ncP=det?(det.descuento||0)+((det.ncs)||[]).filter(n=>n.tipo!=="devolucion").reduce((s,n)=>s+n.valor,0):0;
+        const rte=det?(det.retencion||0):0;
+        return {num, valor:m.debe, ncP, rte, neto:m.debe-ncP-rte, det};
+      });
+      const totF=rows.reduce((s,r)=>s+r.neto,0);
+      const devs=[]; rows.forEach(r=>{ ((r.det&&r.det.ncs)||[]).filter(n=>n.tipo==="devolucion").forEach(n=>devs.push(n)); });
+      const totD=devs.reduce((s,n)=>s+n.valor,0);
+      const abs=movsCli.filter(m=>m.haber && /^Abono/.test(m.concepto) && m.fecha>partida);
+      const totA=abs.reduce((s,m)=>s+m.haber,0);
+      return {rows, totF, devs, totD, abs, totA, total:totF-totD-totA};
+    })();
 
     /* tabla monoespaciada: etiqueta a la izquierda, valor alineado a la derecha */
     const fila=(a,b,w=12)=>String(a).padEnd(w).slice(0,w)+String(b).padStart(11);
@@ -5631,10 +5662,11 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
     };
     const compartir=()=>{
       if(!window.jspdf){ toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
-      /* saneo para las fuentes del PDF (sin emojis ni símbolos fuera de latín) */
       const pdfTxt=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
       const doc=new window.jspdf.jsPDF();
-      const VERDE=[21,57,43], GRIS=[110,120,110];
+      const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
+      const R={halign:"right"}, B={fontStyle:"bold"}, RB={halign:"right",fontStyle:"bold"};
+      const TOTROW={fillColor:CREMA,fontStyle:"bold"};
       /* membrete */
       doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(...VERDE);
       doc.text("FREELANCE",14,18);
@@ -5646,19 +5678,93 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
       doc.text(pdfTxt(nombre),14,35);
       doc.setTextColor(...GRIS); doc.text(pdfTxt(`RUC ${f.ruc} · ${f.ciudad}, ${f.prov}`),14,40);
       doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,44,196,44);
-      /* intro según el tono */
       doc.setTextColor(30,30,30); doc.setFontSize(10);
       doc.text(doc.splitTextToSize(pdfTxt(INTROS[tono]),180),14,52);
-      /* tabla en fuente monoespaciada (mantiene columnas) */
-      doc.setFont("courier","normal"); doc.setFontSize(10);
-      let y=62;
-      tabla().split("\n").forEach(l=>{ doc.text(pdfTxt(l)||" ",14,y); y+=5.6; });
-      /* cierre */
-      doc.setFont("helvetica","italic"); doc.setFontSize(10);
-      y+=4; doc.text(doc.splitTextToSize(pdfTxt(CIERRES[tono]),180),14,y);
-      doc.setFontSize(8); doc.setTextColor(...GRIS);
+      let y=57;
+      /* tabla con cuadros a todo el ancho */
+      const T=(def)=>{
+        if(def.titulo){ doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(...VERDE);
+          if(y>265){doc.addPage(); y=20;}
+          doc.text(pdfTxt(def.titulo),14,y+4); y+=6.5; }
+        const limpia=c=> typeof c==="object" && c!==null ? {...c, content:pdfTxt(c.content)} : pdfTxt(c);
+        doc.autoTable({
+          startY:y, margin:{left:14,right:14}, theme:"grid",
+          styles:{font:"helvetica",fontSize:9,cellPadding:2.4,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
+          headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold"},
+          head:def.head?[def.head]:undefined,
+          body:def.body.map(r=>r.map(limpia)),
+          columnStyles:def.cols||{},
+        });
+        y=doc.lastAutoTable.finalY+6;
+      };
+      if(fmtEC==="simple"){
+        const prox=factOrden[0];
+        T({body:[["Saldo total",{content:money(deudaTotal),styles:RB}]]
+          .concat(prox?[["Próximo vencimiento",{content:`${money(prox.valor)} (${prox.vence.toLowerCase()})`,styles:R}]]:[]),
+          cols:{0:{cellWidth:90}}});
+      } else if(fmtEC==="factura"){
+        factsConTot.forEach(fa=>{
+          const cuerpo=fa.items.map(it=>[it.prod,{content:it.cant,styles:R},{content:money(it.precio),styles:R},{content:money(it.cant*it.precio),styles:R}]);
+          cuerpo.push([{content:"Subtotal",colSpan:3,styles:R},{content:money(fa.sub),styles:R}]);
+          if(fa.retencion>0) cuerpo.push([{content:"Rte.",colSpan:3,styles:R},{content:"-"+money(fa.retencion),styles:R}]);
+          if(fa.descuento>0) cuerpo.push([{content:"Descuento",colSpan:3,styles:R},{content:"-"+money(fa.descuento),styles:R}]);
+          (fa.ncs||[]).forEach(n=>cuerpo.push([{content:`${n.num} ${n.motivo}${n.cant?` (${n.cant} ${n.prod})`:""} · ${n.fecha}`,colSpan:3,styles:R},{content:"-"+money(n.valor),styles:R}]));
+          cuerpo.push([{content:"TOTAL FACTURA",colSpan:3,styles:{...R,...TOTROW}},{content:money(fa.tot),styles:{...R,...TOTROW}}]);
+          T({titulo:`FACT ${fa.factura} · ${fa.fecha}${fa.vence?" · "+fa.vence:""}`,
+             head:["PRODUCTO","CANT.","PRECIO","TOTAL"], body:cuerpo,
+             cols:{0:{cellWidth:86},1:{halign:"right",cellWidth:22},2:{halign:"right",cellWidth:32},3:{halign:"right"}}});
+        });
+        if(factsConTot.length>1) T({body:[[{content:"TOTAL A PAGAR",styles:TOTROW},{content:money(netoFacturas),styles:{...R,...TOTROW}}]], cols:{0:{cellWidth:120}}});
+      } else if(fmtEC==="calendario"){
+        T({head:["VENCE","VALOR"],
+           body:factOrden.map(x=>[x.vence,{content:money(x.valor),styles:R}])
+             .concat([[{content:"TOTAL",styles:TOTROW},{content:money(factOrden.reduce((s,x)=>s+x.valor,0)),styles:{...R,...TOTROW}}]]),
+           cols:{1:{halign:"right"}}});
+      } else if(fmtEC==="cuenta"){
+        const cuerpo=[["",{content:`Saldo al ${ddmm(fDesde)}`,styles:{fontStyle:"italic"}},"","",{content:money(cta.saldoIni),styles:{halign:"right",fontStyle:"italic"}}]];
+        cta.filas.forEach(m=>cuerpo.push([ddmm(m.fecha),m.concepto,
+          {content:m.debe?money(m.debe):"",styles:R},{content:m.haber?money(m.haber):"",styles:R},{content:money(m.saldo),styles:R}]));
+        cuerpo.push([{content:`SALDO AL ${ddmm(fHasta)}`,colSpan:4,styles:{...R,...TOTROW}},{content:money(cta.saldoFin),styles:{...R,...TOTROW}}]);
+        T({head:["FECHA","CONCEPTO","DEBE","HABER","SALDO"], body:cuerpo,
+           cols:{0:{cellWidth:18},2:{halign:"right",cellWidth:28},3:{halign:"right",cellWidth:28},4:{halign:"right",cellWidth:30}}});
+      } else if(fmtEC==="liq"){
+        T({titulo:"FACTURADO", head:["FACT","FACTURA","NC","RTE.","NETO"],
+           body:liq.rows.map(r=>[r.num,{content:money(r.valor),styles:R},{content:r.ncP>0?money(r.ncP):"—",styles:R},{content:r.rte>0?money(r.rte):"—",styles:R},{content:money(r.neto),styles:R}])
+             .concat([[{content:"Total facturado",colSpan:4,styles:{...R,...TOTROW}},{content:money(liq.totF),styles:{...R,...TOTROW}}]]),
+           cols:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"}}});
+        if(liq.devs.length){
+          T({titulo:"DEVOLUCIONES", head:["DETALLE","VALOR"],
+             body:liq.devs.map(n=>[`${n.num} · ${n.cant} ${n.prod} · ${n.fecha}`,{content:"-"+money(n.valor),styles:R}])
+               .concat([[{content:"Total devoluciones",styles:{...R,...TOTROW}},{content:"-"+money(liq.totD),styles:{...R,...TOTROW}}]]),
+             cols:{1:{halign:"right",cellWidth:36}}});
+        }
+        T({titulo:"ABONOS", head:["FECHA","DETALLE","VALOR"],
+           body:(liq.abs.length?liq.abs.map(m=>[ddmm(m.fecha),m.concepto,{content:"-"+money(m.haber),styles:R}])
+               .concat([[{content:"Total abonos",colSpan:2,styles:{...R,...TOTROW}},{content:"-"+money(liq.totA),styles:{...R,...TOTROW}}]])
+             : [[{content:"Sin abonos en el período",colSpan:3,styles:{halign:"center",textColor:GRIS}}]]),
+           cols:{0:{cellWidth:20},2:{halign:"right",cellWidth:36}}});
+        const res=[["Facturado neto",{content:money(liq.totF),styles:R}]];
+        if(liq.totD>0) res.push(["(-) Devoluciones",{content:"-"+money(liq.totD),styles:R}]);
+        if(liq.totA>0) res.push(["(-) Abonos",{content:"-"+money(liq.totA),styles:R}]);
+        res.push([{content:"TOTAL A PAGAR",styles:TOTROW},{content:money(liq.total),styles:{...R,...TOTROW}}]);
+        T({titulo:"RESUMEN", body:res, cols:{0:{cellWidth:120}}});
+      } else { /* resumen */
+        T({body:[
+          ["Al día",{content:money(edad.alDia),styles:R}],
+          ["Por vencer",{content:money(edad.porVencer),styles:R}],
+          ["Vencido",{content:money(edad.vencido),styles:R}],
+          [{content:"TOTAL",styles:TOTROW},{content:money(deudaTotal),styles:{...R,...TOTROW}}],
+          ["Facturas pendientes",{content:f.nFacturas,styles:R}],
+          ["Cheques posfechados",{content:f.nCheques,styles:R}],
+          ["Días de crédito",{content:f.diasCredito+" días",styles:R}],
+        ], cols:{0:{cellWidth:120}}});
+      }
+      /* cierre y pie */
+      if(y>272){ doc.addPage(); y=22; }
+      doc.setFont("helvetica","italic"); doc.setFontSize(10); doc.setTextColor(30,30,30);
+      doc.text(doc.splitTextToSize(pdfTxt(CIERRES[tono]),180),14,y+2);
+      doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...GRIS);
       doc.text("Documento informativo · FREELANCE · No constituye comprobante tributario",105,285,{align:"center"});
-      /* compartir directo desde el celular */
       const archivo=new File([doc.output("blob")],`Estado de cuenta - ${nombre}.pdf`,{type:"application/pdf"});
       if(navigator.canShare && navigator.canShare({files:[archivo]})){
         navigator.share({files:[archivo], title:`Estado de cuenta · ${nombre}`}).catch(()=>{});
