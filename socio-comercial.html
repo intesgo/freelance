@@ -857,6 +857,59 @@ function SelloLineas() {
   );
 }
 
+/* ═══════════ HUELLA REAL (WebAuthn) · el sensor del teléfono, como en la banca ═══════════
+   · En HTTPS (la app publicada/instalada): biometría VERDADERA del equipo.
+     Primera vez → usuario y clave → se ofrece activar la huella → el sistema registra
+     la credencial en el chip seguro del teléfono. Después: un toque y adentro.
+   · En archivo local (visor de pruebas): se conserva la simulación de siempre.
+   · La verificación contra el servidor (sesión real) llega en Fase 4 con Supabase Auth;
+     hoy la huella custodia la ENTRADA a la app en este equipo. */
+const HUELLA_KEY = "freelance_huella_v1";
+const puedeHuellaReal = () => location.protocol === "https:" && !!window.PublicKeyCredential;
+function huellaGuardada(){ try { return JSON.parse(localStorage.getItem(HUELLA_KEY) || "null"); } catch(e){ return null; } }
+function guardarHuella(d){ try { localStorage.setItem(HUELLA_KEY, JSON.stringify(d)); } catch(e){} }
+function b64h(buf){ return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(buf)))); }
+function deB64h(s){ return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+function retoAleatorio(){ const a = new Uint8Array(32); crypto.getRandomValues(a); return a; }
+async function crearHuella(usuario, nombre){
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: retoAleatorio(),
+      rp: { name: "FREELANCE", id: location.hostname },
+      user: { id: new TextEncoder().encode(usuario), name: usuario, displayName: nombre || usuario },
+      pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
+      timeout: 60000, attestation: "none",
+    }});
+    return cred ? b64h(cred.rawId) : null;
+  } catch(e){ return null; }
+}
+async function verificarHuella(credId){
+  try {
+    const res = await navigator.credentials.get({ publicKey: {
+      challenge: retoAleatorio(),
+      allowCredentials: [{ id: deB64h(credId), type: "public-key", transports: ["internal"] }],
+      userVerification: "required", timeout: 60000, rpId: location.hostname,
+    }});
+    return !!res;
+  } catch(e){ return false; }
+}
+/* Ícono de huella dactilar (SVG de crestas, estilo banca) */
+const HuellaIcono = ({ t = 22, c = "currentColor", g = 1.7 }) => (
+  <svg width={t} height={t} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={g}
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display:"block" }}>
+    <path d="M17.8 4.6A9 9 0 0 0 4.2 8.1" />
+    <path d="M20.5 10.1c.1.6.1 1.3.1 1.9 0 1.5-.2 3-.5 4.4" />
+    <path d="M3.4 11.2c0-1 .2-2 .6-2.9a6.9 6.9 0 0 1 13.4 2.7c0 1.9-.2 3.7-.6 5.4" />
+    <path d="M14.3 19.9c.4-1.3.7-2.7.8-4.2" />
+    <path d="M12 8.5a3.5 3.5 0 0 1 3.5 3.5c0 2.6-.4 5-1.2 7.2" />
+    <path d="M8.6 11.5a3.4 3.4 0 0 1 1.9-2.7" />
+    <path d="M8.5 15.2c.2-1 .3-2.1.3-3.2" />
+    <path d="M5.7 18.3c.6-1.9 1-4 1-6.3" />
+    <path d="M12 12c0 3.2-.6 6.2-1.6 8.9" />
+  </svg>
+);
+
 function PantallaLogin({ onAutenticado }) {
   const [paso, setPaso]                 = useState("login");
   const [usr, setUsr]                   = useState("");
@@ -879,8 +932,26 @@ function PantallaLogin({ onAutenticado }) {
   const usrColor  = usr.length === 0 ? CL.tinta : usrValido ? CL.tinta : CL.error;
   const pwdColor  = pwd.length === 0 ? CL.tinta : (usrValido && usrValido.clave === pwd) ? CL.tinta : CL.error;
 
-  const [conClave, setConClave] = useState(false);   /* huella = puerta principal diaria; clave = solo primera vez / nuevo equipo */
+  const [huellaReg, setHuellaReg] = useState(huellaGuardada());
+  const [ofrecerHuella, setOfrecerHuella] = useState(false);
+  /* Como la banca: si el equipo aún no tiene huella registrada (y estamos en la app real),
+     la primera pantalla pide credenciales; ya registrada, recibe con la huella. */
+  const [conClave, setConClave] = useState(() => puedeHuellaReal() && !huellaGuardada());
   const handleLogin = (conHuella = false) => {
+    /* ── HUELLA REAL: el sensor del sistema aparece, igual que al entrar a tu banca ── */
+    if (conHuella && puedeHuellaReal()) {
+      const reg = huellaGuardada();
+      if (!reg) { setConClave(true); setError("Activa tu huella: ingresa por primera vez con usuario y clave."); return; }
+      setError(""); setCargando(true);
+      verificarHuella(reg.credId).then((ok) => {
+        setCargando(false);
+        if (!ok) { setError("No se pudo verificar la huella. Intenta de nuevo o entra con tu clave."); return; }
+        const u = USUARIOS[reg.usuario] || { nombre: reg.nombre, codigo: reg.usuario, zona: "—", rol: "subcomisionista", clave: "" };
+        usuarioAuthRef.current = u;
+        setPaso("sync");   /* la biometría ya verificó: directo a sincronizar */
+      });
+      return;
+    }
     if (!usr.trim()) { setError("Ingresa tu usuario"); return; }
     if (!pwd.trim()) { setError("Ingresa tu contraseña"); return; }
     const u = USUARIOS[usr.toUpperCase()];
@@ -889,9 +960,22 @@ function PantallaLogin({ onAutenticado }) {
     setTimeout(() => {
       setCargando(false);
       usuarioAuthRef.current = u;
+      if (!conHuella && puedeHuellaReal() && !huellaGuardada()) { setOfrecerHuella(true); return; }
       setPaso(conHuella ? "huella" : "sync");
     }, 900);
   };
+
+  /* Activar la huella: el sistema registra la credencial en el chip seguro del teléfono */
+  const activarHuella = () => {
+    const u = usuarioAuthRef.current; if (!u) { setOfrecerHuella(false); setPaso("sync"); return; }
+    setCargando(true);
+    crearHuella(usr.toUpperCase(), u.nombre).then((credId) => {
+      setCargando(false);
+      if (credId) { const d = { credId, usuario: usr.toUpperCase(), nombre: u.nombre }; guardarHuella(d); setHuellaReg(d); }
+      setOfrecerHuella(false); setPaso("sync");
+    });
+  };
+  const omitirHuella = () => { setOfrecerHuella(false); setPaso("sync"); };
 
   const simularHuella = () => {
     setHuellaEstado("leyendo");
@@ -1037,9 +1121,28 @@ function PantallaLogin({ onAutenticado }) {
         <div style={{ background:CL.papel, borderRadius:16, padding:"24px 22px", boxShadow:"0 10px 30px rgba(46,16,101,0.10)", border:`1px solid ${CL.linea}` }}>
 
           <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}>
-            <div style={{ width:54, height:54, borderRadius:27, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>👤</div>
+            <div style={{ width:54, height:54, borderRadius:27, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, color:CL.principal }}>{conClave ? "👤" : <HuellaIcono t={30} c={CL.principal} g={1.6} />}</div>
           </div>
-          <p style={{ fontFamily:SERIF, fontSize:24, fontWeight:700, color:CL.tinta, margin:"0 0 2px", textAlign:"center" }}>{conClave ? "Iniciar sesión" : "Bienvenido"}</p>
+          {ofrecerHuella ? (<>
+          <div style={{ display:"flex", justifyContent:"center", margin:"4px 0 12px" }}>
+            <div style={{ width:74, height:74, borderRadius:37, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center", color:CL.principal }}>
+              <HuellaIcono t={42} c={CL.principal} g={1.5} /></div>
+          </div>
+          <p style={{ fontFamily:SERIF, fontSize:21, fontWeight:700, color:CL.tinta, margin:"0 0 6px", textAlign:"center" }}>Proteger tu ingreso</p>
+          <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, margin:"0 0 18px", textAlign:"center", lineHeight:1.5 }}>Activa tu huella dactilar y la próxima vez entras con un solo toque, como en tu banca. Tu huella nunca sale del teléfono.</p>
+          <button onClick={activarHuella} disabled={cargando}
+            style={{ width:"100%", background: cargando ? "#d9d2ec" : CL.tinta, border:"none", borderRadius:10, padding:"15px",
+              fontFamily:SERIF, fontSize:15.5, fontWeight:700, color: cargando ? CL.grisTexto : "#fff", cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:10, boxShadow: cargando ? "none" : `0 8px 22px ${CL.tinta}30` }}>
+            <span style={{ display:"inline-flex", width:26, height:26, borderRadius:13, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:3 }}><HuellaIcono t={16} c="#F2A900" g={2} /></span>
+            {cargando ? "Registrando…" : "Activar mi huella"}
+          </button>
+          <div style={{ textAlign:"center", marginTop:14 }}>
+            <button onClick={omitirHuella}
+              style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, fontWeight:600, color:CL.medio, cursor:"pointer", padding:6, textDecoration:"underline", textUnderlineOffset:3 }}>Ahora no · continuar</button>
+          </div>
+          </>) : (<>
+          <p style={{ fontFamily:SERIF, fontSize:24, fontWeight:700, color:CL.tinta, margin:"0 0 2px", textAlign:"center" }}>{conClave ? "Iniciar sesión" : (huellaReg && huellaReg.nombre ? "Hola, " + huellaReg.nombre.split(" ")[0] : "Bienvenido")}</p>
           <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, margin:"0 0 22px", textAlign:"center" }}>{conClave ? "Ingrese sus credenciales para continuar" : "Toque el sensor para ingresar"}</p>
 
           {conClave && (<>
@@ -1108,13 +1211,14 @@ function PantallaLogin({ onAutenticado }) {
               fontFamily:SERIF, fontSize:16.5, fontWeight:700, letterSpacing:"0.03em", color: cargando ? CL.grisTexto : "#fff",
               cursor: cargando ? "not-allowed" : "pointer", boxShadow: cargando ? "none" : `0 8px 22px ${CL.tinta}30`,
               display:"flex", alignItems:"center", justifyContent:"center", gap:11, transition:"all .2s" }}>
-            <span style={{ display:"inline-flex", width:28, height:28, borderRadius:14, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", fontSize:14, lineHeight:1 }}>☉</span>
+            <span style={{ display:"inline-flex", width:30, height:30, borderRadius:15, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:4 }}><HuellaIcono t={19} c="#F2A900" g={2} /></span>
             {cargando ? "Verificando…" : "Ingresar con huella dactilar"}
           </button>
           <div style={{ textAlign:"center", marginTop:16 }}>
             <button onClick={() => setConClave(true)}
               style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, fontWeight:600, color:CL.medio, cursor:"pointer", padding:6, textDecoration:"underline", textUnderlineOffset:3 }}>Primera vez o nuevo equipo · Ingresar con usuario y clave</button>
           </div>
+          </>)}
           </>)}
         </div>
 
