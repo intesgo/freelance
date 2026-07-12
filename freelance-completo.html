@@ -3400,6 +3400,7 @@ function Cobros({toast, cobroInicial, onConsumir}){
   const [lineas,setLineas]=useState([]);
   const [modal,setModal]=useState(null);
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
+  const [resumen,setResumen]=useState(false); // pantalla de revisión antes de guardar
   const [facUnica,setFacUnica]=useState(null); // si viene de Cartera: solo esta factura
   const [facExterna,setFacExterna]=useState(null); // factura traída de Cartera (puede no estar en COBROS_INI)
   const [verVenc,setVerVenc]=useState(false);       // lista de clientes con vencido (tarjeta del dashboard)
@@ -3448,6 +3449,85 @@ function Cobros({toast, cobroInicial, onConsumir}){
   const paso1Ok = cli && prov;
   const paso2Ok = factSel.length>0 && !sobregiro && monto>0;
   const paso3Ok = restanteLineas===0 && lineas.length>0;
+
+  /* Recibo impreso: PDF de 2 páginas (ORIGINAL · Cliente / COPIA · Vendedor) con firmas */
+  const pdfRecibo=(datos)=>{
+    if(!window.jspdf){ toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
+    const pdfTxt=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+    const doc=new window.jspdf.jsPDF();
+    const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
+    const R={halign:"right"}, TOTROW={fillColor:CREMA,fontStyle:"bold"};
+    const pagina=(tipo)=>{
+      doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(...VERDE); doc.text("FREELANCE",14,18);
+      doc.setFontSize(8.5); doc.setFont("helvetica","bold"); doc.setTextColor(...GRIS);
+      doc.text(tipo,196,14,{align:"right"});
+      doc.setFont("helvetica","normal"); doc.text("12 jun 2026",196,19,{align:"right"});
+      doc.setFontSize(12); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
+      doc.text(pdfTxt(`RECIBO DE COBRO N° ${datos.nRecibo}`),14,28);
+      doc.setFontSize(10); doc.setFont("helvetica","normal");
+      doc.text(pdfTxt(`Cliente: ${datos.cli}`),14,36);
+      doc.text(pdfTxt(`Proveedor: ${datos.prov}   ·   Cobra: Daniel Ríos (Freelance)`),14,41);
+      doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,45,196,45);
+      let y=51;
+      const T=(def)=>{
+        if(def.titulo){ doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(...VERDE);
+          doc.text(pdfTxt(def.titulo),14,y+4); y+=6.5; }
+        const limpia=c=> typeof c==="object" && c!==null ? {...c, content:pdfTxt(c.content)} : pdfTxt(c);
+        doc.autoTable({ startY:y, margin:{left:14,right:14}, theme:"grid",
+          styles:{font:"helvetica",fontSize:9,cellPadding:2.3,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
+          headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold"},
+          head:def.head?[def.head]:undefined, body:def.body.map(r=>r.map(limpia)), columnStyles:def.cols||{} });
+        y=doc.lastAutoTable.finalY+6;
+      };
+      T({titulo:"FACTURAS APLICADAS", head:["FACTURA","ESTADO","COBRADO"],
+         body:datos.facturas.map(f=>[f.factura, f.estado==="cancelada"?"Cancelada":"Abono", {content:money(f.aplicado),styles:R}]),
+         cols:{2:{halign:"right",cellWidth:36}}});
+      T({titulo:"FORMAS DE PAGO", head:["FORMA","DETALLE","VALOR"],
+         body:datos.lineas.map(l=>[l.modalidad,
+             `${l.numero||"—"} · ${l.banco||"—"} · ${l.fecha||"—"}`,
+             {content:money(parseFloat(l.monto)||0),styles:R}])
+           .concat([[{content:"TOTAL COBRADO",colSpan:2,styles:{...R,...TOTROW}},{content:money(datos.monto),styles:{...R,...TOTROW}}]]),
+         cols:{2:{halign:"right",cellWidth:36}}});
+      /* firmas */
+      const yF=Math.max(y+22, 240);
+      doc.setDrawColor(120,120,120); doc.setLineWidth(.35);
+      doc.line(22,yF,92,yF); doc.line(118,yF,188,yF);
+      doc.setFontSize(9); doc.setTextColor(...GRIS);
+      doc.text("Recibí conforme · Cliente",57,yF+5,{align:"center"});
+      doc.text("Entregué · Cobrador",153,yF+5,{align:"center"});
+      doc.setFontSize(8);
+      doc.text("Documento informativo · FREELANCE · La comisión se libera cuando el proveedor valida el cobro",105,285,{align:"center"});
+    };
+    pagina("ORIGINAL · CLIENTE");
+    doc.addPage();
+    pagina("COPIA · VENDEDOR");
+    const archivo=new File([doc.output("blob")],`Recibo ${datos.nRecibo}.pdf`,{type:"application/pdf"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      navigator.share({files:[archivo], title:`Recibo ${datos.nRecibo}`}).catch(()=>{});
+    } else { doc.save(`Recibo ${datos.nRecibo}.pdf`); toast("Recibo descargado (original + copia)."); }
+  };
+
+  /* Guardar, imprimir y enviar: todo con un solo botón desde el resumen */
+  const guardarTodo=()=>{
+    const nRecibo="REC-260612-"+String(Math.floor(1000+Math.random()*9000));
+    const facturasRecibo = factSel.map(f=>({
+      factura:f.factura, aplicado:parseFloat(aplic[f.id])||0,
+      estado:(parseFloat(aplic[f.id])||0)>=f.valor?"cancelada":"abono"
+    }));
+    const datos={
+      nRecibo, cli, prov:prov.nombre, monto,
+      facturas:facturasRecibo, lineas,
+      destinatarios:[
+        {rol:"Cliente", nombre:cli},
+        {rol:"Freelance · cobra", nombre:"Daniel Ríos"},
+        {rol:"Proveedor", nombre:prov.nombre},
+        {rol:"Financiero", nombre:"Dpto. Financiero"}
+      ]
+    };
+    pdfRecibo(datos);
+    setEnviado(datos);
+    setResumen(false);
+  };
   const puedeAvanzar = paso===1?paso1Ok : paso===2?paso2Ok : paso3Ok;
 
   if(enviado){
@@ -3455,9 +3535,10 @@ function Cobros({toast, cobroInicial, onConsumir}){
       <div className="recibo">
         <div className="rh">
           <div className="chk-big">✓</div>
-          <div className="rt">Cobro reportado</div>
+          <div className="rt">Cobro guardado</div>
           <div className="rmonto num">{money(enviado.monto)}</div>
           <div className="meta" style={{marginTop:4}}>{enviado.cli} · {enviado.prov}</div>
+          {enviado.nRecibo && <div className="meta" style={{marginTop:2,fontWeight:700}}>Recibo {enviado.nRecibo}</div>}
         </div>
         <div className="rsec">Facturas aplicadas</div>
         {enviado.facturas.map((f,i)=>(
@@ -3485,10 +3566,54 @@ function Cobros({toast, cobroInicial, onConsumir}){
           </div>
         ))}
       </div>
-      <div className="lock"><span>ℹ️</span>
-        <span>El recibo se envió como comprobante del cobro reportado. El proveedor lo conciliará desde su portal.</span></div>
+      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>pdfRecibo(enviado)}>🖨️ Imprimir de nuevo (original + copia)</button>
+      <button className="cta" onClick={()=>{setEnviado(null);setResumen(false);reset();}} style={{marginTop:8}}>Reportar otro cobro</button>
+    </>);
+  }
 
-      <button className="cta" onClick={()=>{setEnviado(null);reset();}} style={{marginTop:6}}>Reportar otro cobro</button>
+  if(resumen){
+    const facturasRev = factSel.map(f=>({
+      factura:f.factura, aplicado:parseFloat(aplic[f.id])||0,
+      estado:(parseFloat(aplic[f.id])||0)>=f.valor?"cancelada":"abono"
+    }));
+    return (<>
+      <div className="h1">Resumen del cobro</div>
+      <div className="sub">Revisa que todo esté bien antes de guardar</div>
+
+      <div className="recibo" style={{marginTop:12}}>
+        <div className="rh">
+          <div className="rt">{cli}</div>
+          <div className="rmonto num">{money(monto)}</div>
+          <div className="meta" style={{marginTop:4}}>Proveedor: {prov.nombre}</div>
+        </div>
+        <div className="rsec">Facturas aplicadas</div>
+        {facturasRev.map((f,i)=>(
+          <div className="rrow" key={i}>
+            <span className="rk">Factura {f.factura} {f.estado==="cancelada"?"· Cancela":"· Abono"}</span>
+            <span className="num" style={{fontWeight:600}}>{money(f.aplicado)}</span>
+          </div>
+        ))}
+        <div className="rsec">Formas de pago</div>
+        {lineas.map((l,i)=>(
+          <div className="rrow" key={i} style={{alignItems:"center"}}>
+            <span className="rk" style={{display:"flex",alignItems:"center",gap:8}}>
+              {l.foto && <img src={l.foto} alt="comp." style={{width:34,height:26,objectFit:"cover",borderRadius:5,border:"1px solid var(--line)"}}/>}
+              {l.modalidad}{l.numero?` · ${l.numero}`:""}{l.banco?` · ${l.banco}`:""}
+            </span>
+            <span className="num" style={{fontWeight:600}}>{money(parseFloat(l.monto)||0)}</span>
+          </div>
+        ))}
+        <div className="rsec">Recibirán copia del recibo</div>
+        <div className="meta" style={{padding:"2px 2px 6px"}}>
+          {cli} (cliente) · Daniel Ríos (freelance) · {prov.nombre} (proveedor) · Dpto. Financiero
+        </div>
+      </div>
+
+      <button className="cta" style={{marginTop:14}} onClick={guardarTodo}>
+        💾 Guardar, imprimir y enviar</button>
+      <div className="meta" style={{textAlign:"center",margin:"8px 0 4px",fontSize:11.5}}>
+        Imprime original + copia y envía el recibo virtual a todos</div>
+      <button className="ghost" style={{width:"100%"}} onClick={()=>setResumen(false)}>‹ Corregir</button>
     </>);
   }
 
@@ -3678,23 +3803,8 @@ function Cobros({toast, cobroInicial, onConsumir}){
       {paso>1 && <button className="back" onClick={()=>setPaso(paso-1)}>‹ Atrás</button>}
       {paso<3
         ? <button className="cta next" disabled={!puedeAvanzar} onClick={()=>setPaso(paso+1)}>Siguiente</button>
-        : <button className="cta next" disabled={!paso3Ok}
-            onClick={()=>{
-              const facturasRecibo = factSel.map(f=>({
-                factura:f.factura, aplicado:parseFloat(aplic[f.id])||0,
-                estado:(parseFloat(aplic[f.id])||0)>=f.valor?"cancelada":"abono"
-              }));
-              setEnviado({
-                cli, prov:prov.nombre, monto,
-                facturas:facturasRecibo, lineas,
-                destinatarios:[
-                  {rol:"Cliente", nombre:cli},
-                  {rol:"Proveedor", nombre:prov.nombre},
-                  {rol:"Freelance", nombre:"Administrador"}
-                ]
-              });
-            }}>
-            Reportar y enviar recibo</button>}
+        : <button className="cta next" disabled={!paso3Ok} onClick={()=>setResumen(true)}>
+            Revisar resumen</button>}
     </div>
 
     {modal && <LineaPago modalidad={modal}
@@ -3709,8 +3819,14 @@ function LineaPago({modalidad, onSave, onCancel}){
   const [numero,setNumero]=useState("");
   const [banco,setBanco]=useState("");
   const [fecha,setFecha]=useState("");
-  const [foto,setFoto]=useState(false);
-  const valido = (parseFloat(monto)||0)>0 && numero && banco && fecha && foto;
+  const [foto,setFoto]=useState(null); // imagen real del comprobante (obligatoria)
+  const leer=(e)=>{
+    const f=e.target.files && e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>setFoto(rd.result);
+    rd.readAsDataURL(f);
+  };
+  const valido = (parseFloat(monto)||0)>0 && numero && banco && fecha && !!foto;
   return (
     <div className="ov" onClick={onCancel}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
@@ -3736,28 +3852,37 @@ function LineaPago({modalidad, onSave, onCancel}){
         <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha"}</label>
           <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
 
-        <div className="field"><label>Foto del comprobante</label>
+        <div className="field"><label>Foto del comprobante (obligatoria)</label>
           {foto ? (
-            <label className="photo has">
-              <input type="file" accept="image/*" style={{display:"none"}} onChange={()=>setFoto(true)}/>
-              ✓ Comprobante cargado · toca para reemplazar
+            <label className="photo has" style={{display:"flex",alignItems:"center",gap:10}}>
+              <input type="file" accept="image/*" {...(esCheque?{capture:"environment"}:{})} style={{display:"none"}} onChange={leer}/>
+              <img src={foto} alt="comprobante" style={{width:46,height:34,objectFit:"cover",borderRadius:6,border:"1px solid var(--line)"}}/>
+              <span>✓ Cargada · toca para reemplazar</span>
             </label>
+          ) : esCheque ? (
+            <div className="fotopick">
+              <label>
+                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={leer}/>
+                <span className="fi">📷</span>Tomar foto del cheque
+              </label>
+            </div>
           ) : (
             <div className="fotopick">
               <label>
-                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={()=>setFoto(true)}/>
+                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={leer}/>
                 <span className="fi">📷</span>Tomar foto
               </label>
               <label>
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={()=>setFoto(true)}/>
-                <span className="fi">🖼️</span>Adjuntar archivo
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={leer}/>
+                <span className="fi">🖼️</span>Adjuntar imagen
               </label>
             </div>
           )}
+          {esCheque && !foto && <div className="meta" style={{marginTop:6,fontSize:11.5}}>El cheque se recibe físicamente: la foto se toma en el momento, con la cámara.</div>}
         </div>
 
         <button className="cta" disabled={!valido}
-          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto:true})}>
+          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto})}>
           Agregar {modalidad.toLowerCase()}</button>
         <button className="ghost" onClick={onCancel}>Cancelar</button>
       </div>
@@ -9938,7 +10063,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b4 · barra de progreso</div>
+              Versión 11 jul 2026 b5 · resumen y recibo doble</div>
           </div>
         </div>
       </div>
