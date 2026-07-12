@@ -3464,7 +3464,7 @@ const EFECTIVO_PENDIENTE=[ /* efectivo cobrado aún sin depositar */
   {nRecibo:"REC-260612-1021", cli:"Tienda La Esquina", monto:430, limite:"hoy 09:12 + 24h"},
 ];
 
-function Cobros({toast, cobroInicial, onConsumir}){
+function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const [paso,setPaso]=useState(1);
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
@@ -3481,6 +3481,22 @@ function Cobros({toast, cobroInicial, onConsumir}){
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
   const [tick,setTick]=useState(0);                 // refresco tras mutar registros del día
+  React.useEffect(()=>{ /* retroceso inteligente: jerarquía interna del módulo */
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(modal){ setModal(null); return true; }
+      if(anulando){ setAnulando(null); return true; }
+      if(depEf!=null){ setDepEf(null); return true; }
+      if(resumen){ setResumen(false); return true; }
+      if(verDia){ setVerDia(false); return true; }
+      if(enviado){ setEnviado(null); setResumen(false); reset(); return true; }
+      if(verVenc){ setVerVenc(false); return true; }
+      if(paso>1){ setPaso(paso-1); return true; }
+      if(cli){ reset(); return true; }
+      return false;
+    };
+    return ()=>{ backRef.current=null; };
+  });
 
   React.useEffect(()=>{
     if(!cobroInicial) return;
@@ -3745,7 +3761,7 @@ function Cobros({toast, cobroInicial, onConsumir}){
         </div>
       )}
       {depEf!=null && (
-        <LineaPago modalidad="Depósito"
+        <LineaPago modalidad="Depósito" restante={EFECTIVO_PENDIENTE[depEf] ? EFECTIVO_PENDIENTE[depEf].monto : 0}
           onCancel={()=>setDepEf(null)}
           onSave={l=>{
             const e=EFECTIVO_PENDIENTE[depEf];
@@ -4007,16 +4023,16 @@ function Cobros({toast, cobroInicial, onConsumir}){
             Revisar resumen</button>}
     </div>
 
-    {modal && <LineaPago modalidad={modal}
+    {modal && <LineaPago modalidad={modal} restante={Math.max(0,restanteLineas)}
       onCancel={()=>setModal(null)}
       onSave={l=>{setLineas([...lineas,l]);setModal(null);}}/>}
   </>);
 }
 
-function LineaPago({modalidad, onSave, onCancel}){
+function LineaPago({modalidad, onSave, onCancel, restante}){
   const esCheque = modalidad==="Cheque";
   const esEfectivo = modalidad==="Efectivo";
-  const [monto,setMonto]=useState("");
+  const [monto,setMonto]=useState(restante>0 ? String(Math.round(restante*100)/100) : "");
   const [numero,setNumero]=useState("");
   const [banco,setBanco]=useState("");
   const [fecha,setFecha]=useState("");
@@ -4056,6 +4072,7 @@ function LineaPago({modalidad, onSave, onCancel}){
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Efectivo</h3>
           <div className="sh-sub">Dinero recibido en mano</div>
+          {restante>0 && <div className="meta" style={{margin:"0 2px 10px",fontWeight:700,color:"var(--field)"}}>Restante por cubrir: {money(restante)}</div>}
           <div className="field"><label>Valor recibido</label>
             <input className="num" type="number" inputMode="decimal" placeholder="0.00"
               value={monto} onChange={e=>setMonto(e.target.value)} autoFocus/></div>
@@ -4070,7 +4087,8 @@ function LineaPago({modalidad, onSave, onCancel}){
     <div className="ov" onClick={onCancel}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
         <h3>{modalidad}</h3>
-        <div className="sh-sub">{esCheque?"Datos del cheque recibido":"Digita el valor y toma la foto: el resto se llena solo"}</div>
+        <div className="sh-sub">{esCheque?"Datos del cheque recibido":"Confirma el valor y toma la foto: el resto se llena solo"}</div>
+        {restante>0 && <div className="meta" style={{margin:"0 2px 10px",fontWeight:700,color:"var(--field)"}}>Restante por cubrir: {money(restante)}</div>}
 
         <div className="field"><label>Valor del pago</label>
           <input className="num" type="number" inputMode="decimal" placeholder="0.00"
@@ -10089,6 +10107,29 @@ function App({usuario, onSalir}){
     if(backHandlerRef.current && backHandlerRef.current()) return; // el módulo retrocedió por dentro
     setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
   };
+  /* Botón físico "atrás" del celular = mismo retroceso inteligente. En el inicio: doble toque para salir */
+  const atrasRef=React.useRef(null);
+  const tabRef=React.useRef("inicio");
+  const histRef=React.useRef([]);
+  const salirRef=React.useRef(0);
+  atrasRef.current=atras; tabRef.current=tab; histRef.current=hist;
+  React.useEffect(()=>{
+    try{ history.pushState({app:1},""); }catch(e){}
+    const onPop=()=>{
+      const enInicio = tabRef.current==="inicio" && histRef.current.length===0 && !backHandlerRef.current;
+      if(enInicio){
+        if(Date.now()-salirRef.current<2200){ try{ history.back(); }catch(e){} return; }
+        salirRef.current=Date.now();
+        try{ history.pushState({app:1},""); }catch(e){}
+        show("Presiona atrás de nuevo para salir");
+        return;
+      }
+      try{ history.pushState({app:1},""); }catch(e){}
+      atrasRef.current && atrasRef.current();
+    };
+    window.addEventListener("popstate",onPop);
+    return ()=>window.removeEventListener("popstate",onPop);
+  },[]);
   const irInicio=()=>{ setHist([]); setTab("inicio"); };
   const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos"};
   const enSub = tab in subPantallas;
@@ -10184,7 +10225,7 @@ function App({usuario, onSalir}){
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
         {tab==="pedidos" && <Pedidos pedidos={pedidos}/>}
-        {tab==="cobros" && <Cobros toast={show} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
+        {tab==="cobros" && <Cobros backRef={backHandlerRef} toast={show} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
         {tab==="equipo" && <Equipo toast={show}/>}
         {tab==="comisiones" && <Comisiones toast={show}/>}
@@ -10346,7 +10387,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b7 · efectivo y cuadre de caja</div>
+              Versión 11 jul 2026 b8 · atrás físico y restante</div>
           </div>
         </div>
       </div>
