@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1376,6 +1377,62 @@ const BANCOS = [
   "Banco Solidario","Banco Capital","Banco Coopnacional","Banco General Rumiñahui",
   "Cooperativa JEP","Cooperativa Jardín Azuayo","Cooperativa Policía Nacional",
   "Cooperativa 29 de Octubre","Cooperativa Cooprogreso","BanEcuador","Banco del Litoral"];
+
+/* ── Recibos de cobro: quién recibe copia virtual (editable en Ajustes) ── */
+const DESTINATARIOS_RECIBO = [
+  {rol:"Freelance",  nombre:"Daniel Ríos",     tel:"0984339634"},
+  {rol:"Financiero", nombre:"Dpto. Financiero", tel:""},
+];
+
+/* ── Lector de comprobantes (OCR): el usuario digita el valor, la foto llena el resto ── */
+let _OCRW=null;
+async function ocrComprobante(img){
+  try{
+    if(!window.Tesseract) return null;
+    if(!_OCRW) _OCRW = window.Tesseract.createWorker("spa");
+    const w = await _OCRW;
+    const r = await w.recognize(img);
+    return extraerComprobante((r && r.data && r.data.text) || "");
+  }catch(e){ _OCRW=null; return null; }
+}
+function parseMontoOCR(s){
+  s=String(s).trim();
+  const pc=s.lastIndexOf(","), pd=s.lastIndexOf(".");
+  if(pc>-1 && pd>-1){ s = pc>pd ? s.replace(/\./g,"").replace(",",".") : s.replace(/,/g,""); }
+  else if(pc>-1){ const dec=s.length-pc-1; s = dec===3 ? s.replace(/,/g,"") : s.replace(/,/g,"."); }
+  const n=parseFloat(s.replace(/[^\d.]/g,""));
+  return (isFinite(n) && n>0) ? Math.round(n*100)/100 : null;
+}
+function extraerComprobante(txt){
+  const T=String(txt).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  /* diccionario por banco: palabra clave → nombre del catálogo */
+  const CLAVES=[["PICHINCHA","Pichincha"],["PACIFICO","Pacífico"],["GUAYAQUIL","Guayaquil"],
+    ["PRODUBANCO","Produbanco"],["INTERNACIONAL","Internacional"],["BOLIVARIANO","Bolivariano"],
+    ["AUSTRO","Austro"],["MACHALA","Machala"],["JEP","JEP"],["BANECUADOR","BanEcuador"]];
+  let banco=null;
+  for(const [k,v] of CLAVES){ if(T.includes(k)){ banco=BANCOS.find(x=>x.toUpperCase().includes(k))||null; if(banco) break; } }
+  let valor=null;
+  const mv=T.match(/(?:VALOR|MONTO|TOTAL|DEBITADO|ACREDITADO|USD)[^\d\-]{0,12}([\d][\d.,]{2,14})/);
+  if(mv) valor=parseMontoOCR(mv[1]);
+  if(valor==null){
+    const todos=[...T.matchAll(/\$\s*([\d][\d.,]{2,14})/g)].map(m=>parseMontoOCR(m[1])).filter(x=>x!=null);
+    if(todos.length) valor=todos[0];
+  }
+  let numero=null;
+  const mn=T.match(/(?:COMPROBANTE|TRANSACCION|REFERENCIA|SECUENCIAL|DOCUMENTO|OPERACION|OP)\.?[^\d]{0,10}(\d{5,15})/);
+  if(mn) numero=mn[1];
+  let fecha=null;
+  const mf=T.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+  if(mf){ fecha=`${mf[3]}-${String(mf[2]).padStart(2,"0")}-${String(mf[1]).padStart(2,"0")}`; }
+  else{
+    const MES={ENE:1,FEB:2,MAR:3,ABR:4,MAY:5,JUN:6,JUL:7,AGO:8,SEP:9,OCT:10,NOV:11,DIC:12};
+    const mm=T.match(/(\d{1,2})\s+(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)[A-Z]*\s+(\d{4})/);
+    if(mm) fecha=`${mm[3]}-${String(MES[mm[2]]).padStart(2,"0")}-${String(mm[1]).padStart(2,"0")}`;
+  }
+  if(!banco && valor==null && !numero && !fecha) return null;
+  return {banco, numero, fecha, valor};
+}
+
 const USO_BANCOS = {
   "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
   "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3
@@ -3519,9 +3576,8 @@ function Cobros({toast, cobroInicial, onConsumir}){
       facturas:facturasRecibo, lineas,
       destinatarios:[
         {rol:"Cliente", nombre:cli},
-        {rol:"Freelance · cobra", nombre:"Daniel Ríos"},
         {rol:"Proveedor", nombre:prov.nombre},
-        {rol:"Financiero", nombre:"Dpto. Financiero"}
+        ...DESTINATARIOS_RECIBO.map(d=>({rol:d.rol, nombre:d.nombre+(d.tel?` · ${d.tel}`:"")}))
       ]
     };
     pdfRecibo(datos);
@@ -3819,38 +3875,45 @@ function LineaPago({modalidad, onSave, onCancel}){
   const [numero,setNumero]=useState("");
   const [banco,setBanco]=useState("");
   const [fecha,setFecha]=useState("");
-  const [foto,setFoto]=useState(null); // imagen real del comprobante (obligatoria)
+  const [foto,setFoto]=useState(null);
+  const [ocr,setOcr]=useState({estado:"idle", valor:null}); // idle · leyendo · ok · fallo
+  const [editar,setEditar]=useState(false);
   const leer=(e)=>{
     const f=e.target.files && e.target.files[0]; if(!f) return;
     const rd=new FileReader();
-    rd.onload=()=>setFoto(rd.result);
+    rd.onload=async()=>{
+      const img=rd.result; setFoto(img); setEditar(false);
+      if(esCheque) return; /* manuscrito: el lector no es confiable, campos visibles */
+      setOcr({estado:"leyendo", valor:null});
+      const d=await ocrComprobante(img);
+      if(!d){ setOcr({estado:"fallo", valor:null}); return; }
+      /* el lector solo llena lo vacío: jamás pisa lo digitado */
+      if(d.banco)  setBanco(p=>p||d.banco);
+      if(d.numero) setNumero(p=>p||d.numero);
+      if(d.fecha)  setFecha(p=>p||d.fecha);
+      if(d.valor!=null) setMonto(p=> (parseFloat(p)>0) ? p : String(d.valor));
+      setOcr({estado:"ok", valor:(d.valor!=null?d.valor:null)});
+    };
     rd.readAsDataURL(f);
   };
-  const valido = (parseFloat(monto)||0)>0 && numero && banco && fecha && !!foto;
+  const mv=parseFloat(monto)||0;
+  const difiere = ocr.valor!=null && mv>0 && Math.abs(mv-ocr.valor)>0.009;
+  const coincide = ocr.valor!=null && mv>0 && !difiere;
+  /* campos ocultos: emergen solo si el lector no pudo, o al tocar ✎ (cheque: siempre visibles) */
+  const vNum = esCheque || editar || !numero;
+  const vBan = esCheque || editar || !banco;
+  const vFec = esCheque || editar || !fecha;
+  const detectados=[banco,numero?`Op. ${numero}`:null,fecha].filter(Boolean).join(" · ");
+  const valido = mv>0 && numero && banco && fecha && !!foto;
   return (
     <div className="ov" onClick={onCancel}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
         <h3>{modalidad}</h3>
-        <div className="sh-sub">{esCheque?"Datos del cheque recibido":"Datos del comprobante"}</div>
+        <div className="sh-sub">{esCheque?"Datos del cheque recibido":"Digita el valor y toma la foto: el resto se llena solo"}</div>
 
-        <div className="field"><label>Monto</label>
+        <div className="field"><label>Valor del pago</label>
           <input className="num" type="number" inputMode="decimal" placeholder="0.00"
             value={monto} onChange={e=>setMonto(e.target.value)}/></div>
-
-        <div className="field"><label>{esCheque?"Número de cheque":"Número de operación"}</label>
-          <input type="text" value={numero} onChange={e=>setNumero(e.target.value)}/></div>
-
-        <SearchSelect label="Banco" items={BANCOS} value={banco}
-          sortBy={(a,b)=>(USO_BANCOS[b]||0)-(USO_BANCOS[a]||0)}
-          onPick={b=>{setBanco(b);USO_BANCOS[b]=(USO_BANCOS[b]||0)+1;}} onClear={()=>setBanco("")}
-          render={{
-            text:b=>b,
-            option:b=>(<div className="o1">{b}{USO_BANCOS[b]?<span style={{color:"var(--muted)",fontWeight:500,fontSize:12}}>  · usado {USO_BANCOS[b]}×</span>:null}</div>),
-            picked:b=>(<><div className="p1">{b}</div></>)
-          }}/>
-
-        <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha"}</label>
-          <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
 
         <div className="field"><label>Foto del comprobante (obligatoria)</label>
           {foto ? (
@@ -3880,6 +3943,41 @@ function LineaPago({modalidad, onSave, onCancel}){
           )}
           {esCheque && !foto && <div className="meta" style={{marginTop:6,fontSize:11.5}}>El cheque se recibe físicamente: la foto se toma en el momento, con la cámara.</div>}
         </div>
+
+        {ocr.estado==="leyendo" && <div className="meta" style={{margin:"2px 2px 10px"}}>🔎 Leyendo comprobante…</div>}
+        {ocr.estado==="fallo" && <div className="meta" style={{margin:"2px 2px 10px",color:"var(--maize-deep)"}}>No pude leer el comprobante; completa los datos.</div>}
+        {coincide && <div className="meta" style={{margin:"2px 2px 10px",color:"var(--ok)",fontWeight:700}}>✓ El comprobante coincide: {money(ocr.valor)}</div>}
+        {difiere && (
+          <div style={{margin:"2px 0 12px",background:"#FBF3DC",border:"1px solid var(--maize-deep)",borderRadius:12,padding:"10px 12px"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"var(--maize-deep)"}}>El comprobante dice {money(ocr.valor)}</div>
+            <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setMonto(String(ocr.valor))}>Usar el valor del comprobante</button>
+          </div>
+        )}
+        {!esCheque && !editar && detectados && !(vNum&&vBan&&vFec) && (
+          <div className="meta" style={{margin:"2px 2px 12px",display:"flex",alignItems:"center",gap:6}}>
+            <span style={{color:"var(--ok)"}}>✓</span><span style={{flex:1}}>{detectados}</span>
+            <button className="ghost" style={{padding:"4px 10px"}} onClick={()=>setEditar(true)}>✎</button>
+          </div>
+        )}
+
+        {vNum && (
+          <div className="field"><label>{esCheque?"Número de cheque":"Número de operación"}</label>
+            <input type="text" value={numero} onChange={e=>setNumero(e.target.value)}/></div>
+        )}
+        {vBan && (
+          <SearchSelect label="Banco" items={BANCOS} value={banco}
+            sortBy={(a,b)=>(USO_BANCOS[b]||0)-(USO_BANCOS[a]||0)}
+            onPick={b=>{setBanco(b);USO_BANCOS[b]=(USO_BANCOS[b]||0)+1;}} onClear={()=>setBanco("")}
+            render={{
+              text:b=>b,
+              option:b=>(<div className="o1">{b}{USO_BANCOS[b]?<span style={{color:"var(--muted)",fontWeight:500,fontSize:12}}>  · usado {USO_BANCOS[b]}×</span>:null}</div>),
+              picked:b=>(<><div className="p1">{b}</div></>)
+            }}/>
+        )}
+        {vFec && (
+          <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha"}</label>
+            <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
+        )}
 
         <button className="cta" disabled={!valido}
           onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto})}>
@@ -7255,9 +7353,33 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   const [idioma,setIdioma]=useState("es-EC");
   const [notif,setNotif]=useState({cobros:true, solicitudes:true, novedades:true});
 
+  const [destRec,setDestRec]=useState(DESTINATARIOS_RECIBO.map(d=>({...d})));
+  const guardarDest=()=>{
+    destRec.forEach((d,i)=>{ DESTINATARIOS_RECIBO[i]={...d}; });
+    toast("Destinatarios de recibos guardados");
+  };
   return (<>
     <div className="h1">Ajustes</div>
     <div className="sub">Personaliza la apariencia y las preferencias de la app.</div>
+
+    <div className="ficha-sec">Recibos de cobro</div>
+    <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
+      <div className="meta" style={{marginBottom:10}}>Reciben copia virtual de cada recibo de cobro. El cliente y el proveedor del cobro se agregan automáticamente.</div>
+      {destRec.map((d,i)=>(
+        <div key={d.rol} style={{marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:5}}>{d.rol}</div>
+          <div className="row" style={{gap:8}}>
+            <input value={d.nombre} placeholder="Nombre"
+              style={{flex:1.2,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,minWidth:0}}
+              onChange={e=>setDestRec(ds=>ds.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))}/>
+            <input value={d.tel} placeholder="WhatsApp (09…)" inputMode="tel"
+              style={{flex:1,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,minWidth:0}}
+              onChange={e=>setDestRec(ds=>ds.map((x,j)=>j===i?{...x,tel:e.target.value}:x))}/>
+          </div>
+        </div>
+      ))}
+      <button className="ghost" style={{width:"100%"}} onClick={guardarDest}>Guardar destinatarios</button>
+    </div>
 
     <div className="ficha-sec">Color de la app</div>
     <div className="aj-paletas">
@@ -10063,7 +10185,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b5 · resumen y recibo doble</div>
+              Versión 11 jul 2026 b6 · lector OCR</div>
           </div>
         </div>
       </div>
