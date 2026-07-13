@@ -1927,11 +1927,11 @@ function Inicio({go}){
     </>);
 }
 
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra}){
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   if(value){
-    return (<div className="field"><label>{label}</label>
+    return (<div className="field">{!sinLabel && <label>{label}</label>}
       <div className="ss"><div className={"pick"+(disabled?" dis":"")}>
         <div>{render.picked(value)}</div>
         {!disabled && <button className="chg" onClick={()=>{onClear();setQ("");}}>Cambiar</button>}
@@ -1948,7 +1948,7 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
   };
   let filtrados = q.trim()==="" ? items : items.filter(it=>coincide(render.text(it)));
   if(sortBy) filtrados = [...filtrados].sort(sortBy);
-  return (<div className="field"><label>{label}</label>
+  return (<div className="field">{!sinLabel && <label>{label}</label>}
     <div className="ss">
       <div className={"box"+(disabled?" dis":"")}>
         <span className="mag">⌕</span>
@@ -3034,7 +3034,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     <div className="h1">Tomar pedido</div>
     <div className="sub">Cliente, proveedor, producto y tipo de precio.</div>
 
-    <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
+    <SearchSelect label="Cliente" items={CLIENTES} sinLabel value={cli} multiPalabra
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
       render={{
@@ -3086,17 +3086,16 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </div>
     )}
 
-    <SearchSelect label="Proveedor" items={PROVEEDORES} value={prov}
+    {cli && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
         text:p=>p.nombre,
         option:p=>(<div className="o1">{p.nombre}</div>),
         picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
-      }}/>
+      }}/>}
 
-    <SearchSelect label="Producto autorizado" items={productosDelProv} value={prod}
-      disabled={!prov} placeholder={prov?"":"Elige primero el proveedor"}
+    {prov && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
       render={{
@@ -3105,7 +3104,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           <div className="o2">por {p.unidad}</div></>),
         picked:p=>(<><div className="p1">{p.nombre}</div>
           <div className="p2">por {p.unidad}</div></>)
-      }}/>
+      }}/>}
 
     {prod && (
       <div className="prodcard">
@@ -3187,9 +3186,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </div>
     )}
 
-    <div className={"stepwrap"+(prod?"":" off")}>
-      
-      {!cli && carrito.length===0 && (()=>{ /* apoyo para tomar el pedido: qué se está pidiendo y a quién le toca */
+    {!cli && carrito.length===0 && (()=>{ /* apoyo para tomar el pedido: qué se está pidiendo y a quién le toca */
         const visitas=clientesPorVisitar();
         const urgentes=visitas.filter(x=>x.nivel==="rojo");
         const nPed=PEDIDOS_INI.length;
@@ -3236,6 +3233,8 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           </div>
         );})()}
 
+    <div className={"stepwrap"+(prod?"":" off")}>
+      
       <div className="field"><label>Tipo de precio</label>
         <div className="tipogrid">
           {TIPOS_PRECIO.map(t=>{
@@ -11330,7 +11329,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b31 · dashboard de pedido</div>
+              Versión 13 jul 2026 b32 · pedido progresivo</div>
           </div>
         </div>
       </div>
