@@ -2405,7 +2405,54 @@ const RIESGO_CLIENTE = {
   "Abarrotes Don Pepe": {vencidas:0, protestados:0},
   "Comisariato La Y": {vencidas:0, protestados:0},
 };
-const CODIGO_DESBLOQUEO = "4827";
+/* ══ AUTORIZACIONES (norma sellada) ══
+   Toda acción frenada por un control sigue el mismo patrón: contexto automático → solicitud con
+   motivo y compromiso → decisión del aprobador → CÓDIGO DE UN SOLO USO, con caducidad y atado a la
+   operación → auditoría. Prohibido: códigos fijos, autorizaciones verbales, aprobar sin contexto. */
+const MOTIVOS_AUT = [
+  {k:"paga_hoy",    t:"Pagará hoy mismo"},
+  {k:"cheque",      t:"Entrega cheque posfechado"},
+  {k:"estrategico", t:"Cliente estratégico"},
+  {k:"error",       t:"Error en la cartera"},
+  {k:"abono",       t:"Abonará una parte ahora"},
+];
+const AUTORIZACIONES = [];   /* solicitudes vivas (demo; Fase 4 → Supabase + app del Proveedor) */
+const nuevoCodigo = () => String(Math.floor(100000+Math.random()*900000));   /* 6 dígitos, un solo uso */
+function crearSolicitudAut(datos){
+  const s = {
+    id:"SOL-"+String(1000+AUTORIZACIONES.length+1),
+    ...datos,
+    estado:"pendiente",          // pendiente | aprobada | condicionada | rechazada | usada | vencida
+    creada:new Date().toISOString(),
+    codigo:null, caduca:null, tope:null, motivoDecision:null,
+    au:"AU-260713-"+Math.floor(1000+Math.random()*9000),
+  };
+  AUTORIZACIONES.unshift(s);
+  return s;
+}
+/* Decisión del proveedor (en el demo se simula; en Fase 4 llega desde su app) */
+function decidirSolicitud(sol, decision, opts){
+  opts=opts||{};
+  sol.estado=decision;
+  sol.motivoDecision=opts.motivo||null;
+  if(decision==="aprobada" || decision==="condicionada"){
+    sol.codigo=nuevoCodigo();
+    sol.caduca=Date.now()+30*60*1000;      /* caduca en 30 minutos */
+    sol.tope=opts.tope||null;              /* condicionada: hasta cierto monto */
+  }
+  return sol;
+}
+/* Validación del código: un solo uso, no vencido, atado a ESE cliente y ESA operación */
+function validarCodigoAut(sol, codigo, cli, monto){
+  if(!sol || !sol.codigo) return {ok:false, msg:"No hay una autorización aprobada para este cliente."};
+  if(sol.estado==="usada")  return {ok:false, msg:"Ese código ya se usó. Solicita una nueva autorización."};
+  if(Date.now()>sol.caduca) { sol.estado="vencida"; return {ok:false, msg:"El código caducó. Solicita una nueva autorización."}; }
+  if(sol.cli!==cli)         return {ok:false, msg:"El código no corresponde a este cliente."};
+  if(sol.tope && monto>sol.tope) return {ok:false, msg:`Autorización condicionada hasta ${money(sol.tope)}. Este pedido la excede.`};
+  if(String(codigo).trim()!==sol.codigo) return {ok:false, msg:"Código incorrecto. Verifica con el proveedor."};
+  sol.estado="usada"; sol.usada=new Date().toISOString();
+  return {ok:true, msg:`Pedido autorizado · solicitud ${sol.id} · auditado ${sol.au}`};
+}
 
 /* Perfil comercial del cliente: frecuencia de compra, categoría y ranking pagador.
    Fórmulas selladas — pagador: días reales de pago vs. plazo pactado (excelente = paga antes,
@@ -2968,6 +3015,12 @@ function ArcCupo({ total, usado, excede, money }){
 }
 
 function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
+  const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
+  const [pidiendo,setPidiendo]=useState(false);   // hoja de solicitud abierta
+  const [mtvAut,setMtvAut]=useState("paga_hoy");
+  const [fPromesa,setFPromesa]=useState("");
+  const [vPromesa,setVPromesa]=useState("");
+  const [comentAut,setComentAut]=useState("");
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [prod,setProd]=useState(null);
@@ -3123,19 +3176,55 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                   onClick={()=>onCobrar({fac:bq.factura, cli, proveedor:bq.prov, provId:bq.provId, saldo:bq.saldo, venc:bq.vence})}>
                   💵 Cobrar esta factura ahora</button>
               )}
-              {motivos.length>0 && (
-                <div className="meta" style={{fontSize:11,marginTop:8}}>
-                  {motivos.join(" · ")} · desbloquea con el código del proveedor:
+              {motivos.length>0 && <div className="meta" style={{fontSize:11,marginTop:8}}>{motivos.join(" · ")}</div>}
+
+              {/* Flujo sellado: solicitud con motivo y compromiso → decisión del proveedor → código de un solo uso */}
+              {!solAut && (
+                <button className="ghost" style={{width:"100%",marginTop:9,padding:"11px",fontSize:13}}
+                  onClick={()=>setPidiendo(true)}>📨 Solicitar autorización al proveedor</button>
+              )}
+              {solAut && solAut.estado==="pendiente" && (
+                <div style={{marginTop:9,background:"#FDF3E2",border:"1px solid #C98A2B",borderRadius:12,padding:"10px 12px"}}>
+                  <div style={{fontWeight:700,fontSize:12.5,color:"#A06B15"}}>⏳ {solAut.id} · esperando al proveedor</div>
+                  <div className="meta" style={{fontSize:11.5,marginTop:3}}>{(MOTIVOS_AUT.find(m=>m.k===solAut.motivo)||{}).t}
+                    {solAut.promesaFecha?` · promete ${money(solAut.promesaValor||0)} el ${solAut.promesaFecha.split("-").reverse().join("/")}`:""}</div>
+                  {/* En el demo simulamos la respuesta del proveedor; en Fase 4 llega desde su app */}
+                  <div style={{display:"flex",gap:8,marginTop:9}}>
+                    <button className="ghost" style={{flex:1,margin:0,padding:"9px",fontSize:12}}
+                      onClick={()=>{ const s=decidirSolicitud(solAut,"aprobada"); setSolAut({...s});
+                        toast(`Proveedor aprobó · código de un solo uso, válido 30 min`); }}>Simular: aprobar</button>
+                    <button className="ghost" style={{flex:1,margin:0,padding:"9px",fontSize:12}}
+                      onClick={()=>{ const s=decidirSolicitud(solAut,"condicionada",{tope:500,motivo:"Solo hasta $500"}); setSolAut({...s});
+                        toast(`Proveedor aprobó CONDICIONADO: hasta ${money(500)}`); }}>Simular: condicionar</button>
+                    <button className="ghost" style={{flex:1,margin:0,padding:"9px",fontSize:12,color:"var(--clay)"}}
+                      onClick={()=>{ const s=decidirSolicitud(solAut,"rechazada",{motivo:"Cartera vencida sin abono"}); setSolAut({...s});
+                        toast("Proveedor rechazó la solicitud"); }}>Simular: rechazar</button>
+                  </div>
                 </div>
               )}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 118px",gap:8,marginTop:7}}>
-                <input value={codigo} onChange={e=>setCodigo(e.target.value)} placeholder="Código del proveedor" inputMode="numeric"
-                  style={{width:"100%",minWidth:0,padding:"11px 12px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit",fontSize:14}}/>
-                <button className="ghost" style={{margin:0,padding:"11px 8px",fontSize:13,whiteSpace:"nowrap"}} onClick={()=>{
-                  if(codigo.trim()===CODIGO_DESBLOQUEO){ setDesbloqueado(true); toast("Pedido desbloqueado por el proveedor."); }
-                  else toast("Código incorrecto. Verifica con el proveedor.");
-                }}>Desbloquear</button>
-              </div>
+              {solAut && solAut.estado==="rechazada" && (
+                <div style={{marginTop:9,background:"#FBEDE7",border:"1px solid var(--clay)",borderRadius:12,padding:"10px 12px"}}>
+                  <div style={{fontWeight:700,fontSize:12.5,color:"var(--clay)"}}>Solicitud rechazada</div>
+                  <div className="meta" style={{fontSize:11.5,marginTop:2}}>{solAut.motivoDecision} · cobra la factura para liberar al cliente</div>
+                </div>
+              )}
+              {solAut && (solAut.estado==="aprobada"||solAut.estado==="condicionada") && (
+                <div style={{marginTop:9}}>
+                  <div className="meta" style={{fontSize:11.5,marginBottom:5,color:"#2E7D52",fontWeight:700}}>
+                    ✓ Autorizado{solAut.tope?` hasta ${money(solAut.tope)}`:""} · el proveedor envió un código de un solo uso (30 min)
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 118px",gap:8}}>
+                    <input value={codigo} onChange={e=>setCodigo(e.target.value)} placeholder="Código de 6 dígitos" inputMode="numeric"
+                      style={{width:"100%",minWidth:0,padding:"11px 12px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit",fontSize:14}}/>
+                    <button className="ghost" style={{margin:0,padding:"11px 8px",fontSize:13,whiteSpace:"nowrap"}} onClick={()=>{
+                      const r=validarCodigoAut(solAut, codigo, cli, carrito.reduce((s,l)=>s+l.total,0));
+                      if(r.ok){ setDesbloqueado(true); setSolAut({...solAut}); }
+                      toast(r.msg);
+                    }}>Desbloquear</button>
+                  </div>
+                  <div className="meta" style={{fontSize:10.5,marginTop:5}}>El código sirve una sola vez, solo para {cli} y caduca en 30 minutos.</div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3302,6 +3391,61 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             )}
           </div>
         );})()}
+
+    {pidiendo && (()=>{
+      const bq=detalleBloqueo(cli);
+      const pf=PERFIL_CLIENTE[cli]||{};
+      const pg=PAGADOR[pf.pagador]||{};
+      const montoPedido=carrito.reduce((s,l)=>s+l.total,0);
+      return (
+        <div className="ov" onClick={()=>setPidiendo(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Solicitar autorización</h3>
+            <div className="sh-sub">{cli} · el proveedor decide con el contexto completo</div>
+
+            {/* contexto automático: el proveedor nunca aprueba a ciegas */}
+            <div className="card" style={{padding:"11px 13px",margin:"0 0 14px",background:"#F7F9F7"}}>
+              <div className="meta" style={{fontSize:11,fontWeight:700,marginBottom:5}}>El proveedor verá</div>
+              {bq && <div style={{fontSize:12.5}}>{bq.factura} · {bq.dias} días vencida · saldo <b className="num" style={{color:"var(--clay)"}}>{money(bq.saldo)}</b></div>}
+              <div className="meta" style={{fontSize:11.5,marginTop:2}}>{pg.ic} {pg.t} ({pf.diasPago}d) · Top {pf.top}/30{pf.premium?" · Premium":""}</div>
+              {montoPedido>0 && <div className="meta" style={{fontSize:11.5}}>Pedido en curso: <b className="num">{money(montoPedido)}</b></div>}
+            </div>
+
+            <div className="field"><label>Motivo</label></div>
+            <div className="nchips" style={{flexWrap:"wrap",marginBottom:12}}>
+              {MOTIVOS_AUT.map(m=>(
+                <button key={m.k} className={"nchip"+(mtvAut===m.k?" on":"")} style={{flex:"1 1 45%"}}
+                  onClick={()=>setMtvAut(m.k)}>{m.t}</button>
+              ))}
+            </div>
+
+            <div className="row" style={{gap:8}}>
+              <label style={{flex:1,fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Promete pagar el
+                <input type="date" value={fPromesa} onChange={e=>setFPromesa(e.target.value)}
+                  style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
+              <label style={{flex:1,fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Valor
+                <input type="number" inputMode="decimal" value={vPromesa} placeholder="0.00" onChange={e=>setVPromesa(e.target.value)}
+                  style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
+            </div>
+
+            <div className="field" style={{marginTop:12}}><label>Comentario para el proveedor</label>
+              <input type="text" value={comentAut} placeholder="Ej.: tiene el efectivo listo, paso mañana a cobrar"
+                onChange={e=>setComentAut(e.target.value)}/></div>
+
+            <div className="meta" style={{margin:"0 2px 12px",fontSize:11.5}}>🔏 La promesa queda registrada: si no se cumple, baja el ranking del cliente y endurece sus futuras autorizaciones.</div>
+
+            <button className="cta" disabled={!fPromesa || !(parseFloat(vPromesa)>0)} onClick={()=>{
+              const s=crearSolicitudAut({cli, motivo:mtvAut, comentario:comentAut.trim(),
+                promesaFecha:fPromesa, promesaValor:parseFloat(vPromesa)||0,
+                factura:bq?bq.factura:null, diasVencida:bq?bq.dias:0, saldo:bq?bq.saldo:0,
+                montoPedido, pagador:pf.pagador, solicitante:"Carlos Mendoza"});
+              setSolAut(s); setPidiendo(false);
+              toast(`Solicitud ${s.id} enviada al proveedor · auditada ${s.au}`);
+            }}>Enviar solicitud</button>
+            <button className="ghost" onClick={()=>setPidiendo(false)}>Cancelar</button>
+          </div>
+        </div>
+      );})()}
 
     {prod && (<div className="stepwrap">
       
@@ -11400,7 +11544,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b37 · ficha alineada</div>
+              Versión 13 jul 2026 b38 · autorizaciones</div>
           </div>
         </div>
       </div>
