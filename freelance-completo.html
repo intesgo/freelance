@@ -2407,6 +2407,36 @@ const RIESGO_CLIENTE = {
 };
 const CODIGO_DESBLOQUEO = "4827";
 
+/* Perfil comercial del cliente: frecuencia de compra, categoría y ranking pagador.
+   Fórmulas selladas — pagador: días reales de pago vs. plazo pactado (excelente = paga antes,
+   bueno = a tiempo, regular = +7 días, riesgoso = +15). Premium: volumen + cumplimiento + antigüedad.
+   Top 30: puesto por compras de los últimos 12 meses. */
+const PERFIL_CLIENTE = {
+  "Comercial Mendoza":   {frecuencia:18, ultima:"22 may 2026", premium:true,  top:7,  pagador:"regular",   diasPago:37, qqAnio:820},
+  "Distribuidora Ríos":  {frecuencia:12, ultima:"30 may 2026", premium:true,  top:2,  pagador:"bueno",     diasPago:44, qqAnio:2140},
+  "Bodega El Agricultor":{frecuencia:25, ultima:"15 may 2026", premium:false, top:14, pagador:"excelente", diasPago:21, qqAnio:610},
+  "Tienda La Esquina":   {frecuencia:30, ultima:"19 may 2026", premium:false, top:22, pagador:"bueno",     diasPago:29, qqAnio:280},
+  "Mayorista Santa Rosa":{frecuencia:15, ultima:"28 may 2026", premium:true,  top:4,  pagador:"excelente", diasPago:18, qqAnio:1480},
+  "Abarrotes Don Pepe":  {frecuencia:35, ultima:"02 may 2026", premium:false, top:27, pagador:"riesgoso",  diasPago:52, qqAnio:190},
+  "Comisariato La Y":    {frecuencia:20, ultima:"10 may 2026", premium:false, top:19, pagador:"bueno",     diasPago:31, qqAnio:340},
+};
+const PAGADOR = {
+  excelente:{t:"Excelente pagador", c:"#2E7D52", ic:"⭐"},
+  bueno:    {t:"Buen pagador",      c:"#2E7D52", ic:"👍"},
+  regular:  {t:"Pagador regular",   c:"#C98A2B", ic:"⏳"},
+  riesgoso: {t:"Pagador riesgoso",  c:"#B5613C", ic:"⚠️"},
+};
+/* Detalle del bloqueo: qué factura lo origina, cuántos días vencida, cuánto y de qué proveedor */
+function detalleBloqueo(cliente){
+  const vencidas=COBROS_INI.filter(c=>c.cli===cliente && /Vencida/i.test(c.vence))
+    .map(c=>({...c, dias:Number((/Vencida\s+(\d+)/i.exec(c.vence)||[0,0])[1])}))
+    .sort((a,b)=>b.dias-a.dias);
+  if(!vencidas.length) return null;
+  const f=vencidas[0];
+  const pv=PROVEEDORES.find(p=>p.id===f.provId);
+  return {factura:f.factura, dias:f.dias, valor:f.valor, prov:pv?pv.nombre:"—", total:vencidas.reduce((s,x)=>s+x.valor,0), n:vencidas.length};
+}
+
 function motivosBloqueo(nombreCliente){
   const f = FICHA_CLIENTE[nombreCliente];
   const r = RIESGO_CLIENTE[nombreCliente] || {vencidas:0, protestados:0};
@@ -3044,6 +3074,47 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:c=>(<><div className="p1">{c}</div>
           <div className="p2">{(REFERENCIALES[c]||[]).length>0?`Factura a: ${REFERENCIALES[c].join(" · ")}`:"Cliente comprador"}</div></>)
       }}/>
+
+    {cli && (()=>{  /* ficha compacta: con quién estoy tratando */
+      const pf=PERFIL_CLIENTE[cli]||{};
+      const pg=PAGADOR[pf.pagador]||{};
+      const bq=detalleBloqueo(cli);
+      const sem = bloqueado ? (motivos.some(m=>/protestado|vencida/i.test(m)) ? ["rojo","#B5613C","🔴 Cliente bloqueado"] : ["ambar","#C98A2B","🟡 Requiere autorización"])
+                : ["verde","#2E7D52","🟢 Cliente al día"];
+      /* días desde su última compra vs. su frecuencia habitual */
+      const MES={ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11};
+      const p=(pf.ultima||"").split(" ");
+      const dUlt = p.length===3 ? Math.round((new Date(2026,5,12) - new Date(2026, MES[p[1]]||0, Number(p[0])))/86400000) : null;
+      const toca = (dUlt!=null && pf.frecuencia) ? pf.frecuencia-dUlt : null;
+      return (
+        <div className="card" style={{padding:"12px 14px",marginBottom:12,borderLeft:`4px solid ${sem[1]}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+            <span style={{fontWeight:800,fontSize:13,color:sem[1]}}>{sem[2]}</span>
+            <span style={{flex:1}}></span>
+            {pf.premium && <span style={{background:"#FBF3DC",color:"#8A6D12",fontWeight:800,fontSize:10.5,borderRadius:20,padding:"3px 9px"}}>★ Premium</span>}
+            {pf.top && <span style={{background:"#E9EEE9",color:"var(--field)",fontWeight:800,fontSize:10.5,borderRadius:20,padding:"3px 9px"}}>Top {pf.top}/30</span>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <div className="meta" style={{fontSize:10.5}}>Compra cada</div>
+              <div style={{fontWeight:700,fontSize:13}}>{pf.frecuencia||"—"} días
+                {toca!=null && <span style={{color:toca<=0?"var(--clay)":"var(--muted)",fontWeight:600}}> · {toca<=0?`le tocaba hace ${-toca}`:`en ${toca}`} d</span>}</div>
+            </div>
+            <div>
+              <div className="meta" style={{fontSize:10.5}}>Ranking pagador</div>
+              <div style={{fontWeight:700,fontSize:13,color:pg.c}}>{pg.ic} {pg.t||"—"}
+                {pf.diasPago && <span className="meta" style={{fontWeight:600}}> · {pf.diasPago}d</span>}</div>
+            </div>
+          </div>
+          {bq && (
+            <div style={{marginTop:10,paddingTop:9,borderTop:"1px solid var(--line)"}}>
+              <div className="meta" style={{fontWeight:700,color:sem[1],marginBottom:3}}>Factura que origina el bloqueo</div>
+              <div style={{fontSize:12.5}}>{bq.factura} · <b className="num">{money(bq.valor)}</b> · <span style={{color:"var(--clay)",fontWeight:700}}>{bq.dias} días vencida</span></div>
+              <div className="meta" style={{fontSize:11.5,marginTop:2}}>Proveedor responsable: {bq.prov}{bq.n>1?` · ${bq.n} facturas vencidas por ${money(bq.total)}`:""}</div>
+            </div>
+          )}
+        </div>
+      );})()}
 
     {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
       const ult = PEDIDOS_INI.find(p=>p.cli===cli);
@@ -11329,7 +11400,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b33 · pedido limpio</div>
+              Versión 13 jul 2026 b34 · ficha del cliente</div>
           </div>
         </div>
       </div>
