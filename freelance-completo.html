@@ -3467,7 +3467,10 @@ const COBROS_DIA=[
    destinatarios:[{rol:"Cliente",nombre:"Bodega El Agricultor"},{rol:"Proveedor",nombre:"Agrícola del Valle"},{rol:"Freelance",nombre:"Daniel Ríos"}]},
 ];
 /* Estado del cierre de hoy y depósitos de efectivo ya registrados (demo; Fase 4 → Supabase) */
-const CIERRE_HOY = {estado:"abierto", cerradoEn:null, obs:null, au:null};
+const CIERRE_HOY = {estado:"abierto", cerradoEn:null, obs:null, au:null, confirmado:false};
+/* Hora de corte diario: la define el Freelance de acuerdo con el proveedor y se aplica manualmente en Ajustes.
+   En Fase 4 este mismo valor lo usa el reloj del servidor (pg_cron) aunque el celular esté apagado. */
+const CONFIG_CIERRE = {hora:"23:59", acordadoCon:"Agrícola del Valle · Ingenio San Pablo · Molinos del Litoral", au:null};
 const DEPOSITOS_EFECTIVO = [];
 /* Historial de cierres diarios (más reciente primero). Los recibos quedan para consulta y reimpresión. */
 const CIERRES_HIST = [
@@ -3499,7 +3502,35 @@ const CIERRES_HIST = [
       saldoAnterior:990, saldoActual:430, destinatarios:[{rol:"Cliente",nombre:"Tienda La Esquina"},{rol:"Proveedor",nombre:"Molinos del Litoral"}]},
    ]},
   {fecha:"2026-06-08", fechaTxt:"8 jun 2026", estado:"cerrado", cerradoEn:"18:05", efePend:0, obs:null, recibos:[]},
+  {fecha:"2026-06-07", fechaTxt:"7 jun 2026", estado:"abierto", cerradoEn:null, efePend:0, obs:null,
+   recibos:[
+     {nRecibo:"REC-260607-1420", cli:"Bodega El Agricultor", prov:"Agrícola del Valle", monto:480, hora:"14:20", anulado:false,
+      formas:{Transferencia:480}, lineas:[{modalidad:"Transferencia",monto:"480",numero:"8811900",banco:"Banco Bolivariano",fecha:"2026-06-07",obs:[]}],
+      facturas:[{factura:"001-001-000102", vence:"En 3 días", aplicado:480, saldoAnt:480, saldoRest:0, estado:"cancelada"}],
+      saldoAnterior:1770, saldoActual:1290, destinatarios:[{rol:"Cliente",nombre:"Bodega El Agricultor"},{rol:"Proveedor",nombre:"Agrícola del Valle"}]},
+   ]},
 ];
+/* CORTE AUTOMÁTICO: cierra los días vencidos y el día en curso cuando pasa la hora acordada.
+   El efectivo pendiente NO se borra al cerrar: arrastra al día siguiente con su reloj de 24h. */
+function correrCorteAutomatico(){
+  const cerrados=[];
+  CIERRES_HIST.forEach(d=>{
+    if(d.estado==="abierto"){
+      d.estado="cerrado_auto";
+      d.cerradoEn=CONFIG_CIERRE.hora;
+      d.au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+      cerrados.push(d.fechaTxt);
+    }
+  });
+  const ahora=new Date().toTimeString().slice(0,5);
+  if(CIERRE_HOY.estado==="abierto" && ahora>=CONFIG_CIERRE.hora){
+    CIERRE_HOY.estado="cerrado_auto";
+    CIERRE_HOY.cerradoEn=CONFIG_CIERRE.hora;
+    CIERRE_HOY.au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+    cerrados.push("hoy");
+  }
+  return cerrados;
+}
 /* Cheques posfechados en cartera (detalle demo; los totales cuadran con FICHA_CLIENTE) */
 const CHEQUES_POSF=[
   {cli:"Distribuidora Ríos",  banco:"Banco Pichincha", numero:"CHQ-004530", valor:1500, fecha:"2026-06-20", dueno:"Marcela Ríos"},
@@ -3725,6 +3756,11 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
   const [cerrando,setCerrando]=useState(false);     // confirmación de cierre con pendientes
   const [motivoCie,setMotivoCie]=useState("");
   const [histPag,setHistPag]=useState(1);           // paginación del historial (regla de oro)
+  React.useEffect(()=>{  /* corte automático a la hora acordada: nadie tiene que acordarse de cerrar */
+    const c=correrCorteAutomatico();
+    if(c.length){ setTick(t=>t+1);
+      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")} · sin confirmar por el cobrador`); }
+  },[]);
   const [anulando,setAnulando]=useState(null);      // recibo en proceso de anulación
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
@@ -4095,11 +4131,15 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
     const efeDep   = Math.max(0, efeRecib-efePend);
     const bancar   = (porForma["Transferencia"]||0) + (porForma["Depósito"]||0) + efeDep;
     const enManos  = efePend + (porForma["Cheque"]||0);
-    const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs";
-    const estadoTxt = cerrado ? (dia.estado==="cerrado_obs" ? "Cerrado con pendientes" : "Cerrado")
+    const auto     = dia.estado==="cerrado_auto";
+    const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs" || auto;
+    const confirm  = soloLect ? (dia.confirmado||dia.estado==="cerrado"||dia.estado==="cerrado_obs") : CIERRE_HOY.confirmado;
+    const estadoTxt = auto ? (confirm?"Cerrado automáticamente · confirmado":"Cerrado automáticamente · sin confirmar")
+                     : cerrado ? (dia.estado==="cerrado_obs" ? "Cerrado con pendientes" : "Cerrado")
                      : activos.length===0 ? "En progreso"
                      : efePend>0 ? "Pendiente de depósito" : "Listo para cerrar";
-    const tono = cerrado ? (dia.estado==="cerrado_obs" ? "#C98A2B" : "#2E7D52")
+    const tono = auto ? (confirm?"#2E7D52":"#C98A2B")
+               : cerrado ? (dia.estado==="cerrado_obs" ? "#C98A2B" : "#2E7D52")
                : efePend>0 ? "#C98A2B" : activos.length===0 ? "#8B9490" : "#2E7D52";
 
     const chip=(txt,color)=>(<span style={{display:"inline-block",background:color+"1A",color,fontWeight:700,
@@ -4111,6 +4151,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
       </div>
     );
     const cerrarJornada=(motivo)=>{
+      CIERRE_HOY.confirmado = true;             /* el cobrador confirma su cuadre */
       CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
       CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
       CIERRE_HOY.obs = motivo||null;
@@ -4176,17 +4217,26 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
         <div className="card" style={{padding:"13px 15px"}}>
           <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
           <div className="meta" style={{fontSize:12.5}}>
-            {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${dia.obs?` · ${dia.obs}`:""}`
+            {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
              : efePend>0 ? `Pendiente: existe ${money(efePend)} en efectivo sin depositar.`
              : activos.length===0 ? "Aún no se registran cobros hoy."
              : "Listo para cerrar. No existen valores pendientes."}
           </div>
+          {efePend>0 && cerrado && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700}}>
+            El efectivo pendiente no se cancela con el cierre: arrastra al día siguiente con su reloj de 24h.</div>}
+          <div className="meta" style={{marginTop:7,fontSize:11.5}}>Corte automático a las {CONFIG_CIERRE.hora} (acordado con el proveedor). Se cambia en Ajustes.</div>
           {!soloLect && !cerrado && (
             <div style={{display:"flex",gap:8,marginTop:12}}>
               <button className="ghost" style={{flex:1,margin:0}} onClick={()=>toast("Avance guardado (en Fase 4 se guarda en la base)")}>Guardar avance</button>
               <button className="cta" style={{flex:1,margin:0,background:efePend>0?"#C98A2B":undefined}}
                 onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>Cerrar jornada</button>
             </div>
+          )}
+          {!soloLect && auto && !CIERRE_HOY.confirmado && (
+            <button className="cta" style={{marginTop:12}} onClick={()=>{
+              CIERRE_HOY.confirmado=true; setTick(t=>t+1);
+              toast(`Cuadre confirmado · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
+            }}>✓ Confirmar mi cuadre</button>
           )}
         </div>
       </>)}
@@ -4326,6 +4376,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
             const tot=act.reduce((s,r)=>s+r.monto,0);
             const est = d.estado==="cerrado" ? ["Cerrado","#2E7D52"]
                       : d.estado==="cerrado_obs" ? ["Cerrado con pendientes","#C98A2B"]
+                      : d.estado==="cerrado_auto" ? (d.confirmado?["Cerrado automáticamente","#2E7D52"]:["Automático · sin confirmar","#C98A2B"])
                       : (d.efePend>0 ? ["Pendiente de depósito","#C98A2B"] : ["Sin cerrar","#8B9490"]);
             return (
               <div key={d.fecha} style={{borderTop:"1px solid var(--line)",padding:"12px 2px",cursor:"pointer"}}
@@ -8218,6 +8269,8 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   const [notif,setNotif]=useState({cobros:true, solicitudes:true, novedades:true});
 
   const [destRec,setDestRec]=useState(DESTINATARIOS_RECIBO.map(d=>({...d})));
+  const [horaCie,setHoraCie]=useState(CONFIG_CIERRE.hora);       /* hora del corte automático */
+  const [acuerdoCie,setAcuerdoCie]=useState(CONFIG_CIERRE.acordadoCon);
   const guardarDest=()=>{
     destRec.forEach((d,i)=>{ DESTINATARIOS_RECIBO[i]={...d}; });
     toast("Destinatarios de recibos guardados");
@@ -8225,6 +8278,24 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   return (<>
     <div className="h1">Ajustes</div>
     <div className="sub">Personaliza la apariencia y las preferencias de la app.</div>
+
+    <div className="ficha-sec">Cierre diario</div>
+    <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
+      <div className="meta" style={{marginBottom:10}}>Hora del corte automático de la jornada. La acuerdas con el proveedor y se aplica manualmente aquí. En Fase 4 el servidor la ejecuta aunque el celular esté apagado.</div>
+      <div className="row" style={{gap:8,alignItems:"flex-end"}}>
+        <label style={{flex:"0 0 118px",fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Hora de corte
+          <input type="time" value={horaCie} onChange={e=>setHoraCie(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
+        <label style={{flex:1,minWidth:0,fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Acordado con
+          <input value={acuerdoCie} placeholder="Proveedores" onChange={e=>setAcuerdoCie(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
+      </div>
+      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
+        CONFIG_CIERRE.hora=horaCie; CONFIG_CIERRE.acordadoCon=acuerdoCie.trim();
+        CONFIG_CIERRE.au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+        toast(`Corte diario a las ${horaCie} · auditado ${CONFIG_CIERRE.au}`);
+      }}>Aplicar hora de cierre</button>
+    </div>
 
     <div className="ficha-sec">Recibos de cobro</div>
     <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
@@ -11072,7 +11143,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b19 · cierre diario</div>
+              Versión 12 jul 2026 b20 · corte automático</div>
           </div>
         </div>
       </div>
