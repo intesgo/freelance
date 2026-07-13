@@ -3503,7 +3503,7 @@ const textoCobroWA = d => {
     + `Adjuntamos el comprobante virtual y su estado de cuenta actualizado.\n\n`
     + `Gracias por su pago. Si encuentra alguna diferencia, comuníquese con su asesor comercial. 🌾`;
 };
-function pdfComprobante(d, conEC, toast, texto, tel){
+function pdfComprobante(d, conEC, toast){   /* construye el PDF (2 partes) y lo devuelve; no envía */
   if(!window.jspdf){ toast && toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
   const P=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
   const doc=new window.jspdf.jsPDF();
@@ -3610,21 +3610,47 @@ function pdfComprobante(d, conEC, toast, texto, tel){
     doc.text("Documento informativo · FREELANCE · No constituye comprobante tributario",105,285,{align:"center"});
   }
   const nombre=tipoComprobante(d)+" "+d.nRecibo+".pdf";
-  const archivo=new File([doc.output("blob")],nombre,{type:"application/pdf"});
-  /* envío único: el PDF (comprobante + estado de cuenta) viaja junto con el mensaje */
-  if(navigator.canShare && navigator.canShare({files:[archivo]})){
-    const carga={files:[archivo], title:tipoComprobante(d)+" · "+d.cli};
-    if(texto) carga.text=texto;
-    navigator.share(carga).catch(()=>{});
+  return {doc, blob:doc.output("blob"), nombre};
+}
+
+/* ══ ENVÍO DEL COMPROBANTE ══
+   Fase actual: ENVÍO ASISTIDO con el menú nativo del teléfono (Web Share API).
+   El navegador NO puede confirmar que el mensaje se envió ni elegir el contacto: por eso
+   nunca se afirma "Enviado", solo se reportan los estados verificables.
+   Fase 4 (preparado, sin implementar): CANAL_ENVIO="cloud_api" → el servidor despacha el PDF
+   a cada destinatario con WhatsApp Business Platform (Cloud API). La UI no cambia. */
+const CANAL_ENVIO = "asistido";                 // "asistido" | "cloud_api" (Fase 4)
+const ENVIO = { PDF:"pdf_generado", ABIERTO:"compartir_abierto", DESCARGA:"pdf_descargado",
+                NO_VERIFICABLE:"envio_no_verificable", ERROR:"error" };
+async function enviarPorCloudAPI(){ /* Fase 4: Edge Function → Meta Cloud API */ return {ok:false, motivo:"CANAL_NO_DISPONIBLE"}; }
+async function enviarComprobante(d, texto, tel, toast, onEstado){
+  const paq = pdfComprobante(d, true, toast);   // A) comprobante + B) estado de cuenta ★ del cliente
+  if(!paq) return;
+  const fmt = FORMATO_EC[d.cli] || "resumen";
+  onEstado && onEstado({paso:ENVIO.PDF, fmt});
+  if(CANAL_ENVIO==="cloud_api"){
+    const r=await enviarPorCloudAPI(d, paq.blob, texto, tel);
+    onEstado && onEstado({paso: r.ok?"enviado_servidor":ENVIO.ERROR, fmt});
     return;
   }
-  /* respaldo: se descarga el PDF y se abre el chat con el mensaje para adjuntarlo */
-  doc.save(nombre);
-  if(texto && tel){
+  const archivo=new File([paq.blob], paq.nombre, {type:"application/pdf"});
+  if(navigator.canShare && navigator.canShare({files:[archivo]})){
+    try{
+      await navigator.share({files:[archivo], title:tipoComprobante(d)+" · "+d.cli, text:texto});
+      onEstado && onEstado({paso:ENVIO.NO_VERIFICABLE, fmt});   // se abrió y se eligió destino: el envío no es verificable desde el navegador
+    }catch(err){
+      onEstado && onEstado({paso:ENVIO.ABIERTO, fmt});          // el usuario cerró el menú de compartir
+    }
+    return;
+  }
+  /* respaldo: descargar el PDF y abrir el chat con el mensaje, con instrucción clara */
+  paq.doc.save(paq.nombre);
+  onEstado && onEstado({paso:ENVIO.DESCARGA, fmt, archivo:paq.nombre});
+  if(tel){
     const wa=String(tel).replace(/\D/g,"").replace(/^0/,"593");
     window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(texto),"_blank");
-    toast && toast("PDF descargado: adjúntalo en el chat que se abrió.");
-  } else { toast && toast("Comprobante descargado."); }
+  }
+  toast && toast("PDF descargado. Adjúntalo con el clip 📎 en el chat de WhatsApp.");
 }
 
 function Cobros({toast, cobroInicial, onConsumir, backRef}){
@@ -3644,6 +3670,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
   const [previa,setPrevia]=useState(false);         // vista previa del comprobante antes de compartir
+  const [envio,setEnvio]=useState(null);            // trazabilidad honesta del envío asistido
   const [tick,setTick]=useState(0);                 // refresco tras mutar registros del día
   React.useEffect(()=>{ /* retroceso inteligente: jerarquía interna del módulo */
     if(!backRef) return;
@@ -3654,7 +3681,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
       if(resumen){ setResumen(false); return true; }
       if(verDia){ setVerDia(false); return true; }
       if(previa){ setPrevia(false); return true; }
-      if(enviado){ setEnviado(null); setResumen(false); setPrevia(false); reset(); return true; }
+      if(enviado){ setEnviado(null); setResumen(false); setPrevia(false); setEnvio(null); reset(); return true; }
       if(verVenc){ setVerVenc(false); return true; }
       if(paso>1){ setPaso(paso-1); return true; }
       if(cli){ reset(); return true; }
@@ -3822,8 +3849,9 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
     const titulo=tipoComprobante(e);
     const obs=obsDe(e);
     const fc=FICHA_CLIENTE[e.cli]||{};
-    /* ENVÍO ÚNICO: mensaje + PDF (comprobante + estado de cuenta en el formato ★ del cliente) */
-    const enWhats=()=>pdfComprobante(e, true, toast, textoCobroWA(e), fc.tel);
+    /* ENVÍO ASISTIDO: mensaje + PDF único (comprobante + estado de cuenta ★ del cliente) */
+    const enWhats=()=>enviarComprobante(e, textoCobroWA(e), fc.tel, toast, setEnvio);
+    const FMT_TXT={simple:"Simple",resumen:"Resumen",factura:"Por factura",calendario:"Calendario",cuenta:"Cta. corriente",liq:"Liquidación"};
 
     if(previa){ /* vista previa: el mismo comprobante que recibe el cliente */
       return (<>
@@ -3870,7 +3898,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
             {obs.map(o=>(<div className="rrow" key={o}><span className="rk" style={{fontSize:12.5}}>{OBS_TXT[o]||o}</span></div>))}
           </>)}
         </div>
-        <button className="cta" style={{marginTop:12}} onClick={enWhats}>💬 Enviar por WhatsApp (comprobante + estado de cuenta)</button>
+        <button className="cta" style={{marginTop:12}} onClick={enWhats}>💬 Compartir por WhatsApp (comprobante + estado de cuenta)</button>
         <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setPrevia(false)}>‹ Volver</button>
       </>);
     }
@@ -3905,23 +3933,44 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
         </>)}
       </div>
 
-      <div className="rsec" style={{marginLeft:4}}>Comprobante virtual enviado</div>
+      <button className="cta" style={{marginTop:12}} onClick={enWhats}>💬 Compartir por WhatsApp</button>
+      <div className="meta" style={{textAlign:"center",margin:"7px 0 2px",fontSize:11.5}}>
+        Un solo PDF: comprobante + estado de cuenta ({FMT_TXT[FORMATO_EC[e.cli]||"resumen"]}), con el mensaje al cliente</div>
+
+      {envio && (
+        <div className="card" style={{padding:"12px 15px",marginTop:10}}>
+          <div className="rrow" style={{padding:"3px 0"}}>
+            <span className="rk" style={{color:"var(--ok)"}}>✓ PDF generado</span>
+            <span className="meta">comprobante + estado de cuenta ({FMT_TXT[envio.fmt]||envio.fmt})</span>
+          </div>
+          {envio.paso===ENVIO.DESCARGA ? (<>
+            <div className="rrow" style={{padding:"3px 0"}}><span className="rk" style={{color:"var(--ok)"}}>✓ PDF descargado</span>
+              <span className="meta">{envio.archivo}</span></div>
+            <div className="meta" style={{marginTop:6,color:"var(--maize-deep)"}}>Este navegador no puede compartir archivos: abre el chat del cliente y adjunta el PDF descargado con el clip 📎.</div>
+          </>) : (<>
+            <div className="rrow" style={{padding:"3px 0"}}><span className="rk" style={{color:"var(--ok)"}}>✓ Menú de compartir abierto</span>
+              <span className="meta">elige WhatsApp y el contacto</span></div>
+            <div className="meta" style={{marginTop:6,color:"var(--maize-deep)"}}>
+              El envío no se puede confirmar desde el navegador: revisa en WhatsApp que el mensaje salió. En Fase 4 el despacho será automático desde el servidor.</div>
+          </>)}
+        </div>
+      )}
+
+      <div className="rsec" style={{marginLeft:4}}>Copias previstas del comprobante</div>
       <div className="enviados">
         {e.destinatarios.map((d,i)=>(
           <div className="enviado" key={i}>
-            <span className="wa">✓</span>
+            <span className="wa" style={{background:"#EFEBE0",color:"var(--muted)"}}>·</span>
             <div><div className="who-r">{d.rol}</div><div className="num-r">{d.nombre}</div></div>
-            <span className="est-r">Enviado</span>
+            <span className="est-r" style={{color:"var(--muted)"}}>Pendiente</span>
           </div>
         ))}
       </div>
+      <div className="meta" style={{margin:"6px 4px 0",fontSize:11.5}}>El despacho automático a cada destinatario llega en Fase 4 (WhatsApp Business Cloud API). Hoy el envío es asistido: uno por uno desde el menú de compartir.</div>
 
-      <button className="cta" style={{marginTop:12}} onClick={enWhats}>💬 Enviar por WhatsApp</button>
-      <div className="meta" style={{textAlign:"center",margin:"7px 0 2px",fontSize:11.5}}>
-        Envía el comprobante y el estado de cuenta ({(FORMATO_EC[e.cli]||"resumen")}) en un solo PDF, con el mensaje al cliente</div>
-      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setPrevia(true)}>📄 Ver comprobante</button>
+      <button className="ghost" style={{width:"100%",marginTop:12}} onClick={()=>setPrevia(true)}>📄 Ver comprobante</button>
       <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfRecibo(e)}>🖨️ Imprimir recibo (original + copia)</button>
-      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>{setEnviado(null);setResumen(false);setPrevia(false);reset();}}>Finalizar</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>{setEnviado(null);setResumen(false);setPrevia(false);setEnvio(null);reset();}}>Finalizar</button>
     </>);
   }
 
@@ -10659,7 +10708,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b12 · envío único al cliente</div>
+              Versión 12 jul 2026 b13 · envío asistido</div>
           </div>
         </div>
       </div>
