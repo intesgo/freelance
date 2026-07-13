@@ -1794,134 +1794,67 @@ function Portafolio({ modo, miSector, miDistribuidor }){
 }
 
 function Inicio({go}){
-  const [verMas,setVerMas]=useState(false);
   const [verVisitas,setVerVisitas]=useState(false);
   const porVisitar=clientesPorVisitar();
   const nRojo=porVisitar.filter(x=>x.nivel==="rojo").length;
-  const pct=82; // cumplimiento de meta
-  const R=52, C=2*Math.PI*R;
-  const comisionPropia=64.00;                                              // venta directa, liberada
-  const margenEquipo=EQUIPO_INI.reduce((a,s)=>a+s.margenMes,0);            // margen del equipo
+  const pct=82;                                                   // cumplimiento de meta
+  const R=27, C=2*Math.PI*R;
+  const comisionPropia=64.00;                                     // venta directa, liberada
+  const margenEquipo=EQUIPO_INI.reduce((a,s)=>a+s.margenMes,0);   // margen del equipo
   const totalRecibir=comisionPropia+margenEquipo;
-  const metricas=[
-    {ic:"🛒", bg:"#A9D977", col:"#15392B", k:"Comisión generada", v:114.00, s:"Este mes"},
-    {ic:"🤝", bg:"#F2A900", col:"#15392B", k:"Anticipos recibidos", v:50.00, s:"Este mes"},
-    {ic:"⏳", bg:"#5BA9E6", col:"#15392B", k:"Comisión pendiente", v:180.00, s:"Por liberar"},
-    {ic:"👛", bg:"#B98AD9", col:"#15392B", k:"Comisión por cobrar", v:95.00, s:"Pendiente de pago"},
-    {ic:"🧾", bg:"#7FD1B0", col:"#15392B", k:"Ventas del mes", v:1240.00, s:"Facturado"},
-    {ic:"📋", bg:"#E6C25B", col:"#15392B", k:"Pedidos tomados", v:18, money:false, s:"Este mes"},
-    {ic:"🏪", bg:"#9DB1E6", col:"#15392B", k:"Clientes atendidos", v:12, money:false, s:"Este mes"},
-    {ic:"💵", bg:"#86C28A", col:"#15392B", k:"Cobrado este mes", v:760.00, s:"Ya ingresado"},
+  /* Tablero de trabajo: 6 accesos. El detalle financiero vive en Comisiones (sin duplicar). */
+  const accesos=[
+    {k:"pedido",   ic:"📋", bg:"#FBF0D8", t:"Tomar pedido", s:"Nuevo o recompra"},
+    {k:"cobros",   ic:"💵", bg:"#E4F1E9", t:"Reportar cobro", s:"2 por cobrar"},
+    {k:"cartera",  ic:"💰", bg:"#E9EEE9", t:"Cartera", s:"Por cobrar y vencido"},
+    {k:"clientes", ic:"🏪", bg:"#E9EEE9", t:"Clientes", s:`${CLIENTES.length} asignados`},
+    {k:"precios",  ic:"🏷️", bg:"#E5F0EA", t:"Precios", s:"Consulta por línea"},
+    {k:"comisiones", ic:"📊", bg:"#F3ECF9", t:"Comisiones", s:"Detalle y ventas"},
   ];
   return (<>
-    <div className="hero">
-      <div className="hero-top">
-        <div style={{flex:1}}>
-          <div className="lbl">Total a recibir · junio</div>
-          <div className="big num">{money(totalRecibir)}</div>
-          <div className="hero-corte"><span>📅</span> Corte al 31 de mayo</div>
-        </div>
-        <div className="meta-ring">
-          <svg width="118" height="118" viewBox="0 0 118 118">
-            <circle cx="59" cy="59" r={R} fill="none" stroke="rgba(255,255,255,.13)" strokeWidth="9"/>
-            <circle cx="59" cy="59" r={R} fill="none" stroke="#A9D977" strokeWidth="9" strokeLinecap="round"
-              strokeDasharray={C} strokeDashoffset={C*(1-pct/100)} transform="rotate(-90 59 59)"/>
-          </svg>
-          <div className="meta-ring-c"><div className="mr-pct">{pct}%</div><div className="mr-lbl">Cumplimiento<br/>de meta</div></div>
-        </div>
+    {/* banda financiera compacta: el dato como contexto, no como protagonista */}
+    <button className="hero" onClick={()=>go("comisiones")}
+      style={{display:"flex",alignItems:"center",gap:14,padding:"15px 17px",width:"100%",textAlign:"left",border:"none",cursor:"pointer"}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div className="lbl">Total a recibir · junio</div>
+        <div className="num" style={{fontSize:31,fontWeight:800,color:"#fff",lineHeight:1.1,margin:"2px 0 4px"}}>{money(totalRecibir)}</div>
+        <div className="hero-corte" style={{margin:0}}><span>🎯</span> Meta {money(850)} · corte 31 may</div>
       </div>
-
-      <div className="meta-mensual"><span>🎯</span>
-        <div><div className="mm-k">Meta mensual</div><div className="mm-v num">{money(850.00)}</div></div>
+      <div style={{position:"relative",width:66,height:66,flexShrink:0}}>
+        <svg width="66" height="66" viewBox="0 0 66 66">
+          <circle cx="33" cy="33" r={R} fill="none" stroke="rgba(255,255,255,.15)" strokeWidth="7"/>
+          <circle cx="33" cy="33" r={R} fill="none" stroke="#A9D977" strokeWidth="7" strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={C*(1-pct/100)} transform="rotate(-90 33 33)"/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
+          fontFamily:"'Space Grotesk',sans-serif",fontWeight:800,fontSize:15,color:"#fff"}}>{pct}%</div>
       </div>
-
-      <button className="vermas" onClick={()=>setVerMas(v=>!v)}>
-        {verMas?"Ocultar detalle ▲":"Ver más detalle ▼"}
-      </button>
-
-      {verMas && (<>
-        
-        <div className="hero-fuentes">
-          <div className="hf">
-            <div className="hf-k">🛒 Tu comisión directa</div>
-            <div className="hf-v num">{money(comisionPropia)}</div>
-          </div>
-          <div className="hf-sep"></div>
-          <div className="hf">
-            <div className="hf-k">👥 Margen por tu equipo</div>
-            <div className="hf-v num">{money(margenEquipo)}</div>
-          </div>
-        </div>
-        <div className="hero-nota">El margen de tu equipo ya viene incluido en el precio base que entregas a cada subcomisionista.</div>
-
-        <div className="hero-grid">
-          {metricas.map((m,i)=>(
-            <div className="hg-card" key={i}>
-              <div className="hg-ic" style={{background:m.bg,color:m.col}}>{m.ic}</div>
-              <div className="hg-k">{m.k}</div>
-              <div className="hg-v num">{m.money===false?m.v:money(m.v)}</div>
-              <div className="hg-s">{m.s}</div>
-            </div>
-          ))}
-        </div>
-
-        <button className="proy" onClick={()=>go("cuenta")}>
-          <span className="proy-ic">📈</span>
-          <div style={{flex:1,textAlign:"left"}}>
-            <div className="proy-t">Proyección de comisión del mes</div>
-            <div className="proy-s">Si mantienes tu ritmo actual</div>
-          </div>
-          <div className="proy-v num">{money(230.00)}</div>
-          <span className="proy-arrow">›</span>
-        </button>
-
-        <button className="proy" onClick={()=>go("comisiones")}>
-          <span className="proy-ic">💰</span>
-          <div style={{flex:1,textAlign:"left"}}>
-            <div className="proy-t">Ver mis comisiones</div>
-            <div className="proy-s">Detalle por pedido y estado</div>
-          </div>
-          <div className="proy-v num">{money(totalRecibir)}</div>
-          <span className="proy-arrow">›</span>
-        </button>
-      </>)}
-    </div>
-
-    <VentasInicio/>
-
-    <div className="sec-h"><h2>Operación</h2><div className="grain"></div></div>
+      <span style={{color:"rgba(255,255,255,.5)",fontSize:20}}>›</span>
+    </button>
 
     {porVisitar.length>0 && (
-      <button className="alerta-visita" onClick={()=>setVerVisitas(true)}>
+      <button className="alerta-visita" style={{padding:"11px 14px",marginTop:10}} onClick={()=>setVerVisitas(true)}>
         <span className="av-ic">📍</span>
-        <div style={{flex:1,textAlign:"left"}}>
-          <div className="av-t">Clientes por visitar · {porVisitar.length} próximos a pedir</div>
-          <div className="av-s">{nRojo>0?`${nRojo} urgente(s) por quedarse sin stock`:"Se acercan a su recompra"}</div>
+        <div style={{flex:1,textAlign:"left",minWidth:0}}>
+          <div className="av-t" style={{fontSize:13.5}}>Por visitar · {porVisitar.length} próximos a pedir</div>
+          <div className="av-s" style={{fontSize:11.5}}>{nRojo>0?`${nRojo} urgente(s) por quedarse sin stock`:"Se acercan a su recompra"}</div>
         </div>
         <span className="av-arrow">›</span>
       </button>
     )}
-    <div className="qa">
-      <button onClick={()=>go("pedido")}>
-        <div className="ico" style={{background:"#FBF0D8",color:"#C77F00"}}>📋</div>
-        <div className="t">Tomar pedido</div><div className="s">Nuevo cliente o recompra</div>
-      </button>
-      <button onClick={()=>go("cobros")}>
-        <div className="ico" style={{background:"#E4F1E9",color:"#2E7D52"}}>💵</div>
-        <div className="t">Reportar cobro</div><div className="s">2 facturas por cobrar</div>
-      </button>
-      <button onClick={()=>go("cartera")}>
-        <div className="ico" style={{background:"#E9EEE9",color:"#15392B"}}>💰</div>
-        <div className="t">Cartera</div><div className="s">Por cobrar y vencido</div>
-      </button>
-      <button onClick={()=>go("clientes")}>
-        <div className="ico" style={{background:"#E9EEE9",color:"#15392B"}}>🏪</div>
-        <div className="t">Clientes</div><div className="s">{CLIENTES.length} asignados</div>
-      </button>
-      <button onClick={()=>go("precios")}>
-        <div className="ico" style={{background:"#E5F0EA",color:"#2E7D52"}}>🏷️</div>
-        <div className="t">Precios</div><div className="s">Consulta por línea</div>
-      </button>
+
+    {/* tablero de trabajo 3×2: todo a un toque, sin scroll */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginTop:12}}>
+      {accesos.map(a=>(
+        <button key={a.k} onClick={()=>go(a.k)} style={{background:"#fff",border:"1px solid var(--line)",borderRadius:16,
+          padding:"13px 8px 11px",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",
+          alignItems:"center",gap:6,boxShadow:"0 2px 8px rgba(21,57,43,.05)"}}>
+          <div style={{width:40,height:40,borderRadius:12,background:a.bg,display:"flex",alignItems:"center",
+            justifyContent:"center",fontSize:19}}>{a.ic}</div>
+          <div style={{fontWeight:700,fontSize:12.5,color:"var(--field)",textAlign:"center",lineHeight:1.2}}>{a.t}</div>
+          <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",lineHeight:1.2}}>{a.s}</div>
+        </button>
+      ))}
     </div>
 
     {verVisitas && (
@@ -1944,7 +1877,7 @@ function Inicio({go}){
         </div>
       </div>
     )}
-  </>);
+    </>);
 }
 
 function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra}){
@@ -9667,7 +9600,19 @@ const S = {
   screen: { height:844, overflowY:"auto", overflowX:"hidden", scrollbarWidth:"none" },
 };
 
+/* Métricas del mes (viven en Comisiones; el Inicio queda limpio) */
+const METRICAS_MES=[
+  {ic:"🛒", bg:"#A9D977", col:"#15392B", k:"Comisión generada", v:114.00, s:"Este mes"},
+  {ic:"🤝", bg:"#F2A900", col:"#15392B", k:"Anticipos recibidos", v:50.00, s:"Este mes"},
+  {ic:"⏳", bg:"#5BA9E6", col:"#15392B", k:"Comisión pendiente", v:180.00, s:"Por liberar"},
+  {ic:"👛", bg:"#B98AD9", col:"#15392B", k:"Comisión por cobrar", v:95.00, s:"Pendiente de pago"},
+  {ic:"🧾", bg:"#7FD1B0", col:"#15392B", k:"Ventas del mes", v:1240.00, s:"Facturado"},
+  {ic:"📋", bg:"#E6C25B", col:"#15392B", k:"Pedidos tomados", v:18, money:false, s:"Este mes"},
+  {ic:"🏪", bg:"#9DB1E6", col:"#15392B", k:"Clientes atendidos", v:12, money:false, s:"Este mes"},
+  {ic:"💵", bg:"#86C28A", col:"#15392B", k:"Cobrado este mes", v:760.00, s:"Ya ingresado"},
+];
 function Comisiones({toast}){
+  const [verDet,setVerDet]=useState(false);   // detalle financiero del mes (mudado del Inicio)
   // Estado de la comisión de cada pedido, derivado del hito "Comisión liberada" de su línea de tiempo.
   const estadoComision=(p)=>{
     const hito=(p.linea||[]).find(x=>x.t==="Comisión liberada");
@@ -9719,6 +9664,24 @@ function Comisiones({toast}){
       </div>
       <div className="cu-nota">El margen de tu equipo ya viene incluido en el precio base que entregas a cada subcomisionista.</div>
     </div>
+
+    {/* Detalle financiero del mes (mudado desde el Inicio: aquí es su casa, sin duplicar) */}
+    <button className="vermas" style={{marginTop:10}} onClick={()=>setVerDet(v=>!v)}>
+      {verDet?"Ocultar detalle del mes ▲":"Ver detalle del mes ▼"}
+    </button>
+    {verDet && (<>
+      <div className="hero-grid" style={{marginTop:10}}>
+        {METRICAS_MES.map((m,i)=>(
+          <div className="hg-card" key={i} style={{background:"#fff",border:"1px solid var(--line)"}}>
+            <div className="hg-ic" style={{background:m.bg,color:m.col}}>{m.ic}</div>
+            <div className="hg-k" style={{color:"var(--muted)"}}>{m.k}</div>
+            <div className="hg-v num" style={{color:"var(--field)"}}>{m.money===false?m.v:money(m.v)}</div>
+            <div className="hg-s" style={{color:"var(--muted)"}}>{m.s}</div>
+          </div>
+        ))}
+      </div>
+      <VentasInicio/>
+    </>)}
 
     {/* Filtros por estado */}
     <div className="cu-chips">
@@ -11143,7 +11106,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b20 · corte automático</div>
+              Versión 12 jul 2026 b21 · inicio compacto</div>
           </div>
         </div>
       </div>
