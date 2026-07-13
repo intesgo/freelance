@@ -1046,6 +1046,8 @@
     margin-bottom:10px;box-shadow:var(--shadow)}
   .fsel.on{border-color:var(--field-700);background:#FBFCFB}
   .fsel .top{display:flex;align-items:center;gap:12px;background:transparent;color:inherit;padding:0;border-radius:0}
+  .lnk{background:none;border:none;padding:0;font-family:inherit;font-size:12.5px;font-weight:700;
+    color:var(--field);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
   .fsel .chk{width:24px;height:24px;border-radius:7px;flex-shrink:0;border:2px solid var(--line);
     background:#fff;color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .fsel.on .chk{background:var(--field-700);border-color:var(--field-700)}
@@ -3666,6 +3668,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const [facExterna,setFacExterna]=useState(null); // factura traída de Cartera (puede no estar en COBROS_INI)
   const [verVenc,setVerVenc]=useState(false);       // lista de clientes con vencido (tarjeta del dashboard)
   const [verDia,setVerDia]=useState(false);         // cuadre de caja del día
+  const [verEfe,setVerEfe]=useState(false);         // vista enfocada: efectivo por depositar
   const [anulando,setAnulando]=useState(null);      // recibo en proceso de anulación
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
@@ -3680,6 +3683,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
       if(depEf!=null){ setDepEf(null); return true; }
       if(resumen){ setResumen(false); return true; }
       if(verDia){ setVerDia(false); return true; }
+      if(verEfe){ setVerEfe(false); return true; }
       if(previa){ setPrevia(false); return true; }
       if(enviado){ setEnviado(null); setResumen(false); setPrevia(false); setEnvio(null); reset(); return true; }
       if(verVenc){ setVerVenc(false); return true; }
@@ -3974,11 +3978,61 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
     </>);
   }
 
+  /* ── Efectivo por depositar: vista enfocada (regla 24h) ── */
+  if(verEfe){
+    const tot=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
+    return (<>
+      <div className="h1">Efectivo por depositar</div>
+      <div className="sub">Regla: el efectivo se deposita en máximo 24 horas</div>
+      <div className="montobox" style={{margin:"12px 0 14px",padding:"13px 16px",border:"1.5px solid var(--maize-deep)"}}>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:800,fontSize:13.5,color:"var(--maize-deep)"}}>⏱️ PENDIENTE DE DEPÓSITO</span>
+          <b className="num" style={{fontSize:22,fontWeight:800,color:"var(--maize-deep)"}}>{money(tot)}</b>
+        </div>
+      </div>
+      {EFECTIVO_PENDIENTE.length===0
+        ? <div className="ph">No hay efectivo pendiente. Todo depositado ✓</div>
+        : EFECTIVO_PENDIENTE.map((e,i)=>(
+            <div key={e.nRecibo} style={{borderBottom:"1px solid var(--line)",padding:"11px 2px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
+                <span style={{fontWeight:700,fontSize:14,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.cli}</span>
+                <b className="num" style={{whiteSpace:"nowrap",color:"var(--maize-deep)"}}>{money(e.monto)}</b>
+              </div>
+              <div className="meta" style={{margin:"2px 0 9px"}}>{e.nRecibo} · límite {e.limite}</div>
+              <button className="ghost" style={{width:"100%",padding:"9px",fontSize:13}} onClick={()=>setDepEf(i)}>Registrar depósito</button>
+            </div>
+          ))}
+      <button className="ghost" style={{width:"100%",marginTop:14}} onClick={()=>{setVerEfe(false);setVerDia(true);}}>📊 Ver el cuadre del día</button>
+      {depEf!=null && (
+        <LineaPago modalidad="Depósito" restante={EFECTIVO_PENDIENTE[depEf] ? EFECTIVO_PENDIENTE[depEf].monto : 0} cliente={EFECTIVO_PENDIENTE[depEf] ? EFECTIVO_PENDIENTE[depEf].cli : null}
+          onCancel={()=>setDepEf(null)}
+          onSave={l=>{
+            const e=EFECTIVO_PENDIENTE[depEf];
+            toast(`Depósito de ${money(parseFloat(l.monto)||0)} registrado: efectivo de ${e.cli} conciliado ✓ (auditado)`);
+            EFECTIVO_PENDIENTE.splice(depEf,1);
+            setDepEf(null); setTick(t=>t+1);
+          }}/>
+      )}
+    </>);
+  }
+
+  /* ── Cuadre del día: tablas simples, detallado por proveedor ── */
   if(verDia){
     const activos=COBROS_DIA.filter(c=>!c.anulado);
     const tot=activos.reduce((s,c)=>s+c.monto,0);
+    const FORMAS=["Efectivo","Depósito","Transferencia","Cheque"];
+    /* agrupación por proveedor con su desglose por forma de pago */
+    const porProv={};
+    activos.forEach(c=>{
+      const p=c.prov||"—";
+      if(!porProv[p]) porProv[p]={n:0, total:0, formas:{}};
+      porProv[p].n++; porProv[p].total+=c.monto;
+      Object.entries(c.formas||{}).forEach(([f,v])=>{ porProv[p].formas[f]=(porProv[p].formas[f]||0)+v; });
+    });
+    const provs=Object.keys(porProv).sort((a,b)=>porProv[b].total-porProv[a].total);
     const porForma={};
-    activos.forEach(c=>Object.entries(c.formas).forEach(([f,v])=>{ porForma[f]=(porForma[f]||0)+v; }));
+    activos.forEach(c=>Object.entries(c.formas||{}).forEach(([f,v])=>{ porForma[f]=(porForma[f]||0)+v; }));
+    const efePend=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
     const anular=()=>{
       if(!motivoAnu.trim()){ toast("El motivo de anulación es obligatorio"); return; }
       anulando.anulado=true; anulando.motivo=motivoAnu.trim();
@@ -3987,59 +4041,66 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
       toast(`Recibo ${anulando.nRecibo} anulado con autorización del Freelance · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
       setAnulando(null); setMotivoAnu(""); setTick(t=>t+1);
     };
+    const TH={fontSize:10.5,fontWeight:700,color:"var(--muted)",letterSpacing:".04em",textTransform:"uppercase"};
+    const FILA={borderTop:"1px solid var(--line)",padding:"9px 2px"};
     return (<>
-      <div className="h1">Mi día · cuadre de caja</div>
-      <div className="sub">12 jun 2026 · lo cobrado hoy, forma por forma</div>
+      <div className="h1">Cuadre del día</div>
+      <div className="sub">12 jun 2026 · {activos.length} cobro{activos.length!==1?"s":""} · {money(tot)}</div>
 
-      <div className="montobox" style={{margin:"12px 0 14px",padding:"14px 16px"}}>
-        {["Efectivo","Depósito","Transferencia","Cheque"].map(f=> (porForma[f]||0)>0 && (
-          <div className="row" key={f} style={{justifyContent:"space-between",padding:"3px 0"}}>
-            <span className="meta" style={{fontSize:13.5}}>{f}{f==="Efectivo" && EFECTIVO_PENDIENTE.length>0 ? " · ⏱️ depositar en 24h":""}</span>
-            <b className="num" style={{fontSize:15}}>{money(porForma[f])}</b>
+      {/* Detalle por proveedor */}
+      <div className="ficha-sec">Por proveedor</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 42px 92px",gap:8,padding:"0 2px 6px"}}>
+        <span style={TH}>Proveedor</span><span style={{...TH,textAlign:"center"}}>N°</span><span style={{...TH,textAlign:"right"}}>Total</span>
+      </div>
+      {provs.map(p=>(
+        <div key={p} style={FILA}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 42px 92px",gap:8,alignItems:"baseline"}}>
+            <span style={{fontWeight:700,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</span>
+            <span className="meta" style={{textAlign:"center"}}>{porProv[p].n}</span>
+            <b className="num" style={{textAlign:"right",whiteSpace:"nowrap"}}>{money(porProv[p].total)}</b>
           </div>
-        ))}
-        <div style={{borderTop:"1.5px solid var(--line)",margin:"9px 0 7px"}}></div>
-        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontWeight:800,fontSize:14}}>TOTAL DEL DÍA</span>
-          <b className="num" style={{fontSize:24,fontWeight:800,color:"var(--field)"}}>{money(tot)}</b>
+          <div className="meta" style={{marginTop:2,fontSize:11.5}}>
+            {FORMAS.filter(f=>porProv[p].formas[f]>0).map(f=>`${f} ${money(porProv[p].formas[f])}`).join(" · ")}
+          </div>
         </div>
-        <div className="meta" style={{marginTop:4,textAlign:"right"}}>{activos.length} cobro{activos.length!==1?"s":""} válido{activos.length!==1?"s":""}</div>
+      ))}
+      <div style={{...FILA,borderTop:"1.5px solid var(--field)",display:"grid",gridTemplateColumns:"1fr 42px 92px",gap:8,alignItems:"baseline"}}>
+        <span style={{fontWeight:800,fontSize:13.5}}>TOTAL</span>
+        <span className="meta" style={{textAlign:"center",fontWeight:700}}>{activos.length}</span>
+        <b className="num" style={{textAlign:"right",fontWeight:800,fontSize:16}}>{money(tot)}</b>
       </div>
 
-      {EFECTIVO_PENDIENTE.length>0 && (<>
-        <div className="ficha-sec" style={{color:"var(--maize-deep)"}}>⏱️ Efectivo por depositar (máx. 24h)</div>
-        {EFECTIVO_PENDIENTE.map((e,i)=>(
-          <div className="card" key={e.nRecibo} style={{padding:"13px 15px",marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
-              <div className="cli" style={{fontSize:14,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.cli}</div>
-              <b className="num" style={{color:"var(--maize-deep)",whiteSpace:"nowrap",fontSize:16}}>{money(e.monto)}</b>
-            </div>
-            <div className="meta" style={{margin:"3px 0 11px"}}>{e.nRecibo} · límite {e.limite}</div>
-            <button className="ghost" style={{width:"100%",padding:"10px",fontSize:13}} onClick={()=>setDepEf(i)}>Registrar depósito</button>
-          </div>
-        ))}
-      </>)}
+      {/* Detalle por forma de pago */}
+      <div className="ficha-sec" style={{marginTop:16}}>Por forma de pago</div>
+      {FORMAS.filter(f=>(porForma[f]||0)>0).map(f=>(
+        <div key={f} style={{...FILA,display:"grid",gridTemplateColumns:"1fr 110px",gap:8,alignItems:"baseline"}}>
+          <span style={{fontSize:13.5}}>{f}{f==="Efectivo" && efePend>0 ? <span className="meta" style={{color:"var(--maize-deep)"}}> · ⏱️ {money(efePend)} por depositar</span> : null}</span>
+          <b className="num" style={{textAlign:"right"}}>{money(porForma[f])}</b>
+        </div>
+      ))}
 
-      <div className="ficha-sec">Recibos del día</div>
+      {/* Recibos del día */}
+      <div className="ficha-sec" style={{marginTop:16}}>Recibos del día</div>
       {COBROS_DIA.slice().reverse().map(c=>(
-        <div className="card" key={c.nRecibo} style={{padding:"13px 15px",marginBottom:8,opacity:c.anulado?.68:1}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
-            <div className="cli" style={{fontSize:14,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-              textDecoration:c.anulado?"line-through":"none"}}>{c.cli}</div>
-            <b className="num" style={{whiteSpace:"nowrap",fontSize:16,textDecoration:c.anulado?"line-through":"none"}}>{money(c.monto)}</b>
+        <div key={c.nRecibo} style={{...FILA,opacity:c.anulado?.6:1}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 100px",gap:8,alignItems:"baseline"}}>
+            <span style={{fontWeight:700,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+              textDecoration:c.anulado?"line-through":"none"}}>{c.cli}</span>
+            <b className="num" style={{textAlign:"right",whiteSpace:"nowrap",textDecoration:c.anulado?"line-through":"none"}}>{money(c.monto)}</b>
           </div>
-          <div className="meta" style={{margin:"3px 0 0"}}>{c.nRecibo} · {c.hora}</div>
+          <div className="meta" style={{marginTop:2,fontSize:11.5}}>{c.hora} · {c.nRecibo} · {c.prov}</div>
           {c.anulado
-            ? <div className="meta" style={{marginTop:4,color:"var(--clay)",fontWeight:700}}>ANULADO · {c.motivo}</div>
+            ? <div className="meta" style={{marginTop:3,color:"var(--clay)",fontWeight:700}}>ANULADO · {c.motivo}</div>
             : (
-              <div style={{display:"flex",gap:8,marginTop:11}}>
-                <button className="ghost" style={{flex:1,padding:"9px",fontSize:13}} onClick={()=>pdfRecibo(c)}>🖨️ Imprimir</button>
-                <button className="ghost" style={{flex:1,padding:"9px",fontSize:13,color:"var(--clay)"}} onClick={()=>{setAnulando(c);setMotivoAnu("");}}>Anular</button>
+              <div style={{display:"flex",gap:14,marginTop:6}}>
+                <button className="lnk" onClick={()=>pdfRecibo(c)}>🖨️ Imprimir</button>
+                <button className="lnk" style={{color:"var(--clay)"}} onClick={()=>{setAnulando(c);setMotivoAnu("");}}>Anular</button>
               </div>
             )}
         </div>
       ))}
-      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setVerDia(false)}>‹ Volver a cobros</button>
+
+      <button className="ghost" style={{width:"100%",marginTop:16}} onClick={()=>setVerDia(false)}>‹ Volver a cobros</button>
 
       {anulando && (
         <div className="ov" onClick={()=>setAnulando(null)}>
@@ -4053,16 +4114,6 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
             <button className="ghost" onClick={()=>setAnulando(null)}>Cancelar</button>
           </div>
         </div>
-      )}
-      {depEf!=null && (
-        <LineaPago modalidad="Depósito" restante={EFECTIVO_PENDIENTE[depEf] ? EFECTIVO_PENDIENTE[depEf].monto : 0}
-          onCancel={()=>setDepEf(null)}
-          onSave={l=>{
-            const e=EFECTIVO_PENDIENTE[depEf];
-            toast(`Depósito de ${money(parseFloat(l.monto)||0)} registrado: efectivo de ${e.cli} conciliado ✓ (auditado)`);
-            EFECTIVO_PENDIENTE.splice(depEf,1);
-            setDepEf(null); setTick(t=>t+1);
-          }}/>
       )}
     </>);
   }
@@ -4172,7 +4223,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
               <span className="nsub">{COBROS_DIA.filter(c=>!c.anulado).length} cobro{COBROS_DIA.filter(c=>!c.anulado).length!==1?"s":""} · toca para el cuadre</span>
             </div>
             {EFECTIVO_PENDIENTE.length>0 && (
-              <div className="ncard" style={{minHeight:0,border:"1px solid var(--maize-deep)"}} onClick={()=>setVerDia(true)}>
+              <div className="ncard" style={{minHeight:0,border:"1px solid var(--maize-deep)"}} onClick={()=>setVerEfe(true)}>
                 <span className="nk" style={{color:"var(--maize-deep)"}}>⏱️ Efectivo por depositar</span>
                 <span className="nv money" style={{color:"var(--maize-deep)"}}>{money(EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0))}</span>
                 <span className="nsub">{EFECTIVO_PENDIENTE.length} pendiente{EFECTIVO_PENDIENTE.length!==1?"s":""} · máx. 24h</span>
@@ -10718,7 +10769,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b15 · tarjetas de Mi día</div>
+              Versión 12 jul 2026 b16 · cuadre por proveedor</div>
           </div>
         </div>
       </div>
