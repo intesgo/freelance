@@ -3470,6 +3470,10 @@ const CHEQUES_POSF=[
   {cli:"Comercial Mendoza",   banco:"Banco Pichincha", numero:"CHQ-008831", valor:500,  fecha:"2026-06-30", dueno:"Transportes JM (tercero)"},
   {cli:"Tienda La Esquina",   banco:"Banco del Pacífico", numero:"CHQ-011204", valor:300, fecha:"2026-07-12", dueno:"Rosa Villamar"},
 ];
+const META_DIA = 1500;   /* meta diaria de cobro (demo; en Fase 4 se configura por freelance) */
+const COBROS_SEMANA = [  /* últimos 7 días (el último se calcula en vivo con los cobros de hoy) */
+  {d:"J", v:820}, {d:"V", v:1340}, {d:"S", v:560}, {d:"D", v:0}, {d:"L", v:1180}, {d:"M", v:940}, {d:"Hoy", v:0},
+];
 const EFECTIVO_PENDIENTE=[ /* efectivo cobrado aún sin depositar */
   {nRecibo:"REC-260612-1021", cli:"Tienda La Esquina", monto:430, limite:"hoy 09:12 + 24h"},
 ];
@@ -3674,11 +3678,8 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
   const [resumen,setResumen]=useState(false); // pantalla de revisión antes de guardar
   const [facUnica,setFacUnica]=useState(null); // si viene de Cartera: solo esta factura
   const [facExterna,setFacExterna]=useState(null); // factura traída de Cartera (puede no estar en COBROS_INI)
-  const [verVenc,setVerVenc]=useState(false);       // lista de clientes con vencido (tarjeta del dashboard)
   const [verDia,setVerDia]=useState(false);         // cuadre de caja del día
   const [verEfe,setVerEfe]=useState(false);         // vista enfocada: efectivo por depositar
-  const [verSem,setVerSem]=useState(false);         // facturas que vencen en 7 días
-  const [verChq,setVerChq]=useState(false);         // calendario de cheques posfechados
   const [anulando,setAnulando]=useState(null);      // recibo en proceso de anulación
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
@@ -3694,11 +3695,8 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
       if(resumen){ setResumen(false); return true; }
       if(verDia){ setVerDia(false); return true; }
       if(verEfe){ setVerEfe(false); return true; }
-      if(verSem){ setVerSem(false); return true; }
-      if(verChq){ setVerChq(false); return true; }
       if(previa){ setPrevia(false); return true; }
       if(enviado){ setEnviado(null); setResumen(false); setPrevia(false); setEnvio(null); reset(); return true; }
-      if(verVenc){ setVerVenc(false); return true; }
       if(paso>1){ setPaso(paso-1); return true; }
       if(cli){ reset(); return true; }
       return false;
@@ -3730,13 +3728,6 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
   },[cobroInicial]);
 
   const reset=()=>{setPaso(1);setCli(null);setProv(null);setAplic({});setLineas([]);setFacUnica(null);setFacExterna(null);};
-  /* abrir el cobro de UNA factura concreta desde el panel (misma lógica que usa Cartera) */
-  const irAFactura=(c)=>{
-    const pv=PROVEEDORES.find(p=>p.id===c.provId)||null;
-    setCli(c.cli); setProv(pv); setFacUnica(c.factura); setFacExterna(null);
-    setAplic({}); setLineas([]); setPaso(pv?2:1);
-    setVerVenc(false); setVerSem(false);
-  };
   const provsDelCliente = cli
     ? PROVEEDORES.filter(pv => (facExterna && facExterna.cli===cli && facExterna.provId===pv.id) || COBROS_INI.some(c=>c.cli===cli && c.provId===pv.id)) : [];
   const facturas = (cli && prov)
@@ -3997,89 +3988,6 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
     </>);
   }
 
-  /* ── Facturas vencidas y por vencer: listas de trabajo (tocar = cobrar esa factura) ── */
-  const ListaFacturas=({titulo, sub, filas, color, onSalir})=>{
-    const tot=filas.reduce((s,c)=>s+c.valor,0);
-    const FILA={borderTop:"1px solid var(--line)",padding:"11px 2px",cursor:"pointer"};
-    return (<>
-      <div className="h1">{titulo}</div>
-      <div className="sub">{sub}</div>
-      <div className="montobox" style={{margin:"12px 0 6px",padding:"12px 16px"}}>
-        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontWeight:800,fontSize:13}}>TOTAL</span>
-          <b className="num" style={{fontSize:21,fontWeight:800,color}}>{money(tot)}</b>
-        </div>
-      </div>
-      {filas.map(c=>(
-        <div key={c.id} style={FILA} onClick={()=>irAFactura(c)}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:700,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
-              <div className="meta" style={{fontSize:11.5,marginTop:2}}>{c.factura} · {c.vence}</div>
-            </div>
-            <b className="num" style={{color,whiteSpace:"nowrap"}}>{money(c.valor)}</b>
-            <span className="meta" style={{fontSize:18,color:"var(--muted)"}}>›</span>
-          </div>
-        </div>
-      ))}
-      <div className="meta" style={{margin:"12px 2px 0",fontSize:11.5}}>Toca una factura para registrar su cobro.</div>
-      <button className="ghost" style={{width:"100%",marginTop:12}} onClick={onSalir}>‹ Volver al panel</button>
-    </>);
-  };
-
-  if(verVenc){
-    const filas=COBROS_INI.filter(c=>/Vencida/i.test(c.vence))
-      .sort((a,b)=>Number((/Vencida\s+(\d+)/i.exec(b.vence)||[0,0])[1])-Number((/Vencida\s+(\d+)/i.exec(a.vence)||[0,0])[1]));
-    return <ListaFacturas titulo="Cobros vencidos" sub={`${filas.length} factura${filas.length!==1?"s":""} · las más atrasadas primero`}
-      filas={filas} color="var(--clay)" onSalir={()=>setVerVenc(false)}/>;
-  }
-  if(verSem){
-    const dias=v=>{ if(/hoy/i.test(v)) return 0; const m=/En\s+(\d+)/i.exec(v); return m?Number(m[1]):999; };
-    const filas=COBROS_INI.filter(c=>dias(c.vence)<=7).sort((a,b)=>dias(a.vence)-dias(b.vence));
-    return <ListaFacturas titulo="Vence esta semana" sub={`${filas.length} factura${filas.length!==1?"s":""} · próximos 7 días`}
-      filas={filas} color="var(--maize-deep)" onSalir={()=>setVerSem(false)}/>;
-  }
-
-  /* ── Calendario de cheques posfechados ── */
-  if(verChq){
-    const HOY="2026-06-12";
-    const chs=CHEQUES_POSF.slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
-    const tot=chs.reduce((s,c)=>s+c.valor,0);
-    const listos=chs.filter(c=>c.fecha<=HOY);
-    const dm=f=>f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4);
-    const FILA={borderTop:"1px solid var(--line)",padding:"11px 2px"};
-    return (<>
-      <div className="h1">Cheques posfechados</div>
-      <div className="sub">Calendario de depósito · {chs.length} cheque{chs.length!==1?"s":""} en cartera</div>
-      <div className="montobox" style={{margin:"12px 0 6px",padding:"12px 16px"}}>
-        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontWeight:800,fontSize:13}}>TOTAL EN CARTERA</span>
-          <b className="num" style={{fontSize:21,fontWeight:800}}>{money(tot)}</b>
-        </div>
-        {listos.length>0 && <div className="meta" style={{marginTop:5,color:"var(--ok)",fontWeight:700}}>✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</div>}
-      </div>
-      {chs.map((c,i)=>{
-        const listo=c.fecha<=HOY;
-        return (
-          <div key={i} style={FILA}>
-            <div style={{display:"flex",alignItems:"baseline",gap:10}}>
-              <span style={{fontWeight:800,fontSize:13.5,color:listo?"var(--ok)":"var(--field)",whiteSpace:"nowrap"}}>{dm(c.fecha)}</span>
-              <span style={{flex:1,minWidth:0,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
-              <b className="num" style={{whiteSpace:"nowrap"}}>{money(c.valor)}</b>
-            </div>
-            <div className="meta" style={{marginTop:2,fontSize:11.5}}>
-              {c.numero} · {c.banco} · dueño: {c.dueno}
-              {listo ? <span style={{color:"var(--ok)",fontWeight:700}}> · ✓ ya se puede depositar</span>
-                     : <span style={{color:"var(--muted)"}}> · aún no vence</span>}
-            </div>
-          </div>
-        );
-      })}
-      <div className="meta" style={{margin:"12px 2px 0",fontSize:11.5}}>Los cheques ocupan cupo del cliente hasta que se efectivizan.</div>
-      <button className="ghost" style={{width:"100%",marginTop:12}} onClick={()=>setVerChq(false)}>‹ Volver al panel</button>
-    </>);
-  }
-
   /* ── Efectivo por depositar: vista enfocada (regla 24h) ── */
   if(verEfe){
     const tot=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
@@ -4286,94 +4194,53 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
           option:c=>(<div className="o1">{c}</div>),
           picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente con cobros pendientes</div></>)
         }}/>
-      {!cli && (()=>{ /* CENTRO DE CONTROL DE COBRANZA: cada tarjeta = una tarea del día */
-        const HOY="2026-06-12";
-        const venc=COBROS_INI.filter(c=>/Vencida/i.test(c.vence));
-        const totV=venc.reduce((s,c)=>s+c.valor,0);
-        const clisV=[...new Set(venc.map(c=>c.cli))];
-        const sem=COBROS_INI.filter(c=>{ if(/hoy/i.test(c.vence)) return true; const m=/En\s+(\d+)/i.exec(c.vence); return m && Number(m[1])<=7; });
-        const totS=sem.reduce((s,c)=>s+c.valor,0);
-        const totCart=COBROS_INI.reduce((s,c)=>s+c.valor,0);
-        const efe=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
-        const chT=CHEQUES_POSF.reduce((s,c)=>s+c.valor,0);
-        const chProx=CHEQUES_POSF.filter(c=>c.fecha<=HOY).length;
+      {!cli && (()=>{ /* mini-dashboard: cómo voy hoy y cómo vengo esta semana */
         const activos=COBROS_DIA.filter(c=>!c.anulado);
-        const totDia=activos.reduce((s,c)=>s+c.monto,0);
-        const cuenta=(f)=>activos.filter(c=>(c.formas||{})[f]>0).length;
-        const nT=cuenta("Transferencia"), nD=cuenta("Depósito"), nC=cuenta("Cheque"), nE=cuenta("Efectivo");
-
-        /* semáforo: rojo urgente · naranja requiere atención · amarillo pendiente · verde sin novedades */
-        const T=({tono, icono, titulo, valor, lineas, onClick, pregunta})=>{
-          const C={rojo:{b:"#B5613C",f:"#FBEDE7",t:"#B5613C"}, naranja:{b:"#C98A2B",f:"#FDF3E2",t:"#A06B15"},
-                   amarillo:{b:"#D9B84C",f:"#FCF7E4",t:"#8A6D12"}, verde:{b:"#2E7D52",f:"#E9F4EE",t:"#1E5C3B"},
-                   neutro:{b:"#D9D3C4",f:"#FFFFFF",t:"#15392B"}}[tono];
-          return (
-            <button onClick={onClick} style={{width:"100%",textAlign:"left",background:"#fff",border:"1px solid var(--line)",
-              borderLeft:`5px solid ${C.b}`, borderRadius:16, padding:"15px 16px", marginBottom:12, cursor:"pointer",
-              boxShadow:"0 2px 10px rgba(21,57,43,.05)", display:"block", fontFamily:"inherit"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                <span style={{width:34,height:34,borderRadius:10,background:C.f,display:"flex",alignItems:"center",
-                  justifyContent:"center",fontSize:17,flexShrink:0}}>{icono}</span>
-                <span style={{fontWeight:800,fontSize:14,color:"var(--field)",flex:1,minWidth:0}}>{titulo}</span>
-                <span style={{color:"var(--muted)",fontSize:19,flexShrink:0}}>›</span>
+        const hoyTot=activos.reduce((s,c)=>s+c.monto,0);
+        const pct=Math.min(100, META_DIA>0?Math.round(hoyTot/META_DIA*100):0);
+        const efe=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
+        /* anillo */
+        const R=42, C=2*Math.PI*R;
+        const dash=C*pct/100;
+        const barras=[...COBROS_SEMANA.slice(0,-1), {d:"Hoy", v:hoyTot}];
+        const maxB=Math.max(...barras.map(b=>b.v),1);
+        return (
+          <div className="card" style={{padding:"16px 16px 13px",marginBottom:14}}>
+            <div style={{display:"flex",gap:16,alignItems:"center"}}>
+              {/* anillo: cobrado hoy vs. meta */}
+              <svg width="104" height="104" viewBox="0 0 104 104" style={{flexShrink:0}}>
+                <circle cx="52" cy="52" r={R} fill="none" stroke="#EFEBE0" strokeWidth="11"/>
+                <circle cx="52" cy="52" r={R} fill="none" stroke={pct>=100?"var(--ok)":"var(--maize-deep)"} strokeWidth="11"
+                  strokeLinecap="round" strokeDasharray={`${dash} ${C-dash}`} transform="rotate(-90 52 52)"/>
+                <text x="52" y="49" textAnchor="middle" style={{fontSize:15,fontWeight:800,fill:"var(--field)",fontFamily:"'Space Grotesk',sans-serif"}}>
+                  {money(hoyTot).replace(",00","")}</text>
+                <text x="52" y="64" textAnchor="middle" style={{fontSize:9.5,fill:"var(--muted)"}}>{pct}% de la meta</text>
+              </svg>
+              {/* barras: últimos 7 días */}
+              <div style={{flex:1,minWidth:0}}>
+                <div className="meta" style={{fontWeight:700,marginBottom:6,fontSize:11.5}}>Últimos 7 días</div>
+                <div style={{display:"flex",alignItems:"flex-end",gap:5,height:56}}>
+                  {barras.map((b,i)=>(
+                    <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                      <div style={{width:"100%",height:Math.max(3,Math.round(b.v/maxB*44)),borderRadius:4,
+                        background: i===barras.length-1 ? "var(--field)" : "#CFE0D4"}}/>
+                      <span style={{fontSize:9,color:"var(--muted)"}}>{b.d}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="num" style={{fontSize:25,fontWeight:800,color:C.t,lineHeight:1.1,marginBottom:5}}>{valor}</div>
-              {lineas.map((l,i)=><div key={i} className="meta" style={{fontSize:12.5,lineHeight:1.5}}>{l}</div>)}
-              <div className="meta" style={{fontSize:11,marginTop:7,fontStyle:"italic",opacity:.75}}>{pregunta}</div>
-            </button>
-          );
-        };
-
-        return (<>
-          {/* 1 · ACCIONES URGENTES */}
-          <div className="ficha-sec" style={{marginTop:4}}>1 · Acciones urgentes</div>
-          <T tono={totV>0?"rojo":"verde"} icono={totV>0?"🔴":"✅"} titulo="Cobros vencidos"
-             valor={money(totV)}
-             lineas={totV>0
-               ? [`${clisV.length} cliente${clisV.length!==1?"s":""} · ${venc.length} factura${venc.length!==1?"s":""}`]
-               : ["Sin facturas vencidas"]}
-             pregunta="¿Qué debo cobrar hoy?"
-             onClick={()=>{ if(totV>0) setVerVenc(true); else toast("No hay facturas vencidas ✓"); }}/>
-          <T tono={efe>0?"naranja":"verde"} icono={efe>0?"🟠":"✅"} titulo="Pendiente por depositar"
-             valor={money(efe)}
-             lineas={efe>0
-               ? [`${EFECTIVO_PENDIENTE.length} depósito${EFECTIVO_PENDIENTE.length!==1?"s":""} pendiente${EFECTIVO_PENDIENTE.length!==1?"s":""}`, "Máximo 24 horas"]
-               : ["Todo el efectivo depositado"]}
-             pregunta="¿Qué debo depositar?"
-             onClick={()=>{ if(efe<=0){ toast("No hay efectivo por depositar ✓"); return; }
-               if(EFECTIVO_PENDIENTE.length===1) setDepEf(0); else setVerEfe(true); }}/>
-
-          {/* 2 · PLANIFICACIÓN */}
-          <div className="ficha-sec" style={{marginTop:16}}>2 · Planificación</div>
-          <T tono={totS>0?"amarillo":"verde"} icono="🟡" titulo="Vence esta semana"
-             valor={money(totS)}
-             lineas={[`${sem.length} factura${sem.length!==1?"s":""} en los próximos 7 días`]}
-             pregunta="¿Qué vence esta semana?"
-             onClick={()=>{ if(sem.length>0) setVerSem(true); else toast("Nada vence esta semana ✓"); }}/>
-          <T tono={chProx>0?"amarillo":"neutro"} icono="🟣" titulo="Cheques posfechados"
-             valor={money(chT)}
-             lineas={[`${CHEQUES_POSF.length} cheque${CHEQUES_POSF.length!==1?"s":""} en cartera`]
-               .concat(chProx>0?[`${chProx} listo${chProx!==1?"s":""} para depositar`]:[])}
-             pregunta="¿Qué cheques debo revisar?"
-             onClick={()=>setVerChq(true)}/>
-
-          {/* 3 · CONSULTAS */}
-          <div className="ficha-sec" style={{marginTop:16}}>3 · Consultas</div>
-          <T tono="verde" icono="🟢" titulo="Cartera total"
-             valor={money(totCart)}
-             lineas={[`${COBROS_INI.length} facturas por cobrar`]}
-             pregunta="¿Cuál es mi cartera?"
-             onClick={()=>go && go("cartera")}/>
-          <T tono="neutro" icono="🔵" titulo="Cobros de hoy"
-             valor={money(totDia)}
-             lineas={[`${activos.length} recibo${activos.length!==1?"s":""}`,
-               [nT?`Transferencias: ${nT}`:null, nD?`Depósitos: ${nD}`:null, nC?`Cheques: ${nC}`:null, nE?`Efectivo: ${nE}`:null].filter(Boolean).join(" · ")||"Sin cobros aún"]
-               .concat(efe>0?[`Pendiente por depositar: ${money(efe)}`]:[])}
-             pregunta="¿Qué cobré hoy?"
-             onClick={()=>setVerDia(true)}/>
-
-          <div className="ficha-sec" style={{marginTop:16}}>Registrar un cobro</div>
-        </>);})()}
+            </div>
+            {/* accesos de trabajo del cobrador */}
+            <div style={{display:"flex",gap:8,marginTop:13}}>
+              {efe>0 && (
+                <button className="nchip" style={{flex:1,borderColor:"var(--maize-deep)",color:"var(--maize-deep)",fontWeight:700}}
+                  onClick={()=>{ if(EFECTIVO_PENDIENTE.length===1) setDepEf(0); else setVerEfe(true); }}>
+                  ⏱️ Depositar {money(efe)}</button>
+              )}
+              <button className="nchip" style={{flex:1}} onClick={()=>setVerDia(true)}>📊 Cierre del día</button>
+            </div>
+          </div>
+        );})()}
       {cli && (
         <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setAplic({});setLineas([]);}} onClear={()=>{setProv(null);setAplic({});setLineas([]);}}
@@ -5196,6 +5063,7 @@ function Cartera({toast, onCobrar}){
     <div className="eq-tabs">
       <button className={pestana==="facturas"?"on":""} onClick={()=>setPestana("facturas")}>Facturas</button>
       <button className={pestana==="analisis"?"on":""} onClick={()=>setPestana("analisis")}>Análisis</button>
+      <button className={pestana==="cheques"?"on":""} onClick={()=>setPestana("cheques")}>Cheques</button>
     </div>
 
     {pestana==="facturas" && (<>
@@ -5239,6 +5107,45 @@ function Cartera({toast, onCobrar}){
     ))}
     <div className="meta" style={{marginTop:6,fontSize:11.5}}>Reflejo del módulo Entrega de documentos. Informativo: la comisión la libera el proveedor cuando confirma el pago efectivo.</div>
     </>)}
+
+    {pestana==="cheques" && (()=>{
+      /* Calendario de cheques posfechados: ocupan cupo del cliente hasta efectivizarse */
+      const HOY="2026-06-12";
+      const chs=CHEQUES_POSF.slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
+      const tot=chs.reduce((s,c)=>s+c.valor,0);
+      const listos=chs.filter(c=>c.fecha<=HOY);
+      const dm=f=>f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4);
+      const FILA={borderTop:"1px solid var(--line)",padding:"11px 2px"};
+      return (<>
+        <div className="montobox" style={{margin:"4px 0 6px",padding:"12px 16px"}}>
+          <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontWeight:800,fontSize:13}}>TOTAL EN CARTERA</span>
+            <b className="num" style={{fontSize:21,fontWeight:800}}>{money(tot)}</b>
+          </div>
+          <div className="meta" style={{marginTop:5}}>
+            {chs.length} cheque{chs.length!==1?"s":""} posfechado{chs.length!==1?"s":""}
+            {listos.length>0 && <span style={{color:"var(--ok)",fontWeight:700}}> · ✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</span>}
+          </div>
+        </div>
+        {chs.map((c,i)=>{
+          const listo=c.fecha<=HOY;
+          return (
+            <div key={i} style={FILA}>
+              <div style={{display:"flex",alignItems:"baseline",gap:10}}>
+                <span style={{fontWeight:800,fontSize:13.5,color:listo?"var(--ok)":"var(--field)",whiteSpace:"nowrap"}}>{dm(c.fecha)}</span>
+                <span style={{flex:1,minWidth:0,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                <b className="num" style={{whiteSpace:"nowrap"}}>{money(c.valor)}</b>
+              </div>
+              <div className="meta" style={{marginTop:2,fontSize:11.5}}>
+                {c.numero} · {c.banco} · dueño: {c.dueno}
+                {listo ? <span style={{color:"var(--ok)",fontWeight:700}}> · ✓ ya se puede depositar</span>
+                       : <span style={{color:"var(--muted)"}}> · aún no vence</span>}
+              </div>
+            </div>
+          );
+        })}
+        <div className="meta" style={{margin:"12px 2px 0",fontSize:11.5}}>Los cheques ocupan cupo del cliente hasta que se efectivizan.</div>
+      </>);})()}
 
     {pestana==="analisis" && (<>
       
@@ -10895,7 +10802,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b17 · centro de control</div>
+              Versión 12 jul 2026 b18 · mini-dashboard de cobros</div>
           </div>
         </div>
       </div>
