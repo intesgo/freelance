@@ -3464,6 +3464,154 @@ const EFECTIVO_PENDIENTE=[ /* efectivo cobrado aún sin depositar */
   {nRecibo:"REC-260612-1021", cli:"Tienda La Esquina", monto:430, limite:"hoy 09:12 + 24h"},
 ];
 
+/* ══ COMPROBANTE DE PAGO ══
+   Reutiliza los MISMOS datos y el mismo lenguaje visual de los estados de cuenta del módulo Clientes
+   (CARTERA_EDAD, COBROS_INI, FICHA_CLIENTE, FORMATO_EC): no se recalcula nada por separado. */
+const r2c = n => Math.round(n*100)/100;
+const ordenVenceG = v => { const m=/Vencida\s+(\d+)/i.exec(v||""); if(m) return -Number(m[1]);
+  if(/hoy/i.test(v||"")) return 0; const n=/En\s+(\d+)/i.exec(v||""); return n?Number(n[1]):999; };
+const carteraDe  = cli => { const e=CARTERA_EDAD[cli]||{alDia:0,porVencer:0,vencido:0};
+  return {...e, total:r2c(e.alDia+e.porVencer+e.vencido)}; };
+const factsDe    = cli => COBROS_INI.filter(c=>c.cli===cli).slice().sort((a,b)=>ordenVenceG(a.vence)-ordenVenceG(b.vence));
+const proxVencDe = cli => factsDe(cli)[0] || null;
+const rucMask    = r => !r ? "—" : r.slice(0,4)+"•••••"+r.slice(-3);
+const tipoComprobante = d => {
+  const parciales=(d.facturas||[]).filter(f=>(f.saldoRest!=null?f.saldoRest:0)>0.004).length;
+  if((d.facturas||[]).length>0 && parciales===0 && (d.saldoActual||0)<=0.004) return "Comprobante de cancelación";
+  if(parciales>0) return "Comprobante de abono";
+  return "Comprobante de pago";
+};
+const estadoReporte = () => "Pendiente de verificación"; /* el proveedor valida desde su app: nunca "Verificado" antes */
+const obsDe = d => { const o=[]; (d.lineas||[]).forEach(l=>(l.obs||[]).forEach(x=>{ if(!o.includes(x)) o.push(x); })); return o; };
+const OBS_TXT = {
+  OCR_NO_LECTURA:"El comprobante no pudo leerse automáticamente",
+  OCR_LECTURA_PARCIAL:"Lectura parcial del comprobante",
+  VALOR_NO_COINCIDE:"El valor digitado no coincide con el comprobante",
+  BANCO_NO_IDENTIFICADO:"Banco no identificado por el lector",
+  CORRECCION_MANUAL:"Datos corregidos manualmente",
+  CHEQUE_TERCERO:"Cheque de un tercero",
+  EFECTIVO_24H:"Efectivo pendiente de depósito (máx. 24h)",
+};
+const textoCobroWA = d => {
+  const t=tipoComprobante(d), tipo=/cancelaci/i.test(t)?"cancelación":/abono/i.test(t)?"abono":"pago";
+  const n=(d.facturas||[]).length;
+  return `Estimado/a ${d.cli}:\n\nHemos registrado un ${tipo} por ${money(d.monto)}.\nEl pago fue aplicado a ${n} factura${n!==1?"s":""}.\n\n`
+    + `Saldo anterior: ${money(d.saldoAnterior||0)}\nPago recibido: ${money(d.monto)}\nSaldo actual: ${money(d.saldoActual||0)}\n\n`
+    + `Comprobante ${d.nRecibo} · Estado: ${estadoReporte()}\n\n`
+    + `Gracias por su pago. Si encuentra alguna diferencia, comuníquese con su asesor comercial. 🌾`;
+};
+function pdfComprobante(d, conEC, toast){
+  if(!window.jspdf){ toast && toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
+  const P=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+  const doc=new window.jspdf.jsPDF();
+  const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
+  const R={halign:"right"}, TOT={fillColor:CREMA,fontStyle:"bold"};
+  const f=FICHA_CLIENTE[d.cli]||{};
+  let y=0;
+  const T=(def)=>{
+    if(def.titulo){ if(y>262){doc.addPage(); y=20;} doc.setFont("helvetica","bold"); doc.setFontSize(9.5);
+      doc.setTextColor(...VERDE); doc.text(P(def.titulo),14,y+4); y+=6.5; }
+    const L=c=> typeof c==="object" && c!==null ? {...c, content:P(c.content)} : P(c);
+    doc.autoTable({ startY:y, margin:{left:14,right:14}, theme:"grid",
+      styles:{font:"helvetica",fontSize:8.6,cellPadding:2.2,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
+      headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold"},
+      head:def.head?[def.head]:undefined, body:def.body.map(r=>r.map(L)), columnStyles:def.cols||{} });
+    y=doc.lastAutoTable.finalY+6;
+  };
+  doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(...VERDE);
+  doc.text(P(d.prov||"FREELANCE"),14,18);
+  doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRIS);
+  doc.text("Distribuye FREELANCE",14,23);
+  doc.text(P(d.nRecibo||""),196,14,{align:"right"});
+  doc.text(P("12 jun 2026 "+(d.hora||"")),196,19,{align:"right"});
+  doc.text(P(estadoReporte()),196,24,{align:"right"});
+  doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
+  doc.text(P(tipoComprobante(d)),14,33);
+  doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,37,196,37);
+  y=42;
+  T({titulo:"CLIENTE", body:[
+    ["Nombre comercial",{content:d.cli,styles:{fontStyle:"bold"}}],
+    ["RUC",rucMask(f.ruc)],
+    ["Atendido por","Daniel Ríos · Freelance"],
+  ], cols:{0:{cellWidth:52,fontStyle:"bold",textColor:GRIS}}});
+  T({titulo:"RESUMEN DEL PAGO", head:["FORMA","BANCO / DETALLE","N° OPERACIÓN","FECHA","VALOR"],
+     body:(d.lineas||[]).map(l=>[l.modalidad, l.modalidad==="Efectivo"?"Dinero en mano":(l.banco||"—"),
+        l.numero||"—", l.fecha||"—", {content:money(parseFloat(l.monto)||0),styles:R}])
+       .concat([[{content:"TOTAL REPORTADO",colSpan:4,styles:{...R,...TOT}},{content:money(d.monto),styles:{...R,...TOT}}]]),
+     cols:{0:{cellWidth:24},2:{cellWidth:28},3:{cellWidth:24},4:{halign:"right",cellWidth:28}}});
+  if((d.lineas||[]).some(l=>l.modalidad==="Depósito"||l.modalidad==="Transferencia")){
+    doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...GRIS);
+    doc.text(P("Cuenta receptora: cuenta autorizada del proveedor (catálogo en la app del Proveedor)"),14,y-1); y+=5;
+  }
+  T({titulo:"APLICACIÓN DEL PAGO", head:["FACTURA","VENCE","SALDO ANT.","APLICADO","SALDO REST.","ESTADO"],
+     body:(d.facturas||[]).map(x=>[x.factura, x.vence||"—",
+        {content:money(x.saldoAnt!=null?x.saldoAnt:x.aplicado),styles:R},
+        {content:money(x.aplicado),styles:R},
+        {content:money(x.saldoRest!=null?x.saldoRest:0),styles:R},
+        (x.saldoRest!=null?x.saldoRest:0)<=0.004?"Cancelada":"Abonada"]),
+     cols:{0:{cellWidth:33},1:{cellWidth:23},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{cellWidth:22}}});
+  const canc=(d.facturas||[]).filter(x=>(x.saldoRest!=null?x.saldoRest:0)<=0.004).length;
+  const pend=Math.max(0,(f.nFacturas||0)-canc);
+  const pv=d.proxVence;
+  T({titulo:"RESUMEN FINANCIERO", body:[
+    ["Saldo total anterior",{content:money(d.saldoAnterior||0),styles:R}],
+    ["Pago recibido",{content:"-"+money(d.monto),styles:R}],
+    [{content:"SALDO TOTAL ACTUAL",styles:TOT},{content:money(d.saldoActual||0),styles:{...R,...TOT}}],
+    ["Facturas canceladas con este pago",{content:String(canc),styles:R}],
+    ["Facturas que siguen pendientes",{content:String(pend),styles:R}],
+  ].concat(pv?[["Próximo vencimiento",{content:money(pv.valor)+" · "+pv.vence,styles:R}]]:[]),
+   cols:{0:{cellWidth:110}}});
+  const obs=obsDe(d);
+  if(obs.length) T({titulo:"OBSERVACIONES PARA VERIFICACIÓN", body:obs.map(o=>[o,(OBS_TXT[o]||"")]), cols:{0:{cellWidth:60,fontStyle:"bold"}}});
+  const conFoto=(d.lineas||[]).filter(l=>l.foto);
+  if(conFoto.length){
+    if(y>195){ doc.addPage(); y=20; }
+    doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(...VERDE);
+    doc.text("EVIDENCIA",14,y+4); y+=8;
+    conFoto.forEach((l,i)=>{
+      const col=i%2, x=14+col*94;
+      if(col===0 && i>0) y+=68;
+      if(y+62>280){ doc.addPage(); y=20; }
+      const fmt=String(l.foto).startsWith("data:image/png")?"PNG":"JPEG";
+      try{ doc.addImage(l.foto,fmt,x,y,88,54); }catch(err){}
+      doc.setFont("helvetica","normal"); doc.setFontSize(7.6); doc.setTextColor(...GRIS);
+      doc.text(P(l.modalidad+(l.dueno?" · dueño: "+l.dueno:"")+" · "+money(parseFloat(l.monto)||0)),x,y+59);
+    });
+    y+=66;
+  }
+  doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...GRIS);
+  if(d.hora) doc.text(P("Cobrado el 12 jun 2026 "+d.hora+" · "+(d.lugar||"")),105,279,{align:"center"});
+  doc.text("Comprobante virtual · sujeto a verificación del proveedor · No constituye comprobante tributario",105,285,{align:"center"});
+  if(conEC){
+    doc.addPage(); y=20;
+    const fmt=FORMATO_EC[d.cli]||"resumen";
+    doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(...VERDE);
+    doc.text("ESTADO DE CUENTA ACTUALIZADO",14,y); y+=6;
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(...GRIS);
+    doc.text(P(d.cli+" · después del "+d.nRecibo),14,y); y+=8;
+    const rest={}; (d.facturas||[]).forEach(x=>{ rest[x.factura]=(x.saldoRest!=null?x.saldoRest:0); });
+    const fs=factsDe(d.cli).map(x=>({...x, saldo: rest[x.factura]!=null ? rest[x.factura] : x.valor})).filter(x=>x.saldo>0.004);
+    const tot=r2c(fs.reduce((s,x)=>s+x.saldo,0));
+    if(fmt==="calendario"){
+      T({head:["VENCE","VALOR"], body:fs.map(x=>[x.vence,{content:money(x.saldo),styles:R}])
+        .concat([[{content:"TOTAL",styles:TOT},{content:money(tot),styles:{...R,...TOT}}]]), cols:{1:{halign:"right",cellWidth:44}}});
+    } else if(fmt==="simple"){
+      T({body:[["Saldo pendiente",{content:money(tot),styles:{...R,fontStyle:"bold"}}]]
+        .concat(fs[0]?[["Próximo vencimiento",{content:money(fs[0].saldo)+" · "+fs[0].vence,styles:R}]]:[]), cols:{0:{cellWidth:110}}});
+    } else {
+      T({head:["FACTURA","VENCE","SALDO"], body:fs.map(x=>[x.factura,x.vence,{content:money(x.saldo),styles:R}])
+        .concat([[{content:"TOTAL PENDIENTE",colSpan:2,styles:{...R,...TOT}},{content:money(tot),styles:{...R,...TOT}}]]),
+        cols:{2:{halign:"right",cellWidth:34}}});
+    }
+    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...GRIS);
+    doc.text("Documento informativo · FREELANCE · No constituye comprobante tributario",105,285,{align:"center"});
+  }
+  const archivo=new File([doc.output("blob")],tipoComprobante(d)+" "+d.nRecibo+".pdf",{type:"application/pdf"});
+  if(navigator.canShare && navigator.canShare({files:[archivo]})){
+    navigator.share({files:[archivo], title:tipoComprobante(d)+" · "+d.cli}).catch(()=>{});
+  } else { doc.save(tipoComprobante(d)+" "+d.nRecibo+".pdf"); toast && toast("Comprobante descargado."); }
+}
+
 function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const [paso,setPaso]=useState(1);
   const [cli,setCli]=useState(null);
@@ -3480,6 +3628,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const [anulando,setAnulando]=useState(null);      // recibo en proceso de anulación
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
+  const [previa,setPrevia]=useState(false);         // vista previa del comprobante antes de compartir
   const [tick,setTick]=useState(0);                 // refresco tras mutar registros del día
   React.useEffect(()=>{ /* retroceso inteligente: jerarquía interna del módulo */
     if(!backRef) return;
@@ -3489,7 +3638,8 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
       if(depEf!=null){ setDepEf(null); return true; }
       if(resumen){ setResumen(false); return true; }
       if(verDia){ setVerDia(false); return true; }
-      if(enviado){ setEnviado(null); setResumen(false); reset(); return true; }
+      if(previa){ setPrevia(false); return true; }
+      if(enviado){ setEnviado(null); setResumen(false); setPrevia(false); reset(); return true; }
       if(verVenc){ setVerVenc(false); return true; }
       if(paso>1){ setPaso(paso-1); return true; }
       if(cli){ reset(); return true; }
@@ -3573,7 +3723,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
         y=doc.lastAutoTable.finalY+6;
       };
       T({titulo:"FACTURAS APLICADAS", head:["FACTURA","ESTADO","COBRADO"],
-         body:datos.facturas.map(f=>[f.factura, f.estado==="cancelada"?"Cancelada":"Abono", {content:money(f.aplicado),styles:R}]),
+         body:datos.facturas.map(f=>[f.factura, f.estado==="cancelada"?"Cancelada":"Abonada", {content:money(f.aplicado),styles:R}]),
          cols:{2:{halign:"right",cellWidth:36}}});
       T({titulo:"FORMAS DE PAGO", head:["FORMA","DETALLE","VALOR"],
          body:datos.lineas.map(l=>[l.modalidad,
@@ -3621,13 +3771,19 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
     const ahora=new Date();
     const hora=String(ahora.getHours()).padStart(2,"0")+":"+String(ahora.getMinutes()).padStart(2,"0");
     const lugar=geoRef.current||"Ubicación no disponible";
-    const facturasRecibo = factSel.map(f=>({
-      factura:f.factura, aplicado:parseFloat(aplic[f.id])||0,
-      estado:(parseFloat(aplic[f.id])||0)>=f.valor?"cancelada":"abono"
-    }));
+    const facturasRecibo = factSel.map(f=>{
+      const ap=r2c(parseFloat(aplic[f.id])||0);
+      const rest=r2c(Math.max(0,f.valor-ap));
+      return {factura:f.factura, vence:f.vence, aplicado:ap, saldoAnt:f.valor, saldoRest:rest,
+        estado: rest<=0.004?"cancelada":"abonada"};
+    });
+    const saldoAnterior = carteraDe(cli).total;
+    const saldoActual   = r2c(Math.max(0, saldoAnterior - monto));  /* nunca negativo */
+    const proxVence     = proxVencDe(cli);
     const datos={
       nRecibo, cli, prov:prov.nombre, monto,
       facturas:facturasRecibo, lineas,
+      saldoAnterior, saldoActual, proxVence,
       destinatarios:[
         {rol:"Cliente", nombre:cli},
         {rol:"Proveedor", nombre:prov.nombre},
@@ -3647,34 +3803,99 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const puedeAvanzar = paso===1?paso1Ok : paso===2?paso2Ok : paso3Ok;
 
   if(enviado){
+    const e=enviado;
+    const titulo=tipoComprobante(e);
+    const obs=obsDe(e);
+    const fc=FICHA_CLIENTE[e.cli]||{};
+    const enWhats=()=>{
+      if(!fc.tel){ toast("El cliente no tiene teléfono registrado"); return; }
+      const wa=String(fc.tel).replace(/\D/g,"").replace(/^0/,"593");
+      window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(textoCobroWA(e)),"_blank");
+    };
+
+    if(previa){ /* vista previa: el mismo comprobante que recibe el cliente */
+      return (<>
+        <div className="h1">{titulo}</div>
+        <div className="sub">Vista previa · así lo recibe el cliente</div>
+        <div className="recibo" style={{marginTop:12}}>
+          <div className="rh">
+            <div className="rt" style={{fontSize:15}}>{e.prov}</div>
+            <div className="rmonto num">{money(e.monto)}</div>
+            <div className="meta" style={{marginTop:4}}>{e.nRecibo} · 12 jun 2026 {e.hora||""}</div>
+            <div className="meta" style={{marginTop:3,color:"var(--maize-deep)",fontWeight:700}}>{estadoReporte()}</div>
+          </div>
+          <div className="rsec">Cliente</div>
+          <div className="rrow"><span className="rk">{e.cli}</span><span className="meta">RUC {rucMask(fc.ruc)}</span></div>
+          <div className="rrow"><span className="rk">Atendido por</span><span className="meta">Daniel Ríos · Freelance</span></div>
+          <div className="rsec">Resumen del pago</div>
+          {e.lineas.map((l,i)=>(
+            <div className="rrow" key={i} style={{alignItems:"center"}}>
+              <span className="rk" style={{display:"flex",alignItems:"center",gap:8}}>
+                {l.foto && <img src={l.foto} alt="ev." style={{width:32,height:24,objectFit:"cover",borderRadius:5,border:"1px solid var(--line)"}}/>}
+                {l.modalidad}{l.banco?" · "+l.banco:""}{l.numero?" · "+l.numero:""}{l.dueno?" · dueño: "+l.dueno:""}
+              </span>
+              <span className="num" style={{fontWeight:600}}>{money(parseFloat(l.monto)||0)}</span>
+            </div>
+          ))}
+          <div className="rsec">Aplicación del pago</div>
+          {e.facturas.map((f,i)=>(
+            <div className="rrow" key={i}>
+              <span className="rk">Factura {f.factura}
+                <span className="meta" style={{display:"block"}}>Saldo ant. {money(f.saldoAnt||0)} → resta {money(f.saldoRest||0)} · {(f.saldoRest||0)<=0.004?"Cancelada":"Abonada"}</span>
+              </span>
+              <span className="num" style={{fontWeight:600}}>{money(f.aplicado)}</span>
+            </div>
+          ))}
+          <div className="rsec">Resumen financiero</div>
+          <div className="rrow"><span className="rk">Saldo anterior</span><span className="num">{money(e.saldoAnterior||0)}</span></div>
+          <div className="rrow"><span className="rk">Pago recibido</span><span className="num">-{money(e.monto)}</span></div>
+          <div className="rrow"><span className="rk" style={{fontWeight:800}}>Saldo actual</span>
+            <span className="num" style={{fontWeight:800,color:(e.saldoActual||0)<=0.004?"var(--ok)":"var(--field)"}}>{money(e.saldoActual||0)}</span></div>
+          {e.proxVence && (e.saldoActual||0)>0.004 &&
+            <div className="rrow"><span className="rk">Próximo vencimiento</span><span className="meta">{money(e.proxVence.valor)} · {e.proxVence.vence}</span></div>}
+          {obs.length>0 && (<>
+            <div className="rsec">Observaciones</div>
+            {obs.map(o=>(<div className="rrow" key={o}><span className="rk" style={{fontSize:12.5}}>{OBS_TXT[o]||o}</span></div>))}
+          </>)}
+        </div>
+        <button className="cta" style={{marginTop:12}} onClick={()=>pdfComprobante(e,false,toast)}>📲 Compartir comprobante (PDF)</button>
+        <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setPrevia(false)}>‹ Volver</button>
+      </>);
+    }
+
     return (<>
       <div className="recibo">
         <div className="rh">
           <div className="chk-big">✓</div>
-          <div className="rt">Cobro guardado</div>
-          <div className="rmonto num">{money(enviado.monto)}</div>
-          <div className="meta" style={{marginTop:4}}>{enviado.cli} · {enviado.prov}</div>
-          {enviado.nRecibo && <div className="meta" style={{marginTop:2,fontWeight:700}}>Recibo {enviado.nRecibo}</div>}
+          <div className="rt">{titulo}</div>
+          <div className="rmonto num">{money(e.monto)}</div>
+          <div className="meta" style={{marginTop:4}}>{e.cli} · {e.prov}</div>
+          {e.nRecibo && <div className="meta" style={{marginTop:2,fontWeight:700}}>{e.nRecibo}</div>}
+          <div style={{marginTop:6,display:"inline-block",background:"#FBF3DC",color:"var(--maize-deep)",
+            fontWeight:700,borderRadius:20,padding:"4px 12px",fontSize:11.5}}>{estadoReporte()}</div>
         </div>
         <div className="rsec">Facturas aplicadas</div>
-        {enviado.facturas.map((f,i)=>(
+        {e.facturas.map((f,i)=>(
           <div className="rrow" key={i}>
-            <span className="rk">Factura {f.factura} {f.estado==="cancelada"?"· Cancelada":"· Abono"}</span>
+            <span className="rk">Factura {f.factura}
+              <span className="meta" style={{display:"block"}}>{(f.saldoRest||0)<=0.004?"Cancelada":"Abonada · resta "+money(f.saldoRest||0)}</span>
+            </span>
             <span className="num" style={{fontWeight:600}}>{money(f.aplicado)}</span>
           </div>
         ))}
-        <div className="rsec">Formas de pago</div>
-        {enviado.lineas.map((l,i)=>(
-          <div className="rrow" key={i}>
-            <span className="rk">{l.modalidad}{l.numero?` · ${l.numero}`:""}{l.banco?` · ${l.banco}`:""}</span>
-            <span className="num" style={{fontWeight:600}}>{money(parseFloat(l.monto)||0)}</span>
-          </div>
-        ))}
+        <div className="rsec">Saldo del cliente</div>
+        <div className="rrow"><span className="rk">Antes</span><span className="num">{money(e.saldoAnterior||0)}</span></div>
+        <div className="rrow"><span className="rk" style={{fontWeight:800}}>Ahora</span>
+          <span className="num" style={{fontWeight:800,color:(e.saldoActual||0)<=0.004?"var(--ok)":"var(--field)"}}>{money(e.saldoActual||0)}</span></div>
+        {obs.length>0 && (<>
+          <div className="rsec">Observaciones para verificación</div>
+          {obs.map(o=>(<div className="rrow" key={o}><span className="rk" style={{fontSize:12.5}}>{OBS_TXT[o]||o}</span></div>))}
+        </>)}
       </div>
 
-      <div className="rsec" style={{marginLeft:4}}>Recibo enviado por WhatsApp</div>
+      <div className="rsec" style={{marginLeft:4}}>Comprobante virtual enviado</div>
       <div className="enviados">
-        {enviado.destinatarios.map((d,i)=>(
+        {e.destinatarios.map((d,i)=>(
           <div className="enviado" key={i}>
             <span className="wa">✓</span>
             <div><div className="who-r">{d.rol}</div><div className="num-r">{d.nombre}</div></div>
@@ -3682,9 +3903,12 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
           </div>
         ))}
       </div>
-      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>pdfRecibo(enviado)}>🖨️ Imprimir de nuevo (original + copia)</button>
-      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfRecibo(enviado,true)}>📲 Compartir copia virtual (1 página)</button>
-      <button className="cta" onClick={()=>{setEnviado(null);setResumen(false);reset();}} style={{marginTop:8}}>Reportar otro cobro</button>
+
+      <button className="cta" style={{marginTop:12}} onClick={()=>setPrevia(true)}>📄 Ver comprobante</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={enWhats}>💬 Compartir por WhatsApp</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfComprobante(e,true,toast)}>📎 Comprobante + estado de cuenta</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfRecibo(e)}>🖨️ Imprimir recibo (original + copia)</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>{setEnviado(null);setResumen(false);setPrevia(false);reset();}}>Finalizar</button>
     </>);
   }
 
@@ -4028,13 +4252,13 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
             Revisar resumen</button>}
     </div>
 
-    {modal && <LineaPago modalidad={modal} restante={Math.max(0,restanteLineas)}
+    {modal && <LineaPago modalidad={modal} restante={Math.max(0,restanteLineas)} cliente={cli}
       onCancel={()=>setModal(null)}
       onSave={l=>{setLineas([...lineas,l]);setModal(null);}}/>}
   </>);
 }
 
-function LineaPago({modalidad, onSave, onCancel, restante}){
+function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   const esCheque = modalidad==="Cheque";
   const esEfectivo = modalidad==="Efectivo";
   const [monto,setMonto]=useState(restante>0 ? String(Math.round(restante*100)/100) : "");
@@ -4042,6 +4266,7 @@ function LineaPago({modalidad, onSave, onCancel, restante}){
   const [banco,setBanco]=useState("");
   const [fecha,setFecha]=useState("");
   const [foto,setFoto]=useState(null);
+  const [dueno,setDueno]=useState("");                      // dueño real del cheque (puede ser un tercero)
   const [ocr,setOcr]=useState({estado:"idle", valor:null}); // idle · leyendo · ok · fallo
   const [editar,setEditar]=useState(false);
   const leer=(e)=>{
@@ -4070,7 +4295,21 @@ function LineaPago({modalidad, onSave, onCancel, restante}){
   const vBan = esCheque || editar || !banco;
   const vFec = esCheque || editar || !fecha;
   const detectados=[banco,numero?`Op. ${numero}`:null,fecha].filter(Boolean).join(" · ");
-  const valido = esEfectivo ? mv>0 : (mv>0 && numero && banco && fecha && !!foto);
+  const valido = esEfectivo ? mv>0 : (mv>0 && numero && banco && fecha && !!foto && (!esCheque || !!dueno.trim()));
+  const obsAuto=()=>{ /* observaciones automáticas para la verificación del proveedor */
+    const o=[];
+    if(esEfectivo){ o.push("EFECTIVO_24H"); return o; }
+    if(esCheque){
+      if(cliente && dueno.trim() && dueno.trim().toLowerCase()!==String(cliente).toLowerCase()) o.push("CHEQUE_TERCERO");
+      return o;
+    }
+    if(ocr.estado==="fallo") o.push("OCR_NO_LECTURA");
+    else if(ocr.estado==="ok" && difiere) o.push("VALOR_NO_COINCIDE");
+    else if(ocr.estado==="ok" && !ocr.valor) o.push("OCR_LECTURA_PARCIAL");
+    if(editar) o.push("CORRECCION_MANUAL");
+    if(!banco) o.push("BANCO_NO_IDENTIFICADO");
+    return o;
+  };
   if(esEfectivo){
     return (
       <div className="ov" onClick={onCancel}>
@@ -4082,7 +4321,7 @@ function LineaPago({modalidad, onSave, onCancel, restante}){
             <input className="num" type="number" inputMode="decimal" placeholder="0.00"
               value={monto} onChange={e=>setMonto(e.target.value)} autoFocus/></div>
           <div className="meta" style={{margin:"0 2px 12px"}}>⏱️ Regla: el efectivo se deposita en máximo 24 horas. Al guardar el cobro quedará como <b>efectivo por depositar</b> y se cierra registrando el depósito con su comprobante.</div>
-          <button className="cta" disabled={!valido} onClick={()=>onSave({modalidad:"Efectivo",monto})}>Agregar efectivo</button>
+          <button className="cta" disabled={!valido} onClick={()=>onSave({modalidad:"Efectivo",monto,obs:["EFECTIVO_24H"]})}>Agregar efectivo</button>
           <button className="ghost" onClick={onCancel}>Cancelar</button>
         </div>
       </div>
@@ -4163,8 +4402,17 @@ function LineaPago({modalidad, onSave, onCancel, restante}){
             <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
         )}
 
+        {esCheque && (
+          <div className="field"><label>Dueño real del cheque (obligatorio)</label>
+            <input type="text" value={dueno} placeholder="Nombre de quien gira el cheque"
+              onChange={e=>setDueno(e.target.value)}/>
+            {cliente && dueno.trim() && dueno.trim().toLowerCase()!==String(cliente).toLowerCase() &&
+              <div className="meta" style={{marginTop:5,color:"var(--maize-deep)"}}>Cheque de un tercero: quedará observado para verificación.</div>}
+          </div>
+        )}
+
         <button className="cta" disabled={!valido}
-          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto})}>
+          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto,dueno:dueno.trim()||null,valorOcr:ocr.valor,obs:obsAuto()})}>
           Agregar {modalidad.toLowerCase()}</button>
         <button className="ghost" onClick={onCancel}>Cancelar</button>
       </div>
@@ -10392,7 +10640,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b9 · recibo impreso x2, virtual x1</div>
+              Versión 11 jul 2026 b10 · comprobante virtual</div>
           </div>
         </div>
       </div>
