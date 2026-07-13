@@ -4267,6 +4267,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   const [fecha,setFecha]=useState("");
   const [foto,setFoto]=useState(null);
   const [dueno,setDueno]=useState("");                      // dueño real del cheque (puede ser un tercero)
+  const [auto,setAuto]=useState({numero:false,banco:false,fecha:false}); // qué llenó el lector (no si el campo tiene texto)
   const [ocr,setOcr]=useState({estado:"idle", valor:null}); // idle · leyendo · ok · fallo
   const [editar,setEditar]=useState(false);
   const leer=(e)=>{
@@ -4274,15 +4275,18 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
     const rd=new FileReader();
     rd.onload=async()=>{
       const img=rd.result; setFoto(img); setEditar(false);
-      if(esCheque) return; /* manuscrito: el lector no es confiable, campos visibles */
+      setAuto({numero:false,banco:false,fecha:false});
+      if(esCheque) return; /* manuscrito: el lector no es confiable, campos siempre visibles */
       setOcr({estado:"leyendo", valor:null});
       const d=await ocrComprobante(img);
-      if(!d){ setOcr({estado:"fallo", valor:null}); return; }
-      /* el lector solo llena lo vacío: jamás pisa lo digitado */
-      if(d.banco)  setBanco(p=>p||d.banco);
-      if(d.numero) setNumero(p=>p||d.numero);
-      if(d.fecha)  setFecha(p=>p||d.fecha);
-      if(d.valor!=null) setMonto(p=> (parseFloat(p)>0) ? p : String(d.valor));
+      if(!d){ setOcr({estado:"fallo", valor:null}); return; }  /* falla: los campos quedan visibles y editables */
+      /* el lector solo llena lo vacío (jamás pisa lo digitado) y anota qué campos llenó él */
+      const a={numero:false,banco:false,fecha:false};
+      if(d.banco  && !banco) { setBanco(d.banco);   a.banco=true; }
+      if(d.numero && !numero){ setNumero(d.numero); a.numero=true; }
+      if(d.fecha  && !fecha) { setFecha(d.fecha);   a.fecha=true; }
+      if(d.valor!=null && !(parseFloat(monto)>0)) setMonto(String(d.valor));
+      setAuto(a);
       setOcr({estado:"ok", valor:(d.valor!=null?d.valor:null)});
     };
     rd.readAsDataURL(f);
@@ -4290,11 +4294,13 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   const mv=parseFloat(monto)||0;
   const difiere = ocr.valor!=null && mv>0 && Math.abs(mv-ocr.valor)>0.009;
   const coincide = ocr.valor!=null && mv>0 && !difiere;
-  /* campos ocultos: emergen solo si el lector no pudo, o al tocar ✎ (cheque: siempre visibles) */
-  const vNum = esCheque || editar || !numero;
-  const vBan = esCheque || editar || !banco;
-  const vFec = esCheque || editar || !fecha;
-  const detectados=[banco,numero?`Op. ${numero}`:null,fecha].filter(Boolean).join(" · ");
+  /* Un campo se oculta SOLO si lo llenó el lector. Si lo escribe el usuario, permanece visible
+     (antes se ocultaba al teclear el primer carácter y se perdía el foco). Cheque: siempre visibles. */
+  const vNum = esCheque || editar || !auto.numero;
+  const vBan = esCheque || editar || !auto.banco;
+  const vFec = esCheque || editar || !auto.fecha;
+  const hayAuto = auto.numero || auto.banco || auto.fecha;
+  const detectados=[auto.banco?banco:null, auto.numero?("Op. "+numero):null, auto.fecha?fecha:null].filter(Boolean).join(" · ");
   const valido = esEfectivo ? mv>0 : (mv>0 && numero && banco && fecha && !!foto && (!esCheque || !!dueno.trim()));
   const obsAuto=()=>{ /* observaciones automáticas para la verificación del proveedor */
     const o=[];
@@ -4376,7 +4382,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
             <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setMonto(String(ocr.valor))}>Usar el valor del comprobante</button>
           </div>
         )}
-        {!esCheque && !editar && detectados && !(vNum&&vBan&&vFec) && (
+        {!esCheque && !editar && hayAuto && detectados && (
           <div className="meta" style={{margin:"2px 2px 12px",display:"flex",alignItems:"center",gap:6}}>
             <span style={{color:"var(--ok)"}}>✓</span><span style={{flex:1}}>{detectados}</span>
             <button className="ghost" style={{padding:"4px 10px"}} onClick={()=>setEditar(true)}>✎</button>
@@ -10640,7 +10646,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b10 · comprobante virtual</div>
+              Versión 11 jul 2026 b11 · campos estables</div>
           </div>
         </div>
       </div>
