@@ -4322,6 +4322,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
 
 function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   const esCheque = modalidad==="Cheque";
+  const HOY_ISO = new Date().toISOString().slice(0,10);   /* depósito y transferencia: el pago YA ocurrió → sin fechas futuras */
   const esEfectivo = modalidad==="Efectivo";
   const [monto,setMonto]=useState(restante>0 ? String(Math.round(restante*100)/100) : "");
   const [numero,setNumero]=useState("");
@@ -4346,7 +4347,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
       const a={numero:false,banco:false,fecha:false};
       if(d.banco  && !banco) { setBanco(d.banco);   a.banco=true; }
       if(d.numero && !numero){ setNumero(d.numero); a.numero=true; }
-      if(d.fecha  && !fecha) { setFecha(d.fecha);   a.fecha=true; }
+      if(d.fecha && !fecha && d.fecha<=HOY_ISO){ setFecha(d.fecha); a.fecha=true; }  /* fecha futura leída = dato dudoso: se pide a mano */
       if(d.valor!=null && !(parseFloat(monto)>0)) setMonto(String(d.valor));
       setAuto(a);
       setOcr({estado:"ok", valor:(d.valor!=null?d.valor:null)});
@@ -4363,7 +4364,9 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   const vFec = esCheque || editar || !auto.fecha;
   const hayAuto = auto.numero || auto.banco || auto.fecha;
   const detectados=[auto.banco?banco:null, auto.numero?("Op. "+numero):null, auto.fecha?fecha:null].filter(Boolean).join(" · ");
-  const valido = esEfectivo ? mv>0 : (mv>0 && numero && banco && fecha && !!foto && (!esCheque || !!dueno.trim()));
+  const fechaFutura = !esCheque && !esEfectivo && !!fecha && fecha>HOY_ISO;   /* el cheque SÍ puede ser posfechado */
+  const valido = esEfectivo ? mv>0
+    : (mv>0 && numero && banco && fecha && !fechaFutura && !!foto && (!esCheque || !!dueno.trim()));
   const obsAuto=()=>{ /* observaciones automáticas para la verificación del proveedor */
     const o=[];
     if(esEfectivo){ o.push("EFECTIVO_24H"); return o; }
@@ -4466,8 +4469,12 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
             }}/>
         )}
         {vFec && (
-          <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha"}</label>
-            <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
+          <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha del comprobante"}</label>
+            <input type="date" value={fecha} max={esCheque?undefined:HOY_ISO}
+              onChange={e=>setFecha(e.target.value)}/>
+            {fechaFutura && <div className="meta" style={{marginTop:5,color:"var(--clay)",fontWeight:700}}>
+              La fecha no puede ser futura: el {modalidad.toLowerCase()} ya se realizó.</div>}
+          </div>
         )}
 
         {esCheque && (
@@ -10708,7 +10715,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b13 · envío asistido</div>
+              Versión 12 jul 2026 b14 · fechas coherentes</div>
           </div>
         </div>
       </div>
