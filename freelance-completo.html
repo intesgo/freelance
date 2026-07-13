@@ -3544,7 +3544,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
   const paso3Ok = restanteLineas===0 && lineas.length>0;
 
   /* Recibo impreso: PDF de 2 páginas (ORIGINAL · Cliente / COPIA · Vendedor) con firmas */
-  const pdfRecibo=(datos)=>{
+  const pdfRecibo=(datos, virtual=false)=>{
     if(!window.jspdf){ toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
     const pdfTxt=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
     const doc=new window.jspdf.jsPDF();
@@ -3592,10 +3592,14 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
       if(datos.hora) doc.text(pdfTxt(`Cobrado el 12 jun 2026 ${datos.hora} · ${datos.lugar||""}`),105,280,{align:"center"});
       doc.text("Documento informativo · FREELANCE · La comisión se libera cuando el proveedor valida el cobro",105,285,{align:"center"});
     };
-    pagina("ORIGINAL · CLIENTE");
-    doc.addPage();
-    pagina("COPIA · VENDEDOR");
-    const archivo=new File([doc.output("blob")],`Recibo ${datos.nRecibo}.pdf`,{type:"application/pdf"});
+    if(virtual){
+      pagina("COPIA VIRTUAL");             /* el recibo virtual va en una sola copia */
+    } else {
+      pagina("ORIGINAL · CLIENTE");        /* el impreso va por duplicado */
+      doc.addPage();
+      pagina("COPIA · VENDEDOR");
+    }
+    const archivo=new File([doc.output("blob")],`Recibo ${datos.nRecibo}${virtual?" (copia virtual)":""}.pdf`,{type:"application/pdf"});
     if(navigator.canShare && navigator.canShare({files:[archivo]})){
       navigator.share({files:[archivo], title:`Recibo ${datos.nRecibo}`}).catch(()=>{});
     } else { doc.save(`Recibo ${datos.nRecibo}.pdf`); toast("Recibo descargado (original + copia)."); }
@@ -3679,6 +3683,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
         ))}
       </div>
       <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>pdfRecibo(enviado)}>🖨️ Imprimir de nuevo (original + copia)</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfRecibo(enviado,true)}>📲 Compartir copia virtual (1 página)</button>
       <button className="cta" onClick={()=>{setEnviado(null);setResumen(false);reset();}} style={{marginTop:8}}>Reportar otro cobro</button>
     </>);
   }
@@ -3814,7 +3819,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
       <button className="cta" style={{marginTop:14}} onClick={guardarTodo}>
         💾 Guardar, imprimir y enviar</button>
       <div className="meta" style={{textAlign:"center",margin:"8px 0 4px",fontSize:11.5}}>
-        Imprime original + copia y envía el recibo virtual a todos</div>
+        Imprime 2 ejemplares (original + copia) y envía a todos el recibo virtual en 1 copia</div>
       <button className="ghost" style={{width:"100%"}} onClick={()=>setResumen(false)}>‹ Corregir</button>
     </>);
   }
@@ -10387,7 +10392,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b8 · atrás físico y restante</div>
+              Versión 11 jul 2026 b9 · recibo impreso x2, virtual x1</div>
           </div>
         </div>
       </div>
