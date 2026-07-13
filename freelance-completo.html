@@ -2434,7 +2434,15 @@ function detalleBloqueo(cliente){
   if(!vencidas.length) return null;
   const f=vencidas[0];
   const pv=PROVEEDORES.find(p=>p.id===f.provId);
-  return {factura:f.factura, dias:f.dias, valor:f.valor, prov:pv?pv.nombre:"—", total:vencidas.reduce((s,x)=>s+x.valor,0), n:vencidas.length};
+  const saldo=saldoRealFactura(f.factura, f.valor);          /* lo que realmente falta (descuenta abonos) */
+  const det=(FACTURAS_DETALLE[cliente]||[]).find(x=>x.factura===f.factura);
+  let total=f.valor;                                          /* valor original de la factura */
+  if(det){
+    const sub=det.items.reduce((s,it)=>s+it.cant*it.precio,0);
+    total=sub-(det.retencion||0)-(det.descuento||0)-((det.ncs||[]).reduce((s,n)=>s+n.valor,0));
+  }
+  return {factura:f.factura, dias:f.dias, total:Math.round(total*100)/100, saldo, prov:pv?pv.nombre:"—",
+          provId:f.provId, vence:f.vence, nVenc:vencidas.length, totalVenc:vencidas.reduce((s,x)=>s+saldoRealFactura(x.factura,x.valor),0)};
 }
 
 function motivosBloqueo(nombreCliente){
@@ -3076,42 +3084,58 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           <div className="p2">{(REFERENCIALES[c]||[]).length>0?`Factura a: ${REFERENCIALES[c].join(" · ")}`:"Cliente comprador"}</div></>)
       }}/>
 
-    {cli && (()=>{  /* ficha compacta: con quién estoy tratando */
+    {cli && (()=>{  /* ficha del cliente: estado, hábitos y el bloqueo con su salida */
       const pf=PERFIL_CLIENTE[cli]||{};
       const pg=PAGADOR[pf.pagador]||{};
       const bq=detalleBloqueo(cli);
-      const sem = bloqueado ? (motivos.some(m=>/protestado|vencida/i.test(m)) ? ["rojo","#B5613C","🔴 Cliente bloqueado"] : ["ambar","#C98A2B","🟡 Requiere autorización"])
-                : ["verde","#2E7D52","🟢 Cliente al día"];
-      /* días desde su última compra vs. su frecuencia habitual */
+      const rojo = bloqueado;
+      const sem = rojo ? ["#B5613C","🔴","Bloqueado"] : ["#2E7D52","🟢","Al día"];
       const MES={ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11};
       const p=(pf.ultima||"").split(" ");
       const dUlt = p.length===3 ? Math.round((new Date(2026,5,12) - new Date(2026, MES[p[1]]||0, Number(p[0])))/86400000) : null;
       const toca = (dUlt!=null && pf.frecuencia) ? pf.frecuencia-dUlt : null;
+      const CH={display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 9px",fontSize:10.5,fontWeight:700};
       return (
-        <div className="card" style={{padding:"12px 14px",marginBottom:12,borderLeft:`4px solid ${sem[1]}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
-            <span style={{fontWeight:800,fontSize:13,color:sem[1]}}>{sem[2]}</span>
-            <span style={{flex:1}}></span>
-            {pf.premium && <span style={{background:"#FBF3DC",color:"#8A6D12",fontWeight:800,fontSize:10.5,borderRadius:20,padding:"3px 9px"}}>★ Premium</span>}
-            {pf.top && <span style={{background:"#E9EEE9",color:"var(--field)",fontWeight:800,fontSize:10.5,borderRadius:20,padding:"3px 9px"}}>Top {pf.top}/30</span>}
+        <div className="card" style={{padding:"11px 13px",marginBottom:12,borderLeft:`4px solid ${sem[0]}`}}>
+          {/* una sola línea de chips: estado · premium · top · pagador · frecuencia */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            <span style={{...CH,background:sem[0]+"1A",color:sem[0]}}>{sem[1]} {sem[2]}</span>
+            {pf.premium && <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Premium</span>}
+            {pf.top && <span style={{...CH,background:"#E9EEE9",color:"var(--field)"}}>Top {pf.top}/30</span>}
+            {pg.t && <span style={{...CH,background:pg.c+"14",color:pg.c}}>{pg.ic} {pg.t.replace(" pagador","")} · {pf.diasPago}d</span>}
+            {pf.frecuencia && <span style={{...CH,background:"#F2F4F1",color: toca!=null&&toca<=0 ? "var(--clay)":"var(--muted)"}}>
+              🗓️ cada {pf.frecuencia}d{toca!=null ? (toca<=0 ? ` · atrasado ${-toca}d` : ` · en ${toca}d`) : ""}</span>}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div>
-              <div className="meta" style={{fontSize:10.5}}>Compra cada</div>
-              <div style={{fontWeight:700,fontSize:13}}>{pf.frecuencia||"—"} días
-                {toca!=null && <span style={{color:toca<=0?"var(--clay)":"var(--muted)",fontWeight:600}}> · {toca<=0?`le tocaba hace ${-toca}`:`en ${toca}`} d</span>}</div>
-            </div>
-            <div>
-              <div className="meta" style={{fontSize:10.5}}>Ranking pagador</div>
-              <div style={{fontWeight:700,fontSize:13,color:pg.c}}>{pg.ic} {pg.t||"—"}
-                {pf.diasPago && <span className="meta" style={{fontWeight:600}}> · {pf.diasPago}d</span>}</div>
-            </div>
-          </div>
-          {bq && (
+
+          {rojo && bq && (
             <div style={{marginTop:10,paddingTop:9,borderTop:"1px solid var(--line)"}}>
-              <div className="meta" style={{fontWeight:700,color:sem[1],marginBottom:3}}>Factura que origina el bloqueo</div>
-              <div style={{fontSize:12.5}}>{bq.factura} · <b className="num">{money(bq.valor)}</b> · <span style={{color:"var(--clay)",fontWeight:700}}>{bq.dias} días vencida</span></div>
-              <div className="meta" style={{fontSize:11.5,marginTop:2}}>Proveedor responsable: {bq.prov}{bq.n>1?` · ${bq.n} facturas vencidas por ${money(bq.total)}`:""}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+                <span style={{fontWeight:700,fontSize:12.5}}>{bq.factura}</span>
+                <span style={{color:"var(--clay)",fontWeight:700,fontSize:12}}>{bq.dias} días vencida</span>
+              </div>
+              <div style={{display:"flex",gap:14,marginTop:4}}>
+                <span className="meta" style={{fontSize:11.5}}>Total <b className="num" style={{color:"var(--field)"}}>{money(bq.total)}</b></span>
+                <span className="meta" style={{fontSize:11.5}}>Saldo que bloquea <b className="num" style={{color:"var(--clay)"}}>{money(bq.saldo)}</b></span>
+              </div>
+              <div className="meta" style={{fontSize:11,marginTop:2}}>Proveedor: {bq.prov}{bq.nVenc>1?` · ${bq.nVenc} vencidas por ${money(bq.totalVenc)}`:""}</div>
+              {onCobrar && (
+                <button className="cta" style={{marginTop:9,padding:"10px",fontSize:13}}
+                  onClick={()=>onCobrar({fac:bq.factura, cli, proveedor:bq.prov, provId:bq.provId, saldo:bq.saldo, venc:bq.vence})}>
+                  💵 Cobrar esta factura ahora</button>
+              )}
+              {motivos.length>0 && (
+                <div className="meta" style={{fontSize:11,marginTop:8}}>
+                  {motivos.join(" · ")} · desbloquea con el código del proveedor:
+                </div>
+              )}
+              <div className="row" style={{gap:8,marginTop:7}}>
+                <input value={codigo} onChange={e=>setCodigo(e.target.value)} placeholder="Código del proveedor" inputMode="numeric"
+                  style={{flex:1,minWidth:0,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10}}/>
+                <button className="ghost" style={{margin:0,padding:"10px 14px"}} onClick={()=>{
+                  if(codigo.trim()===CODIGO_DESBLOQUEO){ setDesbloqueado(true); toast("Pedido desbloqueado por el proveedor."); }
+                  else toast("Código incorrecto. Verifica con el proveedor.");
+                }}>Desbloquear</button>
+              </div>
             </div>
           )}
         </div>
