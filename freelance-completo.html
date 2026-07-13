@@ -3494,13 +3494,16 @@ const OBS_TXT = {
 };
 const textoCobroWA = d => {
   const t=tipoComprobante(d), tipo=/cancelaci/i.test(t)?"cancelación":/abono/i.test(t)?"abono":"pago";
-  const n=(d.facturas||[]).length;
-  return `Estimado/a ${d.cli}:\n\nHemos registrado un ${tipo} por ${money(d.monto)}.\nEl pago fue aplicado a ${n} factura${n!==1?"s":""}.\n\n`
+  const fs=(d.facturas||[]);
+  const det=fs.map(f=>`• Factura ${f.factura}: ${money(f.aplicado)} — ${(f.saldoRest||0)<=0.004?"Cancelada":"Abonada (resta "+money(f.saldoRest||0)+")"}`).join("\n");
+  return `Estimado/a ${d.cli}:\n\nHemos registrado un ${tipo} por ${money(d.monto)}.\n\n`
+    + `Facturas aplicadas (${fs.length}):\n${det}\n\n`
     + `Saldo anterior: ${money(d.saldoAnterior||0)}\nPago recibido: ${money(d.monto)}\nSaldo actual: ${money(d.saldoActual||0)}\n\n`
     + `Comprobante ${d.nRecibo} · Estado: ${estadoReporte()}\n\n`
+    + `Adjuntamos el comprobante virtual y su estado de cuenta actualizado.\n\n`
     + `Gracias por su pago. Si encuentra alguna diferencia, comuníquese con su asesor comercial. 🌾`;
 };
-function pdfComprobante(d, conEC, toast){
+function pdfComprobante(d, conEC, toast, texto, tel){
   if(!window.jspdf){ toast && toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
   const P=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
   const doc=new window.jspdf.jsPDF();
@@ -3606,10 +3609,22 @@ function pdfComprobante(d, conEC, toast){
     doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...GRIS);
     doc.text("Documento informativo · FREELANCE · No constituye comprobante tributario",105,285,{align:"center"});
   }
-  const archivo=new File([doc.output("blob")],tipoComprobante(d)+" "+d.nRecibo+".pdf",{type:"application/pdf"});
+  const nombre=tipoComprobante(d)+" "+d.nRecibo+".pdf";
+  const archivo=new File([doc.output("blob")],nombre,{type:"application/pdf"});
+  /* envío único: el PDF (comprobante + estado de cuenta) viaja junto con el mensaje */
   if(navigator.canShare && navigator.canShare({files:[archivo]})){
-    navigator.share({files:[archivo], title:tipoComprobante(d)+" · "+d.cli}).catch(()=>{});
-  } else { doc.save(tipoComprobante(d)+" "+d.nRecibo+".pdf"); toast && toast("Comprobante descargado."); }
+    const carga={files:[archivo], title:tipoComprobante(d)+" · "+d.cli};
+    if(texto) carga.text=texto;
+    navigator.share(carga).catch(()=>{});
+    return;
+  }
+  /* respaldo: se descarga el PDF y se abre el chat con el mensaje para adjuntarlo */
+  doc.save(nombre);
+  if(texto && tel){
+    const wa=String(tel).replace(/\D/g,"").replace(/^0/,"593");
+    window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(texto),"_blank");
+    toast && toast("PDF descargado: adjúntalo en el chat que se abrió.");
+  } else { toast && toast("Comprobante descargado."); }
 }
 
 function Cobros({toast, cobroInicial, onConsumir, backRef}){
@@ -3807,11 +3822,8 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
     const titulo=tipoComprobante(e);
     const obs=obsDe(e);
     const fc=FICHA_CLIENTE[e.cli]||{};
-    const enWhats=()=>{
-      if(!fc.tel){ toast("El cliente no tiene teléfono registrado"); return; }
-      const wa=String(fc.tel).replace(/\D/g,"").replace(/^0/,"593");
-      window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(textoCobroWA(e)),"_blank");
-    };
+    /* ENVÍO ÚNICO: mensaje + PDF (comprobante + estado de cuenta en el formato ★ del cliente) */
+    const enWhats=()=>pdfComprobante(e, true, toast, textoCobroWA(e), fc.tel);
 
     if(previa){ /* vista previa: el mismo comprobante que recibe el cliente */
       return (<>
@@ -3858,7 +3870,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
             {obs.map(o=>(<div className="rrow" key={o}><span className="rk" style={{fontSize:12.5}}>{OBS_TXT[o]||o}</span></div>))}
           </>)}
         </div>
-        <button className="cta" style={{marginTop:12}} onClick={()=>pdfComprobante(e,false,toast)}>📲 Compartir comprobante (PDF)</button>
+        <button className="cta" style={{marginTop:12}} onClick={enWhats}>💬 Enviar por WhatsApp (comprobante + estado de cuenta)</button>
         <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setPrevia(false)}>‹ Volver</button>
       </>);
     }
@@ -3904,9 +3916,10 @@ function Cobros({toast, cobroInicial, onConsumir, backRef}){
         ))}
       </div>
 
-      <button className="cta" style={{marginTop:12}} onClick={()=>setPrevia(true)}>📄 Ver comprobante</button>
-      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={enWhats}>💬 Compartir por WhatsApp</button>
-      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfComprobante(e,true,toast)}>📎 Comprobante + estado de cuenta</button>
+      <button className="cta" style={{marginTop:12}} onClick={enWhats}>💬 Enviar por WhatsApp</button>
+      <div className="meta" style={{textAlign:"center",margin:"7px 0 2px",fontSize:11.5}}>
+        Envía el comprobante y el estado de cuenta ({(FORMATO_EC[e.cli]||"resumen")}) en un solo PDF, con el mensaje al cliente</div>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setPrevia(true)}>📄 Ver comprobante</button>
       <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>pdfRecibo(e)}>🖨️ Imprimir recibo (original + copia)</button>
       <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>{setEnviado(null);setResumen(false);setPrevia(false);reset();}}>Finalizar</button>
     </>);
@@ -10646,7 +10659,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 11 jul 2026 b11 · campos estables</div>
+              Versión 11 jul 2026 b12 · envío único al cliente</div>
           </div>
         </div>
       </div>
