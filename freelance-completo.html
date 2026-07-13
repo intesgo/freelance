@@ -25,7 +25,7 @@
   /* Blindaje anti-desborde: en filas flex, los campos ceden espacio en vez de empujar botones fuera */
   input,select,textarea{min-width:0;max-width:100%}
   button{max-width:100%}
-  html,body{height:100%}
+  html,body{height:100%;overscroll-behavior-y:contain}   /* apaga el "recargar" de Chrome: el arrastre lo maneja la app */
   body{background:var(--field);font-family:Inter,system-ui,sans-serif;color:var(--ink);
     font-size:calc(16px * var(--fs))}
   #root{height:100%}
@@ -158,7 +158,16 @@
     padding:6px 10px;border-radius:999px;color:#EAF0EA;font-weight:600}
   .net:active{background:rgba(255,255,255,.16)}
   .dot{width:7px;height:7px;border-radius:50%}
-  .dot.on{background:#6FD39B} .dot.off{background:var(--maize)}
+  .dot.on{background:#3DFF9A;box-shadow:0 0 6px #3DFF9A,0 0 12px rgba(61,255,154,.6)}  /* luz encendida: en línea */
+  .dot.off{background:var(--maize)}
+  .dot.sync{background:var(--maize);animation:latido .9s ease-in-out infinite}
+  @keyframes latido{0%,100%{opacity:1}50%{opacity:.25}}
+  /* Refresco propio: no recarga la página, no saca al usuario del sistema */
+  .ptr{position:fixed;left:0;right:0;top:0;display:flex;justify-content:center;pointer-events:none;z-index:60}
+  .ptr-c{background:#fff;border:1px solid var(--line);border-radius:999px;box-shadow:0 4px 14px rgba(21,57,43,.16);
+    width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--field)}
+  .ptr-c.gira{animation:girar .8s linear infinite}
+  @keyframes girar{to{transform:rotate(360deg)}}
   .sync-intro{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.5}
   .sync-item{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line)}
   .sync-ic{font-size:22px;width:38px;height:38px;border-radius:10px;background:var(--paper);
@@ -1509,17 +1518,24 @@ const Pipe = ({n})=>(
   <div className="pipe">{ETAPAS.map((_,i)=>
     <span key={i} className={i<n?"done":i===n?"now":""}/> )}</div>
 );
-/* Indicador de sincronización: SOLO aparece sin conexión (con la app en línea, todo sube solo).
-   Mientras sincroniza muestra su aviso; al terminar desaparece. */
+/* Semáforo de conexión: en línea (luz verde encendida) · sincronizando (latido) · sin enviar (ámbar).
+   Con conexión todo sube solo; el pendiente solo se muestra cuando el teléfono está sin red. */
 const Net = ({n, online, sincronizando, onClick})=>{
   if(sincronizando) return (
     <button className="net" onClick={onClick}>
-      <span className="dot off"></span>Sincronizando…</button>
+      <span className="dot sync"></span>Sincronizando…</button>
   );
-  if(online || n===0) return null;
-  return (
+  if(!online && n>0) return (
     <button className="net" onClick={onClick}>
       <span className="dot off"></span>{n} sin enviar</button>
+  );
+  if(!online) return (
+    <button className="net" onClick={onClick}>
+      <span className="dot off"></span>Sin conexión</button>
+  );
+  return (
+    <button className="net" onClick={onClick}>
+      <span className="dot on"></span>En línea</button>
   );
 };
 
@@ -10834,6 +10850,37 @@ function App({usuario, onSalir}){
                 : "Todo sincronizado con el sistema.");
     },1400);
   };
+  /* Arrastrar hacia abajo = refrescar la app SIN recargar la página (no saca al usuario del sistema) */
+  const [ptr,setPtr]=useState(0);            // desplazamiento del gesto (px)
+  const [refrescando,setRefrescando]=useState(false);
+  const tocRef=React.useRef(null);
+  const refrescar=()=>{
+    setRefrescando(true);
+    const c=correrCorteAutomatico();                       // aplica el corte si pasó la hora
+    if(navigator.onLine!==false && pendientes.length>0) sincronizar(true);   // sube lo pendiente
+    setTimeout(()=>{
+      setRefrescando(false); setPtr(0); setTick(t=>t+1);   // refresca contadores y vistas
+      show(c.length ? `Actualizado ✓ · corte automático: ${c.join(", ")}` : "Actualizado ✓");
+    }, 900);
+  };
+  React.useEffect(()=>{
+    const inicio=(e)=>{ if(window.scrollY<=0 && e.touches.length===1) tocRef.current=e.touches[0].clientY; else tocRef.current=null; };
+    const mover=(e)=>{
+      if(tocRef.current==null || refrescando) return;
+      const d=e.touches[0].clientY-tocRef.current;
+      if(d>0 && window.scrollY<=0){ setPtr(Math.min(90, d*0.55)); }
+    };
+    const soltar=()=>{
+      if(tocRef.current==null) return;
+      tocRef.current=null;
+      setPtr(p=>{ if(p>=60 && !refrescando){ refrescar(); return 60; } return 0; });
+    };
+    window.addEventListener("touchstart",inicio,{passive:true});
+    window.addEventListener("touchmove",mover,{passive:true});
+    window.addEventListener("touchend",soltar,{passive:true});
+    return ()=>{ window.removeEventListener("touchstart",inicio); window.removeEventListener("touchmove",mover); window.removeEventListener("touchend",soltar); };
+  });
+
   /* Al recuperar la conexión, lo pendiente se sube SOLO (sin que nadie toque nada) */
   const syncRef=React.useRef(null); syncRef.current=sincronizar;
   React.useEffect(()=>{
@@ -11131,7 +11178,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b24 · sincronización automática</div>
+              Versión 12 jul 2026 b25 · en línea y refresco propio</div>
           </div>
         </div>
       </div>
@@ -11225,6 +11272,13 @@ function App({usuario, onSalir}){
             )}
             <p className="sync-nota">La app sincroniza automáticamente al recuperar la conexión. Lo enviado queda pendiente de validación del proveedor.</p>
             <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setVerSync(false)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+      {(ptr>0 || refrescando) && (
+        <div className="ptr" style={{transform:`translateY(${refrescando?46:Math.max(0,ptr-8)}px)`,transition:refrescando?"transform .2s":"none"}}>
+          <div className={"ptr-c"+(refrescando?" gira":"")} style={{opacity:refrescando?1:Math.min(1,ptr/60)}}>
+            {refrescando ? "↻" : (ptr>=60 ? "↑" : "↓")}
           </div>
         </div>
       )}
