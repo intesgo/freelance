@@ -3034,49 +3034,6 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     <div className="h1">Tomar pedido</div>
     <div className="sub">Cliente, proveedor, producto y tipo de precio.</div>
 
-    {!cli && carrito.length===0 && (()=>{ /* mini-dashboard: cómo voy y a quién le toca pedir */
-      const visitas=clientesPorVisitar();
-      const urgentes=visitas.filter(x=>x.nivel==="rojo");
-      const qqMes=PEDIDOS_INI.reduce((s,p)=>s+(p.cant||0),0);
-      const META_QQ=800;
-      const pct=Math.min(100, Math.round(qqMes/META_QQ*100));
-      const R=27, C=2*Math.PI*R, dash=C*pct/100;
-      const SEM=[{d:"J",v:60},{d:"V",v:120},{d:"S",v:40},{d:"D",v:0},{d:"L",v:150},{d:"M",v:90},{d:"Hoy",v:0}];
-      const barras=[...SEM.slice(0,-1),{d:"Hoy",v:PEDIDOS_INI.filter(p=>p.fecha==="2026-06-12").reduce((s,p)=>s+(p.cant||0),0)}];
-      const maxB=Math.max(...barras.map(b=>b.v),1);
-      return (
-        <div className="card" style={{padding:"16px 16px 13px",marginBottom:14}}>
-          <div style={{display:"flex",gap:16,alignItems:"center"}}>
-            <svg width="104" height="104" viewBox="0 0 104 104" style={{flexShrink:0}}>
-              <circle cx="52" cy="52" r={R} fill="none" stroke="#EFEBE0" strokeWidth="11"/>
-              <circle cx="52" cy="52" r={R} fill="none" stroke={pct>=100?"var(--ok)":"var(--field)"} strokeWidth="11"
-                strokeLinecap="round" strokeDasharray={`${dash} ${C-dash}`} transform="rotate(-90 52 52)"/>
-              <text x="52" y="49" textAnchor="middle" style={{fontSize:15,fontWeight:800,fill:"var(--field)",fontFamily:"'Space Grotesk',sans-serif"}}>{qqMes} qq</text>
-              <text x="52" y="64" textAnchor="middle" style={{fontSize:9.5,fill:"var(--muted)"}}>{pct}% de la meta</text>
-            </svg>
-            <div style={{flex:1,minWidth:0}}>
-              <div className="meta" style={{fontWeight:700,marginBottom:6,fontSize:11.5}}>Vendido en 7 días (qq)</div>
-              <div style={{display:"flex",alignItems:"flex-end",gap:5,height:56}}>
-                {barras.map((b,i)=>(
-                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                    <div style={{width:"100%",height:Math.max(3,Math.round(b.v/maxB*44)),borderRadius:4,
-                      background: i===barras.length-1 ? "var(--field)" : "#CFE0D4"}}/>
-                    <span style={{fontSize:9,color:"var(--muted)"}}>{b.d}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          {visitas.length>0 && (
-            <button className="nchip" style={{width:"100%",marginTop:13,fontWeight:700,
-              borderColor:urgentes.length>0?"var(--clay)":undefined, color:urgentes.length>0?"var(--clay)":undefined}}
-              onClick={()=>setCli(visitas[0].cli)}>
-              📍 {visitas.length} por recomprar{urgentes.length>0?` · ${urgentes.length} urgente${urgentes.length!==1?"s":""}`:""} · toca para empezar con {visitas[0].cli.split(" ")[0]}
-            </button>
-          )}
-        </div>
-      );})()}
-
     <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
@@ -3232,6 +3189,53 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
     <div className={"stepwrap"+(prod?"":" off")}>
       
+      {!cli && carrito.length===0 && (()=>{ /* apoyo para tomar el pedido: qué se está pidiendo y a quién le toca */
+        const visitas=clientesPorVisitar();
+        const urgentes=visitas.filter(x=>x.nivel==="rojo");
+        const nPed=PEDIDOS_INI.length;
+        const qqMes=PEDIDOS_INI.reduce((s,p)=>s+(p.cant||0),0);
+        const prom=nPed?Math.round(qqMes/nPed):0;
+        /* productos más pedidos: lo que el cliente suele llevar */
+        const porProd={};
+        PEDIDOS_INI.forEach(p=>{ porProd[p.prod]=(porProd[p.prod]||0)+(p.cant||0); });
+        const top=Object.entries(porProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
+        const maxP=Math.max(...top.map(t=>t[1]),1);
+        return (
+          <div className="card" style={{padding:"15px 16px 13px",marginBottom:16}}>
+            <div className="meta" style={{fontWeight:700,fontSize:11.5,marginBottom:10}}>Para tu próximo pedido</div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:13}}>
+              {[["Pedidos del mes",String(nPed)],["Quintales",qqMes+" qq"],["Promedio",prom+" qq"]].map(([k,v])=>(
+                <div key={k} style={{textAlign:"center"}}>
+                  <div className="num" style={{fontSize:17,fontWeight:800,color:"var(--field)"}}>{v}</div>
+                  <div className="meta" style={{fontSize:10.5}}>{k}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="meta" style={{fontWeight:700,fontSize:11,marginBottom:6}}>Lo más pedido</div>
+            {top.map(([p,q])=>(
+              <div key={p} style={{marginBottom:7}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</span>
+                  <span className="num" style={{fontSize:12.5,color:"var(--muted)"}}>{q} qq</span>
+                </div>
+                <div style={{height:7,background:"#EFEBE0",borderRadius:5,overflow:"hidden"}}>
+                  <div style={{width:Math.round(q/maxP*100)+"%",height:"100%",background:"var(--field)",borderRadius:5}}/>
+                </div>
+              </div>
+            ))}
+
+            {visitas.length>0 && (
+              <button className="nchip" style={{width:"100%",marginTop:11,fontWeight:700,
+                borderColor:urgentes.length>0?"var(--clay)":undefined, color:urgentes.length>0?"var(--clay)":undefined}}
+                onClick={()=>setCli(visitas[0].cli)}>
+                📍 {visitas.length} cliente{visitas.length!==1?"s":""} por recomprar{urgentes.length>0?` · ${urgentes.length} urgente${urgentes.length!==1?"s":""}`:""}
+              </button>
+            )}
+          </div>
+        );})()}
+
       <div className="field"><label>Tipo de precio</label>
         <div className="tipogrid">
           {TIPOS_PRECIO.map(t=>{
@@ -11326,7 +11330,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b30 · pedido con dashboard</div>
+              Versión 13 jul 2026 b31 · dashboard de pedido</div>
           </div>
         </div>
       </div>
