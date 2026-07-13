@@ -2467,6 +2467,35 @@ const COMISION_FREELANCE = {
   2024: [80, 92, 105, 98, 115, 110, 125, 120, 108, 140, 155, 168],
 };
 
+/* Movimientos de comisión con dimensiones: permiten filtrar el gráfico por proveedor, producto,
+   cliente, provincia, ciudad, año — y verlo en dólares o en quintales. Los totales por mes cuadran
+   con COMISION_FREELANCE (2026: 142,138,165,150,180,189). */
+const COM_MOV = (()=>{
+  const CFG=[
+    /* cliente,             provincia,   ciudad,     provId,  producto,        peso */
+    ["Comercial Mendoza",   "Guayas",    "Milagro",  "PROV-C","Arroz Gustadina", .22],
+    ["Distribuidora Ríos",  "Guayas",    "Guayaquil","PROV-A","Arroz Gustadina", .26],
+    ["Bodega El Agricultor","Chimborazo","Riobamba", "PROV-A","Maíz Agripac",    .18],
+    ["Tienda La Esquina",   "Pichincha", "Sangolquí","PROV-C","Harina Ya",       .14],
+    ["Mayorista Santa Rosa","Pichincha", "Sangolquí","PROV-A","Azúcar Valdez",   .12],
+    ["Abarrotes Don Pepe",  "Imbabura",  "Ibarra",   "PROV-B","Azúcar Valdez",   .08],
+  ];
+  const PRECIO_QQ={"Arroz Gustadina":45, "Maíz Agripac":29, "Harina Ya":38, "Azúcar Valdez":49};
+  const out=[];
+  Object.entries(COMISION_FREELANCE).forEach(([anio,meses])=>{
+    meses.forEach((tot,i)=>{
+      if(tot<=0) return;
+      CFG.forEach(([cli,prov,ciu,provId,prod,peso],k)=>{
+        const valor=Math.round(tot*peso*100)/100;
+        if(valor<=0) return;
+        const qq=Math.round(valor/(PRECIO_QQ[prod]*0.03));  /* comisión ≈ 3% del precio por quintal */
+        out.push({anio:Number(anio), mes:i, valor, qq, cli, provincia:prov, ciudad:ciu, provId, producto:prod});
+      });
+    });
+  });
+  return out;
+})();
+
 const COMISIONES_PROVEEDOR = {
   2026: {
     "PROV-A": {meses:[
@@ -7591,6 +7620,29 @@ function Cuenta({usuario, onSalir}){
   const totalRetenida=resumenVend.reduce((a,v)=>a+v.retenida,0);
 
   const comFreelanceMes=COMISION_FREELANCE[anio]||Array(12).fill(0);
+  /* Reporte filtrable de comisión mes a mes */
+  const [medida,setMedida]=useState("usd");     // usd | qq
+  const [fProvR,setFProvR]=useState("Todos");
+  const [fProdR,setFProdR]=useState("Todos");
+  const [fCliR,setFCliR]=useState("Todos");
+  const [fProvinR,setFProvinR]=useState("Todas");
+  const [fCiudadR,setFCiudadR]=useState("Todas");
+  const [verFiltrosR,setVerFiltrosR]=useState(false);
+  const movs=COM_MOV.filter(m=>m.anio===anio);
+  const uniq=(c)=>Array.from(new Set(COM_MOV.map(x=>x[c]))).sort();
+  const movsF=movs.filter(m=>
+    (fProvR==="Todos"    || m.provId===fProvR) &&
+    (fProdR==="Todos"    || m.producto===fProdR) &&
+    (fCliR==="Todos"     || m.cli===fCliR) &&
+    (fProvinR==="Todas"  || m.provincia===fProvinR) &&
+    (fCiudadR==="Todas"  || m.ciudad===fCiudadR));
+  const serie=Array(12).fill(0);
+  movsF.forEach(m=>{ serie[m.mes]+= (medida==="usd" ? m.valor : m.qq); });
+  const nFiltrosR=[fProvR!=="Todos",fProdR!=="Todos",fCliR!=="Todos",fProvinR!=="Todas",fCiudadR!=="Todas"].filter(Boolean).length;
+  const limpiarR=()=>{setFProvR("Todos");setFProdR("Todos");setFCliR("Todos");setFProvinR("Todas");setFCiudadR("Todas");};
+  const ctxR=[ fProvR!=="Todos" ? (PROVEEDORES.find(p=>p.id===fProvR)||{}).nombre : null,
+    fProdR!=="Todos"?fProdR:null, fCliR!=="Todos"?fCliR:null,
+    fProvinR!=="Todas"?fProvinR:null, fCiudadR!=="Todas"?fCiudadR:null ].filter(Boolean).join(" · ");
 
   const [verProv,setVerProv]=useState(null);
   const dataProvAnio=COMISIONES_PROVEEDOR[anio]||{};
@@ -7653,12 +7705,42 @@ function Cuenta({usuario, onSalir}){
       </div>
 
       <div className="ficha-sec" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span>Comisión ganada mes a mes</span>
-        <select className="cm-anio" value={anio} onChange={e=>{setAnio(Number(e.target.value));setVerVend(null);setVerProv(null);}}>
-          {aniosCom.map(a=><option key={a} value={a}>{a}</option>)}
-        </select>
+        <span>Comisión mes a mes</span>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <select className="cm-anio" value={medida} onChange={e=>setMedida(e.target.value)}>
+            <option value="usd">Dólares</option><option value="qq">Quintales</option>
+          </select>
+          <select className="cm-anio" value={anio} onChange={e=>{setAnio(Number(e.target.value));setVerVend(null);setVerProv(null);}}>
+            {aniosCom.map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
       </div>
-      <BarrasComision valores={comFreelanceMes} color="var(--field-700)"/>
+
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+        <button className="nchip" style={{flex:1,fontWeight:700}} onClick={()=>setVerFiltrosR(v=>!v)}>
+          ⚙︎ Filtros{nFiltrosR>0?` · ${nFiltrosR}`:""} {verFiltrosR?"▲":"▼"}</button>
+        {nFiltrosR>0 && <button className="nchip" style={{color:"var(--clay)"}} onClick={limpiarR}>Limpiar</button>}
+      </div>
+      {verFiltrosR && (
+        <div className="card" style={{padding:"12px 14px",marginBottom:10,display:"grid",gap:8}}>
+          {[["Proveedor",fProvR,setFProvR,[["Todos","Todos"]].concat(PROVEEDORES.map(p=>[p.id,p.nombre]))],
+            ["Producto",fProdR,setFProdR,[["Todos","Todos"]].concat(uniq("producto").map(x=>[x,x]))],
+            ["Cliente",fCliR,setFCliR,[["Todos","Todos"]].concat(uniq("cli").map(x=>[x,x]))],
+            ["Provincia",fProvinR,setFProvinR,[["Todas","Todas"]].concat(uniq("provincia").map(x=>[x,x]))],
+            ["Ciudad",fCiudadR,setFCiudadR,[["Todas","Todas"]].concat(uniq("ciudad").map(x=>[x,x]))]
+          ].map(([lbl,val,set,opts])=>(
+            <label key={lbl} style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{flex:"0 0 78px",fontSize:12,color:"var(--muted)",fontWeight:700}}>{lbl}</span>
+              <select value={val} onChange={e=>set(e.target.value)}
+                style={{flex:1,minWidth:0,padding:"9px 10px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit",fontSize:13}}>
+                {opts.map(([v,t])=><option key={v} value={v}>{t}</option>)}
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
+      {ctxR && <div className="meta" style={{margin:"0 2px 8px",fontWeight:700,color:"var(--field)"}}>Filtrado: {ctxR}</div>}
+      <BarrasComision valores={serie} color="var(--field-700)" unidad={medida==="qq"?"qq":undefined}/>
 
       <div className="cu-block">
         <div className="cu-block-h"><span>Meta de ventas</span><span className="cu-pct">{metaPct}%</span></div>
@@ -11178,7 +11260,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b27 · comisiones unificadas</div>
+              Versión 12 jul 2026 b28 · reporte filtrable</div>
           </div>
         </div>
       </div>
