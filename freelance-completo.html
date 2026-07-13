@@ -1509,10 +1509,19 @@ const Pipe = ({n})=>(
   <div className="pipe">{ETAPAS.map((_,i)=>
     <span key={i} className={i<n?"done":i===n?"now":""}/> )}</div>
 );
-const Net = ({n, onClick})=>(
-  <button className="net" onClick={onClick}>
-    <span className={"dot "+(n>0?"off":"on")}></span>{n>0?`${n} sin enviar`:"Al día"}</button>
-);
+/* Indicador de sincronización: SOLO aparece sin conexión (con la app en línea, todo sube solo).
+   Mientras sincroniza muestra su aviso; al terminar desaparece. */
+const Net = ({n, online, sincronizando, onClick})=>{
+  if(sincronizando) return (
+    <button className="net" onClick={onClick}>
+      <span className="dot off"></span>Sincronizando…</button>
+  );
+  if(online || n===0) return null;
+  return (
+    <button className="net" onClick={onClick}>
+      <span className="dot off"></span>{n} sin enviar</button>
+  );
+};
 
 function VentasInicio(){
   const anios=Object.keys(VENTAS_PROVEEDOR).map(Number).sort((a,b)=>b-a);
@@ -10812,13 +10821,28 @@ function App({usuario, onSalir}){
   const [cliInicial,setCliInicial]=useState(null); // cliente precargado desde Ficha de cliente → Nuevo pedido
   const [pendientes,setPendientes]=useState(PENDIENTES_SYNC);
   const [verSync,setVerSync]=useState(false);
+  const [online,setOnline]=useState(typeof navigator!=="undefined" ? navigator.onLine!==false : true);
   const [sincronizando,setSincronizando]=useState(false);
   const show=m=>{setToast(m);setTimeout(()=>setToast(null),2600);};
-  const sincronizar=()=>{
-    if(pendientes.length===0){show("No hay nada pendiente. Estás al día.");return;}
+  const sincronizar=(auto)=>{
+    if(pendientes.length===0){ if(!auto) show("No hay nada pendiente. Estás al día."); return; }
+    const n=pendientes.length;
     setSincronizando(true);
-    setTimeout(()=>{ setPendientes([]); setSincronizando(false); show("Todo sincronizado con el sistema."); },1400);
+    setTimeout(()=>{
+      setPendientes([]); setSincronizando(false); setVerSync(false);
+      show(auto ? `Conexión recuperada: ${n} registro${n!==1?"s":""} sincronizado${n!==1?"s":""} ✓`
+                : "Todo sincronizado con el sistema.");
+    },1400);
   };
+  /* Al recuperar la conexión, lo pendiente se sube SOLO (sin que nadie toque nada) */
+  const syncRef=React.useRef(null); syncRef.current=sincronizar;
+  React.useEffect(()=>{
+    const subir=()=>{ setOnline(true); syncRef.current && syncRef.current(true); };
+    const caer =()=>{ setOnline(false); };
+    window.addEventListener("online",subir);
+    window.addEventListener("offline",caer);
+    return ()=>{ window.removeEventListener("online",subir); window.removeEventListener("offline",caer); };
+  },[]);
   const vender=(pres)=>{setProdInicial(pres);navegar("pedido");};
   const [hist,setHist]=useState([]);
   const backHandlerRef = React.useRef(null); // retroceso interno del módulo activo (modelo: Clientes)
@@ -10937,7 +10961,7 @@ function App({usuario, onSalir}){
             <button className="topbtn" onClick={irInicio}><span style={{fontSize:15}}>⌂</span> Inicio</button>
           </div>
         )}
-        <Net n={pendientes.length} onClick={()=>setVerSync(true)}/>
+        <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
       </div>
       <div className="body">
         {tab==="inicio" && <Inicio go={navegar}/>}
@@ -11107,7 +11131,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 12 jul 2026 b23 · solicitudes en la barra</div>
+              Versión 12 jul 2026 b24 · sincronización automática</div>
           </div>
         </div>
       </div>
