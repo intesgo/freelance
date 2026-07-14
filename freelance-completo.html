@@ -2476,6 +2476,16 @@ const PAGADOR = {
   riesgoso: {t:"Pagador riesgoso",  c:"#B5613C", ic:"⚠️"},
 };
 /* Detalle del bloqueo: qué factura lo origina, cuántos días vencida, cuánto y de qué proveedor */
+/* Todo se mide en quintales: 1 qq = 100 lb ≈ 45,4 kg */
+function aQuintales(nombre, cant){
+  const n=String(nombre||"").toLowerCase();
+  if(/\bqq\b|quintal/.test(n)) return cant;
+  const m=/(\d+(?:[.,]\d+)?)\s*kg/.exec(n);
+  if(m) return cant * (parseFloat(m[1].replace(",","."))/45.4);
+  const l=/(\d+(?:[.,]\d+)?)\s*lb/.exec(n);
+  if(l) return cant * (parseFloat(l[1].replace(",","."))/100);
+  return cant;
+}
 function detalleBloqueo(cliente){
   const vencidas=COBROS_INI.filter(c=>c.cli===cliente && /Vencida/i.test(c.vence))
     .map(c=>({...c, dias:Number((/Vencida\s+(\d+)/i.exec(c.vence)||[0,0])[1])}))
@@ -3207,8 +3217,18 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         toast(`Precargado de ${f.factura}: revisa, ajusta y agrega.`);
       };
       return (<>
-        <button className="ghost" style={{width:"100%",marginBottom:10,padding:"12px"}}
-          onClick={()=>setVerFact(v=>!v)}>📄 {verFact?"Ocultar":"Ver"} última factura · {f.factura} · {money(tot)}</button>
+        <button className="ghost" style={{width:"100%",marginBottom:10,padding:"12px 14px",textAlign:"left"}}
+          onClick={()=>setVerFact(v=>!v)}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>📄</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontWeight:700,fontSize:14}}>{verFact?"Ocultar":"Ver"} última factura</span>
+              <span style={{display:"block",fontSize:12.5,color:"var(--muted)",fontWeight:600}}>
+                {f.factura.split("-").pop()} · <b className="num" style={{color:"var(--field)"}}>{money(tot)}</b></span>
+            </span>
+            <span style={{color:"var(--muted)",fontSize:15}}>{verFact?"▲":"▼"}</span>
+          </span>
+        </button>
 
         {verFact && (
           <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
@@ -3270,14 +3290,25 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                 </div>
               </>);})()}
             <button className="cta" style={{marginTop:11,padding:"11px",fontSize:13.5}} onClick={repetir}>
-              🔁 Repetir este pedido · {f.items[0].prod} × {f.items[0].cant}</button>
+              🔁 Repetir este pedido · {Math.round(f.items.reduce((s,it)=>s+aQuintales(it.prod,it.cant),0))} qq</button>
           </div>
         )}
 
-        {!verFact && (
-          <button className="ghost" style={{width:"100%",marginBottom:14,padding:"12px"}} onClick={repetir}>
-            🔁 Repetir su último pedido · {f.items[0].prod} × {f.items[0].cant}</button>
-        )}
+        {!verFact && (()=>{
+          const qq=f.items.reduce((s,it)=>s+aQuintales(it.prod,it.cant),0);
+          return (
+            <button className="ghost" style={{width:"100%",marginBottom:14,padding:"12px 14px",textAlign:"left"}} onClick={repetir}>
+              <span style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16}}>🔁</span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontWeight:700,fontSize:14}}>Repetir último pedido</span>
+                  <span style={{display:"block",fontSize:12.5,color:"var(--muted)",fontWeight:600}}>
+                    {f.items.length} producto{f.items.length!==1?"s":""} · <b className="num" style={{color:"var(--field)"}}>{Math.round(qq)} qq</b></span>
+                </span>
+                <span style={{color:"var(--muted)",fontSize:15}}>›</span>
+              </span>
+            </button>
+          );})()}
       </>);
     })()}
 
@@ -11689,7 +11720,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b44 · factura alineada</div>
+              Versión 13 jul 2026 b45 · botones en dos líneas</div>
           </div>
         </div>
       </div>
