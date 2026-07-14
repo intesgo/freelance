@@ -3205,16 +3205,29 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       const ncDev=(f.ncs||[]).filter(n=>n.tipo==="devolucion").reduce((s,n)=>s+n.valor,0);
       const tot=sub+iva-(f.retencion||0)-(f.descuento||0)-ncPrecio-ncDev;
       const F={display:"flex",justifyContent:"space-between",gap:8,padding:"3px 0",fontSize:12.5};
-      /* repetir = volver a pedir lo de ESTA factura (misma fuente: nada de datos que no concuerdan) */
+      /* SELECCIÓN POR FACTURA: repite cliente + proveedor + TODOS los productos.
+         Los precios se traen VIGENTES (no los viejos de la factura); si cambiaron, se avisa. */
+      const buscarPres=(nombre)=> PRESENTACIONES.find(p=>p.nombre===nombre)
+        || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
+        || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
       const repetir=()=>{
-        const it=f.items[0];
-        const pres = PRESENTACIONES.find(p=>p.nombre===it.prod)
-                  || PRESENTACIONES.find(p=>it.prod.startsWith(p.marca))
-                  || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===it.prod.split(" ")[0]);
-        const pv = pres ? PROVEEDORES.find(x=>x.id===pres.provId) : null;
-        if(!pres || !pv){ toast("Ese producto ya no está en el catálogo; búscalo manualmente."); return; }
-        setProv(pv); setProd(pres); setCant(it.cant); setTipo("P1"); setPrecio(String(it.precio));
-        toast(`Precargado de ${f.factura}: revisa, ajusta y agrega.`);
+        const lineas=[], fuera=[], cambios=[];
+        let pv=null;
+        f.items.forEach((it,k)=>{
+          const pres=buscarPres(it.prod);
+          if(!pres){ fuera.push(it.prod); return; }
+          if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
+          const vig=pres.baseCredito;
+          if(Math.abs(vig-it.precio)>0.004) cambios.push(`${pres.marca} ${money(it.precio)}→${money(vig)}`);
+          lineas.push({ id:Date.now()+k, prod:pres, prodNombre:pres.nombre, unidad:pres.unidad,
+            tipo:"P1", tipoNombre:"Crédito", cant:it.cant, precio:vig, gratis:0, credito:true,
+            comisionTotal:0, requiere:false, motivoAuth:null });
+        });
+        if(!lineas.length){ toast("Ninguno de esos productos está en el catálogo; búscalos manualmente."); return; }
+        setProv(pv); setProd(null); setCarrito(lineas); setVerCarrito(true); setVerFact(false);
+        toast(fuera.length ? `Pedido repetido · ${lineas.length} producto(s). Fuera de catálogo: ${fuera.join(", ")}`
+          : cambios.length ? `Pedido repetido · precios actualizados: ${cambios.join(" · ")}`
+          : `Pedido repetido de ${f.factura}: revisa cantidades y precios.`);
       };
       return (<>
         <button className="ghost" style={{width:"100%",marginBottom:10,padding:"12px 14px",textAlign:"left"}}
@@ -3303,7 +3316,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                 <span style={{flex:1,minWidth:0}}>
                   <span style={{display:"block",fontWeight:700,fontSize:14}}>Repetir último pedido</span>
                   <span style={{display:"block",fontSize:12.5,color:"var(--muted)",fontWeight:600}}>
-                    {f.items.length} producto{f.items.length!==1?"s":""} · <b className="num" style={{color:"var(--field)"}}>{Math.round(qq)} qq</b></span>
+                    {f.items.length} producto{f.items.length!==1?"s":""} · <b className="num" style={{color:"var(--field)"}}>{Math.round(qq)} qq</b> · mismo proveedor</span>
                 </span>
                 <span style={{color:"var(--muted)",fontSize:15}}>›</span>
               </span>
@@ -6163,8 +6176,8 @@ const FACTURAS_DETALLE = {
   ],
   "Tienda La Esquina":[
     {factura:"001-001-000097", fecha:"19 may 2026", items:[
-      {prod:"Arroz Económico qq", cant:13, precio:33.50, iva:0},
-      {prod:"Azúcar Valdez · Saco 25 kg", cant:40, precio:12.00, iva:0}],
+      {prod:"Arroz Económico · Quintal (100 lb)", cant:13, precio:33.50, iva:0},
+      {prod:"Arroz Conejo · Saco 25 kg", cant:40, precio:12.00, iva:0}],
      retencion:6.00, descuento:5.50,
      ncs:[{num:"NC#733", tipo:"precio", motivo:"Ajuste de precio pactado", fecha:"21 may 2026", valor:12.00},
           {num:"NC#741", tipo:"devolucion", motivo:"Devolución", cant:"-2 sacos 25 kg", prod:"Arroz Conejo", fecha:"24 may 2026", valor:24.00}]},
@@ -11722,7 +11735,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b46 · ficha solo en la entrada</div>
+              Versión 13 jul 2026 b47 · pedido por factura</div>
           </div>
         </div>
       </div>
