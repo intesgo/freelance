@@ -3185,56 +3185,82 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
       }}/>}
 
-    {cli && carrito.length===0 && !prod && (()=>{  /* última factura del cliente, a la mano */
+    {cli && carrito.length===0 && !prod && (()=>{  /* última factura: venta y posventa, todo a la mano */
       const fs=(FACTURAS_DETALLE[cli]||[]);
       if(!fs.length) return null;
       const f=fs[0];
       const sub=f.items.reduce((s,it)=>s+it.cant*it.precio,0);
-      const ncs=(f.ncs||[]).reduce((s,n)=>s+n.valor,0);
-      const tot=sub-(f.retencion||0)-(f.descuento||0)-ncs;
+      const iva=f.items.reduce((s,it)=>s+it.cant*it.precio*((it.iva||0)/100),0);
+      const ncPrecio=(f.ncs||[]).filter(n=>n.tipo!=="devolucion").reduce((s,n)=>s+n.valor,0);
+      const ncDev=(f.ncs||[]).filter(n=>n.tipo==="devolucion").reduce((s,n)=>s+n.valor,0);
+      const tot=sub+iva-(f.retencion||0)-(f.descuento||0)-ncPrecio-ncDev;
+      const F={display:"flex",justifyContent:"space-between",gap:8,padding:"3px 0",fontSize:12.5};
+      /* repetir = volver a pedir lo de ESTA factura (misma fuente: nada de datos que no concuerdan) */
+      const repetir=()=>{
+        const it=f.items[0];
+        const pres = PRESENTACIONES.find(p=>p.nombre===it.prod)
+                  || PRESENTACIONES.find(p=>it.prod.startsWith(p.marca))
+                  || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===it.prod.split(" ")[0]);
+        const pv = pres ? PROVEEDORES.find(x=>x.id===pres.provId) : null;
+        if(!pres || !pv){ toast("Ese producto ya no está en el catálogo; búscalo manualmente."); return; }
+        setProv(pv); setProd(pres); setCant(it.cant); setTipo("P1"); setPrecio(String(it.precio));
+        toast(`Precargado de ${f.factura}: revisa, ajusta y agrega.`);
+      };
       return (<>
         <button className="ghost" style={{width:"100%",marginBottom:10,padding:"12px"}}
-          onClick={()=>setVerFact(v=>!v)}>📄 {verFact?"Ocultar":"Mostrar"} última factura · {f.factura}</button>
+          onClick={()=>setVerFact(v=>!v)}>📄 {verFact?"Ocultar":"Ver"} última factura · {f.factura} · {money(tot)}</button>
+
         {verFact && (
-          <div className="card" style={{padding:"12px 14px",marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:7}}>
-              <span style={{fontWeight:800,fontSize:13}}>{f.factura}</span>
+          <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
+              <span style={{fontWeight:800,fontSize:13.5}}>{f.factura}</span>
               <span className="meta" style={{fontSize:11.5}}>{f.fecha}</span>
             </div>
+
+            {/* venta */}
+            <div className="meta" style={{fontSize:10.5,fontWeight:700,marginBottom:3}}>PRODUCTOS</div>
             {f.items.map((it,k)=>(
-              <div key={k} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"3px 0"}}>
-                <span style={{fontSize:12.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {it.prod} <span className="meta">× {it.cant}</span></span>
-                <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>{money(it.cant*it.precio)}</b>
+              <div key={k} style={F}>
+                <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {it.prod} <span className="meta">{it.cant} × {money(it.precio)}</span></span>
+                <b className="num" style={{whiteSpace:"nowrap"}}>{money(it.cant*it.precio)}</b>
               </div>
             ))}
-            {(f.retencion>0 || f.descuento>0 || ncs>0) && (
-              <div className="meta" style={{fontSize:11.5,marginTop:4}}>
-                {f.retencion>0?`Rte. -${money(f.retencion)} `:""}{f.descuento>0?`Desc. -${money(f.descuento)} `:""}{ncs>0?`NC -${money(ncs)}`:""}
-              </div>
-            )}
-            <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid var(--line)",marginTop:6,paddingTop:6}}>
-              <span style={{fontWeight:800,fontSize:13}}>Total</span>
-              <b className="num" style={{fontSize:15,fontWeight:800}}>{money(tot)}</b>
+            <div style={{...F,borderTop:"1px solid var(--line)",marginTop:5,paddingTop:5}}>
+              <span className="meta">Subtotal</span><b className="num">{money(sub)}</b>
             </div>
+            {iva>0 && <div style={F}><span className="meta">IVA</span><b className="num">{money(iva)}</b></div>}
+            {f.retencion>0 && <div style={F}><span className="meta">Retención</span><b className="num" style={{color:"var(--clay)"}}>−{money(f.retencion)}</b></div>}
+            {f.descuento>0 && <div style={F}><span className="meta">Descuento</span><b className="num" style={{color:"var(--clay)"}}>−{money(f.descuento)}</b></div>}
+
+            {/* posventa: notas de crédito */}
+            {(f.ncs||[]).length>0 && (<>
+              <div className="meta" style={{fontSize:10.5,fontWeight:700,margin:"9px 0 3px"}}>POSVENTA · NOTAS DE CRÉDITO</div>
+              {(f.ncs||[]).map((n,k)=>(
+                <div key={k} style={F}>
+                  <span style={{minWidth:0}}>
+                    <span style={{fontWeight:600}}>{n.num}</span>
+                    <span className="meta"> · {n.tipo==="devolucion" ? `devolución ${n.cant} ${n.prod}` : n.motivo} · {n.fecha}</span>
+                  </span>
+                  <b className="num" style={{color:"var(--clay)",whiteSpace:"nowrap"}}>−{money(n.valor)}</b>
+                </div>
+              ))}
+            </>)}
+
+            <div style={{display:"flex",justifyContent:"space-between",borderTop:"1.5px solid var(--field)",marginTop:7,paddingTop:7}}>
+              <span style={{fontWeight:800,fontSize:14}}>Total facturado</span>
+              <b className="num" style={{fontSize:16,fontWeight:800}}>{money(tot)}</b>
+            </div>
+            <button className="cta" style={{marginTop:11,padding:"11px",fontSize:13.5}} onClick={repetir}>
+              🔁 Repetir este pedido · {f.items[0].prod} × {f.items[0].cant}</button>
           </div>
         )}
-      </>);
-    })()}
 
-    {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
-      const ult = PEDIDOS_INI.find(p=>p.cli===cli);
-      if(!ult) return null;
-      return (
-        <button className="ghost" style={{marginTop:2,marginBottom:14}} onClick={()=>{
-          const pres = PRESENTACIONES.find(p=>p.nombre===ult.prod) || PRESENTACIONES.find(p=>ult.prod && p.nombre && ult.prod.startsWith(p.marca));
-          const pv = pres ? PROVEEDORES.find(x=>x.id===pres.provId) : null;
-          if(!pres || !pv){ toast("No pude precargar su última compra (producto fuera de catálogo)."); return; }
-          setProv(pv); setProd(pres); setCant(ult.cant);
-          setTipo(ult.cond==="Contado"?"P2":"P1"); setPrecio(String(ult.precio));
-          toast("Última compra precargada: revisa, ajusta y agrega.");
-        }}>🔁 Repetir su último pedido · {ult.prod} × {ult.cant}</button>
-      );
+        {!verFact && (
+          <button className="ghost" style={{width:"100%",marginBottom:14,padding:"12px"}} onClick={repetir}>
+            🔁 Repetir su último pedido · {f.items[0].prod} × {f.items[0].cant}</button>
+        )}
+      </>);
     })()}
 
     {cli && (()=>{  /* ficha del cliente: estado, hábitos y el bloqueo con su salida */
@@ -3710,7 +3736,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </div>
     )}
 
-    <button className="cta" disabled={!valido}
+    {prod && <button className="cta" disabled={!valido}
       onClick={()=>{
         const item={
           id:Date.now(), prod, prodNombre:prod.nombre, unidad:prod.unidad,
@@ -3727,7 +3753,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         resetProducto();
         setVerCarrito(true);
       }}>
-      {requiereAutorizacion ? "Agregar (con autorización)" : "Agregar al pedido"}</button>
+      {requiereAutorizacion ? "Agregar (con autorización)" : "Agregar al pedido"}</button>}
 
     {carrito.length>0 && !verCarrito && (
       <button onClick={()=>setVerCarrito(true)}
@@ -6086,8 +6112,11 @@ const FACTURAS_DETALLE = {
   ],
   "Tienda La Esquina":[
     {factura:"001-001-000097", fecha:"19 may 2026", items:[
-      {prod:"Arroz Económico qq", cant:13, precio:33.50}],
-     retencion:0, descuento:5.50, ncs:[]},
+      {prod:"Arroz Económico qq", cant:13, precio:33.50, iva:0},
+      {prod:"Azúcar Valdez · Saco 25 kg", cant:40, precio:12.00, iva:0}],
+     retencion:6.00, descuento:5.50,
+     ncs:[{num:"NC#733", tipo:"precio", motivo:"Ajuste de precio pactado", fecha:"21 may 2026", valor:12.00},
+          {num:"NC#741", tipo:"devolucion", motivo:"Devolución", cant:"-2 sacos 25 kg", prod:"Azúcar Valdez", fecha:"24 may 2026", valor:24.00}]},
   ],
   "Mayorista Santa Rosa":[
     {factura:"001-001-000110", fecha:"28 may 2026", items:[
@@ -11642,7 +11671,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b42 · pedido ordenado</div>
+              Versión 13 jul 2026 b43 · factura completa</div>
           </div>
         </div>
       </div>
