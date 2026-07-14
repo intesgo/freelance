@@ -1526,6 +1526,8 @@ const COMO_FUNCIONA = [
    d:"El efectivo cobrado se deposita en máximo 24 horas. El pendiente no se cancela con el cierre del día: arrastra al siguiente."},
   {mod:"Cobros", ic:"🏦", t:"Dinero bancarizado",
    d:"Cuentan como bancarizados los depósitos, las transferencias y el efectivo ya depositado. El cheque no lo es hasta efectivizarse."},
+  {mod:"Pedidos", ic:"🔒", t:"Tu base de precio",
+   d:"Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil."},
   {mod:"Cartera", ic:"📅", t:"Cheques posfechados",
    d:"Ocupan cupo del cliente hasta que se efectivizan."},
   {mod:"Comisiones", ic:"👥", t:"Comisión de tu equipo",
@@ -3049,6 +3051,7 @@ function BannerArroz(){
 }
 
 function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
+  const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
   const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
   const [pidiendo,setPidiendo]=useState(false);   // hoja de solicitud abierta
   const [mtvAut,setMtvAut]=useState("paga_hoy");
@@ -3173,6 +3176,67 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
     {!cli && carrito.length===0 && <BannerArroz/>}
 
+    {cli && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
+      onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
+      hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
+      render={{
+        text:p=>p.nombre,
+        option:p=>(<div className="o1">{p.nombre}</div>),
+        picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
+      }}/>}
+
+    {cli && carrito.length===0 && !prod && (()=>{  /* última factura del cliente, a la mano */
+      const fs=(FACTURAS_DETALLE[cli]||[]);
+      if(!fs.length) return null;
+      const f=fs[0];
+      const sub=f.items.reduce((s,it)=>s+it.cant*it.precio,0);
+      const ncs=(f.ncs||[]).reduce((s,n)=>s+n.valor,0);
+      const tot=sub-(f.retencion||0)-(f.descuento||0)-ncs;
+      return (<>
+        <button className="ghost" style={{width:"100%",marginBottom:10,padding:"12px"}}
+          onClick={()=>setVerFact(v=>!v)}>📄 {verFact?"Ocultar":"Mostrar"} última factura · {f.factura}</button>
+        {verFact && (
+          <div className="card" style={{padding:"12px 14px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:7}}>
+              <span style={{fontWeight:800,fontSize:13}}>{f.factura}</span>
+              <span className="meta" style={{fontSize:11.5}}>{f.fecha}</span>
+            </div>
+            {f.items.map((it,k)=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"3px 0"}}>
+                <span style={{fontSize:12.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {it.prod} <span className="meta">× {it.cant}</span></span>
+                <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>{money(it.cant*it.precio)}</b>
+              </div>
+            ))}
+            {(f.retencion>0 || f.descuento>0 || ncs>0) && (
+              <div className="meta" style={{fontSize:11.5,marginTop:4}}>
+                {f.retencion>0?`Rte. -${money(f.retencion)} `:""}{f.descuento>0?`Desc. -${money(f.descuento)} `:""}{ncs>0?`NC -${money(ncs)}`:""}
+              </div>
+            )}
+            <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid var(--line)",marginTop:6,paddingTop:6}}>
+              <span style={{fontWeight:800,fontSize:13}}>Total</span>
+              <b className="num" style={{fontSize:15,fontWeight:800}}>{money(tot)}</b>
+            </div>
+          </div>
+        )}
+      </>);
+    })()}
+
+    {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
+      const ult = PEDIDOS_INI.find(p=>p.cli===cli);
+      if(!ult) return null;
+      return (
+        <button className="ghost" style={{marginTop:2,marginBottom:14}} onClick={()=>{
+          const pres = PRESENTACIONES.find(p=>p.nombre===ult.prod) || PRESENTACIONES.find(p=>ult.prod && p.nombre && ult.prod.startsWith(p.marca));
+          const pv = pres ? PROVEEDORES.find(x=>x.id===pres.provId) : null;
+          if(!pres || !pv){ toast("No pude precargar su última compra (producto fuera de catálogo)."); return; }
+          setProv(pv); setProd(pres); setCant(ult.cant);
+          setTipo(ult.cond==="Contado"?"P2":"P1"); setPrecio(String(ult.precio));
+          toast("Última compra precargada: revisa, ajusta y agrega.");
+        }}>🔁 Repetir su último pedido · {ult.prod} × {ult.cant}</button>
+      );
+    })()}
+
     {cli && (()=>{  /* ficha del cliente: estado, hábitos y el bloqueo con su salida */
       const pf=PERFIL_CLIENTE[cli]||{};
       const pg=PAGADOR[pf.pagador]||{};
@@ -3290,30 +3354,6 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           )}
         </div>
       );})()}
-
-    {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
-      const ult = PEDIDOS_INI.find(p=>p.cli===cli);
-      if(!ult) return null;
-      return (
-        <button className="ghost" style={{marginTop:2,marginBottom:14}} onClick={()=>{
-          const pres = PRESENTACIONES.find(p=>p.nombre===ult.prod) || PRESENTACIONES.find(p=>ult.prod && p.nombre && ult.prod.startsWith(p.marca));
-          const pv = pres ? PROVEEDORES.find(x=>x.id===pres.provId) : null;
-          if(!pres || !pv){ toast("No pude precargar su última compra (producto fuera de catálogo)."); return; }
-          setProv(pv); setProd(pres); setCant(ult.cant);
-          setTipo(ult.cond==="Contado"?"P2":"P1"); setPrecio(String(ult.precio));
-          toast("Última compra precargada: revisa, ajusta y agrega.");
-        }}>🔁 Repetir su último pedido · {ult.prod} × {ult.cant}</button>
-      );
-    })()}
-
-    {cli && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
-      onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
-      hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
-      render={{
-        text:p=>p.nombre,
-        option:p=>(<div className="o1">{p.nombre}</div>),
-        picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
-      }}/>}
 
     {prov && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
@@ -3699,9 +3739,6 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         <span className="num">comisión {money(totalComisionCarrito)} · Ver ›</span>
       </button>
     )}
-
-    <div className="lock"><span>🔒</span>
-      <span>Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil.</span></div>
 
     {guardadoOk && (
       <div className="ov" onClick={()=>setGuardadoOk(null)}>
@@ -11605,7 +11642,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b41 · banner de arroz</div>
+              Versión 13 jul 2026 b42 · pedido ordenado</div>
           </div>
         </div>
       </div>
