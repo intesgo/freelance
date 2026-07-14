@@ -3062,6 +3062,7 @@ function BannerArroz(){
 
 function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
   const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
+  const [verHist,setVerHist]=useState(false);     // desplegar el historial de compras del producto
   const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
   const [pidiendo,setPidiendo]=useState(false);   // hoja de solicitud abierta
   const [mtvAut,setMtvAut]=useState("paga_hoy");
@@ -3211,23 +3212,26 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
         || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
       const repetir=()=>{
-        const lineas=[], fuera=[], cambios=[];
-        let pv=null;
+        const lineas=[], fuera=[]; let pv=null, nAjuste=0;
         f.items.forEach((it,k)=>{
           const pres=buscarPres(it.prod);
           if(!pres){ fuera.push(it.prod); return; }
           if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
-          const vig=pres.baseCredito;
-          if(Math.abs(vig-it.precio)>0.004) cambios.push(`${pres.marca} ${money(it.precio)}→${money(vig)}`);
+          const base=pres.baseCredito;                       /* base VIGENTE hoy (crédito, P1) */
+          const precio=it.precio;                            /* precio de la factura repetida */
+          const com=Math.round((precio-base)*it.cant*100)/100;
+          const ajustar = precio < base-0.004;               /* quedó bajo la base de hoy: hay que corregirlo */
+          if(ajustar) nAjuste++;
           lineas.push({ id:Date.now()+k, prod:pres, prodNombre:pres.nombre, unidad:pres.unidad,
-            tipo:"P1", tipoNombre:"Crédito", cant:it.cant, precio:vig, gratis:0, credito:true,
-            comisionTotal:0, requiere:false, motivoAuth:null });
+            tipo:"P1", tipoNombre:"Crédito", cant:it.cant, precio, gratis:0, credito:true,
+            comisionTotal:com, requiere:false, motivoAuth:null,
+            baseVigente:base, ajustar, precioFactura:precio });
         });
         if(!lineas.length){ toast("Ninguno de esos productos está en el catálogo; búscalos manualmente."); return; }
         setProv(pv); setProd(null); setCarrito(lineas); setVerCarrito(true); setVerFact(false);
         toast(fuera.length ? `Pedido repetido · ${lineas.length} producto(s). Fuera de catálogo: ${fuera.join(", ")}`
-          : cambios.length ? `Pedido repetido · precios actualizados: ${cambios.join(" · ")}`
-          : `Pedido repetido de ${f.factura}: revisa cantidades y precios.`);
+          : nAjuste ? `⚠️ ${nAjuste} precio(s) quedaron bajo la base vigente: ajústalos antes de enviar`
+          : `Pedido repetido de ${f.factura} con sus precios y cantidades: revisa y envía.`);
       };
       return (<>
         <button className="ghost" style={{width:"100%",marginBottom:10,padding:"12px 14px",textAlign:"left"}}
@@ -3467,9 +3471,20 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           </div>
         </div>
 
-        <div className="pc-hist-t">🕘 Compras de {cli} · últimos 3 meses</div>
+        <button className="ghost" style={{width:"100%",margin:"6px 0 4px",padding:"10px 12px",textAlign:"left"}}
+          onClick={()=>setVerHist(v=>!v)}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:15}}>🕘</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontWeight:700,fontSize:13.5}}>Historial de compras de este cliente</span>
+              <span style={{display:"block",fontSize:11.5,color:"var(--muted)",fontWeight:600}}>
+                {resumen ? `${resumen.total} ${prod.unidad} · promedio ${money(resumen.promedio)}` : "Sin compras en 3 meses"}</span>
+            </span>
+            <span style={{color:"var(--muted)",fontSize:14}}>{verHist?"▲":"▼"}</span>
+          </span>
+        </button>
 
-        {resumen && (
+        {verHist && resumen && (
           <div className="pc-resumen">
             <div className="pc-rcell">
               <div className="pc-rk">Precio promedio</div>
@@ -3531,7 +3546,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             })}
           </div>
         ) : (
-          <div className="pc-empty">{cli} no ha comprado {prod.nombre} en los últimos 3 meses.</div>
+          verHist && <div className="pc-empty">{cli} no ha comprado {prod.nombre} en los últimos 3 meses.</div>
         )}
       </div>
     )}
@@ -3877,8 +3892,16 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                 </div>
                 <div className="det">
                   {it.cant} {it.unidad}{it.gratis>0?` + ${it.gratis} gratis`:""} · {it.tipoNombre} · {money(it.precio)}
-                  {" · "}<span className="ok-foto">{it.requiere?"comisión a confirmar":"comisión "+money(it.comisionTotal)}</span>
+                  {" · "}<span className="ok-foto" style={it.comisionTotal<0?{color:"var(--clay)"}:undefined}>
+                    {it.requiere?"comisión a confirmar":"comisión "+money(it.comisionTotal)}</span>
                 </div>
+                {it.ajustar && (
+                  <div style={{marginTop:5,background:"#FBEDE7",border:"1px solid var(--clay)",borderRadius:9,padding:"7px 9px"}}>
+                    <div style={{fontSize:11.5,color:"var(--clay)",fontWeight:700}}>
+                      ⚠️ El precio de la factura ({money(it.precioFactura)}) quedó bajo la base vigente ({money(it.baseVigente)})</div>
+                    <div className="meta" style={{fontSize:11,marginTop:2}}>Ajústalo con “Editar” antes de enviar el pedido.</div>
+                  </div>
+                )}
               </div>
             ))}
 
@@ -3890,7 +3913,13 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             </div>
           )}
 
-          <button className="cta" disabled={carrito.length===0}
+          {carrito.some(x=>x.ajustar) && (
+            <div style={{background:"#FBEDE7",border:"1px solid var(--clay)",borderRadius:10,padding:"9px 11px",margin:"8px 0"}}>
+              <span style={{fontSize:12,color:"var(--clay)",fontWeight:700}}>
+                Hay {carrito.filter(x=>x.ajustar).length} precio(s) bajo la base vigente. Corrígelos para poder enviar.</span>
+            </div>
+          )}
+          <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar)}
             onClick={()=>{
               if(onGuardarPedido) onGuardarPedido({cli, prov, carrito});
               const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
@@ -11735,7 +11764,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b47 · pedido por factura</div>
+              Versión 13 jul 2026 b48 · precios de la factura</div>
           </div>
         </div>
       </div>
