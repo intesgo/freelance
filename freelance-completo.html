@@ -3217,40 +3217,58 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
               <span className="meta" style={{fontSize:11.5}}>{f.fecha}</span>
             </div>
 
-            {/* venta */}
-            <div className="meta" style={{fontSize:10.5,fontWeight:700,marginBottom:3}}>PRODUCTOS</div>
-            {f.items.map((it,k)=>(
-              <div key={k} style={F}>
-                <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {it.prod} <span className="meta">{it.cant} × {money(it.precio)}</span></span>
-                <b className="num" style={{whiteSpace:"nowrap"}}>{money(it.cant*it.precio)}</b>
-              </div>
-            ))}
-            <div style={{...F,borderTop:"1px solid var(--line)",marginTop:5,paddingTop:5}}>
-              <span className="meta">Subtotal</span><b className="num">{money(sub)}</b>
-            </div>
-            {iva>0 && <div style={F}><span className="meta">IVA</span><b className="num">{money(iva)}</b></div>}
-            {f.retencion>0 && <div style={F}><span className="meta">Retención</span><b className="num" style={{color:"var(--clay)"}}>−{money(f.retencion)}</b></div>}
-            {f.descuento>0 && <div style={F}><span className="meta">Descuento</span><b className="num" style={{color:"var(--clay)"}}>−{money(f.descuento)}</b></div>}
-
-            {/* posventa: notas de crédito */}
-            {(f.ncs||[]).length>0 && (<>
-              <div className="meta" style={{fontSize:10.5,fontWeight:700,margin:"9px 0 3px"}}>POSVENTA · NOTAS DE CRÉDITO</div>
-              {(f.ncs||[]).map((n,k)=>(
-                <div key={k} style={F}>
-                  <span style={{minWidth:0}}>
-                    <span style={{fontWeight:600}}>{n.num}</span>
-                    <span className="meta"> · {n.tipo==="devolucion" ? `devolución ${n.cant} ${n.prod}` : n.motivo} · {n.fecha}</span>
-                  </span>
-                  <b className="num" style={{color:"var(--clay)",whiteSpace:"nowrap"}}>−{money(n.valor)}</b>
+            {/* cuerpo de la factura: columnas alineadas */}
+            {(()=>{
+              const G="1fr 30px 58px 66px";                 /* producto · cant · p.unit · total */
+              const TH={fontSize:9.5,fontWeight:700,color:"var(--muted)",letterSpacing:".04em"};
+              const TD={fontSize:12,fontVariantNumeric:"tabular-nums"};
+              const R={textAlign:"right"};
+              const TOT=(lbl,val,col)=>(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:6,padding:"2.5px 0"}}>
+                  <span className="meta" style={{...R,fontSize:11.5}}>{lbl}</span>
+                  <b className="num" style={{...R,fontSize:12.5,color:col||"var(--field)"}}>{val}</b>
                 </div>
-              ))}
-            </>)}
+              );
+              return (<>
+                <div style={{display:"grid",gridTemplateColumns:G,gap:6,padding:"0 0 4px",borderBottom:"1px solid var(--line)"}}>
+                  <span style={TH}>PRODUCTO</span><span style={{...TH,...R}}>CANT</span>
+                  <span style={{...TH,...R}}>P. UNIT</span><span style={{...TH,...R}}>TOTAL</span>
+                </div>
+                {f.items.map((it,k)=>(
+                  <div key={k} style={{display:"grid",gridTemplateColumns:G,gap:6,padding:"5px 0",borderBottom:"1px solid #F2F4F1"}}>
+                    <span style={{...TD,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.prod}</span>
+                    <span className="num" style={{...TD,...R}}>{it.cant}</span>
+                    <span className="num" style={{...TD,...R,color:"var(--muted)"}}>{money(it.precio).replace("$","")}</span>
+                    <b className="num" style={{...TD,...R}}>{money(it.cant*it.precio).replace("$","")}</b>
+                  </div>
+                ))}
 
-            <div style={{display:"flex",justifyContent:"space-between",borderTop:"1.5px solid var(--field)",marginTop:7,paddingTop:7}}>
-              <span style={{fontWeight:800,fontSize:14}}>Total facturado</span>
-              <b className="num" style={{fontSize:16,fontWeight:800}}>{money(tot)}</b>
-            </div>
+                <div style={{marginTop:7}}>
+                  {TOT("Subtotal", money(sub))}
+                  {iva>0 && TOT("IVA", money(iva))}
+                  {f.retencion>0 && TOT("Retención", "−"+money(f.retencion), "var(--clay)")}
+                  {f.descuento>0 && TOT("Descuento", "−"+money(f.descuento), "var(--clay)")}
+                </div>
+
+                {(f.ncs||[]).length>0 && (<>
+                  <div style={{...TH,margin:"9px 0 4px"}}>POSVENTA · NOTAS DE CRÉDITO</div>
+                  {(f.ncs||[]).map((n,k)=>(
+                    <div key={k} style={{display:"grid",gridTemplateColumns:"1fr 74px",gap:6,padding:"4px 0",borderBottom:"1px solid #F2F4F1"}}>
+                      <span style={{fontSize:11.5,lineHeight:1.35,minWidth:0}}>
+                        <b>{n.num}</b> <span className="meta">{n.tipo==="devolucion" ? `devolución ${n.cant} ${n.prod}` : n.motivo}</span>
+                        <span className="meta" style={{display:"block",fontSize:10.5}}>{n.fecha}</span>
+                      </span>
+                      <b className="num" style={{...R,fontSize:12.5,color:"var(--clay)",whiteSpace:"nowrap"}}>−{money(n.valor).replace("$","")}</b>
+                    </div>
+                  ))}
+                  {TOT("Total notas de crédito", "−"+money(ncPrecio+ncDev), "var(--clay)")}
+                </>)}
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,borderTop:"1.5px solid var(--field)",marginTop:8,paddingTop:8}}>
+                  <span style={{textAlign:"right",fontWeight:800,fontSize:13.5}}>TOTAL FACTURADO</span>
+                  <b className="num" style={{textAlign:"right",fontSize:16,fontWeight:800}}>{money(tot)}</b>
+                </div>
+              </>);})()}
             <button className="cta" style={{marginTop:11,padding:"11px",fontSize:13.5}} onClick={repetir}>
               🔁 Repetir este pedido · {f.items[0].prod} × {f.items[0].cant}</button>
           </div>
@@ -3263,7 +3281,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </>);
     })()}
 
-    {cli && (()=>{  /* ficha del cliente: estado, hábitos y el bloqueo con su salida */
+    {cli && !verFact && (()=>{  /* ficha del cliente (se aparta mientras se ve la factura) */
       const pf=PERFIL_CLIENTE[cli]||{};
       const pg=PAGADOR[pf.pagador]||{};
       const bq=detalleBloqueo(cli);
@@ -11671,7 +11689,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b43 · factura completa</div>
+              Versión 13 jul 2026 b44 · factura alineada</div>
           </div>
         </div>
       </div>
