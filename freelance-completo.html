@@ -704,6 +704,9 @@
     border-radius:12px;background:#fff}
   .ss .box.dis{background:#F0EDE4;color:var(--muted)}
   .ss .box:focus-within{border-color:var(--field-700)}
+  /* buscador de cliente destacado en Tomar pedido */
+  .busc-cliente .box{border:2px solid var(--field);background:#F7FBF8}
+  .busc-cliente .mag{color:var(--field);font-weight:800}
   .ss .box input{flex:1;border:none;outline:none;padding:0;background:transparent}
   .ss .box .mag{color:var(--muted);font-size:15px}
   .ss .box .clr{color:var(--muted);font-size:18px;padding:0 2px}
@@ -1115,6 +1118,17 @@
   button:active:not([disabled]){transform:translateY(1px)}
   @media (prefers-reduced-motion:reduce){.fx-entrar{animation:none!important}}
 @keyframes pfZoom{from{transform:scale(.55);opacity:0}to{transform:scale(1);opacity:1}}
+
+  /* ── Mini-tarjetas dashboard Tomar pedido ── */
+  @keyframes dashPop{from{opacity:0;transform:translateY(10px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .dash-card{animation:dashPop .42s cubic-bezier(.34,1.4,.5,1) both;transition:transform .12s ease, box-shadow .18s ease, border-color .18s ease}
+  .dash-card:active:not([disabled]){transform:scale(.95)!important}
+  @keyframes barGrow{from{width:0}}
+  .bar-grow{animation:barGrow .6s cubic-bezier(.2,.8,.2,1) both}
+  /* buscador de cliente resaltado */
+  @keyframes buscHalo{0%,100%{box-shadow:0 0 0 0 rgba(46,107,67,.28)}50%{box-shadow:0 0 0 6px rgba(46,107,67,0)}}
+  .busc-cliente{animation:buscHalo 2.4s ease-in-out 3}
+  @media (prefers-reduced-motion:reduce){.dash-card,.bar-grow,.busc-cliente{animation:none!important}}
 
   /* ── Módulo Clientes: dictado por voz ── */
   .mic{border:none;background:transparent;font-size:17px;padding:0 2px;cursor:pointer;line-height:1;flex-shrink:0}
@@ -3085,6 +3099,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [guardadoOk,setGuardadoOk]=useState(null);   // pedido recién guardado → siguiente acción
   const [codigo,setCodigo]=useState("");           // código de desbloqueo ingresado
   const [desbloqueado,setDesbloqueado]=useState(false);
+  const [dashAbierto,setDashAbierto]=useState(null); // tarjeta del dashboard de entrada abierta: entregar|mes|recompra|top
 
   const motivos = cli ? motivosBloqueo(cli) : [];
   const bloqueado = motivos.length>0 && !desbloqueado;
@@ -3173,6 +3188,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     <div className="h1">Tomar pedido</div>
     <div className="sub">Cliente, proveedor, producto y tipo de precio.</div>
 
+    <div className="busc-cliente">
     <SearchSelect label="Cliente" items={CLIENTES} sinLabel value={cli} multiPalabra
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);setProv(null);setProd(null);reset();}}
       onClear={()=>{ if(carrito.length===0){ setCli(null);setCodigo("");setDesbloqueado(false);setProv(null);setProd(null);reset(); } }}
@@ -3182,10 +3198,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         option:c=>(<><div className="o1">{c}</div>
           {(REFERENCIALES[c]||[]).length>0 && <div className="o2">Factura a: {REFERENCIALES[c].join(" · ")}</div>}</>),
         picked:c=>(<><div className="p1">{c}</div>
-          <div className="p2">{(REFERENCIALES[c]||[]).length>0?`Factura a: ${REFERENCIALES[c].join(" · ")}`:"Cliente comprador"}</div></>)
+          <div className="p2">Cliente</div></>)
       }}/>
-
-    {!cli && carrito.length===0 && <BannerArroz/>}
+    </div>
 
     {cli && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
@@ -3193,7 +3208,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       render={{
         text:p=>p.nombre,
         option:p=>(<div className="o1">{p.nombre}</div>),
-        picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
+        picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor</div></>)
       }}/>}
 
     {cli && carrito.length===0 && !prod && (()=>{  /* última factura: venta y posventa, todo a la mano */
@@ -3551,49 +3566,111 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </div>
     )}
 
-    {!cli && carrito.length===0 && (()=>{ /* apoyo para tomar el pedido: desaparece al escoger cliente */
+    {!cli && carrito.length===0 && (()=>{ /* mini-dashboard de entrada: desaparece al escoger cliente */
         const visitas=clientesPorVisitar();
         const urgentes=visitas.filter(x=>x.nivel==="rojo");
         const nPed=PEDIDOS_INI.length;
         const qqMes=PEDIDOS_INI.reduce((s,p)=>s+(p.cant||0),0);
         const prom=nPed?Math.round(qqMes/nPed):0;
-        /* productos más pedidos: lo que el cliente suele llevar */
+        /* pendientes de entregar: facturados/despachados que aún no llegan al cliente */
+        const porEntregar=PEDIDOS_INI.filter(p=>["Facturado","Despachado","Enviado al proveedor","En ruta"].includes(p.estado));
+        const qqEntregar=porEntregar.reduce((s,p)=>s+(p.cant||0),0);
+        /* productos más pedidos */
         const porProd={};
         PEDIDOS_INI.forEach(p=>{ porProd[p.prod]=(porProd[p.prod]||0)+(p.cant||0); });
         const top=Object.entries(porProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
         const maxP=Math.max(...top.map(t=>t[1]),1);
-        return (
-          <div className="card" style={{padding:"15px 16px 13px",marginBottom:16}}>
-            <div className="meta" style={{fontWeight:700,fontSize:11.5,marginBottom:10}}>Para tu próximo pedido</div>
+        const abrir=k=>setDashAbierto(dashAbierto===k?null:k);
 
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:13}}>
-              {[["Pedidos del mes",String(nPed)],["Quintales",qqMes+" qq"],["Promedio",prom+" qq"]].map(([k,v])=>(
-                <div key={k} style={{textAlign:"center"}}>
-                  <div className="num" style={{fontSize:17,fontWeight:800,color:"var(--field)"}}>{v}</div>
-                  <div className="meta" style={{fontSize:10.5}}>{k}</div>
-                </div>
+        const TARJETAS=[
+          {k:"entregar", ic:"🚚", num:String(porEntregar.length), lbl:"Por entregar", sub:qqEntregar+" qq", clay:porEntregar.length>0},
+          {k:"mes",      ic:"📋", num:String(nPed),               lbl:"Pedidos del mes", sub:qqMes+" qq"},
+          {k:"recompra", ic:"📍", num:String(visitas.length),     lbl:"Por recomprar", sub:urgentes.length>0?urgentes.length+" urgente"+(urgentes.length!==1?"s":""):"al día", clay:urgentes.length>0},
+          {k:"top",      ic:"⭐", num:prom+"", lblUnit:"qq", lbl:"Promedio/pedido", sub:"Lo más pedido"},
+        ];
+
+        return (
+          <div style={{marginBottom:16}}>
+            {/* 4 mini-tarjetas gráficas */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {TARJETAS.map((t,i)=>(
+                <button key={t.k} onClick={()=>abrir(t.k)} className="dash-card"
+                  style={{textAlign:"left",background:"#fff",border:"1.5px solid "+(dashAbierto===t.k?"var(--field)":(t.clay?"var(--clay)":"#EAE6DC")),
+                    borderRadius:12,padding:"9px 11px",boxShadow:"0 2px 8px rgba(21,57,43,.05)",cursor:"pointer",display:"block",animationDelay:(i*70)+"ms"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <span style={{fontSize:15}}>{t.ic}</span>
+                    <span className="num" style={{fontSize:19,fontWeight:800,lineHeight:1,color:t.clay?"var(--clay)":"var(--field)"}}>
+                      {t.num}{t.lblUnit?<span style={{fontSize:10,fontWeight:600}}> {t.lblUnit}</span>:null}
+                    </span>
+                  </div>
+                  <div style={{fontSize:11.5,fontWeight:700,marginTop:5,color:"#2C3A32"}}>{t.lbl}</div>
+                  <div className="meta" style={{fontSize:10,marginTop:1,color:t.clay?"var(--clay)":"var(--muted)"}}>{t.sub}</div>
+                </button>
               ))}
             </div>
 
-            <div className="meta" style={{fontWeight:700,fontSize:11,marginBottom:6}}>Lo más pedido</div>
-            {top.map(([p,q])=>(
-              <div key={p} style={{marginBottom:7}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</span>
-                  <span className="num" style={{fontSize:12.5,color:"var(--muted)"}}>{q} qq</span>
-                </div>
-                <div style={{height:7,background:"#EFEBE0",borderRadius:5,overflow:"hidden"}}>
-                  <div style={{width:Math.round(q/maxP*100)+"%",height:"100%",background:"var(--field)",borderRadius:5}}/>
-                </div>
-              </div>
-            ))}
+            {/* detalle resumido de la tarjeta abierta */}
+            {dashAbierto && (
+              <div className="card" style={{padding:"14px 15px",marginTop:12}}>
+                {dashAbierto==="entregar" && (<>
+                  <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>🚚 Pedidos por entregar</div>
+                  {porEntregar.length===0
+                    ? <div className="meta" style={{fontSize:12.5}}>No hay pedidos pendientes de entrega.</div>
+                    : porEntregar.map(p=>(
+                        <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"6px 0",borderTop:"1px solid #F0ECE2",fontSize:12.5}}>
+                          <div style={{minWidth:0}}>
+                            <div style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</div>
+                            <div className="meta" style={{fontSize:11}}>{p.prod.split(" · ")[0]} · {p.estado}</div>
+                          </div>
+                          <div className="num" style={{fontWeight:700,whiteSpace:"nowrap"}}>{p.cant} qq</div>
+                        </div>
+                      ))}
+                </>)}
 
-            {visitas.length>0 && (
-              <button className="nchip" style={{width:"100%",marginTop:11,fontWeight:700,
-                borderColor:urgentes.length>0?"var(--clay)":undefined, color:urgentes.length>0?"var(--clay)":undefined}}
-                onClick={()=>setCli(visitas[0].cli)}>
-                📍 {visitas.length} cliente{visitas.length!==1?"s":""} por recomprar{urgentes.length>0?` · ${urgentes.length} urgente${urgentes.length!==1?"s":""}`:""}
-              </button>
+                {dashAbierto==="mes" && (<>
+                  <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>📋 Pedidos de este mes</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:4}}>
+                    {[["Pedidos",String(nPed)],["Quintales",qqMes+" qq"],["Promedio",prom+" qq"]].map(([k,v])=>(
+                      <div key={k} style={{textAlign:"center"}}>
+                        <div className="num" style={{fontSize:17,fontWeight:800,color:"var(--field)"}}>{v}</div>
+                        <div className="meta" style={{fontSize:10.5}}>{k}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>)}
+
+                {dashAbierto==="recompra" && (<>
+                  <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>📍 Clientes por recomprar</div>
+                  {visitas.length===0
+                    ? <div className="meta" style={{fontSize:12.5}}>Ningún cliente necesita recompra ahora.</div>
+                    : visitas.slice(0,6).map(x=>(
+                        <button key={x.cli} onClick={()=>setCli(x.cli)}
+                          style={{width:"100%",textAlign:"left",background:"none",border:"none",cursor:"pointer",
+                            display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderTop:"1px solid #F0ECE2"}}>
+                          <span style={{fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.cli}</span>
+                          <span className="meta" style={{fontSize:11,fontWeight:700,whiteSpace:"nowrap",color:x.nivel==="rojo"?"var(--clay)":"var(--muted)"}}>
+                            {x.nivel==="rojo"?"● ":""}~{x.dias} días de stock
+                          </span>
+                        </button>
+                      ))}
+                  <div className="meta" style={{fontSize:10.5,marginTop:6}}>Toca un cliente para tomarle el pedido.</div>
+                </>)}
+
+                {dashAbierto==="top" && (<>
+                  <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>⭐ Lo más pedido</div>
+                  {top.map(([p,q])=>(
+                    <div key={p} style={{marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</span>
+                        <span className="num" style={{fontSize:12.5,color:"var(--muted)"}}>{q} qq</span>
+                      </div>
+                      <div style={{height:7,background:"#EFEBE0",borderRadius:5,overflow:"hidden"}}>
+                        <div className="bar-grow" style={{width:Math.round(q/maxP*100)+"%",height:"100%",background:"var(--field)",borderRadius:5}}/>
+                      </div>
+                    </div>
+                  ))}
+                </>)}
+              </div>
             )}
           </div>
         );})()}
@@ -11475,17 +11552,22 @@ function App({usuario, onSalir}){
   atrasRef.current=atras; tabRef.current=tab; histRef.current=hist;
   React.useEffect(()=>{
     try{ history.pushState({app:1},""); }catch(e){}
+    /* reafirma SIEMPRE un estado en la pila (diferido, para no pisarse con el popstate en curso) */
+    const rearmar=()=>{ try{ history.pushState({app:1},""); }catch(e){} };
     const onPop=()=>{
-      const enInicio = tabRef.current==="inicio" && histRef.current.length===0 && !backHandlerRef.current;
-      if(enInicio){
+      const enInicioReal = tabRef.current==="inicio" && histRef.current.length===0 && !backHandlerRef.current;
+      if(enInicioReal){
+        /* solo aquí se permite salir, y únicamente con doble toque */
         if(Date.now()-salirRef.current<2200){ try{ history.back(); }catch(e){} return; }
         salirRef.current=Date.now();
-        try{ history.pushState({app:1},""); }catch(e){}
+        rearmar();
         show("Presiona atrás de nuevo para salir");
         return;
       }
-      try{ history.pushState({app:1},""); }catch(e){}
+      /* hay a dónde retroceder: retrocede una ventana y vuelve a dejar estado en la pila */
       atrasRef.current && atrasRef.current();
+      rearmar();                         // inmediato
+      setTimeout(rearmar,0);             // y diferido: garantiza que nunca quede la pila vacía
     };
     window.addEventListener("popstate",onPop);
     return ()=>window.removeEventListener("popstate",onPop);
@@ -11764,7 +11846,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 13 jul 2026 b49 · arreglo del historial</div>
+              Versión 15 jul 2026 b50</div>
           </div>
         </div>
       </div>
