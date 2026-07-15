@@ -3466,7 +3466,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         </div>
       );})()}
 
-    {prov && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
+    {prov && !bloqueado && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
       render={{
@@ -3476,6 +3476,15 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:p=>(<><div className="p1">{p.nombre}</div>
           <div className="p2">por {p.unidad}</div></>)
       }}/>}
+
+    {prov && bloqueado && (
+      <div className="card" style={{padding:"13px 15px",marginBottom:12,borderLeft:"4px solid var(--clay)",background:"#FDF6F2"}}>
+        <div style={{fontWeight:700,fontSize:13,color:"var(--clay)"}}>🔒 Cliente bloqueado para pedidos</div>
+        <div className="meta" style={{fontSize:11.5,marginTop:4,lineHeight:1.5}}>
+          No puedes tomar el pedido hasta desbloquear al cliente. Usa <b>“Solicitar autorización al proveedor”</b> en la ficha de arriba; cuando te aprueben, ingresa el código y podrás continuar.
+        </div>
+      </div>
+    )}
 
     {prod && (
       <div className="prodcard">
@@ -3998,8 +4007,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                 Hay {carrito.filter(x=>x.ajustar).length} precio(s) bajo la base vigente. Corrígelos para poder enviar.</span>
             </div>
           )}
-          <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar)}
+          <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado}
             onClick={()=>{
+              if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
               if(onGuardarPedido) onGuardarPedido({cli, prov, carrito});
               const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
               setGuardadoOk({ cli, n:carrito.length, resumen });
@@ -11848,7 +11858,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b52</div>
+              Versión 15 jul 2026 b53</div>
           </div>
         </div>
       </div>
