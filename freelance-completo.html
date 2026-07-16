@@ -3084,7 +3084,7 @@ function BannerArroz(){
   );
 }
 
-function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
+function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
   const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
   const [verHist,setVerHist]=useState(false);     // desplegar el historial de compras del producto
   const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
@@ -3135,6 +3135,20 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   const productosDelProv = prov ? PRESENTACIONES.filter(p=>p.provId===prov.id) : [];
+
+  /* Botón atrás inteligente: retrocede paso a paso dentro del módulo antes de salir */
+  React.useEffect(()=>{
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(verCarrito){ setVerCarrito(false); return true; }   // cierra el "Pedido en curso"
+      if(verFact){ setVerFact(false); return true; }         // cierra el detalle de la última factura
+      if(prod){ resetProducto(); return true; }              // vuelve a las 3 tarjetas (quita el producto)
+      if(prov && carrito.length===0){ setProv(null); setProd(null); reset(); return true; } // quita proveedor
+      if(cli && carrito.length===0){ cerrarPedido(); return true; } // quita cliente
+      return false;                                          // nada que retroceder: sale del módulo
+    };
+    return ()=>{ backRef.current=null; };
+  },[verCarrito, verFact, prod, prov, cli, carrito.length]);
 
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseCredito
@@ -3198,7 +3212,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     <div className="h1">Tomar pedido</div>
     <div className="sub">Cliente, proveedor, producto y tipo de precio.</div>
 
-    <div className="busc-cliente">
+    {!prod && <div className="busc-cliente">
     <SearchSelect label="Cliente" items={CLIENTES} sinLabel value={cli} multiPalabra
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);setProv(null);setProd(null);reset();}}
       onClear={()=>{ if(carrito.length===0){ setCli(null);setCodigo("");setDesbloqueado(false);setProv(null);setProd(null);reset(); } }}
@@ -3210,9 +3224,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:c=>(<><div className="p1">{c}</div>
           <div className="p2">Cliente</div></>)
       }}/>
-    </div>
+    </div>}
 
-    {cli && !bloqueado && !verFact && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
+    {cli && !bloqueado && !verFact && !prod && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -3221,7 +3235,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor</div></>)
       }}/>}
 
-    {prov && !bloqueado && !verFact && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
+    {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
       render={{
@@ -11682,7 +11696,7 @@ function App({usuario, onSalir}){
       </div>
       <div className="body">
         {tab==="inicio" && <Inicio go={navegar}/>}
-        {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
+        {tab==="pedido" && <Pedido toast={show} backRef={backHandlerRef} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
@@ -11865,7 +11879,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b60</div>
+              Versión 15 jul 2026 b61</div>
           </div>
         </div>
       </div>
