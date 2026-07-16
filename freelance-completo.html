@@ -11653,6 +11653,45 @@ function App({usuario, onSalir}){
   const [hist,setHist]=useState([]);
   const backHandlerRef = React.useRef(null); // retroceso interno del módulo activo (modelo: Clientes)
   const navegar=(t)=>{ if(t===tab) return; setHist(h=>[...h,tab]); setTab(t); };
+  const [escuchando,setEscuchando]=useState(false);
+  /* navegación por voz: mapa de sinónimos hablados → módulo */
+  const VOZ_MODULOS=[
+    {tab:"inicio",       claves:["inicio","principal","casa","menu"]},
+    {tab:"pedido",       claves:["tomar pedido","nuevo pedido","hacer pedido","tomar un pedido","pedido nuevo"]},
+    {tab:"pedidos",      claves:["mis pedidos","pedidos","lista de pedidos"]},
+    {tab:"cobros",       claves:["cobros","cobrar","cobranza"]},
+    {tab:"cartera",      claves:["cartera","cuentas por cobrar","por cobrar"]},
+    {tab:"clientes",     claves:["clientes","cliente"]},
+    {tab:"agenda",       claves:["agenda","calendario","visitas"]},
+    {tab:"stock",        claves:["stock","registrar stock","bodega","inventario"]},
+    {tab:"solicitudes",  claves:["solicitudes","autorizaciones","permisos"]},
+    {tab:"novedades",    claves:["novedades","avisos","noticias"]},
+    {tab:"productos",    claves:["productos","catalogo","catálogo"]},
+    {tab:"equipo",       claves:["equipo","mi equipo","vendedores"]},
+    {tab:"cuenta",       claves:["cuenta","mi cuenta","perfil"]},
+    {tab:"ajustes",      claves:["ajustes","configuracion","configuración","opciones"]},
+  ];
+  const navegarPorVoz=()=>{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){ show("Tu teléfono no permite navegación por voz."); return; }
+    const r=new SR(); r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    setEscuchando(true);
+    r.onerror=()=>{ setEscuchando(false); show("No te escuché bien, intenta de nuevo."); };
+    r.onend=()=>setEscuchando(false);
+    r.onresult=e=>{
+      setEscuchando(false);
+      const dicho=(e.results[0][0].transcript||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+      // buscar el módulo cuyo alias esté contenido en lo dicho (los más largos primero)
+      let destino=null, mejor=0;
+      VOZ_MODULOS.forEach(m=>m.claves.forEach(c=>{
+        const cc=c.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+        if(dicho.includes(cc) && cc.length>mejor){ destino=m.tab; mejor=cc.length; }
+      }));
+      if(destino){ if(destino==="inicio") irInicio(); else navegar(destino); show("Abriendo "+destino); }
+      else show(`No reconocí "${dicho}". Prueba: "cobros", "mis pedidos", "clientes"…`);
+    };
+    r.start();
+  };
   const atras=()=>{
     if(backHandlerRef.current && backHandlerRef.current()) return; // el módulo retrocedió por dentro
     setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
@@ -11772,7 +11811,13 @@ function App({usuario, onSalir}){
             <button className="topbtn" onClick={irInicio}><span style={{fontSize:15}}>⌂</span> Inicio</button>
           </div>
         )}
-        <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
+          <button className="topbtn" onClick={navegarPorVoz} aria-label="Navegar por voz"
+            style={{background:escuchando?"rgba(233,196,106,.35)":"rgba(255,255,255,.12)",padding:"7px 11px",borderRadius:20}}>
+            <span style={{fontSize:16}}>{escuchando?"🔴":"🎤"}</span>
+          </button>
+          <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
+        </div>
       </div>
       <div className="body">
         {tab==="inicio" && <Inicio go={navegar}/>}
@@ -11959,7 +12004,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b69</div>
+              Versión 15 jul 2026 b70</div>
           </div>
         </div>
       </div>
