@@ -1512,7 +1512,7 @@ const PEDIDOS_INI = [
      {t:"Comisión liberada", f:"—", st:"wait", d:""},
    ]},
   {id:3, cli:"Distribuidora Ríos", prov:"Agrícola del Valle", fecha:"2026-06-05", prod:"Arroz Gustadina · Quintal (100 lb)", cant:60, precio:43.50, cond:"Contado",
-   comision:18.00, estado:"Entregado", etapa:5, sync:"ok",
+   comision:18.00, estado:"Comisión liberada", etapa:7, sync:"ok", comisionLiberada:true,
    linea:[
      {t:"Pedido ingresado", f:"05 jun · 11:20", st:"ok", d:"Tomado por Carlos Andrade"},
      {t:"Acuerdo de comisión", f:"05 jun · 11:21", st:"ok", d:"Comisión $0.30/quintal"},
@@ -1521,9 +1521,9 @@ const PEDIDOS_INI = [
      {t:"Enviado al proveedor", f:"05 jun · 12:00", st:"ok", d:"Aceptado por Agrícola del Valle"},
      {t:"Facturado", f:"06 jun · 09:00", st:"ok", d:"Factura 001-001-000127 · guía G-803"},
      {t:"Despachado", f:"06 jun · 10:15", st:"ok", d:"En ruta sur · transportista asignado"},
-     {t:"Entregado", f:"06 jun · 16:40", st:"now", d:"Recibido conforme por el cliente"},
-     {t:"Cobrado y validado", f:"—", st:"wait", d:"Pendiente de cobro (vence en 12 días)"},
-     {t:"Comisión liberada", f:"—", st:"wait", d:""},
+     {t:"Entregado", f:"06 jun · 16:40", st:"ok", d:"Recibido conforme por el cliente"},
+     {t:"Cobrado y validado", f:"11 jun · 09:20", st:"ok", d:"Pago confirmado por el proveedor"},
+     {t:"Comisión liberada", f:"11 jun · 09:25", st:"ok", d:"Comisión disponible"},
    ]},
 ];
 const COBROS_INI = [
@@ -5473,31 +5473,32 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   );
 }
 
-function Pedidos({pedidos=PEDIDOS_INI}){
+function Pedidos({pedidos=PEDIDOS_INI, toast}){
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
   const [estado,setEstado]=useState("Todos");
   const [desde,setDesde]=useState("");
   const [hasta,setHasta]=useState("");
-  const [verFiltros,setVerFiltros]=useState(false);
   const [orden,setOrden]=useState("recientes"); // recientes | antiguos | comision
   const [verFechas,setVerFechas]=useState(false);
-  const [tEstado,setTEstado]=useState("Todos");
-  const [tDesde,setTDesde]=useState("");
-  const [tHasta,setTHasta]=useState("");
-  const [tOrden,setTOrden]=useState("recientes");
+  const [pestana,setPestana]=useState("activos"); // activos | historial
+  const [verComo,setVerComo]=useState("factura");  // factura | seguimiento (al abrir un pedido)
+  const [pagina,setPagina]=useState(1);
+  const POR_PAGINA=15;
   if(sel){
     const p=pedidos.find(x=>x.id===sel);
-    return <DetallePedido p={p} volver={()=>setSel(null)}/>;
+    return <DetallePedido p={p} modo={verComo} volver={()=>setSel(null)}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado"];
-  const FUERA=["Entregado","Cobrado","Cobrado y validado"];
+  const LIBERADOS=["Comisión liberada","Cobrado y validado"]; // van al historial
   const lista=pedidos.filter(p=>{
-    if(FUERA.includes(p.estado)) return false; // entregados ya no se listan
+    const liberado = LIBERADOS.includes(p.estado) || p.comisionLiberada;
+    if(pestana==="activos" && liberado) return false;   // liberados salen de Activos
+    if(pestana==="historial" && !liberado) return false; // historial solo liberados
     const t=norm(q);
     const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
-    const estOk = estado==="Todos" || p.estado===estado;
+    const estOk = pestana==="historial" || estado==="Todos" || p.estado===estado;
     const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
     return txtOk && estOk && fechaOk;
   });
@@ -5506,32 +5507,48 @@ function Pedidos({pedidos=PEDIDOS_INI}){
     if(orden==="antiguos") return a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0;
     return a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0; // recientes (por defecto)
   });
-  const ORDEN_LBL={recientes:"Más recientes",antiguos:"Más antiguos",comision:"Mayor comisión"};
-  const nFiltros = (estado!=="Todos"?1:0) + (desde||hasta?1:0);
-  const abrirFiltros=()=>{setTEstado(estado);setTDesde(desde);setTHasta(hasta);setTOrden(orden);setVerFiltros(true);};
-  const aplicar=()=>{setEstado(tEstado);setDesde(tDesde);setHasta(tHasta);setOrden(tOrden);setVerFiltros(false);};
-  const limpiarEnVentana=()=>{setTEstado("Todos");setTDesde("");setTHasta("");setTOrden("recientes");};
+  const totalPag=Math.max(1,Math.ceil(ordenada.length/POR_PAGINA));
+  const pagActual=Math.min(pagina,totalPag);
+  const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
+  const cambiarPestana=p=>{setPestana(p);setPagina(1);setEstado("Todos");};
+  // dictado por voz para el buscador
+  const dictar=()=>{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){ toast&&toast("Tu teléfono no permite dictado por voz."); return; }
+    const r=new SR(); r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    r.onresult=e=>setQ(e.results[0][0].transcript);
+    r.start();
+  };
 
   return (<>
     <div className="h1">Mis pedidos</div>
 
+    {/* pestañas Activos · Historial */}
+    <div className="eq-tabs" style={{marginBottom:12}}>
+      <button className={pestana==="activos"?"on":""} onClick={()=>cambiarPestana("activos")}>En proceso</button>
+      <button className={pestana==="historial"?"on":""} onClick={()=>cambiarPestana("historial")}>Historial</button>
+    </div>
+
     <div className="row" style={{gap:10,marginBottom:10,alignItems:"stretch"}}>
       <div className="ss" style={{flex:1,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
-          <input value={q} placeholder="Cliente o proveedor…" onChange={e=>setQ(e.target.value)}/>
+          <input value={q} placeholder="Cliente o proveedor…" onChange={e=>{setQ(e.target.value);setPagina(1);}}/>
+          <button className="mic" onClick={dictar} title="Dictar por voz">🎤</button>
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
     </div>
 
-    {/* 3 selectores compactos: Estado · Fecha · Ordenar */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:12}}>
-      <select className="selmini" value={estado} onChange={e=>setEstado(e.target.value)}>
-        {ESTADOS.map(e=><option key={e} value={e}>{e==="Todos"?"Estado: todos":e}</option>)}
-      </select>
+    {/* selectores: en Activos van Estado·Fecha·Ordenar; en Historial solo Fecha·Ordenar */}
+    <div style={{display:"grid",gridTemplateColumns:pestana==="activos"?"1fr 1fr 1fr":"1fr 1fr",gap:7,marginBottom:12}}>
+      {pestana==="activos" && (
+        <select className="selmini" value={estado} onChange={e=>{setEstado(e.target.value);setPagina(1);}}>
+          {ESTADOS.map(e=><option key={e} value={e}>{e==="Todos"?"Estado: todos":e}</option>)}
+        </select>
+      )}
       <button className={"selmini"+((desde||hasta)?" on":"")} onClick={()=>setVerFechas(v=>!v)}>
         {(desde||hasta) ? `${desde?desde.slice(5):"…"}→${hasta?hasta.slice(5):"…"}` : "Fecha"} ▾
       </button>
-      <select className="selmini" value={orden} onChange={e=>setOrden(e.target.value)}>
+      <select className="selmini" value={orden} onChange={e=>{setOrden(e.target.value);setPagina(1);}}>
         <option value="recientes">Recientes</option>
         <option value="antiguos">Antiguos</option>
         <option value="comision">Mayor comisión</option>
@@ -5542,105 +5559,134 @@ function Pedidos({pedidos=PEDIDOS_INI}){
       <div className="card" style={{padding:"12px 14px",marginBottom:12}}>
         <div style={{display:"flex",gap:10}}>
           <div style={{flex:1}}><label className="meta" style={{fontSize:10.5,display:"block",marginBottom:3}}>Desde</label>
-            <input type="date" value={desde} onChange={e=>setDesde(e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid var(--line)",borderRadius:9,fontFamily:"inherit"}}/></div>
+            <input type="date" value={desde} onChange={e=>{setDesde(e.target.value);setPagina(1);}} style={{width:"100%",padding:"8px 10px",border:"1px solid var(--line)",borderRadius:9,fontFamily:"inherit"}}/></div>
           <div style={{flex:1}}><label className="meta" style={{fontSize:10.5,display:"block",marginBottom:3}}>Hasta</label>
-            <input type="date" value={hasta} onChange={e=>setHasta(e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid var(--line)",borderRadius:9,fontFamily:"inherit"}}/></div>
+            <input type="date" value={hasta} onChange={e=>{setHasta(e.target.value);setPagina(1);}} style={{width:"100%",padding:"8px 10px",border:"1px solid var(--line)",borderRadius:9,fontFamily:"inherit"}}/></div>
         </div>
         {(desde||hasta) && <button className="mini-link" style={{marginTop:8}} onClick={()=>{setDesde("");setHasta("");}}>Quitar fechas</button>}
       </div>
     )}
 
-    {ordenada.map(p=>{
+    {visibles.map(p=>{
       const monto=p.cant*p.precio;
       const fechaCorta=(()=>{ const d=new Date(p.fecha+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
         return isNaN(d)?p.fecha:`${d.getDate()} ${ms[d.getMonth()]}`; })();
+      const abrir=(comoVer)=>{ setVerComo(comoVer); setSel(p.id); };
       return (
-      <div className="card" key={p.id} onClick={()=>setSel(p.id)} style={{cursor:"pointer",padding:"12px 14px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-          <span className="d" style={{flexShrink:0,width:8,height:8,borderRadius:"50%",
-            background:p.sync==="pend"?"var(--maize-deep)":"var(--ok)"}}></span>
-          <span style={{flexShrink:0,fontSize:12.5,fontWeight:600,color:"var(--muted)"}}>{fechaCorta}</span>
-          <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
-          <span style={{flexShrink:0,fontSize:12.5,color:"var(--muted)"}}>{p.cant} qq</span>
-          <span className="num" style={{flexShrink:0,fontSize:14,fontWeight:800,color:"var(--field)"}}>{money(monto)}</span>
-          <span style={{flexShrink:0,color:"var(--muted)",fontSize:15}}>›</span>
+      <div className="card" key={p.id} style={{padding:0,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"stretch",minWidth:0}}>
+          {/* mitad izquierda → factura */}
+          <button onClick={()=>abrir("factura")}
+            style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,padding:"12px 10px 12px 14px",
+              background:"none",border:"none",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+            <span className="d" style={{flexShrink:0,width:8,height:8,borderRadius:"50%",
+              background:p.sync==="pend"?"var(--maize-deep)":"var(--ok)"}}></span>
+            <span style={{flexShrink:0,fontSize:12.5,fontWeight:600,color:"var(--muted)"}}>{fechaCorta}</span>
+            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
+          </button>
+          {/* mitad derecha → seguimiento */}
+          <button onClick={()=>abrir("seguimiento")}
+            style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,padding:"12px 14px 12px 10px",
+              background:"none",border:"none",borderLeft:"1px solid #F0ECE2",cursor:"pointer",fontFamily:"inherit"}}>
+            <span style={{fontSize:12.5,color:"var(--muted)"}}>{p.cant} qq</span>
+            <span className="num" style={{fontSize:14,fontWeight:800,color:"var(--field)"}}>{money(monto)}</span>
+            <span style={{color:"var(--muted)",fontSize:15}}>›</span>
+          </button>
         </div>
       </div>
       );
     })}
-    {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
+    {ordenada.length===0 && <div className="ph">{pestana==="historial"?"Aún no tienes pedidos con comisión liberada.":"Sin pedidos que coincidan."}</div>}
 
-    {verFiltros && (
-      <div className="ov" onClick={()=>setVerFiltros(false)}>
-        <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Filtrar pedidos</h3>
-
-          <div className="ficha-sec" style={{marginTop:6}}>Estado</div>
-          <div className="chip-row" style={{flexWrap:"wrap",overflow:"visible"}}>
-            {ESTADOS.map(e=>(
-              <button key={e} className={"fchip"+(tEstado===e?" on":"")} onClick={()=>setTEstado(e)}>{e}</button>
-            ))}
-          </div>
-
-          <div className="ficha-sec">Rango de fechas (toma del pedido)</div>
-          <div className="fecha-row">
-            <div className="fcol"><label>Desde</label>
-              <input type="date" value={tDesde} onChange={e=>setTDesde(e.target.value)}/></div>
-            <div className="fcol"><label>Hasta</label>
-              <input type="date" value={tHasta} onChange={e=>setTHasta(e.target.value)}/></div>
-          </div>
-
-          <div className="ficha-sec">Ordenar por</div>
-          <div className="chip-row" style={{flexWrap:"wrap",overflow:"visible"}}>
-            {[["recientes","Más recientes"],["antiguos","Más antiguos"],["comision","Mayor comisión"]].map(([k,l])=>(
-              <button key={k} className={"fchip"+(tOrden===k?" on":"")} onClick={()=>setTOrden(k)}>{l}</button>
-            ))}
-          </div>
-
-          <button className="cta" onClick={aplicar} style={{marginTop:18}}>Aplicar filtros</button>
-          <button className="back" style={{width:"100%",marginTop:10}} onClick={limpiarEnVentana}>Limpiar</button>
-        </div>
+    {/* paginación */}
+    {totalPag>1 && (
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,margin:"14px 0 4px"}}>
+        <button className="selmini" style={{width:"auto",opacity:pagActual<=1?.4:1}} disabled={pagActual<=1}
+          onClick={()=>setPagina(p=>Math.max(1,p-1))}>‹ Anterior</button>
+        <span className="meta" style={{fontSize:12}}>Página {pagActual} de {totalPag}</span>
+        <button className="selmini" style={{width:"auto",opacity:pagActual>=totalPag?.4:1}} disabled={pagActual>=totalPag}
+          onClick={()=>setPagina(p=>Math.min(totalPag,p+1))}>Siguiente ›</button>
       </div>
     )}
   </>);
 }
 
-function DetallePedido({p, volver}){
+function DetallePedido({p, modo="factura", volver}){
+  const [vista,setVista]=useState(modo); // factura | seguimiento
   const cumplidos = p.linea.filter(x=>x.st==="ok").length;
+  const monto=p.cant*p.precio;
+  const fmt=f=>{ const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]} ${d.getFullYear()}`; };
   return (<>
-    <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a mis pedidos</button>
-    <div className="det-head">
-      <div className="row">
-        <div><div className="cli" style={{fontSize:17}}>{p.cli}</div>
-          <div className="meta">{p.cant} × {p.prod} · {p.prov} · {p.cond} · {money(p.precio)}</div></div>
-        <div style={{textAlign:"right"}}><div className="amt num">{money(p.cant*p.precio)}</div>
-          <div className="meta">monto del pedido</div></div>
-      </div>
-      <div className="row" style={{marginTop:10,alignItems:"center"}}>
-        <span className="meta">Tu comisión: <b className="num" style={{color:"var(--field)"}}>{money(p.comision)}</b></span>
-      </div>
-      <div className="row" style={{marginTop:10,alignItems:"center"}}>
-        <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
-          <span className="d"></span>{p.sync==="pend"?"Pendiente de enviar":"Sincronizado"}</span>
-        <span className="meta" style={{fontWeight:600}}>{cumplidos} de {p.linea.length} pasos</span>
-      </div>
+    <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver a mis pedidos</button>
+
+    {/* toggle entre Factura y Seguimiento */}
+    <div className="eq-tabs" style={{marginBottom:16}}>
+      <button className={vista==="factura"?"on":""} onClick={()=>setVista("factura")}>🧾 Factura</button>
+      <button className={vista==="seguimiento"?"on":""} onClick={()=>setVista("seguimiento")}>📍 Seguimiento</button>
     </div>
 
-    <div className="sec-h"><h2>Seguimiento del pedido</h2><div className="grain"></div></div>
-    <div className="tl">
-      {p.linea.map((x,i)=>(
-        <div className={"item "+x.st} key={i}>
-          <div className="node">{x.st==="ok"?"✓":x.st==="now"?"●":i+1}</div>
-          <div className="c">
-            <div className="tt">{x.t}</div>
-            {x.d && <div className="dd">{x.d}</div>}
-            <div className="ff">{x.f}</div>
+    {vista==="factura" ? (
+      <div className="card" style={{padding:"16px 16px 14px"}}>
+        {/* encabezado tipo factura */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:2}}>
+          <span style={{fontWeight:800,fontSize:16}}>{p.cli}</span>
+          <span className="meta" style={{fontSize:11.5,whiteSpace:"nowrap"}}>{fmt(p.fecha)}</span>
+        </div>
+        <div className="meta" style={{fontSize:11.5,marginBottom:12}}>{p.prov} · {p.cond}</div>
+
+        {/* líneas de producto */}
+        <div style={{borderTop:"1px solid #EFEBE0",paddingTop:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".03em",marginBottom:6}}>
+            <span>Producto</span><span>Total</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",gap:10,padding:"5px 0",fontSize:13}}>
+            <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{p.cant} × {p.prod}</span>
+            <span className="num" style={{fontWeight:700,whiteSpace:"nowrap"}}>{money(monto)}</span>
+          </div>
+          <div className="meta" style={{fontSize:11}}>{p.cant} qq × {money(p.precio)} c/u</div>
+        </div>
+
+        {/* totales */}
+        <div style={{borderTop:"1px solid #EFEBE0",marginTop:10,paddingTop:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"3px 0"}}>
+            <span className="meta">Monto del pedido</span><span className="num" style={{fontWeight:700}}>{money(monto)}</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:14,padding:"6px 0 0",borderTop:"1px dashed #E0DBCE",marginTop:6}}>
+            <span style={{fontWeight:700}}>Tu comisión</span>
+            <span className="num" style={{fontWeight:800,color:"var(--field)"}}>{money(p.comision)}</span>
           </div>
         </div>
-      ))}
-    </div>
-    <div className="lock"><span>ℹ️</span>
-      <span>El estado avanza solo cuando se cumple cada paso: el acuerdo aprobado libera el envío, y la comisión se libera cuando el cobro es validado por el proveedor.</span></div>
+
+        <div style={{marginTop:12}}>
+          <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
+            <span className="d"></span>{p.estado}</span>
+        </div>
+      </div>
+    ) : (
+      <>
+        <div className="det-head">
+          <div className="row" style={{alignItems:"center"}}>
+            <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
+              <span className="d"></span>{p.sync==="pend"?"Pendiente de enviar":"Sincronizado"}</span>
+            <span className="meta" style={{fontWeight:600}}>{cumplidos} de {p.linea.length} pasos</span>
+          </div>
+        </div>
+        <div className="sec-h"><h2>Seguimiento del pedido</h2><div className="grain"></div></div>
+        <div className="tl">
+          {p.linea.map((x,i)=>(
+            <div className={"item "+x.st} key={i}>
+              <div className="node">{x.st==="ok"?"✓":x.st==="now"?"●":i+1}</div>
+              <div className="c">
+                <div className="tt">{x.t}</div>
+                {x.d && <div className="dd">{x.d}</div>}
+                <div className="ff">{x.f}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </>
+    )}
   </>);
 }
 
@@ -11734,7 +11780,7 @@ function App({usuario, onSalir}){
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
-        {tab==="pedidos" && <Pedidos pedidos={pedidos}/>}
+        {tab==="pedidos" && <Pedidos pedidos={pedidos} toast={show}/>}
         {tab==="cobros" && <Cobros backRef={backHandlerRef} toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
         {tab==="equipo" && <Equipo toast={show}/>}
@@ -11913,7 +11959,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b68</div>
+              Versión 15 jul 2026 b69</div>
           </div>
         </div>
       </div>
