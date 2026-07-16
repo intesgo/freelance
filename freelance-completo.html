@@ -580,6 +580,12 @@
   .filtrar-btn{flex:0 0 auto;background:var(--card);border:1px solid var(--line);border-radius:14px;
     padding:0 16px;font-size:13.5px;font-weight:700;color:var(--field);white-space:nowrap}
   .filtrar-btn:active{background:var(--paper)}
+  /* selectores compactos de Mis pedidos */
+  .selmini{width:100%;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:9px 10px;font-size:12px;font-weight:600;font-family:inherit;color:var(--field);cursor:pointer;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;-webkit-appearance:none;appearance:none}
+  .selmini:active{background:var(--paper)}
+  .selmini.on{border-color:var(--field);background:#F7FBF8}
   /* pantalla de bloqueo de acceso */
   .bloqueo-acceso{min-height:100%;display:flex;align-items:center;justify-content:center;padding:28px 22px;
     background:linear-gradient(160deg,#15392B,#0F2A1C)}
@@ -5475,6 +5481,7 @@ function Pedidos({pedidos=PEDIDOS_INI}){
   const [hasta,setHasta]=useState("");
   const [verFiltros,setVerFiltros]=useState(false);
   const [orden,setOrden]=useState("recientes"); // recientes | antiguos | comision
+  const [verFechas,setVerFechas]=useState(false);
   const [tEstado,setTEstado]=useState("Todos");
   const [tDesde,setTDesde]=useState("");
   const [tHasta,setTHasta]=useState("");
@@ -5507,27 +5514,41 @@ function Pedidos({pedidos=PEDIDOS_INI}){
 
   return (<>
     <div className="h1">Mis pedidos</div>
-    <div className="sub">Toca un pedido para ver su estado paso a paso.</div>
 
-    <div className="row" style={{gap:10,marginBottom:14,alignItems:"stretch"}}>
+    <div className="row" style={{gap:10,marginBottom:10,alignItems:"stretch"}}>
       <div className="ss" style={{flex:1,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Cliente o proveedor…" onChange={e=>setQ(e.target.value)}/>
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
-      <button className="filtrar-btn" onClick={abrirFiltros}>
-        ⚙ Filtrar{nFiltros>0?` · ${nFiltros}`:""}</button>
     </div>
 
-    {(estado!=="Todos"||desde||hasta) && (
-      <div className="row" style={{margin:"0 2px 14px",alignItems:"center",flexWrap:"wrap",gap:6}}>
-        {estado!=="Todos" && <span className="fchip on" style={{fontSize:11.5}}>{estado}</span>}
-        {(desde||hasta) && <span className="fchip on" style={{fontSize:11.5}}>{desde||"…"} → {hasta||"…"}</span>}
-        <button className="mini-link" onClick={()=>{setEstado("Todos");setDesde("");setHasta("");}}>Quitar</button>
+    {/* 3 selectores compactos: Estado · Fecha · Ordenar */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:12}}>
+      <select className="selmini" value={estado} onChange={e=>setEstado(e.target.value)}>
+        {ESTADOS.map(e=><option key={e} value={e}>{e==="Todos"?"Estado: todos":e}</option>)}
+      </select>
+      <button className={"selmini"+((desde||hasta)?" on":"")} onClick={()=>setVerFechas(v=>!v)}>
+        {(desde||hasta) ? `${desde?desde.slice(5):"…"}→${hasta?hasta.slice(5):"…"}` : "Fecha"} ▾
+      </button>
+      <select className="selmini" value={orden} onChange={e=>setOrden(e.target.value)}>
+        <option value="recientes">Recientes</option>
+        <option value="antiguos">Antiguos</option>
+        <option value="comision">Mayor comisión</option>
+      </select>
+    </div>
+
+    {verFechas && (
+      <div className="card" style={{padding:"12px 14px",marginBottom:12}}>
+        <div style={{display:"flex",gap:10}}>
+          <div style={{flex:1}}><label className="meta" style={{fontSize:10.5,display:"block",marginBottom:3}}>Desde</label>
+            <input type="date" value={desde} onChange={e=>setDesde(e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid var(--line)",borderRadius:9,fontFamily:"inherit"}}/></div>
+          <div style={{flex:1}}><label className="meta" style={{fontSize:10.5,display:"block",marginBottom:3}}>Hasta</label>
+            <input type="date" value={hasta} onChange={e=>setHasta(e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid var(--line)",borderRadius:9,fontFamily:"inherit"}}/></div>
+        </div>
+        {(desde||hasta) && <button className="mini-link" style={{marginTop:8}} onClick={()=>{setDesde("");setHasta("");}}>Quitar fechas</button>}
       </div>
     )}
-
-    <div className="meta" style={{margin:"0 2px 10px"}}>{ordenada.length} pedido(s) · {ORDEN_LBL[orden]}</div>
 
     {ordenada.map(p=>{
       const monto=p.cant*p.precio;
@@ -11892,7 +11913,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b67</div>
+              Versión 15 jul 2026 b68</div>
           </div>
         </div>
       </div>
