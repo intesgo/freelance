@@ -3301,11 +3301,7 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
           onClick={()=>setVerFact(v=>!v)}>
           <span style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:16}}>📄</span>
-            <span style={{flex:1,minWidth:0}}>
-              <span style={{display:"block",fontWeight:700,fontSize:14}}>{verFact?"Ocultar":"Ver"} última factura</span>
-              <span style={{display:"block",fontSize:12.5,color:"var(--muted)",fontWeight:600}}>
-                {f.factura.split("-").pop()} · <b className="num" style={{color:"var(--field)"}}>{money(tot)}</b></span>
-            </span>
+            <span style={{flex:1,minWidth:0,fontWeight:700,fontSize:14}}>{verFact?"Ocultar":"Ver"} última factura</span>
             <span style={{color:"var(--muted)",fontSize:15}}>{verFact?"▲":"▼"}</span>
           </span>
         </button>
@@ -3378,11 +3374,7 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
             <button className="ghost" style={{width:"100%",marginBottom:14,padding:"12px 14px",textAlign:"left"}} onClick={repetir}>
               <span style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:16}}>🔁</span>
-                <span style={{flex:1,minWidth:0}}>
-                  <span style={{display:"block",fontWeight:700,fontSize:14}}>Repetir último pedido</span>
-                  <span style={{display:"block",fontSize:12.5,color:"var(--muted)",fontWeight:600}}>
-                    {f.items.length} producto{f.items.length!==1?"s":""} · <b className="num" style={{color:"var(--field)"}}>{Math.round(qq)} qq</b> · mismo proveedor</span>
-                </span>
+                <span style={{flex:1,minWidth:0,fontWeight:700,fontSize:14}}>Repetir último pedido</span>
                 <span style={{color:"var(--muted)",fontSize:15}}>›</span>
               </span>
             </button>
@@ -3406,31 +3398,34 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
       return (
         <div className="card" style={{padding:"11px 13px",marginBottom:12,borderLeft:`4px solid ${sem[0]}`}}>
           {!rojo && (<>
-          {/* cada dato con su etiqueta: se lee solo */}
-          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
-            <span style={{...CH,background:sem[0]+"1A",color:sem[0],fontSize:11.5}}>{sem[1]} {rojo?"Bloqueado para pedidos":"Sin facturas vencidas"}</span>
-            {pf.premium && <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Cliente Premium</span>}
+          {/* estado + mini-dashboard gráfico del cliente */}
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:11,flexWrap:"wrap"}}>
+            <span style={{...CH,background:sem[0]+"1A",color:sem[0],fontSize:11.5}}>{sem[1]} Sin facturas vencidas</span>
+            {pf.premium && <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Premium</span>}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
-            <div>
-              <div className="meta" style={{fontSize:10.5}}>Suele comprar cada</div>
-              <div style={{fontWeight:700,fontSize:13.5}}>{pf.frecuencia||"—"} días
-                {toca!=null && <span style={{fontWeight:600,color: toca<=0 ? "var(--clay)":"var(--muted)"}}>
-                  {toca<=0 ? ` · atrasado ${-toca}` : ` · le toca en ${toca}`} d</span>}</div>
-            </div>
-            <div>
-              <div className="meta" style={{fontSize:10.5}}>Suele pagar en</div>
-              <div style={{fontWeight:700,fontSize:13.5,color:pg.c}}>{pf.diasPago||"—"} días
-                <span style={{fontWeight:600}}> · {pg.ic} {(pg.t||"").replace(" pagador","").toLowerCase()}</span></div>
-            </div>
-            <div>
-              <div className="meta" style={{fontSize:10.5}}>Puesto en compras</div>
-              <div style={{fontWeight:700,fontSize:13.5}}>#{pf.top||"—"} <span className="meta" style={{fontWeight:600}}>de 30 clientes</span></div>
-            </div>
-            <div>
-              <div className="meta" style={{fontSize:10.5}}>Compró este año</div>
-              <div style={{fontWeight:700,fontSize:13.5}}>{pf.qqAnio||0} <span className="meta" style={{fontWeight:600}}>quintales</span></div>
-            </div>
+            {(()=>{
+              const mini=(ic,num,unidad,lbl,sub,color)=>(
+                <div style={{background:"#fff",border:"1px solid #EAE6DC",borderRadius:12,padding:"11px 12px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <span style={{fontSize:15}}>{ic}</span>
+                    <span className="num" style={{fontSize:18,fontWeight:800,lineHeight:1,color:color||"var(--field)"}}>
+                      {num}{unidad?<span style={{fontSize:10,fontWeight:600}}> {unidad}</span>:null}</span>
+                  </div>
+                  <div style={{fontSize:11,fontWeight:700,marginTop:6,color:"#2C3A32"}}>{lbl}</div>
+                  {sub && <div className="meta" style={{fontSize:9.5,marginTop:1}}>{sub}</div>}
+                </div>
+              );
+              return (<>
+                {mini("🛒", pf.frecuencia||"—", "días", "Suele comprar cada",
+                  toca!=null ? (toca<=0?`atrasado ${-toca} d`:`le toca en ${toca} d`) : null,
+                  toca!=null && toca<=0 ? "var(--clay)" : "var(--field)")}
+                {mini("💳", pf.diasPago||"—", "días", "Suele pagar en",
+                  `${pg.ic} ${(pg.t||"").replace(" pagador","").toLowerCase()}`, pg.c)}
+                {mini("🏆", "#"+(pf.top||"—"), null, "Puesto en compras", "de 30 clientes")}
+                {mini("📦", pf.qqAnio||0, "qq", "Compró este año", "acumulado")}
+              </>);
+            })()}
           </div>
           </>)}
 
@@ -11897,7 +11892,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b66</div>
+              Versión 15 jul 2026 b67</div>
           </div>
         </div>
       </div>
