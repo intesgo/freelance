@@ -598,9 +598,9 @@
     border-radius:10px;padding:8px 12px;width:100%}
   .calc{background:linear-gradient(155deg,var(--field),var(--field-700));border-radius:16px;
     padding:18px;color:#EAF0EA;margin:20px 0}
-  .calc .cr{display:flex;justify-content:space-between;align-items:center;padding:5px 0}
-  .calc .cr .k{font-size:13px;color:#9DB6A6}
-  .calc .cr .v{font-size:15px;font-weight:600}
+  .calc .cr{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;gap:12px}
+  .calc .cr .k{font-size:13px;color:#9DB6A6;flex-shrink:0}
+  .calc .cr .v{font-size:15px;font-weight:600;text-align:right;white-space:nowrap;min-width:0}
   .calc .tot{border-top:1px dashed rgba(255,255,255,.2);margin-top:8px;padding-top:12px}
   .calc .tot .v{font-size:28px;font-weight:700;color:var(--maize)}
   .mini-cta{margin-left:auto;background:var(--field);color:#EAF0EA;font-size:13px;font-weight:700;border-radius:9px;padding:8px 14px}
@@ -3146,6 +3146,9 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
   const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   const productosDelProv = prov ? PRESENTACIONES.filter(p=>p.provId===prov.id) : [];
+  /* muestra la unidad sin el paréntesis redundante: "Quintal (100 lb)" → "Quintal" */
+  const sinLb = u => (u||"").replace(/\s*\(100 lb\)/i,"").trim();
+  const unidadCorta = prod ? sinLb(prod.unidad) : "";
 
   /* Botón atrás inteligente: retrocede paso a paso dentro del módulo antes de salir */
   React.useEffect(()=>{
@@ -3529,7 +3532,7 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
           <div className="pc-img">{imgProd}</div>
           <div style={{flex:1}}>
             <div className="pc-nom">{prod.nombre}</div>
-            <div className="pc-sub">{prod.marca} · por {prod.unidad}</div>
+            <div className="pc-sub">{prod.marca} · por {unidadCorta}</div>
           </div>
         </div>
 
@@ -3811,7 +3814,7 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
         </div>
       )}
 
-      <div className="field"><label>Cantidad ({prod?prod.unidad:"unidad"})</label>
+      <div className="field"><label>Cantidad ({prod?unidadCorta:"unidad"})</label>
         <input className="num qty-input" type="number" inputMode="numeric" min="1" value={cant}
           placeholder="Escribe la cantidad"
           onChange={e=>setCant(e.target.value)}
@@ -3844,13 +3847,13 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
           : !esP5 && precio!==""
             ? <div style={{display:"flex",alignItems:"baseline",gap:9,marginTop:7,flexWrap:"wrap"}}>
                 <span className="num" style={{fontSize:27,fontWeight:700,fontFamily:"'Space Grotesk',sans-serif",lineHeight:1,color: dif>0?"var(--field)":"var(--muted)"}}>{money(dif)}</span>
-                <span className="hint" style={{margin:0}}>tu comisión por {prod.unidad}{cantN>0?<> · total <b style={{color:"var(--field)"}}>{money(Math.round(dif*cantN*100)/100)}</b></>:null}</span>
+                <span className="hint" style={{margin:0}}>tu comisión por {unidadCorta}{cantN>0?<> · total <b style={{color:"var(--field)"}}>{money(Math.round(dif*cantN*100)/100)}</b></>:null}</span>
               </div>
             : null}
       </div>
 
       {esP5 && (<>
-        <div className="field"><label>Comisión que propones (por {prod?prod.unidad:"unidad"})</label>
+        <div className="field"><label>Comisión que propones (por {prod?unidadCorta:"unidad"})</label>
           <input className="num" type="number" inputMode="decimal" placeholder="Ej.: 1.50"
             value={comProp} onChange={e=>setComProp(e.target.value)}/>
         </div>
@@ -3864,7 +3867,7 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
     {prod && precio!=="" && (
       <div className="calc">
         <div className="cr"><span className="k">{tInfo.id} · {tInfo.nombre}</span>
-          <span className="v num">{money(precioNum)} / {prod.unidad}</span></div>
+          <span className="v num">{money(precioNum)} / {unidadCorta}</span></div>
         <div className="cr"><span className="k">Venta ({cant} × {money(precioNum)})</span>
           <span className="v num">{money(precioNum*cantN)}</span></div>
         {tipo==="P3" && (parseInt(gratis)||0)>0 &&
@@ -3877,7 +3880,7 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
         ) : tipo==="P3" ? (
           <>
             <div className="cr"><span className="k">Diferencia sobre tu base</span>
-              <span className="v num">{money(comisionUnidad)} / {prod.unidad}</span></div>
+              <span className="v num">{money(comisionUnidad)} / {unidadCorta}</span></div>
             <div className="cr"><span className="k">Comisión por {cant} vendidos</span>
               <span className="v num">{money(comisionBruta)}</span></div>
             {gratisNum>0 &&
@@ -3885,13 +3888,13 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
                 <span className="v num" style={{color:"var(--clay)"}}>−{money(costoGratis)}</span></div>}
             <div className="cr tot"><span className="k">Tu comisión total</span>
               <span className="v num">{money(comisionTotal)}</span></div>
-            <div className="cr"><span className="k">Comisión promedio por {prod.unidad}</span>
+            <div className="cr"><span className="k">Comisión promedio por {unidadCorta}</span>
               <span className="v num" style={{color:comisionPromedio>0?"var(--field)":"var(--clay)"}}>{money(comisionPromedio)}</span></div>
           </>
         ) : (
           <>
             <div className="cr"><span className="k">Diferencia sobre tu base</span>
-              <span className="v num">{money(comisionUnidad)} / {prod.unidad}</span></div>
+              <span className="v num">{money(comisionUnidad)} / {unidadCorta}</span></div>
             <div className="cr tot"><span className="k">Tu comisión</span>
               <span className="v num">{money(comisionTotal)}</span></div>
           </>
@@ -11894,7 +11897,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b65</div>
+              Versión 15 jul 2026 b66</div>
           </div>
         </div>
       </div>
