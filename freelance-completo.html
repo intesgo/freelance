@@ -5936,33 +5936,48 @@ function DetalleFactura({it, volver, toast, onCobrar}){
   </>);
 }
 
-function AgingDetalle({tramo, facturas, base, volver, onFactura}){
+function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura}){
   const [modo,setModo]=useState("cliente"); // cliente | factura
-  // agrupar por cliente dentro del tramo
+  const [chip,setChip]=useState(tramoIni||"Todos"); // Todos | nombre de tramo
+  // chips: Todos + los 5 tramos
+  const CHIPS=[{k:"Todos",color:"var(--field)",monto:totalCartera,test:()=>true},...tramos];
+  const chipSel=CHIPS.find(c=>c.k===chip)||CHIPS[0];
+  const facturas=base.filter(chipSel.test).sort((a,b)=>b.dias-a.dias);
+  const totChip=chipSel.k==="Todos"?totalCartera:facturas.reduce((s,f)=>s+f.saldo,0);
+  // agrupar por cliente dentro del chip
   const porCli=Array.from(new Set(facturas.map(f=>f.cli))).map(cli=>{
-    const fsTramo=facturas.filter(f=>f.cli===cli);
+    const fsChip=facturas.filter(f=>f.cli===cli);
     const todasCli=base.filter(f=>f.cli===cli);
+    const vencCli=fsChip.filter(f=>f.dias>0).reduce((s,f)=>s+f.saldo,0);
     return {
       cli,
       saldoTotal: todasCli.reduce((s,f)=>s+f.saldo,0),   // toda la deuda del cliente
-      saldoVenc: fsTramo.reduce((s,f)=>s+f.saldo,0),      // lo del tramo
-      diasMax: Math.max(...fsTramo.map(f=>f.dias)),
-      nFac: fsTramo.length,
+      saldoVenc: chipSel.k==="Todos" ? vencCli : fsChip.reduce((s,f)=>s+f.saldo,0), // vencido real en Todos; tramo completo si es un tramo
+      diasMax: Math.max(...fsChip.map(f=>f.dias),0),
+      nFac: fsChip.length,
     };
   }).sort((a,b)=>b.saldoVenc-a.saldoVenc);
-  const totVenc=facturas.reduce((s,f)=>s+f.saldo,0);
 
   return (<>
     <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver al resumen</button>
 
-    <div className="card" style={{padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${tramo.color}`}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <div style={{fontWeight:800,fontSize:16}}>{tramo.k}</div>
+    <div className="card" style={{padding:"14px 16px",marginBottom:12,borderLeft:`4px solid ${chipSel.color}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontWeight:800,fontSize:16}}>{chipSel.k==="Todos"?"Cartera total":chipSel.k}</div>
           <div className="meta" style={{fontSize:11.5}}>{facturas.length} factura(s) · {porCli.length} cliente(s)</div>
         </div>
-        <div className="num" style={{fontSize:20,fontWeight:800,color:tramo.color}}>{money(totVenc)}</div>
+        <div className="num" style={{fontSize:20,fontWeight:800,color:chipSel.color,whiteSpace:"nowrap"}}>{money(totChip)}</div>
       </div>
+    </div>
+
+    {/* chips de tramo (deslizables) */}
+    <div className="tipochips" style={{marginBottom:14}}>
+      {CHIPS.map(c=>(
+        <button key={c.k} className={"tchip"+(chip===c.k?" on":"")} onClick={()=>setChip(c.k)}>
+          <span className="tchip-nom" style={chip===c.k?{color:"#fff"}:{color:"#2C3A32"}}>{c.k}</span>
+        </button>
+      ))}
     </div>
 
     {/* conmutador Por cliente / Por factura */}
@@ -5987,7 +6002,7 @@ function AgingDetalle({tramo, facturas, base, volver, onFactura}){
             <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               {c.cli}{c.nFac>1 && <span className="meta" style={{fontWeight:600,fontSize:10.5}}> · {c.nFac} fac.</span>}</span>
             <span className="num" style={{textAlign:"right",width:74,fontSize:12.5}}>{money(c.saldoTotal)}</span>
-            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5,fontWeight:700,color:tramo.color}}>{money(c.saldoVenc)}</span>
+            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5,fontWeight:700,color:chipSel.color}}>{money(c.saldoVenc)}</span>
             <span className="num" style={{textAlign:"right",width:44,fontSize:12.5,fontWeight:700}}>{c.diasMax>0?c.diasMax:"—"}</span>
           </div>
         </div>
@@ -6001,7 +6016,7 @@ function AgingDetalle({tramo, facturas, base, volver, onFactura}){
               <span className="meta" style={{fontSize:10}}>Fact. {(f.fac||"").replace(/^001-001-/,"")}</span>
             </span>
             <span className="num" style={{textAlign:"right",width:74,fontSize:12.5}}>{money(f.saldo)}</span>
-            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5,fontWeight:700,color:tramo.color}}>{money(f.saldo)}</span>
+            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5,fontWeight:700,color:chipSel.color}}>{money(f.dias>0?f.saldo:0)}</span>
             <span className="num" style={{textAlign:"right",width:44,fontSize:12.5,fontWeight:700}}>{f.dias>0?f.dias:"—"}</span>
           </div>
         </button>
@@ -6084,12 +6099,8 @@ function Cartera({toast, onCobrar}){
 
   if(verFac) return <DetalleFactura it={verFac} volver={()=>setVerFac(null)} toast={toast} onCobrar={onCobrar}/>;
   if(verAging){
-    const tramoA=tramos.find(t=>t.k===verAging);
-    if(tramoA){
-      const facturasTramo=base.filter(tramoA.test).sort((a,b)=>b.dias-a.dias);
-      return <AgingDetalle tramo={tramoA} facturas={facturasTramo} base={base}
-        volver={()=>setVerAging(null)} onFactura={f=>{setVerAging(null);setVerFac(f);}}/>;
-    }
+    return <AgingDetalle tramos={tramos} tramoIni={verAging} base={base} totalCartera={totalCartera}
+      volver={()=>setVerAging(null)} onFactura={f=>{setVerAging(null);setVerFac(f);}}/>;
   }
 
   return (<>
@@ -12167,7 +12178,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b79</div>
+              Versión 16 jul 2026 b80</div>
           </div>
         </div>
       </div>
