@@ -5808,111 +5808,127 @@ function DetalleFactura({it, volver, toast, onCobrar}){
     );
   };
 
+  const [vista,setVista]=useState("factura"); // factura | entrega
   return (<>
-    <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a cartera</button>
+    <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver a cartera</button>
 
-    <div className="det-head">
-      <div className="row">
-        <div><div className="cli" style={{fontSize:17}}>{it.cli}</div>
-          <div className="meta">Factura {it.fac} · {it.ciudad}, {it.prov}</div>
-          {it.vendedor && <div className="meta">👤 Vendedor: {it.vendedor}</div>}</div>
-        <div style={{textAlign:"right"}}><div className="amt num">{money(saldoCalc>0?saldoCalc:0)}</div>
-          <div className="meta">saldo por cobrar</div></div>
+    {/* encabezado destacado */}
+    <div className="card" style={{padding:"16px 16px 14px",marginBottom:12,
+      borderLeft:`4px solid ${it.v==="bad"?"var(--clay)":it.v==="warn"?"#C9A227":"var(--field)"}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontWeight:800,fontSize:17,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.cli}</div>
+          <div className="meta" style={{fontSize:11.5,marginTop:2}}>Factura {(it.fac||"").replace(/^001-001-/,"")}</div>
+          {it.vendedor && <div className="meta" style={{fontSize:11.5}}>👤 {it.vendedor}</div>}
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div className="num" style={{fontSize:22,fontWeight:800,color:"var(--field)"}}>{money(saldoCalc>0?saldoCalc:0)}</div>
+          <div className="meta" style={{fontSize:10.5}}>saldo por cobrar</div>
+        </div>
       </div>
-      <div className="row" style={{marginTop:12,alignItems:"center"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:12}}>
         <span className={"chip "+(it.v==="bad"?"c-bad":it.v==="warn"?"c-sync":"c-wait")}>
           <span className="d"></span>{it.estado}</span>
         <button className="mini-cta" onClick={()=>{ if(onCobrar) onCobrar(it); else toast(`Cobrar ${it.cli} · ${money(saldoCalc>0?saldoCalc:0)}.`); }}>Cobrar →</button>
       </div>
     </div>
 
-    <div className="sec-h"><h2>Detalle de la factura</h2><div className="grain"></div></div>
-    <div className="card">
-      {d.pedido && <div className="meta" style={{marginBottom:10}}>{d.pedido.prov} · {d.pedido.cond} · facturado {d.pedido.fecha}</div>}
-      {(d.items&&d.items.length>0) ? (<>
-        <div className="fac-row fac-head">
-          <span style={{flex:1}}>Producto</span>
-          <span style={{width:34,textAlign:"right"}}>Cant.</span>
-          <span style={{width:62,textAlign:"right"}}>P. unit.</span>
-          <span style={{width:70,textAlign:"right"}}>Subtotal</span>
+    {/* 2 pestañas */}
+    <div className="eq-tabs" style={{marginBottom:14}}>
+      <button className={vista==="factura"?"on":""} onClick={()=>setVista("factura")}>🧾 Factura</button>
+      <button className={vista==="entrega"?"on":""} onClick={()=>setVista("entrega")}>🚚 Entrega y pagos</button>
+    </div>
+
+    {vista==="factura" ? (<>
+      <div className="card">
+        {d.pedido && <div className="meta" style={{marginBottom:10}}>{d.pedido.prov} · {d.pedido.cond} · facturado {d.pedido.fecha}</div>}
+        {(d.items&&d.items.length>0) ? (<>
+          <div className="fac-row fac-head">
+            <span style={{flex:1}}>Producto</span>
+            <span style={{width:34,textAlign:"right"}}>Cant.</span>
+            <span style={{width:62,textAlign:"right"}}>P. unit.</span>
+            <span style={{width:70,textAlign:"right"}}>Subtotal</span>
+          </div>
+          {d.items.map((it2,i)=>(
+            <div className="fac-row" key={i}>
+              <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{(it2.prod||"").replace(/\s*\(100 lb\)/i,"")}</span>
+              <span className="num" style={{width:34,textAlign:"right"}}>{it2.cant}</span>
+              <span className="num" style={{width:62,textAlign:"right"}}>{money(it2.precio)}</span>
+              <span className="num" style={{width:70,textAlign:"right"}}>{money(it2.cant*it2.precio)}</span>
+            </div>
+          ))}
+          <div className="fac-row" style={{borderTop:"1px solid var(--line)",marginTop:6,paddingTop:8,fontWeight:700}}>
+            <span style={{flex:1}}>Total facturado</span>
+            <span className="num">{money(d.total)}</span>
+          </div>
+        </>) : (
+          <div className="cu-line"><span>Mercadería facturada</span><b className="num">{money(it.saldo)}</b></div>
+        )}
+      </div>
+
+      {/* resumen de saldo */}
+      <div className="card" style={{marginTop:12}}>
+        <div className="cu-line"><span>Total facturado</span><b className="num">{money(d.total||it.saldo)}</b></div>
+        <div className="cu-line"><span>− Abonos</span><b className="num" style={{color:sumAbonos>0?"var(--ok)":undefined}}>{money(sumAbonos)}</b></div>
+        <div className="cu-line"><span>− Retenciones</span><b className="num">{money(sumRet)}</b></div>
+        <div className="cu-line"><span>− Notas de crédito</span><b className="num" style={{color:sumNC>0?"var(--clay)":undefined}}>{money(sumNC)}</b></div>
+        <div className="cu-line" style={{borderTop:"1px solid var(--line)",paddingTop:10,marginTop:4}}>
+          <span><b>Saldo por cobrar</b></span><b className="num" style={{color:"var(--field)",fontSize:16}}>{money(saldoCalc>0?saldoCalc:0)}</b></div>
+      </div>
+    </>) : (<>
+      {/* comprobantes de entrega */}
+      <div className="sec-h"><h2>Comprobantes de entrega</h2><div className="grain"></div></div>
+      <div className="card">
+        <div className="meta" style={{marginBottom:10}}>🚚 Subidos por el transportista al entregar</div>
+        <div style={{display:"flex",gap:10}}>
+          <button className="back" style={{flex:1}} disabled={!d.guia}
+            onClick={()=>d.guia?setVerImg("guia"):toast("Aún sin guía subida por el transportista.")}>
+            📄 Guía{d.guia?" ✓":" · pend."}
+          </button>
+          <button className="back" style={{flex:1}} disabled={!d.facturaFirmada}
+            onClick={()=>d.facturaFirmada?setVerImg("factura"):toast("Aún sin factura firmada subida.")}>
+            🧾 Factura{d.facturaFirmada?" ✓":" · pend."}
+          </button>
         </div>
-        {d.items.map((it2,i)=>(
-          <div className="fac-row" key={i}>
-            <span style={{flex:1}}>{it2.prod}</span>
-            <span className="num" style={{width:34,textAlign:"right"}}>{it2.cant}</span>
-            <span className="num" style={{width:62,textAlign:"right"}}>{money(it2.precio)}</span>
-            <span className="num" style={{width:70,textAlign:"right"}}>{money(it2.cant*it2.precio)}</span>
+        {d.guia && <div className="meta" style={{marginTop:10}}>Recibió: {d.guia.recibidoPor} · {d.guia.transportista} ({d.guia.placa}) · {d.guia.fecha}</div>}
+      </div>
+
+      <div className="sec-h"><h2>Abonos · {money(sumAbonos)}</h2><div className="grain"></div></div>
+      {d.abonos.length===0
+        ? <div className="ph">Sin abonos registrados.</div>
+        : d.abonos.map((a,i)=>(
+          <div className="card" key={i}>
+            <div className="row">
+              <div><div className="cli" style={{fontSize:14}}>{a.medio}</div><div className="meta">{a.ref} · {a.fecha}</div></div>
+              <div className="amt num" style={{color:"var(--ok)"}}>{money(a.monto)}</div>
+            </div>
           </div>
         ))}
-        <div className="fac-row" style={{borderTop:"1px solid var(--line)",marginTop:6,paddingTop:8,fontWeight:700}}>
-          <span style={{flex:1}}>Total facturado</span>
-          <span className="num">{money(d.total)}</span>
-        </div>
-      </>) : (
-        <div className="cu-line"><span>Mercadería facturada</span><b className="num">{money(it.saldo)}</b></div>
-      )}
-    </div>
 
-    <div className="sec-h"><h2>Comprobantes de entrega</h2><div className="grain"></div></div>
-    <div className="card">
-      <div className="meta" style={{marginBottom:10}}>🚚 Subidos por el transportista al entregar</div>
-      <div style={{display:"flex",gap:10}}>
-        <button className="back" style={{flex:1}} disabled={!d.guia}
-          onClick={()=>d.guia?setVerImg("guia"):toast("Aún sin guía subida por el transportista.")}>
-          📄 Guía firmada{d.guia?"":" · pendiente"}
-        </button>
-        <button className="back" style={{flex:1}} disabled={!d.facturaFirmada}
-          onClick={()=>d.facturaFirmada?setVerImg("factura"):toast("Aún sin factura firmada subida.")}>
-          🧾 Factura firmada{d.facturaFirmada?"":" · pendiente"}
-        </button>
-      </div>
-      {d.guia && <div className="meta" style={{marginTop:10}}>Recibió: {d.guia.recibidoPor} · Entregó: {d.guia.transportista} ({d.guia.placa}) · {d.guia.fecha}</div>}
-    </div>
-
-    <div className="sec-h"><h2>Abonos · {money(sumAbonos)}</h2><div className="grain"></div></div>
-    {d.abonos.length===0
-      ? <div className="ph">Sin abonos registrados.</div>
-      : d.abonos.map((a,i)=>(
-        <div className="card" key={i}>
-          <div className="row">
-            <div><div className="cli" style={{fontSize:14}}>{a.medio}</div><div className="meta">{a.ref} · {a.fecha}</div></div>
-            <div className="amt num" style={{color:"var(--ok)"}}>{money(a.monto)}</div>
+      <div className="sec-h"><h2>Retenciones · {money(sumRet)}</h2><div className="grain"></div></div>
+      {d.retenciones.length===0
+        ? <div className="ph">Sin retenciones.</div>
+        : d.retenciones.map((r,i)=>(
+          <div className="card" key={i}>
+            <div className="row">
+              <div><div className="cli" style={{fontSize:14}}>{r.tipo}</div><div className="meta">{r.doc} · {r.fecha}</div></div>
+              <div className="amt num">{money(r.monto)}</div>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
 
-    <div className="sec-h"><h2>Retenciones · {money(sumRet)}</h2><div className="grain"></div></div>
-    {d.retenciones.length===0
-      ? <div className="ph">Sin retenciones.</div>
-      : d.retenciones.map((r,i)=>(
-        <div className="card" key={i}>
-          <div className="row">
-            <div><div className="cli" style={{fontSize:14}}>{r.tipo}</div><div className="meta">{r.doc} · {r.fecha}</div></div>
-            <div className="amt num">{money(r.monto)}</div>
+      <div className="sec-h"><h2>Notas de crédito · {money(sumNC)}</h2><div className="grain"></div></div>
+      {d.notasCredito.length===0
+        ? <div className="ph">Sin notas de crédito.</div>
+        : d.notasCredito.map((n,i)=>(
+          <div className="card" key={i}>
+            <div className="row">
+              <div><div className="cli" style={{fontSize:14}}>{n.motivo}</div><div className="meta">{n.doc} · {n.fecha}</div></div>
+              <div className="amt num" style={{color:"var(--clay)"}}>−{money(n.monto)}</div>
+            </div>
           </div>
-        </div>
-      ))}
-
-    <div className="sec-h"><h2>Notas de crédito · {money(sumNC)}</h2><div className="grain"></div></div>
-    {d.notasCredito.length===0
-      ? <div className="ph">Sin notas de crédito.</div>
-      : d.notasCredito.map((n,i)=>(
-        <div className="card" key={i}>
-          <div className="row">
-            <div><div className="cli" style={{fontSize:14}}>{n.motivo}</div><div className="meta">{n.doc} · {n.fecha}</div></div>
-            <div className="amt num" style={{color:"var(--clay)"}}>−{money(n.monto)}</div>
-          </div>
-        </div>
-      ))}
-
-    <div className="card" style={{marginTop:14}}>
-      <div className="cu-line"><span>Total facturado</span><b className="num">{money(d.total||it.saldo)}</b></div>
-      <div className="cu-line"><span>− Abonos</span><b className="num">{money(sumAbonos)}</b></div>
-      <div className="cu-line"><span>− Retenciones</span><b className="num">{money(sumRet)}</b></div>
-      <div className="cu-line"><span>− Notas de crédito</span><b className="num">{money(sumNC)}</b></div>
-      <div className="cu-line" style={{borderTop:"1px solid var(--line)",paddingTop:10,marginTop:4}}>
-        <span><b>Saldo por cobrar</b></span><b className="num">{money(saldoCalc>0?saldoCalc:0)}</b></div>
-    </div>
+        ))}
+    </>)}
 
     {verImg && <Imagen tipo={verImg}/>}
   </>);
@@ -12061,7 +12077,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b73</div>
+              Versión 16 jul 2026 b74</div>
           </div>
         </div>
       </div>
