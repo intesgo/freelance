@@ -5921,7 +5921,7 @@ function DetalleFactura({it, volver, toast, onCobrar}){
 function Cartera({toast, onCobrar}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
-  const [pestana,setPestana]=useState("facturas"); // facturas | analisis
+  const [pestana,setPestana]=useState("resumen"); // resumen | facturas | analisis | cheques
   const [fZona,setFZona]=useState("Todas");
   const [fVend,setFVend]=useState("Todos");
   const [fProv,setFProv]=useState("Todos");
@@ -6004,7 +6004,7 @@ function Cartera({toast, onCobrar}){
       </div>
     </div>
 
-    <div className="cf-barra">
+    {pestana!=="resumen" && <div className="cf-barra">
       <div className="ss" style={{flex:1,margin:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Buscar cliente, vendedor o factura…" onChange={e=>setQ(e.target.value)}/>
@@ -6014,7 +6014,7 @@ function Cartera({toast, onCobrar}){
       <button className={"cf-btn"+((verFiltros||nFiltros>0)?" on":"")} onClick={()=>setVerFiltros(v=>!v)}>
         ⚙ Filtros{nFiltros>0 && <span className="cf-btn-n">{nFiltros}</span>}
       </button>
-    </div>
+    </div>}
 
     {verFiltros && (
       <div className="cf-grid">
@@ -6061,10 +6061,65 @@ function Cartera({toast, onCobrar}){
     )}
 
     <div className="eq-tabs">
+      <button className={pestana==="resumen"?"on":""} onClick={()=>setPestana("resumen")}>Resumen</button>
       <button className={pestana==="facturas"?"on":""} onClick={()=>setPestana("facturas")}>Facturas</button>
       <button className={pestana==="analisis"?"on":""} onClick={()=>setPestana("analisis")}>Análisis</button>
       <button className={pestana==="cheques"?"on":""} onClick={()=>setPestana("cheques")}>Cheques</button>
     </div>
+
+    {pestana==="resumen" && (()=>{
+      const porVencer=base.filter(i=>i.dias<=0).reduce((s,i)=>s+i.saldo,0);
+      const clientesDeuda=new Set(base.map(i=>i.cli)).size;
+      const clientesBloq=Array.from(new Set(base.map(i=>i.cli))).filter(c=>{
+        try{ return motivosBloqueo(c).length>0; }catch(e){ return false; }
+      }).length;
+      const segDona=tramos.filter(t=>t.monto>0);
+      const totDona=segDona.reduce((s,t)=>s+t.monto,0)||1;
+      // geometría de la dona
+      const r=52,c=2*Math.PI*r,cx=65,cy=65; let off=0;
+      const arcos=segDona.map((t,i)=>{
+        const largo=(t.monto/totDona)*c;
+        const el=<circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={t.color} strokeWidth="22"
+          strokeDasharray={`${largo} ${c-largo}`} strokeDashoffset={-off} transform={`rotate(-90 ${cx} ${cy})`}/>;
+        off+=largo; return el;
+      });
+      return (<>
+        {/* 4 mini-tarjetas */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4}}>
+          {[
+            {ic:"⚠️", lbl:"Vencida", val:money(vencido), col:"var(--clay)"},
+            {ic:"⏳", lbl:"Por vencer", val:money(porVencer), col:"#C9A227"},
+            {ic:"👥", lbl:"Clientes con deuda", val:String(clientesDeuda), col:"var(--field)"},
+            {ic:"🔒", lbl:"Clientes bloqueados", val:String(clientesBloq), col:"var(--clay)"},
+          ].map((m,i)=>(
+            <div key={i} className="card" style={{padding:"13px 14px",margin:0,display:"flex",alignItems:"center",gap:11}}>
+              <span style={{fontSize:20,flexShrink:0}}>{m.ic}</span>
+              <span style={{minWidth:0}}>
+                <span className="meta" style={{display:"block",fontSize:11,fontWeight:600}}>{m.lbl}</span>
+                <span className="num" style={{display:"block",fontSize:17,fontWeight:800,color:m.col}}>{m.val}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Antigüedad de cartera: leyenda + dona */}
+        <div className="card" style={{padding:"16px 18px",marginTop:12}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>Antigüedad de cartera</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
+            <div style={{flex:1,minWidth:0}}>
+              {segDona.map((t,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0"}}>
+                  <span style={{width:10,height:10,borderRadius:3,background:t.color,flexShrink:0}}></span>
+                  <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.k}</span>
+                  <span className="num" style={{fontSize:12.5,fontWeight:700,whiteSpace:"nowrap"}}>{money(t.monto)}</span>
+                </div>
+              ))}
+            </div>
+            <svg viewBox="0 0 130 130" style={{width:120,height:120,flexShrink:0}}>{arcos}</svg>
+          </div>
+        </div>
+      </>);
+    })()}
 
     {pestana==="facturas" && (<>
     <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
@@ -12006,7 +12061,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 15 jul 2026 b72</div>
+              Versión 16 jul 2026 b73</div>
           </div>
         </div>
       </div>
