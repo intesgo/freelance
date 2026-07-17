@@ -5936,6 +5936,80 @@ function DetalleFactura({it, volver, toast, onCobrar}){
   </>);
 }
 
+function AgingDetalle({tramo, facturas, base, volver, onFactura}){
+  const [modo,setModo]=useState("cliente"); // cliente | factura
+  // agrupar por cliente dentro del tramo
+  const porCli=Array.from(new Set(facturas.map(f=>f.cli))).map(cli=>{
+    const fsTramo=facturas.filter(f=>f.cli===cli);
+    const todasCli=base.filter(f=>f.cli===cli);
+    return {
+      cli,
+      saldoTotal: todasCli.reduce((s,f)=>s+f.saldo,0),   // toda la deuda del cliente
+      saldoVenc: fsTramo.reduce((s,f)=>s+f.saldo,0),      // lo del tramo
+      diasMax: Math.max(...fsTramo.map(f=>f.dias)),
+      nFac: fsTramo.length,
+    };
+  }).sort((a,b)=>b.saldoVenc-a.saldoVenc);
+  const totVenc=facturas.reduce((s,f)=>s+f.saldo,0);
+
+  return (<>
+    <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver al resumen</button>
+
+    <div className="card" style={{padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${tramo.color}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:16}}>{tramo.k}</div>
+          <div className="meta" style={{fontSize:11.5}}>{facturas.length} factura(s) · {porCli.length} cliente(s)</div>
+        </div>
+        <div className="num" style={{fontSize:20,fontWeight:800,color:tramo.color}}>{money(totVenc)}</div>
+      </div>
+    </div>
+
+    {/* conmutador Por cliente / Por factura */}
+    <div className="eq-tabs" style={{marginBottom:14}}>
+      <button className={modo==="cliente"?"on":""} onClick={()=>setModo("cliente")}>Por cliente</button>
+      <button className={modo==="factura"?"on":""} onClick={()=>setModo("factura")}>Por factura</button>
+    </div>
+
+    {/* encabezado de columnas */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:8,padding:"0 12px 6px",
+      fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
+      <span>Cliente</span>
+      <span style={{textAlign:"right",width:74}}>S. Total</span>
+      <span style={{textAlign:"right",width:74}}>S. Vencido</span>
+      <span style={{textAlign:"right",width:44}}>Días</span>
+    </div>
+
+    {modo==="cliente"
+      ? porCli.map((c,i)=>(
+        <div className="card" key={i} style={{padding:"11px 12px",marginBottom:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:8,alignItems:"center"}}>
+            <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {c.cli}{c.nFac>1 && <span className="meta" style={{fontWeight:600,fontSize:10.5}}> · {c.nFac} fac.</span>}</span>
+            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5}}>{money(c.saldoTotal)}</span>
+            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5,fontWeight:700,color:tramo.color}}>{money(c.saldoVenc)}</span>
+            <span className="num" style={{textAlign:"right",width:44,fontSize:12.5,fontWeight:700}}>{c.diasMax>0?c.diasMax:"—"}</span>
+          </div>
+        </div>
+      ))
+      : facturas.map((f,i)=>(
+        <button className="card" key={i} onClick={()=>onFactura(f)}
+          style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",cursor:"pointer",fontFamily:"inherit",border:"1px solid var(--line)"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:8,alignItems:"center"}}>
+            <span style={{minWidth:0}}>
+              <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.cli}</span>
+              <span className="meta" style={{fontSize:10}}>Fact. {(f.fac||"").replace(/^001-001-/,"")}</span>
+            </span>
+            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5}}>{money(f.saldo)}</span>
+            <span className="num" style={{textAlign:"right",width:74,fontSize:12.5,fontWeight:700,color:tramo.color}}>{money(f.saldo)}</span>
+            <span className="num" style={{textAlign:"right",width:44,fontSize:12.5,fontWeight:700}}>{f.dias>0?f.dias:"—"}</span>
+          </div>
+        </button>
+      ))}
+    {facturas.length===0 && <div className="ph">Sin facturas en este tramo.</div>}
+  </>);
+}
+
 function Cartera({toast, onCobrar}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
@@ -5949,6 +6023,7 @@ function Cartera({toast, onCobrar}){
   const [fAging,setFAging]=useState("Todos");      // Todos | 1-30 | 31-60 | 61-90 | +90
   const [verFiltros,setVerFiltros]=useState(false); // panel de filtros plegable
   const [secAbierta,setSecAbierta]=useState("indicadores"); // sección de análisis abierta (acordeón)
+  const [verAging,setVerAging]=useState(null); // tramo abierto al tocar la dona
   const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
@@ -6120,23 +6195,35 @@ function Cartera({toast, onCobrar}){
           ))}
         </div>
 
-        {/* Antigüedad de cartera: leyenda + dona */}
+        {/* Antigüedad de cartera: leyenda + dona (clicables) */}
         <div className="card" style={{padding:"16px 18px",marginTop:12}}>
           <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>Antigüedad de cartera</div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
             <div style={{flex:1,minWidth:0}}>
               {tramos.map((t,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",opacity:t.monto>0?1:.5}}>
+                <button key={i} onClick={()=>t.monto>0 && setVerAging(t.k)} disabled={t.monto<=0}
+                  style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"6px 0",opacity:t.monto>0?1:.5,
+                    background:"none",border:"none",borderBottom:"1px solid #F4F1E9",cursor:t.monto>0?"pointer":"default",fontFamily:"inherit"}}>
                   <span style={{width:10,height:10,borderRadius:3,background:t.color,flexShrink:0}}></span>
-                  <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.k}</span>
+                  <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:600,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.k}</span>
                   <span className="num" style={{fontSize:12.5,fontWeight:700,whiteSpace:"nowrap"}}>{money(t.monto)}</span>
-                </div>
+                  {t.monto>0 && <span style={{color:"var(--muted)",fontSize:13,flexShrink:0}}>›</span>}
+                </button>
               ))}
             </div>
-            <svg viewBox="0 0 130 130" style={{width:120,height:120,flexShrink:0}}>{arcos}</svg>
+            <svg viewBox="0 0 130 130" style={{width:120,height:120,flexShrink:0,cursor:"pointer"}}
+              onClick={()=>{ const may=segDona.slice().sort((a,b)=>b.monto-a.monto)[0]; if(may) setVerAging(may.k); }}>{arcos}</svg>
           </div>
+          <div className="meta" style={{fontSize:10.5,marginTop:10,textAlign:"center"}}>Toca un tramo para ver los clientes y facturas</div>
         </div>
       </>);
+    })()}
+
+    {verAging && (()=>{
+      const tramo=tramos.find(t=>t.k===verAging);
+      const facturasTramo=base.filter(tramo.test).sort((a,b)=>b.dias-a.dias);
+      return <AgingDetalle tramo={tramo} facturas={facturasTramo} base={base}
+        volver={()=>setVerAging(null)} onFactura={f=>{setVerAging(null);setVerFac(f);}}/>;
     })()}
 
     {pestana==="facturas" && (<>
@@ -12079,7 +12166,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b77</div>
+              Versión 16 jul 2026 b78</div>
           </div>
         </div>
       </div>
