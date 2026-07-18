@@ -21,6 +21,39 @@
     --shadow:0 1px 2px rgba(21,57,43,.06),0 8px 24px rgba(21,57,43,.06);
     --fs:1; /* escala de fuente (Ajustes: normal=1, grande=1.12) */
   }
+  /* ═══ TEMAS (Ajustes) ═══ */
+  /* Sol · alto contraste para leer bajo sol directo */
+  [data-tema="sol"]{
+    --field:#0B2A1E; --field-700:#123B2A; --maize:#F59E00; --maize-deep:#B36B00;
+    --paper:#FFFFFF; --card:#FFFFFF; --ink:#0A0F0C; --muted:#4A554C;
+    --line:#D6D2C4; --clay:#A34A28; --ok:#1F6B41;
+    --shadow:0 1px 2px rgba(0,0,0,.10),0 6px 18px rgba(0,0,0,.08);
+  }
+  /* Noche · oscuro, para madrugada y poca luz */
+  [data-tema="noche"]{
+    --field:#0E1A14; --field-700:#16261D; --maize:#E9B44C; --maize-deep:#C08F2E;
+    --paper:#111A15; --card:#182420; --ink:#E6EDE8; --muted:#93A399;
+    --line:#26332C; --clay:#D08160; --ok:#57A773;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+  /* Grafito · neutro y serio, para reuniones */
+  [data-tema="grafito"]{
+    --field:#22262A; --field-700:#2F353A; --maize:#D9A441; --maize-deep:#AD7F2A;
+    --paper:#F4F5F6; --card:#FFFFFF; --ink:#1A1E21; --muted:#6C757D;
+    --line:#DFE3E6; --clay:#B5613C; --ok:#2E7D52;
+    --shadow:0 1px 2px rgba(20,25,30,.07),0 8px 22px rgba(20,25,30,.07);
+  }
+  /* Arena · cálido, menos fatiga en uso prolongado */
+  [data-tema="arena"]{
+    --field:#4A3B22; --field-700:#5E4B2C; --maize:#E0A82E; --maize-deep:#B4801C;
+    --paper:#FAF4E8; --card:#FFFCF6; --ink:#2A2317; --muted:#7A6E58;
+    --line:#E8DCC4; --clay:#B26A3C; --ok:#5C7C48;
+    --shadow:0 1px 2px rgba(74,59,34,.07),0 8px 22px rgba(74,59,34,.08);
+  }
+  /* en Noche, las tarjetas blancas fijas se adaptan */
+  [data-tema="noche"] .fbot,[data-tema="noche"] .eq-tabs{background:#182420}
+  [data-tema="noche"] input,[data-tema="noche"] select,[data-tema="noche"] textarea{
+    background:#1E2C26;color:#E6EDE8;border-color:#2C3A33}
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   /* Blindaje anti-desborde: en filas flex, los campos ceden espacio en vez de empujar botones fuera */
   input,select,textarea{min-width:0;max-width:100%}
@@ -1230,33 +1263,25 @@ const {useState} = React;
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
 const PALETAS = {
-  verde:  {nombre:"Verde institucional", field:"#15392B", field700:"#1E4D3A", maize:"#F2A900", maizeDeep:"#C77F00", ok:"#2E7D52", muestra:["#15392B","#F2A900"]},
-  azul:   {nombre:"Azul corporativo",     field:"#123A5A", field700:"#1B5276", maize:"#F2A900", maizeDeep:"#C77F00", ok:"#2E7D52", muestra:["#123A5A","#F2A900"]},
-  morado: {nombre:"Morado",               field:"#3B2A66", field700:"#5B21B6", maize:"#F2A900", maizeDeep:"#C77F00", ok:"#2E7D52", muestra:["#3B2A66","#A78BFA"]},
-  oscuro: {nombre:"Oscuro",               field:"#10211B", field700:"#1A3A2E", maize:"#F2A900", maizeDeep:"#C77F00", ok:"#3FA76E", muestra:["#10211B","#F2A900"]},
+  campo:   {nombre:"Campo",   desc:"Verde institucional",        muestra:["#15392B","#F2A900"]},
+  sol:     {nombre:"Sol",     desc:"Alto contraste bajo el sol", muestra:["#0B2A1E","#FFFFFF"]},
+  noche:   {nombre:"Noche",   desc:"Oscuro, para poca luz",      muestra:["#0E1A14","#E9B44C"]},
+  grafito: {nombre:"Grafito", desc:"Neutro y formal",            muestra:["#22262A","#D9A441"]},
+  arena:   {nombre:"Arena",   desc:"Cálido, menos fatiga",       muestra:["#4A3B22","#E0A82E"]},
 };
-function aplicarTema(paletaKey, oscuro){
-  const p=PALETAS[paletaKey]||PALETAS.verde;
-  const r=document.documentElement.style;
-  r.setProperty("--field",p.field);
-  r.setProperty("--field-700",p.field700);
-  r.setProperty("--maize",p.maize);
-  r.setProperty("--maize-deep",p.maizeDeep);
-  r.setProperty("--ok",p.ok);
-  if(oscuro){
-    r.setProperty("--paper","#15201B");
-    r.setProperty("--card","#1D2B24");
-    r.setProperty("--ink","#EAF0EA");
-    r.setProperty("--muted","#9AB0A2");
-    r.setProperty("--line","#2C3A32");
-  } else {
-    r.setProperty("--paper","#F7F5EF");
-    r.setProperty("--card","#FFFFFF");
-    r.setProperty("--ink","#18211C");
-    r.setProperty("--muted","#6F7A6F");
-    r.setProperty("--line","#E7E1D3");
-  }
+function aplicarTema(paletaKey){
+  const k=PALETAS[paletaKey]?paletaKey:"campo";
+  const raiz=document.documentElement;
+  /* las variables viven en el CSS por tema; solo marcamos cuál está activo */
+  if(k==="campo") raiz.removeAttribute("data-tema");
+  else raiz.setAttribute("data-tema",k);
+  try{ localStorage.setItem("fl_tema",k); }catch(e){}
 }
+/* al abrir la app, recupera el tema guardado */
+try{
+  const guardado=localStorage.getItem("fl_tema");
+  if(guardado && PALETAS[guardado] && guardado!=="campo") document.documentElement.setAttribute("data-tema",guardado);
+}catch(e){}
 
 const PROVEEDORES = [
   {id:"PROV-A", nombre:"Agrícola del Valle"},
@@ -10280,22 +10305,17 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       {Object.keys(PALETAS).map(k=>{
         const p=PALETAS[k];
         return (
-          <button key={k} className={"aj-pal"+(tema===k?" on":"")} onClick={()=>{setTema(k);aplicarTema(k,oscuro);toast("Color: "+p.nombre);}}>
+          <button key={k} className={"aj-pal"+(tema===k?" on":"")} onClick={()=>{setTema(k);aplicarTema(k);toast("Tema: "+p.nombre);}}>
             <span className="aj-pal-muestra">
               <span style={{background:p.muestra[0]}}></span>
               <span style={{background:p.muestra[1]}}></span>
             </span>
-            <span className="aj-pal-nom">{p.nombre}</span>
+            <span className="aj-pal-nom">{p.nombre}
+              <span style={{display:"block",fontSize:9.5,fontWeight:500,color:"var(--muted)",marginTop:1}}>{p.desc}</span></span>
             {tema===k && <span className="aj-pal-check">✓</span>}
           </button>
         );
       })}
-    </div>
-
-    <div className="aj-row">
-      <div><div className="aj-k">Modo oscuro</div><div className="aj-s">Fondo oscuro, mejor de noche</div></div>
-      <button className={"aj-switch"+(oscuro?" on":"")} onClick={()=>{const n=!oscuro;setOscuro(n);aplicarTema(tema,n);}}>
-        <span className="aj-knob"></span></button>
     </div>
 
     <div className="aj-row">
@@ -12862,7 +12882,7 @@ function App({usuario, onSalir}){
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
   const [secMenu,setSecMenu]=useState("gestion"); // sección abierta del menú (acordeón, una a la vez)
   const [confirmarSalir,setConfirmarSalir]=useState(false); // confirmación de cierre de sesión
-  const [tema,setTema]=useState("verde");
+  const [tema,setTema]=useState(()=>{ try{ return localStorage.getItem("fl_tema")||"campo"; }catch(e){ return "campo"; } });
   const [oscuro,setOscuro]=useState(false);
   const [fontGrande,setFontGrande]=useState(false);
   const [pedidos,setPedidos]=useState(PEDIDOS_INI); // lista viva de pedidos (Mis pedidos)
@@ -13092,7 +13112,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v136</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v137</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13282,7 +13302,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b136</div>
+              Versión 16 jul 2026 b137</div>
           </div>
         </div>
       </div>
