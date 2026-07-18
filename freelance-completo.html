@@ -1414,6 +1414,9 @@ const PRESENTACIONES = PRODUCTOS
         /* costo del proveedor y costos operativos (demo; en Fase 4 vienen de Supabase) */
         costo: pr.costo != null ? pr.costo : Math.round(pr.baseCredito*0.885*100)/100,
         costosOper: pr.costosOper != null ? pr.costosOper : Math.round(pr.baseCredito*0.045*100)/100,
+        /* precios adicionales (demo): promoción del proveedor y precio especial autorizado */
+        promoProv: pr.promoProv != null ? pr.promoProv : Math.round(pr.baseContado*0.965*100)/100,
+        precioEspecial: pr.precioEspecial != null ? pr.precioEspecial : Math.round(pr.baseContado*0.94*100)/100,
       }))
   );
 const CLIENTES = ["Comercial Mendoza","Tienda La Esquina","Distribuidora Ríos",
@@ -8413,45 +8416,72 @@ function ListaPrecios({backRef}){
     return (<>
       <button className="ghost" onClick={()=>setProdSel(null)} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver a precios</button>
 
-      {/* encabezado del producto */}
-      <div className="card" style={{padding:"16px",marginBottom:12,borderLeft:"4px solid var(--field)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:32,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
+      {/* ficha estilo catálogo: imagen + datos + precios */}
+      <div className="card" style={{padding:"14px",marginBottom:12}}>
+        <div style={{display:"flex",gap:13,alignItems:"flex-start"}}>
+          {/* imagen (emoji por ahora; foto real en Fase 4) */}
+          <div style={{flexShrink:0,width:76,height:76,borderRadius:12,background:"#F5F2E9",
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:38}}>
+            {EMOJI_LINEA[p.linea]||"📦"}
+          </div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:800,fontSize:17,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
-            <div className="meta" style={{fontSize:11.5}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")} · {p.linea}</div>
+            <div style={{fontWeight:800,fontSize:16,lineHeight:1.2}}>{p.marca}</div>
+            <div className="meta" style={{fontSize:12,marginTop:1}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</div>
+            <div className="meta" style={{fontSize:11,marginTop:3}}>Código: <b style={{color:"var(--ink)"}}>{p.id}</b></div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:p.stock>0?"#2E7D52":"#C2603A",flexShrink:0}}></span>
+              <span style={{fontSize:11.5,fontWeight:700,color:p.stock>0?"#2E7D52":"#C2603A"}}>
+                {p.stock>0?`Disponible · ${p.stock} qq`:"Sin stock"}</span>
+            </div>
           </div>
-          <div style={{flexShrink:0,textAlign:"right"}}>
-            <div className="num" style={{fontSize:13,fontWeight:800,color:p.stock<=0?"var(--clay)":"#2E7D52"}}>{p.stock<=0?"Sin stock":p.stock+" qq"}</div>
-          </div>
+        </div>
+
+        {/* los 5 tipos de precio */}
+        <div style={{marginTop:14,border:"1px solid #EDE9DE",borderRadius:12,overflow:"hidden"}}>
+          {[
+            {ic:"●", col:"#2E7D52", lbl:"Contado",            val:p.baseContado},
+            {ic:"●", col:"#2B6CB0", lbl:"Crédito",            val:p.baseCredito},
+            {ic:"●", col:"#7C5CBF", lbl:"Promoción proveedor", val:p.promoProv},
+            {ic:"●", col:"#D98324", lbl:"Promoción Freelance", val:(p.promosFreelance&&p.promosFreelance[0])?p.promosFreelance[0].base:null},
+            {ic:"●", col:"#2AA198", lbl:"Precio especial",     val:p.precioEspecial},
+          ].filter(x=>x.val!=null).map((x,i,arr)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+              borderBottom:i<arr.length-1?"1px solid #F2EFE6":"none",background:i%2?"#FBFAF6":"#fff"}}>
+              <span style={{color:x.col,fontSize:15,flexShrink:0,lineHeight:1}}>{x.ic}</span>
+              <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.lbl}</span>
+              <span className="num" style={{flexShrink:0,fontSize:14,fontWeight:800}}>{money(x.val)}</span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* utilidad destacada */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-        <div className="card" style={{margin:0,padding:"13px 14px"}}>
-          <div className="meta" style={{fontSize:10.5}}>Utilidad bruta</div>
-          <div className="num" style={{fontSize:21,fontWeight:800,color:"var(--field)"}}>{money(p.bruta)}</div>
-          <div className="meta" style={{fontSize:10}}>{p.baseCredito?Math.round(p.bruta/p.baseCredito*1000)/10:0}% del precio</div>
+      {/* utilidades (solo para el freelance) */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginBottom:12}}>
+        <div className="card" style={{margin:0,padding:"12px 10px",textAlign:"center"}}>
+          <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Compra</div>
+          <div className="num" style={{fontSize:16,fontWeight:800,color:"var(--muted)"}}>{money(p.costo)}</div>
         </div>
-        <div className="card" style={{margin:0,padding:"13px 14px"}}>
-          <div className="meta" style={{fontSize:10.5}}>Utilidad neta</div>
-          <div className="num" style={{fontSize:21,fontWeight:800,color:p.neta>0?"#2E7D52":"var(--clay)"}}>{money(p.neta)}</div>
-          <div className="meta" style={{fontSize:10}}>{p.pct}% del precio</div>
+        <div className="card" style={{margin:0,padding:"12px 10px",textAlign:"center"}}>
+          <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. bruta</div>
+          <div className="num" style={{fontSize:16,fontWeight:800,color:"var(--field)"}}>{money(p.bruta)}</div>
+        </div>
+        <div className="card" style={{margin:0,padding:"12px 10px",textAlign:"center"}}>
+          <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. neta</div>
+          <div className="num" style={{fontSize:16,fontWeight:800,color:p.neta>0?"#2E7D52":"var(--clay)"}}>{money(p.neta)}</div>
+          <div className="meta" style={{fontSize:9}}>{p.pct}%</div>
         </div>
       </div>
 
-      {/* comparación de precios */}
+      {/* estructura de precios en barras */}
       <div className="card" style={{padding:"15px 16px",marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13.5,marginBottom:13}}>Estructura de precios</div>
         {barra("Precio de compra",p.costo||0,"#A8B5AC")}
         {barra("Venta contado",p.baseContado,"#57A773")}
         {barra("Venta crédito",p.baseCredito,"#2E7D52",true)}
-        {(p.promosFreelance||[]).map((pr,i)=>barra(`Promo · ${pr.nombre}`,pr.base,"#C9A227"))}
       </div>
 
       {/* comparación con la línea */}
-      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
+      <div className="card" style={{padding:"14px 16px"}}>
         <div style={{fontWeight:700,fontSize:13.5,marginBottom:8}}>Frente a su línea</div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"4px 0"}}>
           <span className="meta">Promedio {p.linea}</span>
@@ -8463,17 +8493,6 @@ function ListaPrecios({backRef}){
           <span className="num" style={{fontWeight:800,color:dif>=0?"#2E7D52":"var(--clay)"}}>
             {dif>=0?"▲ ":"▼ "}{money(Math.abs(dif))} {dif>=0?"mejor":"menos"}
           </span>
-        </div>
-      </div>
-
-      {/* datos del crédito */}
-      <div className="card" style={{padding:"13px 16px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}}>
-          <span className="meta">Días de crédito</span><span style={{fontWeight:700}}>{p.diasCredito} días</span>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}}>
-          <span className="meta">Diferencia contado/crédito</span>
-          <span className="num" style={{fontWeight:700}}>{money(Math.round((p.baseCredito-p.baseContado)*100)/100)}</span>
         </div>
       </div>
     </>);
@@ -12512,7 +12531,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v117</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v118</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12701,7 +12720,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b117</div>
+              Versión 16 jul 2026 b118</div>
           </div>
         </div>
       </div>
