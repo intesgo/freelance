@@ -6034,6 +6034,7 @@ function Cartera({toast, onCobrar}){
   const [verFiltros,setVerFiltros]=useState(false); // panel de filtros plegable
   const [secAbierta,setSecAbierta]=useState("deudores"); // sección de análisis abierta (acordeón)
   const [verAging,setVerAging]=useState(null); // tramo abierto al tocar la dona
+  const [pagFac,setPagFac]=useState(1); // paginación de facturas
   const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
@@ -6233,46 +6234,45 @@ function Cartera({toast, onCobrar}){
       </>);
     })()}
 
-    {pestana==="facturas" && (<>
-    <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
-    {listaOrd.map((it,i)=>(
-      <div className="card" key={i}>
-        <div className="row">
-          <div><div className="cli">{it.cli}{it.chequeDevuelto && <span className="chq-badge">⚠️ Cheque devuelto</span>}</div>
-            <div className="meta">👤 {it.vendedor} · {it.chequeDevuelto?"Cheque":"Fact."} {(it.fac||"").replace(/^001-001-/,"")}</div></div>
-          <div style={{textAlign:"right"}}><div className="amt num">{money(it.saldo)}</div>
-            <div className="meta">{it.venc}</div></div>
-        </div>
-        <div className="row" style={{marginTop:10,alignItems:"center"}}>
-          <span className={"chip "+(it.v==="bad"?"c-bad":it.v==="warn"?"c-sync":"c-wait")}>
-            <span className="d"></span>{it.estado}</span>
-          <div style={{display:"flex",gap:8}}>
-            <button className="back" style={{padding:"7px 14px"}} onClick={()=>setVerFac(it)}>Detalle</button>
-            <button className="mini-cta" onClick={()=>{ if(onCobrar) onCobrar(it); else toast(`Cobrar ${it.cli} · ${money(it.saldo)}.`); }}>
-              Cobrar →</button>
+    {pestana==="facturas" && (()=>{
+      const POR_PAG=4;
+      const totalPagF=Math.max(1,Math.ceil(listaOrd.length/POR_PAG));
+      const pagF=Math.min(pagFac,totalPagF);
+      const visiblesF=listaOrd.slice((pagF-1)*POR_PAG, pagF*POR_PAG);
+      return (<>
+      <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
+      {visiblesF.map((it,i)=>(
+        <div className="card" key={i}>
+          <div className="row">
+            <div><div className="cli">{it.cli}{it.chequeDevuelto && <span className="chq-badge">⚠️ Cheque devuelto</span>}</div>
+              <div className="meta">👤 {it.vendedor} · {it.chequeDevuelto?"Cheque":"Fact."} {(it.fac||"").replace(/^001-001-/,"")}</div></div>
+            <div style={{textAlign:"right"}}><div className="amt num">{money(it.saldo)}</div>
+              <div className="meta">{it.venc}</div></div>
+          </div>
+          <div className="row" style={{marginTop:10,alignItems:"center"}}>
+            <span className={"chip "+(it.v==="bad"?"c-bad":it.v==="warn"?"c-sync":"c-wait")}>
+              <span className="d"></span>{it.estado}</span>
+            <div style={{display:"flex",gap:8}}>
+              <button className="back" style={{padding:"7px 14px"}} onClick={()=>setVerFac(it)}>Detalle</button>
+              <button className="mini-cta" onClick={()=>{ if(onCobrar) onCobrar(it); else toast(`Cobrar ${it.cli} · ${money(it.saldo)}.`); }}>
+                Cobrar →</button>
+            </div>
           </div>
         </div>
-      </div>
-    ))}
-    {listaOrd.length===0 && <div className="ph">Ninguna factura coincide con los filtros aplicados.</div>}
+      ))}
+      {listaOrd.length===0 && <div className="ph">Ninguna factura coincide con los filtros aplicados.</div>}
 
-    <div className="ficha-sec" style={{marginTop:20}}>Cheques y documentos en circulación</div>
-    {ENTREGAS_INI.flatMap(e=>e.docs.filter(d=>d.tipo==="Cheque").map(d=>({...d,de:e.de,para:e.para}))).map((d,i)=>(
-      <div className="card doc-item" key={i}>
-        <div className="row" style={{alignItems:"center"}}>
-          <div style={{flex:1}}>
-            <div className="cli" style={{fontSize:13}}>{d.numero} · {d.cliente}</div>
-            <div className="meta">{d.de} → {d.para}{d.banco?` · ${d.banco}`:""}{d.venc?` · vence ${d.venc}`:""}</div>
-          </div>
-          <div style={{textAlign:"right"}}>
-            <div className="amt num" style={{fontSize:14}}>{money(d.monto)}</div>
-            <span className="doc-estado" style={{background:ESTADO_DOC_COLOR[d.estadoDoc]||"#888"}}>{d.estadoDoc}</span>
-          </div>
+      {totalPagF>1 && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,margin:"14px 0 4px"}}>
+          <button className="selmini" style={{width:"auto",opacity:pagF<=1?.4:1}} disabled={pagF<=1}
+            onClick={()=>setPagFac(p=>Math.max(1,p-1))}>‹ Anterior</button>
+          <span className="meta" style={{fontSize:12}}>Página {pagF} de {totalPagF}</span>
+          <button className="selmini" style={{width:"auto",opacity:pagF>=totalPagF?.4:1}} disabled={pagF>=totalPagF}
+            onClick={()=>setPagFac(p=>Math.min(totalPagF,p+1))}>Siguiente ›</button>
         </div>
-      </div>
-    ))}
-    <div className="meta" style={{marginTop:6,fontSize:11.5}}>Reflejo del módulo Entrega de documentos. Informativo: la comisión la libera el proveedor cuando confirma el pago efectivo.</div>
-    </>)}
+      )}
+      </>);
+    })()}
 
     {pestana==="cheques" && (()=>{
       /* Calendario de cheques posfechados: ocupan cupo del cliente hasta efectivizarse */
@@ -12136,7 +12136,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b84</div>
+              Versión 16 jul 2026 b85</div>
           </div>
         </div>
       </div>
