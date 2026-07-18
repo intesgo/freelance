@@ -6909,6 +6909,50 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
           </div>
           <div className="meta" style={{fontSize:10.5,marginTop:10,textAlign:"center"}}>Toca un tramo para ver los clientes y facturas</div>
         </div>
+
+        {/* ── Calendario de vencimientos (kit neumórfico) ── */}
+        {(()=>{
+          const HOY=new Date(2026,5,12);                 // 12 jun 2026 (fecha de trabajo del demo)
+          const anioC=HOY.getFullYear(), mesC=HOY.getMonth();
+          /* junta las facturas que vencen en el mes en curso */
+          const porDia={};
+          base.forEach(f=>{
+            const v=new Date(HOY); v.setDate(v.getDate()-f.dias);   // dias>0 = ya vencida
+            if(v.getFullYear()!==anioC || v.getMonth()!==mesC) return;
+            const d=v.getDate();
+            if(!porDia[d]) porDia[d]={dia:d, monto:0, n:0, vencido:false};
+            porDia[d].monto+=f.saldo; porDia[d].n++;
+            if(f.dias>0) porDia[d].vencido=true;
+          });
+          const marcados=Object.values(porDia).map(x=>({
+            ...x, color: x.vencido?"#C2603A":"#2E7D52"
+          }));
+          if(marcados.length===0) return null;
+          const totalMes=marcados.reduce((s,x)=>s+x.monto,0);
+          const MES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][mesC];
+          return (
+            <div className="neu" style={{marginTop:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                <div>
+                  <div className="neu-t">Vencimientos de {MES}</div>
+                  <div className="neu-s" style={{marginBottom:0}}>{marcados.length} día(s) con cobros</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div className="num" style={{fontSize:16,fontWeight:800,color:"var(--field)"}}>{money(totalMes)}</div>
+                  <div className="meta" style={{fontSize:9.5}}>del mes</div>
+                </div>
+              </div>
+              <NeuCalendario anio={anioC} mes={mesC} marcados={marcados}
+                onDia={(m)=>toast(`${m.dia} de ${MES}: ${m.n} factura(s) · ${money(m.monto)}`)}/>
+              <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:12}}>
+                <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10.5}}>
+                  <span style={{width:9,height:9,borderRadius:3,background:"#2E7D52"}}></span>Por vencer</span>
+                <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10.5}}>
+                  <span style={{width:9,height:9,borderRadius:3,background:"#C2603A"}}></span>Vencido</span>
+              </div>
+            </div>
+          );
+        })()}
       </>);
     })()}
 
@@ -13545,7 +13589,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v158</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v159</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13738,7 +13782,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b158</div>
+              Versión 16 jul 2026 b159</div>
           </div>
         </div>
       </div>
