@@ -13397,17 +13397,22 @@ function App({usuario, onSalir}){
   atrasRef.current=atras; tabRef.current=tab; histRef.current=hist;
   React.useEffect(()=>{
     /* Blindaje del botón físico de Android.
-       Estrategia definitiva: llenamos la pila con MUCHOS estados propios al arrancar.
-       Cada retroceso consume uno y reponemos; aunque el navegador limite los pushState,
-       quedan decenas de colchones por delante y la app nunca se cierra sola. */
+       Chrome limita cuántos pushState acepta seguidos (los rechaza en silencio),
+       por eso los ponemos ESPACIADOS en el tiempo y mantenemos un contador propio
+       de cuántos colchones creemos tener. */
     const MARCA={fl:1};
-    const llenar=(n)=>{ for(let i=0;i<n;i++){ try{ history.pushState(MARCA,""); }catch(e){ break; } } };
+    let colchones=0;
+    const poner=()=>{ try{ history.pushState(MARCA,""); colchones++; }catch(e){} };
     try{ history.replaceState(MARCA,""); }catch(e){}
-    llenar(30);                       // colchón inicial grande
+    poner();                                   // el primero, inmediato
+    /* los siguientes, espaciados cada 120 ms hasta tener 12 */
+    const sembrar=setInterval(()=>{ if(colchones>=12){ clearInterval(sembrar); return; } poner(); },120);
 
     const onPop=()=>{
-      /* repone dos por cada uno consumido: la pila crece, nunca se agota */
-      llenar(2);
+      colchones=Math.max(0,colchones-1);
+      /* repone uno de inmediato y otro diferido (dos oportunidades) */
+      poner();
+      setTimeout(poner,60);
       /* 0) modal abierto */
       if(cerrarUltimoModal()) return;
       /* 1) algún módulo tiene algo abierto */
@@ -13422,15 +13427,14 @@ function App({usuario, onSalir}){
       show("Estás en el inicio de la aplicación");
     };
     window.addEventListener("popstate",onPop);
-    /* vigilante: si la pila bajó de 10 estados, la rellena */
-    const vigilante=setInterval(()=>{ if(history.length<10) llenar(20); },2000);
-    /* al volver a primer plano, reasegura el colchón */
-    const onVis=()=>{ if(document.visibilityState==="visible" && history.length<10) llenar(20); };
+    /* vigilante: mantiene el colchón por encima de 8, de a uno para no ser rechazado */
+    const vigilante=setInterval(()=>{ if(colchones<8) poner(); },300);
+    const onVis=()=>{ if(document.visibilityState==="visible" && colchones<8) poner(); };
     document.addEventListener("visibilitychange",onVis);
     return ()=>{
       window.removeEventListener("popstate",onPop);
       document.removeEventListener("visibilitychange",onVis);
-      clearInterval(vigilante);
+      clearInterval(vigilante); clearInterval(sembrar);
     };
   },[]);
   const irInicio=()=>{ setHist([]); setTab("inicio"); };
@@ -13523,7 +13527,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v153</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v154</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13716,7 +13720,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b153</div>
+              Versión 16 jul 2026 b154</div>
           </div>
         </div>
       </div>
