@@ -1976,9 +1976,19 @@ function Portafolio({ modo, miSector, miDistribuidor }){
   );
 }
 
-function Inicio({go, irCliente, irProducto, irFactura}){
+function Inicio({go, irCliente, irProducto, irFactura, backRef}){
   const [verVisitas,setVerVisitas]=useState(false);
   const [qGlobal,setQGlobal]=useState("");
+  /* el botón atrás cierra primero la búsqueda y el panel de visitas */
+  React.useEffect(()=>{
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(verVisitas){ setVerVisitas(false); return true; }
+      if(qGlobal){ setQGlobal(""); return true; }
+      return false;
+    };
+    return ()=>{ if(backRef) backRef.current=null; };
+  });
   /* ── Buscador universal: clientes, productos, facturas y pedidos ── */
   const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const tq=normG(qGlobal.trim());
@@ -10346,7 +10356,15 @@ function Novedades({toast, go, backRef}){
   </>);
 }
 
-function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif}){
+function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif, backRef}){
+  React.useEffect(()=>{
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(editPerfil){ setEditPerfil(false); return true; }
+      return false;
+    };
+    return ()=>{ if(backRef) backRef.current=null; };
+  });
   const [segBio, setSegBio] = useState(!!huellaGuardada());   /* interruptor de biometría de este equipo */
   const [perfil,setPerfil]=useState({
     nombre:usuario?.nombre||"Daniel Ríos", ruc:"0912345678001", tel:"0987650000", correo:"daniel.rios@freelance.ec",
@@ -12316,7 +12334,15 @@ function PantallaLogin({ onAutenticado }) {
   );
 }
 
-function Proveedores({toast}){
+function Proveedores({toast, backRef}){
+  React.useEffect(()=>{
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(sel){ setSel(null); return true; }
+      return false;
+    };
+    return ()=>{ if(backRef) backRef.current=null; };
+  });
   const [sel,setSel]=useState(null);
   const [pest,setPest]=useState("datos"); // datos | catalogo | promos | docs
 
@@ -12868,7 +12894,16 @@ const AUTORIZACIONES_INI=[
    resp:{fecha:"2026-06-10", hora:"09:22", nota:"Denegado: se corrige agregando la guía, no anulando la ruta"}},
 ];
 
-function Autorizaciones({toast, usuario}){
+function Autorizaciones({toast, usuario, backRef}){
+  React.useEffect(()=>{
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(verCodigo){ setVerCodigo(null); return true; }
+      if(denegar){ setDenegar(null); return true; }
+      return false;
+    };
+    return ()=>{ if(backRef) backRef.current=null; };
+  });
   const [auts,setAuts]=useState(AUTORIZACIONES_INI);
   const [pestana,setPestana]=useState("pendientes"); // pendientes | historial
   const [denegar,setDenegar]=useState(null);         // {id, motivo}
@@ -13122,19 +13157,22 @@ function App({usuario, onSalir}){
     /* reafirma SIEMPRE un estado en la pila (diferido, para no pisarse con el popstate en curso) */
     const rearmar=()=>{ try{ history.pushState({app:1},""); }catch(e){} };
     const onPop=()=>{
-      const enInicioReal = tabRef.current==="inicio" && histRef.current.length===0 && !backHandlerRef.current;
+      /* 1) ¿el módulo actual tiene algo que cerrar por dentro? */
+      const cerroAlgo = backHandlerRef.current ? backHandlerRef.current() : false;
+      if(cerroAlgo){ rearmar(); setTimeout(rearmar,0); return; }
+      /* 2) ¿estamos en la raíz del inicio, sin historial? entonces salir con doble toque */
+      const enInicioReal = tabRef.current==="inicio" && histRef.current.length===0;
       if(enInicioReal){
-        /* solo aquí se permite salir, y únicamente con doble toque */
         if(Date.now()-salirRef.current<2200){ try{ history.back(); }catch(e){} return; }
         salirRef.current=Date.now();
         rearmar();
         show("Presiona atrás de nuevo para salir");
         return;
       }
-      /* hay a dónde retroceder: retrocede una ventana y vuelve a dejar estado en la pila */
-      atrasRef.current && atrasRef.current();
-      rearmar();                         // inmediato
-      setTimeout(rearmar,0);             // y diferido: garantiza que nunca quede la pila vacía
+      /* 3) hay a dónde retroceder entre módulos (el handler ya dijo que no tiene nada) */
+      setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
+      rearmar();
+      setTimeout(rearmar,0);
     };
     window.addEventListener("popstate",onPop);
     return ()=>window.removeEventListener("popstate",onPop);
@@ -13228,12 +13266,12 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v139</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v140</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
       <div className="body">
-        {tab==="inicio" && <Inicio go={navegar}
+        {tab==="inicio" && <Inicio go={navegar} backRef={backHandlerRef}
           irCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}
           irProducto={(p)=>{ setProdInicial(p); navegar("pedido"); }}
           irFactura={(f)=>{ setCarteraCliente(f.cli); navegar("cartera"); }}/>}
@@ -13246,14 +13284,14 @@ function App({usuario, onSalir}){
         {tab==="cuenta" && <Cuenta backRef={backHandlerRef} usuario={usuario} onSalir={onSalir}/>}
         {tab==="equipo" && <Equipo backRef={backHandlerRef} toast={show}/>}
         {tab==="solicitudes" && <Solicitudes backRef={backHandlerRef} toast={show}/>}
-        {tab==="autorizaciones" && <Autorizaciones toast={show} usuario={usuario}/>}
+        {tab==="autorizaciones" && <Autorizaciones backRef={backHandlerRef} toast={show} usuario={usuario}/>}
         {tab==="ruta" && <Ruta backRef={backHandlerRef} toast={show}/>}
         {tab==="agenda" && <Agenda backRef={backHandlerRef} toast={show}/>}
         {tab==="stock" && <Stock backRef={backHandlerRef} toast={show}/>}
         {tab==="cartera" && <Cartera toast={show} backRef={backHandlerRef} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
         {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} cliIni={cliFicha} onCliConsumido={()=>setCliFicha(null)} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
         {tab==="potenciales" && <Potenciales backRef={backHandlerRef} toast={show}/>}
-        {tab==="proveedores" && <Proveedores toast={show}/>}
+        {tab==="proveedores" && <Proveedores backRef={backHandlerRef} toast={show}/>}
         {tab==="documentos" && <Documentos backRef={backHandlerRef} toast={show} usuario={usuario}/>}
         {/* ═══ Campana de notificaciones (flotante, visible en toda la app) ═══ */}
         <button onClick={()=>setVerNotifs(true)} aria-label="Notificaciones"
@@ -13302,7 +13340,7 @@ function App({usuario, onSalir}){
           </div>
         )}
         {tab==="portafolio" && <Portafolio modo="freelance" miSector="" miDistribuidor=""/>}
-        {tab==="ajustes" && <Ajustes prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif} usuario={usuario} onSalir={onSalir} tema={tema} setTema={setTema}
+        {tab==="ajustes" && <Ajustes backRef={backHandlerRef} prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif} usuario={usuario} onSalir={onSalir} tema={tema} setTema={setTema}
           oscuro={oscuro} setOscuro={setOscuro} fontGrande={fontGrande} setFontGrande={setFontGrande} toast={show}/>}
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="precios" && <ListaPrecios backRef={backHandlerRef}
@@ -13421,7 +13459,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b139</div>
+              Versión 16 jul 2026 b140</div>
           </div>
         </div>
       </div>
