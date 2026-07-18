@@ -289,8 +289,16 @@
   .qa .t{font-size:14px;font-weight:600}
   .qa .s{font-size:12px;color:var(--muted);margin-top:2px}
   /* cards */
-  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
-    padding:15px;box-shadow:var(--shadow);margin-bottom:12px}
+  .card{background:var(--card);border:1px solid rgba(0,0,0,.045);border-radius:16px;
+    padding:16px;box-shadow:0 1px 2px rgba(23,43,32,.04),0 4px 12px rgba(23,43,32,.05);
+    margin-bottom:12px;transition:transform .14s ease,box-shadow .14s ease}
+  .card:active{transform:scale(.988);box-shadow:0 1px 2px rgba(23,43,32,.06)}
+  /* pulso suave del indicador En línea */
+  @keyframes latido{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.82)}}
+  .net .dot.on{animation:latido 2.4s ease-in-out infinite}
+  /* aparición suave de tarjetas */
+  @keyframes subir{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .fade-in{animation:subir .28s ease both}
   .row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
   .cli{font-size:15px;font-weight:600}
   .meta{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5}
@@ -8862,11 +8870,22 @@ function ListaPrecios({backRef}){
     </>);
   }
   if(vista==="inicio"){
+    const IC={
+      consulta:(c)=>(<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>),
+      promos:(c)=>(<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 13h18M12 9v12"/>
+        <path d="M12 9S9.5 3 7 5s2 4 5 4zM12 9s2.5-6 5-4-2 4-5 4z"/></svg>),
+      compartir:(c)=>(<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 11.5a8.4 8.4 0 01-12.3 7.4L3 21l2.2-5.5A8.4 8.4 0 1121 11.5z"/></svg>),
+      historial:(c)=>(<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/><path d="M19 8h-3M19 8v3"/></svg>),
+    };
     const BOTONES=[
-      {k:"consulta",  ic:"🔎", t:"Consulta de precios", s:"Ver lista por línea y producto"},
-      {k:"promos",    ic:"🎁", t:"Promociones vigentes", s:"Precios promocionales activos"},
-      {k:"compartir", ic:"💬", t:"Compartir precios",    s:"Enviar lista por WhatsApp"},
-      {k:"historial", ic:"📈", t:"Historial",            s:"Cambios de precio recientes"},
+      {k:"consulta",  col:"#2E7D52", bg:"#EAF3EC", t:"Consulta de precios", s:"Ver lista por línea y producto"},
+      {k:"promos",    col:"#D98324", bg:"#FBF1E4", t:"Promociones vigentes", s:"Precios promocionales activos"},
+      {k:"compartir", col:"#2AA198", bg:"#E6F5F3", t:"Compartir precios",    s:"Enviar lista por WhatsApp"},
+      {k:"historial", col:"#2B6CB0", bg:"#E9F0F8", t:"Historial",            s:"Cambios de precio recientes"},
     ];
     const irA=(k)=>{
       if(k==="consulta") setVista("lista");
@@ -8884,35 +8903,41 @@ function ListaPrecios({backRef}){
         const nLineas=new Set(conUtil.map(p=>p.linea)).size;
         const utilProm=conUtil.length?conUtil.reduce((s,p)=>s+p.neta,0)/conUtil.length:0;
         const KPIS=[
-          {ic:"📦", n:conUtil.length, lbl:"Productos", sub:`${nLineas} líneas`, col:"var(--field)"},
-          {ic:"🎁", n:nPromos, lbl:"Con promo", sub:"vigentes", col:"#D98324"},
-          {ic:"💵", n:money(Math.round(utilProm*100)/100), lbl:"Util. media", sub:"por qq", col:"#2E7D52"},
-          {ic:"⚠️", n:nSin, lbl:"Sin stock", sub:nSin?"revisar":"todo ok", col:nSin?"var(--clay)":"#2E7D52"},
+          {n:conUtil.length, lbl:"Productos", sub:`${nLineas} líneas`, col:"#2E7D52"},
+          {n:nPromos, lbl:"Con promo", sub:"vigentes", col:"#D98324"},
+          {n:money(Math.round(utilProm*100)/100), lbl:"Util. media", sub:"por qq", col:"#2AA198"},
+          {n:nSin, lbl:"Sin stock", sub:nSin?"revisar":"todo ok", col:nSin?"#C2603A":"#2E7D52"},
         ];
         return (
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:7,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:16}}>
             {KPIS.map((k,i)=>(
-              <div key={i} style={{background:"#fff",border:"1px solid var(--line)",borderRadius:12,
-                padding:"10px 6px",textAlign:"center"}}>
-                <div style={{fontSize:15,lineHeight:1}}>{k.ic}</div>
-                <div className="num" style={{fontSize:15,fontWeight:800,color:k.col,marginTop:3,lineHeight:1.1}}>{k.n}</div>
-                <div style={{fontSize:9,fontWeight:700,color:"var(--ink)",marginTop:2,lineHeight:1.1}}>{k.lbl}</div>
-                <div className="meta" style={{fontSize:8.5,lineHeight:1.1}}>{k.sub}</div>
+              <div key={i} className="fade-in" style={{background:"#fff",border:"1px solid rgba(0,0,0,.05)",borderRadius:14,
+                padding:"12px 6px",textAlign:"center",animationDelay:(i*40)+"ms",
+                boxShadow:"0 1px 2px rgba(23,43,32,.04),0 3px 8px rgba(23,43,32,.04)"}}>
+                <span style={{display:"block",width:6,height:6,borderRadius:"50%",background:k.col,margin:"0 auto 7px"}}></span>
+                <div className="num" style={{fontSize:15,fontWeight:800,color:k.col,lineHeight:1.1}}>{k.n}</div>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--ink)",marginTop:3,lineHeight:1.15}}>{k.lbl}</div>
+                <div className="meta" style={{fontSize:8.5,lineHeight:1.15}}>{k.sub}</div>
               </div>
             ))}
           </div>
         );
       })()}
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-        {BOTONES.map(b=>(
-          <button key={b.k} onClick={()=>irA(b.k)}
-            style={{background:"#fff",border:"1px solid var(--line)",borderRadius:16,padding:"18px 14px",
-              display:"flex",flexDirection:"column",alignItems:"flex-start",gap:6,cursor:"pointer",
-              fontFamily:"inherit",textAlign:"left",boxShadow:"0 1px 3px rgba(0,0,0,.05)"}}>
-            <span style={{fontSize:28,lineHeight:1}}>{b.ic}</span>
-            <span style={{fontSize:13.5,fontWeight:800,color:"var(--ink)",lineHeight:1.2}}>{b.t}</span>
-            <span className="meta" style={{fontSize:10.5,lineHeight:1.3}}>{b.s}</span>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        {BOTONES.map((b,i)=>(
+          <button key={b.k} onClick={()=>irA(b.k)} className="fade-in"
+            style={{background:"#fff",border:"1px solid rgba(0,0,0,.05)",borderRadius:18,padding:"18px 16px",
+              display:"flex",flexDirection:"column",alignItems:"flex-start",gap:9,cursor:"pointer",
+              fontFamily:"inherit",textAlign:"left",animationDelay:(i*45)+"ms",
+              boxShadow:"0 1px 2px rgba(23,43,32,.04),0 4px 12px rgba(23,43,32,.05)",
+              transition:"transform .14s ease,box-shadow .14s ease"}}
+            onTouchStart={e=>{e.currentTarget.style.transform="scale(.97)";}}
+            onTouchEnd={e=>{e.currentTarget.style.transform="scale(1)";}}>
+            <span style={{width:44,height:44,borderRadius:12,background:b.bg,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>{IC[b.k](b.col)}</span>
+            <span style={{fontSize:13.5,fontWeight:800,color:"var(--ink)",lineHeight:1.25}}>{b.t}</span>
+            <span className="meta" style={{fontSize:10.5,lineHeight:1.35,marginTop:-2}}>{b.s}</span>
           </button>
         ))}
       </div>
@@ -12905,7 +12930,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v130</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v131</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13094,7 +13119,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b130</div>
+              Versión 16 jul 2026 b131</div>
           </div>
         </div>
       </div>
