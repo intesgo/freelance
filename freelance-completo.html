@@ -1523,6 +1523,26 @@ function cerrarUltimoModal(){
   return true;
 }
 
+/* ── Pila de retrocesos por módulo ──
+   Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
+   Con pila (y no una sola variable) ningún módulo puede borrar el handler de otro. */
+const RETROCESOS=[];
+function useRetroceso(fn){
+  const ref=React.useRef(fn);
+  ref.current=fn;
+  React.useEffect(()=>{
+    const item={ run:()=>ref.current() };
+    RETROCESOS.push(item);
+    return ()=>{ const i=RETROCESOS.indexOf(item); if(i>=0) RETROCESOS.splice(i,1); };
+  },[]);
+}
+function retrocederEnModulo(){
+  for(let i=RETROCESOS.length-1;i>=0;i--){
+    try{ if(RETROCESOS[i].run()) return true; }catch(e){}
+  }
+  return false;
+}
+
 const CLIENTES = ["Comercial Mendoza","Tienda La Esquina","Distribuidora Ríos",
 
   "Bodega El Agricultor","Mayorista Santa Rosa","Abarrotes Don Pepe","Comisariato La Y"];
@@ -1995,20 +2015,16 @@ function Portafolio({ modo, miSector, miDistribuidor }){
   );
 }
 
-function Inicio({go, irCliente, irProducto, irFactura, backRef}){
+function Inicio({go, irCliente, irProducto, irFactura}){
   const [verVisitas,setVerVisitas]=useState(false);
   useModal(verVisitas, React.useCallback(()=>setVerVisitas(false),[]));
   const [qGlobal,setQGlobal]=useState("");
   /* el botón atrás cierra primero la búsqueda y el panel de visitas */
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+  useRetroceso(()=>{
       if(verVisitas){ setVerVisitas(false); return true; }
       if(qGlobal){ setQGlobal(""); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   /* ── Buscador universal: clientes, productos, facturas y pedidos ── */
   const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const tq=normG(qGlobal.trim());
@@ -3326,7 +3342,7 @@ function BannerArroz(){
   );
 }
 
-function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
+function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
   const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
   const [verHist,setVerHist]=useState(false);     // desplegar el historial de compras del producto
   const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
@@ -3385,18 +3401,14 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
   const unidadCorta = prod ? sinLb(prod.unidad) : "";
 
   /* Botón atrás inteligente: retrocede paso a paso dentro del módulo antes de salir */
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+  useRetroceso(()=>{
       if(verCarrito){ setVerCarrito(false); return true; }   // cierra el "Pedido en curso"
       if(verFact){ setVerFact(false); return true; }         // cierra el detalle de la última factura
       if(prod){ resetProducto(); return true; }              // vuelve a las 3 tarjetas (quita el producto)
       if(prov && carrito.length===0){ setProv(null); setProd(null); reset(); return true; } // quita proveedor
       if(cli && carrito.length===0){ cerrarPedido(); return true; } // quita cliente
       return false;                                          // nada que retroceder: sale del módulo
-    };
-    return ()=>{ backRef.current=null; };
-  },[verCarrito, verFact, prod, prov, cli, carrito.length]);
+    });
 
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseCredito
@@ -4641,7 +4653,7 @@ async function enviarComprobante(d, texto, tel, toast, onEstado){
   toast && toast("PDF descargado. Adjúntalo con el clip 📎 en el chat de WhatsApp.");
 }
 
-function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
+function Cobros({toast, cobroInicial, onConsumir, go}){
   const [paso,setPaso]=useState(1);
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
@@ -4674,9 +4686,7 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
   const [previa,setPrevia]=useState(false);         // vista previa del comprobante antes de compartir
   const [envio,setEnvio]=useState(null);            // trazabilidad honesta del envío asistido
   const [tick,setTick]=useState(0);                 // refresco tras mutar registros del día
-  React.useEffect(()=>{ /* retroceso inteligente: jerarquía interna del módulo */
-    if(!backRef) return;
-    backRef.current=()=>{
+  useRetroceso(()=>{ /* retroceso inteligente: jerarquía interna del módulo */
       if(modal){ setModal(null); return true; }
       if(anulando){ setAnulando(null); return true; }
       if(depEf!=null){ setDepEf(null); return true; }
@@ -4693,8 +4703,6 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
       if(paso>1){ setPaso(paso-1); return true; }
       if(cli){ reset(); return true; }
       return false;
-    };
-    return ()=>{ backRef.current=null; };
   });
 
   React.useEffect(()=>{
@@ -5770,15 +5778,11 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   );
 }
 
-function Pedidos({pedidos=PEDIDOS_INI, toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Pedidos({pedidos=PEDIDOS_INI, toast}){
+  useRetroceso(()=>{
       if(sel){ setSel(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
   const [estado,setEstado]=useState("Todos");
@@ -5998,16 +6002,12 @@ function DetallePedido({p, modo="factura", volver}){
   </>);
 }
 
-function Stock({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Stock({toast}){
+  useRetroceso(()=>{
       if(prov){ setProv(null); return true; }
       if(cli){ setCli(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [cant,setCant]=useState({}); // productoId -> unidades en bodega del cliente
@@ -6460,7 +6460,7 @@ function ChequeDetalle({cheque, volver, toast, subActual, irA}){
   </>);
 }
 
-function Cartera({toast, onCobrar, clienteIni, onClienteConsumido, backRef}){
+function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("resumen"); // resumen | facturas | analisis | cheques
@@ -6486,18 +6486,14 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido, backRef}){
   // eslint-disable-next-line
   },[clienteIni]);
   /* botón atrás inteligente: cierra de adentro hacia afuera dentro del módulo */
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+  useRetroceso(()=>{
       if(verChq){ setVerChq(null); return true; }        // cierra detalle de cheque
       if(verFac){ setVerFac(null); return true; }        // cierra detalle de factura
       if(verAging){ setVerAging(null); return true; }    // cierra ventana de antigüedad
       if(verFiltros){ setVerFiltros(false); return true; } // cierra panel de filtros
       if(pestana!=="resumen"){ setPestana("resumen"); return true; } // vuelve a Resumen
       return false;  // ya en la raíz: deja salir del módulo
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
@@ -7064,16 +7060,12 @@ const POTENCIALES_INI=[
    seguimiento:[]},
 ];
 
-function Potenciales({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Potenciales({toast}){
+  useRetroceso(()=>{
       if(verNuevo){ setVerNuevo(false); return true; }
       if(sel){ setSel(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [pots,setPots]=useState(POTENCIALES_INI);
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
@@ -7313,7 +7305,7 @@ function CarteraClientes({volver, ver}){
   </>);
 }
 
-function Clientes({toast, backRef, nuevoPedido, verCartera, cliIni, onCliConsumido}){
+function Clientes({toast, nuevoPedido, verCartera, cliIni, onCliConsumido}){
   const [q,setQ]=useState("");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState(null);            /* sub-pantalla de la ficha (vive aquí por el retroceso jerárquico) */
@@ -7329,9 +7321,7 @@ function Clientes({toast, backRef, nuevoPedido, verCartera, cliIni, onCliConsumi
   },[cliIni]);
 
   /* Retroceso jerárquico: el Atrás del app baja un nivel a la vez dentro del módulo */
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+  useRetroceso(()=>{
       if(sel && sec){ setSec(null); return true; }
       if(sel){ setSel(null); return true; }
       if(nuevo){ setNuevo(false); return true; }
@@ -7339,9 +7329,7 @@ function Clientes({toast, backRef, nuevoPedido, verCartera, cliIni, onCliConsumi
       if(verBloq){ setVerBloq(false); return true; }
       if(vista){ setVista(null); return true; }
       return false; /* entrada del módulo: que el app retroceda de módulo */
-    };
-    return ()=>{ backRef.current=null; };
-  });
+    });
 
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const palabras=norm(q).split(/\s+/).filter(Boolean);
@@ -8606,7 +8594,7 @@ function HistorialLineas({nombre, toast}){
 }
 
 // ---------- LISTA DE PRECIOS (dashboard + consulta por línea/marca) ----------
-function ListaPrecios({backRef, pedirCon}){
+function ListaPrecios({pedirCon}){
   const [q,setQ]=useState("");
   const [lineaSel,setLineaSel]=useState("Todas");
   const [vista,setVista]=useState("inicio"); // inicio | lista
@@ -8617,17 +8605,13 @@ function ListaPrecios({backRef, pedirCon}){
   const [tipoHist,setTipoHist]=useState("contado"); // tipo de precio en el historial
   const [pagHist,setPagHist]=useState(1); // paginación del historial general
   /* botón atrás inteligente: producto → lista → inicio → sale */
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+  useRetroceso(()=>{
       if(verHist){ setVerHist(false); return true; }
       if(prodSel){ setProdSel(null); return true; }
       if(modoEnvio){ setModoEnvio(false); setMarcados([]); setVista("inicio"); return true; }
       if(vista!=="inicio"){ setVista("inicio"); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const lineas=["Todas",...Array.from(new Set(PRESENTACIONES.map(p=>p.linea)))];
 
@@ -9481,16 +9465,12 @@ function FichaMarca({marca, volver, vender}){
   </>);
 }
 
-function Agenda({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Agenda({toast}){
+  useRetroceso(()=>{
       if(nueva){ setNueva(false); return true; }
       if(verFiltros){ setVerFiltros(false); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const HOY="2026-06-13";
   const inicial=[
     {id:1, fecha:"2026-06-13", hora:"08:30", cli:"Comercial Mendoza", tipo:"Visita", nota:"Tomar pedido mensual de arroz", hecho:false},
@@ -9684,15 +9664,11 @@ function BarrasComision({valores, color, unidad, unidadLbl}){
   );
 }
 
-function Cuenta({usuario, onSalir, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Cuenta({usuario, onSalir}){
+  useRetroceso(()=>{
       if(verVend){ setVerVend(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [pestana,setPestana]=useState("mias"); // mias | equipo
   const ANIO_ACTUAL=new Date().getFullYear();
   const aniosCom=Object.keys(COMISIONES_EQUIPO).map(Number).sort((a,b)=>b-a);
@@ -10037,15 +10013,11 @@ function Cuenta({usuario, onSalir, backRef}){
   </>);
 }
 
-function Novedades({toast, go, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Novedades({toast, go}){
+  useRetroceso(()=>{
       if(paso!=="menu"){ setPaso("menu"); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [tipo,setTipo]=useState(null);       // cambio-mismo | cambio-otro | producto | descuento
@@ -10385,15 +10357,11 @@ function Novedades({toast, go, backRef}){
   </>);
 }
 
-function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif}){
+  useRetroceso(()=>{
       if(editPerfil){ setEditPerfil(false); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [segBio, setSegBio] = useState(!!huellaGuardada());   /* interruptor de biometría de este equipo */
   const [perfil,setPerfil]=useState({
     nombre:usuario?.nombre||"Daniel Ríos", ruc:"0912345678001", tel:"0987650000", correo:"daniel.rios@freelance.ec",
@@ -10626,16 +10594,12 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   </>);
 }
 
-function Ruta({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Ruta({toast}){
+  useRetroceso(()=>{
       if(verConfig){ setVerConfig(false); return true; }
       if(expandida){ setExpandida(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [vista,setVista]=useState("lista");    // lista | armar | ver
   const [verVisitados,setVerVisitados]=useState(false); // mostrar las paradas ya visitadas
   const [expandida,setExpandida]=useState(null);          // cliente con tarjeta desplegada
@@ -11188,15 +11152,11 @@ function GraficoDona({cobrado, porCobrar}){
   );
 }
 
-function Solicitudes({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Solicitudes({toast}){
+  useRetroceso(()=>{
       if(crear){ setCrear(false); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [sols,setSols]=useState(SOLICITUDES_INI);
   const [mias,setMias]=useState(MIS_SOLICITUDES_INI);
   const [filtro,setFiltro]=useState("todos"); // todos | precio | credito | descuento | devolucion
@@ -11460,16 +11420,12 @@ function Solicitudes({toast, backRef}){
   </>);
 }
 
-function Equipo({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Equipo({toast}){
+  useRetroceso(()=>{
       if(verBloqueo){ setVerBloqueo(null); return true; }
       if(detalle){ setDetalle(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [equipo,setEquipo]=useState(EQUIPO_INI);
   const [verBloqueo,setVerBloqueo]=useState(null);
   useModal(verBloqueo, React.useCallback(()=>setVerBloqueo(null),[])); // subcomisionista a bloquear
@@ -12365,15 +12321,11 @@ function PantallaLogin({ onAutenticado }) {
   );
 }
 
-function Proveedores({toast, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Proveedores({toast}){
+  useRetroceso(()=>{
       if(sel){ setSel(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [sel,setSel]=useState(null);
   const [pest,setPest]=useState("datos"); // datos | catalogo | promos | docs
 
@@ -12530,18 +12482,14 @@ function Proveedores({toast, backRef}){
   </>);
 }
 
-function Documentos({toast, usuario, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Documentos({toast, usuario}){
+  useRetroceso(()=>{
       if(acta){ setActa(null); return true; }
       if(reenviar){ setReenviar(null); return true; }
       if(crear){ setCrear(false); return true; }
       if(sel){ setSel(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [entregas,setEntregas]=useState(ENTREGAS_INI);
   const [sel,setSel]=useState(null);          // lote abierto
   const [crear,setCrear]=useState(false);     // form nueva entrega
@@ -12925,16 +12873,12 @@ const AUTORIZACIONES_INI=[
    resp:{fecha:"2026-06-10", hora:"09:22", nota:"Denegado: se corrige agregando la guía, no anulando la ruta"}},
 ];
 
-function Autorizaciones({toast, usuario, backRef}){
-  React.useEffect(()=>{
-    if(!backRef) return;
-    backRef.current=()=>{
+function Autorizaciones({toast, usuario}){
+  useRetroceso(()=>{
       if(verCodigo){ setVerCodigo(null); return true; }
       if(denegar){ setDenegar(null); return true; }
       return false;
-    };
-    return ()=>{ if(backRef) backRef.current=null; };
-  });
+    });
   const [auts,setAuts]=useState(AUTORIZACIONES_INI);
   const [pestana,setPestana]=useState("pendientes"); // pendientes | historial
   const [denegar,setDenegar]=useState(null);         // {id, motivo}
@@ -13176,8 +13120,8 @@ function App({usuario, onSalir}){
     r.start();
   };
   const atras=()=>{
-    if(cerrarUltimoModal()) return;                                // primero cierra modales abiertos
-    if(backHandlerRef.current && backHandlerRef.current()) return; // el módulo retrocedió por dentro
+    if(cerrarUltimoModal()) return;      // primero cierra modales abiertos
+    if(retrocederEnModulo()) return;      // luego pregunta a los módulos montados
     setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
   };
   /* Botón físico "atrás" del celular = mismo retroceso inteligente. En el inicio: doble toque para salir */
@@ -13197,9 +13141,7 @@ function App({usuario, onSalir}){
       /* 0) ¿hay un modal abierto? se cierra ese primero */
       if(cerrarUltimoModal()) return;
       /* 1) ¿el módulo actual tiene algo que cerrar por dentro? */
-      let cerroAlgo=false;
-      try{ cerroAlgo = backHandlerRef.current ? backHandlerRef.current() : false; }catch(e){ cerroAlgo=false; }
-      if(cerroAlgo) return;
+      if(retrocederEnModulo()) return;
       /* 2) ¿hay módulos anteriores a los que volver? */
       if(histRef.current.length>0){
         setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
@@ -13306,33 +13248,33 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v143</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v144</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
       <div className="body">
-        {tab==="inicio" && <Inicio go={navegar} backRef={backHandlerRef}
+        {tab==="inicio" && <Inicio go={navegar}
           irCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}
           irProducto={(p)=>{ setProdInicial(p); navegar("pedido"); }}
           irFactura={(f)=>{ setCarteraCliente(f.cli); navegar("cartera"); }}/>}
-        {tab==="pedido" && <Pedido toast={show} backRef={backHandlerRef} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
+        {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
-        {tab==="pedidos" && <Pedidos backRef={backHandlerRef} pedidos={pedidos} toast={show}/>}
-        {tab==="cobros" && <Cobros backRef={backHandlerRef} toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
-        {tab==="cuenta" && <Cuenta backRef={backHandlerRef} usuario={usuario} onSalir={onSalir}/>}
-        {tab==="equipo" && <Equipo backRef={backHandlerRef} toast={show}/>}
-        {tab==="solicitudes" && <Solicitudes backRef={backHandlerRef} toast={show}/>}
-        {tab==="autorizaciones" && <Autorizaciones backRef={backHandlerRef} toast={show} usuario={usuario}/>}
-        {tab==="ruta" && <Ruta backRef={backHandlerRef} toast={show}/>}
-        {tab==="agenda" && <Agenda backRef={backHandlerRef} toast={show}/>}
-        {tab==="stock" && <Stock backRef={backHandlerRef} toast={show}/>}
-        {tab==="cartera" && <Cartera toast={show} backRef={backHandlerRef} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
-        {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} cliIni={cliFicha} onCliConsumido={()=>setCliFicha(null)} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
-        {tab==="potenciales" && <Potenciales backRef={backHandlerRef} toast={show}/>}
-        {tab==="proveedores" && <Proveedores backRef={backHandlerRef} toast={show}/>}
-        {tab==="documentos" && <Documentos backRef={backHandlerRef} toast={show} usuario={usuario}/>}
+        {tab==="pedidos" && <Pedidos pedidos={pedidos} toast={show}/>}
+        {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
+        {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
+        {tab==="equipo" && <Equipo toast={show}/>}
+        {tab==="solicitudes" && <Solicitudes toast={show}/>}
+        {tab==="autorizaciones" && <Autorizaciones toast={show} usuario={usuario}/>}
+        {tab==="ruta" && <Ruta toast={show}/>}
+        {tab==="agenda" && <Agenda toast={show}/>}
+        {tab==="stock" && <Stock toast={show}/>}
+        {tab==="cartera" && <Cartera toast={show} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
+        {tab==="clientes" && <Clientes toast={show} cliIni={cliFicha} onCliConsumido={()=>setCliFicha(null)} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
+        {tab==="potenciales" && <Potenciales toast={show}/>}
+        {tab==="proveedores" && <Proveedores toast={show}/>}
+        {tab==="documentos" && <Documentos toast={show} usuario={usuario}/>}
         {/* ═══ Campana de notificaciones (flotante, visible en toda la app) ═══ */}
         <button onClick={()=>setVerNotifs(true)} aria-label="Notificaciones"
           style={{position:"fixed", top:"calc(env(safe-area-inset-top, 0px) + 58px)", right:12, zIndex:1200, width:42, height:42, borderRadius:21, background:"#fff", border:"1px solid #E2E8E2", boxShadow:"0 4px 14px rgba(0,0,0,.18)", fontSize:17, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center"}}>
@@ -13380,12 +13322,12 @@ function App({usuario, onSalir}){
           </div>
         )}
         {tab==="portafolio" && <Portafolio modo="freelance" miSector="" miDistribuidor=""/>}
-        {tab==="ajustes" && <Ajustes backRef={backHandlerRef} prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif} usuario={usuario} onSalir={onSalir} tema={tema} setTema={setTema}
+        {tab==="ajustes" && <Ajustes prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif} usuario={usuario} onSalir={onSalir} tema={tema} setTema={setTema}
           oscuro={oscuro} setOscuro={setOscuro} fontGrande={fontGrande} setFontGrande={setFontGrande} toast={show}/>}
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
-        {tab==="precios" && <ListaPrecios backRef={backHandlerRef}
+        {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
-        {tab==="novedades" && <Novedades backRef={backHandlerRef} toast={show} go={navegar}/>}
+        {tab==="novedades" && <Novedades toast={show} go={navegar}/>}
       </div>
       {toast && <div className="toast">{toast}</div>}
 
@@ -13499,7 +13441,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b143</div>
+              Versión 16 jul 2026 b144</div>
           </div>
         </div>
       </div>
