@@ -8338,7 +8338,7 @@ function ListaPrecios({backRef}){
     backRef.current=()=>{
       if(verHist){ setVerHist(false); return true; }
       if(prodSel){ setProdSel(null); return true; }
-      if(modoEnvio){ setModoEnvio(false); setMarcados([]); return true; }
+      if(modoEnvio){ setModoEnvio(false); setMarcados([]); setVista("inicio"); return true; }
       if(vista!=="inicio"){ setVista("inicio"); return true; }
       return false;
     };
@@ -8591,76 +8591,98 @@ function ListaPrecios({backRef}){
     </>);
   }
 
+  if(vista==="promos"){
+    const conPromo=conUtil.filter(p=>(p.promosFreelance&&p.promosFreelance.length)||p.promoProv!=null);
+    return (<>
+      <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Precios</button>
+      <div className="ficha-sec">Promociones vigentes</div>
+      {conPromo.length===0 && <div className="ph">No hay promociones activas.</div>}
+      {conPromo.map((p,i)=>{
+        const pf=(p.promosFreelance&&p.promosFreelance[0])||null;
+        return (
+          <div className="card" key={i} onClick={()=>setProdSel(p)} style={{padding:"12px 13px",marginBottom:8,cursor:"pointer"}}>
+            <div style={{display:"flex",alignItems:"center",gap:11}}>
+              <span style={{fontSize:22,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
+                <div className="meta" style={{fontSize:10.5}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</div>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:9,borderTop:"1px solid #F2EFE6",paddingTop:8}}>
+              <div>
+                <div className="meta" style={{fontSize:9.5,textTransform:"uppercase"}}>🟣 Promo proveedor</div>
+                <div className="num" style={{fontSize:14,fontWeight:800,color:"#7C5CBF"}}>{money(p.promoProv)}</div>
+              </div>
+              {pf && (
+                <div>
+                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase"}}>🟠 {pf.nombre}</div>
+                  <div className="num" style={{fontSize:14,fontWeight:800,color:"#D98324"}}>{money(pf.base)}</div>
+                  {pf.detalle && <div className="meta" style={{fontSize:9.5}}>{pf.detalle}</div>}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </>);
+  }
+
+  if(vista==="historial"){
+    /* cambios recientes de todos los productos (demo) */
+    const cambios=conUtil.slice(0,10).map((p,i)=>{
+      const nue=p.baseCredito, ant=Math.round(nue*(1-(0.008+(i%4)*0.006))*100)/100;
+      const fechas=["01/06","28/05","20/05","15/05","10/05","05/05","28/04","20/04","15/04","10/04"];
+      return {p, fecha:fechas[i%10], ant, nue, pct:Math.round((nue-ant)/ant*10000)/100};
+    });
+    return (<>
+      <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Precios</button>
+      <div className="ficha-sec">Cambios de precio recientes</div>
+      {cambios.map((c,i)=>(
+        <div className="card" key={i} onClick={()=>setProdSel(c.p)} style={{padding:"11px 12px",marginBottom:7,cursor:"pointer"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:18,flexShrink:0}}>{EMOJI_LINEA[c.p.linea]||"📦"}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.p.marca}</div>
+              <div className="meta" style={{fontSize:10}}>{c.fecha} · {(c.p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</div>
+            </div>
+            <div style={{flexShrink:0,textAlign:"right"}}>
+              <div className="num" style={{fontSize:13.5,fontWeight:800}}>{money(c.nue)}</div>
+              <div className="num" style={{fontSize:10.5,fontWeight:700,color:c.pct>=0?"#2E7D52":"#C2603A"}}>
+                {c.pct>=0?"+":""}{c.pct}% {c.pct>=0?"▲":"▼"}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+      <div className="meta" style={{fontSize:10,marginTop:8,textAlign:"center"}}>Datos de ejemplo · en producción se registra cada cambio real.</div>
+    </>);
+  }
   if(vista==="inicio"){
+    const BOTONES=[
+      {k:"consulta",  ic:"🔎", t:"Consulta de precios", s:"Ver lista por línea y producto"},
+      {k:"promos",    ic:"🎁", t:"Promociones vigentes", s:"Precios promocionales activos"},
+      {k:"compartir", ic:"💬", t:"Compartir precios",    s:"Enviar lista por WhatsApp"},
+      {k:"historial", ic:"📈", t:"Historial",            s:"Cambios de precio recientes"},
+    ];
+    const irA=(k)=>{
+      if(k==="consulta") setVista("lista");
+      else if(k==="compartir"){ setVista("lista"); setModoEnvio(true); }
+      else if(k==="promos") setVista("promos");
+      else if(k==="historial") setVista("historial");
+    };
     return (<>
       <div className="h1">Precios</div>
-
-      {/* selector de línea para enfocar el dashboard */}
-      <select value={lineaSel} onChange={e=>setLineaSel(e.target.value)}
-        style={{width:"100%",padding:"11px 12px",border:"1px solid var(--line)",borderRadius:12,
-          fontFamily:"inherit",fontSize:13.5,fontWeight:600,background:"#fff",color:"var(--field)",marginBottom:12}}>
-        {lineas.map(ln=><option key={ln} value={ln}>{ln==="Todas"?"Todas las líneas":`${EMOJI_LINEA[ln]||""} ${ln}`}</option>)}
-      </select>
-
-      {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-        <div className="card" style={{margin:0,padding:"13px 14px"}}>
-          <div className="meta" style={{fontSize:10.5}}>Productos</div>
-          <div className="num" style={{fontSize:24,fontWeight:800,color:"var(--field)"}}>{baseDash.length}</div>
-          <div className="meta" style={{fontSize:10}}>en {utilPorLinea.length} línea{utilPorLinea.length!==1?"s":""}</div>
-        </div>
-        <div className="card" style={{margin:0,padding:"13px 14px"}}>
-          <div className="meta" style={{fontSize:10.5}}>Sin stock</div>
-          <div className="num" style={{fontSize:24,fontWeight:800,color:sinStock.length?"var(--clay)":"#2E7D52"}}>{sinStock.length}</div>
-          <div className="meta" style={{fontSize:10}}>{baseDash.length?Math.round((baseDash.length-sinStock.length)/baseDash.length*100):0}% disponible</div>
-        </div>
-      </div>
-
-      {/* utilidad promedio por línea · barras horizontales */}
-      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12}}>
-          <span style={{fontWeight:700,fontSize:13.5}}>Utilidad neta por línea</span>
-          <span className="meta" style={{fontSize:10.5}}>promedio por qq</span>
-        </div>
-        {utilPorLinea.map((x,i)=>{
-          const pct=Math.max(5,Math.round(x.prom/maxProm*100));
-          const col=i===0?"#2E7D52":i===1?"#57A773":i===2?"#C9A227":"#A8B5AC";
-          return (
-            <div key={i} style={{display:"flex",alignItems:"center",gap:9,padding:"5px 0"}}>
-              <span style={{width:74,flexShrink:0,fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                {EMOJI_LINEA[x.linea]||""} {x.linea}</span>
-              <span style={{flex:1,minWidth:0,height:16,background:"#F2EFE6",borderRadius:6,overflow:"hidden",position:"relative"}}>
-                <span style={{position:"absolute",left:0,top:0,bottom:0,width:pct+"%",background:col,
-                  borderRadius:6,transition:"width .7s ease"}}></span>
-              </span>
-              <span className="num" style={{width:52,flexShrink:0,textAlign:"right",fontSize:12.5,fontWeight:700,color:col}}>{money(x.prom)}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* top 3 mejor utilidad */}
-      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
-        <div style={{fontWeight:700,fontSize:13.5,marginBottom:10}}>🏆 Mejor utilidad</div>
-        {top3.map((p,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",
-            borderTop:i>0?"1px solid #F4F1E9":"none"}}>
-            <span style={{fontSize:16,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
-            <span style={{flex:1,minWidth:0}}>
-              <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</span>
-              <span className="meta" style={{fontSize:10.5}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</span>
-            </span>
-            <span style={{flexShrink:0,textAlign:"right"}}>
-              <span className="num" style={{display:"block",fontSize:14,fontWeight:800,color:"#2E7D52"}}>{money(p.neta)}</span>
-              <span className="meta" style={{fontSize:10}}>{p.pct}%</span>
-            </span>
-          </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginTop:6}}>
+        {BOTONES.map(b=>(
+          <button key={b.k} onClick={()=>irA(b.k)}
+            style={{background:"#fff",border:"1px solid var(--line)",borderRadius:16,padding:"18px 14px",
+              display:"flex",flexDirection:"column",alignItems:"flex-start",gap:6,cursor:"pointer",
+              fontFamily:"inherit",textAlign:"left",boxShadow:"0 1px 3px rgba(0,0,0,.05)"}}>
+            <span style={{fontSize:28,lineHeight:1}}>{b.ic}</span>
+            <span style={{fontSize:13.5,fontWeight:800,color:"var(--ink)",lineHeight:1.2}}>{b.t}</span>
+            <span className="meta" style={{fontSize:10.5,lineHeight:1.3}}>{b.s}</span>
+          </button>
         ))}
       </div>
-
-      <button className="cta" onClick={()=>setVista("lista")}>Ver lista de precios →</button>
-      <button className="back" style={{width:"100%",marginTop:10}}
-        onClick={()=>{ setVista("lista"); setModoEnvio(true); }}>💬 Enviar precios por WhatsApp</button>
     </>);
   }
 
@@ -8673,11 +8695,11 @@ function ListaPrecios({backRef}){
             <span className="meta" style={{fontSize:11}}>{marcados.length} seleccionado{marcados.length!==1?"s":""}</span>
           </span>
           <button className="back" style={{flexShrink:0,padding:"7px 12px",fontSize:12}}
-            onClick={()=>{setModoEnvio(false);setMarcados([]);}}>Cancelar</button>
+            onClick={()=>{setModoEnvio(false);setMarcados([]);setVista("inicio");}}>Cancelar</button>
         </div>
       </div>
     ) : (
-      <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:12,textAlign:"left"}}>‹ Resumen de precios</button>
+      <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:12,textAlign:"left"}}>‹ Precios</button>
     )}
 
     {/* buscador + selector de línea */}
@@ -12624,7 +12646,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v119</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v120</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12813,7 +12835,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b119</div>
+              Versión 16 jul 2026 b120</div>
           </div>
         </div>
       </div>
