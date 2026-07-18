@@ -13153,26 +13153,37 @@ function App({usuario, onSalir}){
   const salirRef=React.useRef(0);
   atrasRef.current=atras; tabRef.current=tab; histRef.current=hist;
   React.useEffect(()=>{
-    try{ history.pushState({app:1},""); }catch(e){}
-    /* reafirma SIEMPRE un estado en la pila (diferido, para no pisarse con el popstate en curso) */
-    const rearmar=()=>{ try{ history.pushState({app:1},""); }catch(e){} };
+    /* Blindaje del botón físico: mantenemos SIEMPRE 2 estados de colchón en la pila.
+       Así, aunque un popstate llegue antes de rearmar, nunca queda vacía y la app no se cierra sola. */
+    try{ history.pushState({app:1},""); history.pushState({app:2},""); }catch(e){}
+    let rearmando=false;
+    const rearmar=()=>{
+      if(rearmando) return;
+      rearmando=true;
+      try{ history.pushState({app:1},""); }catch(e){}
+      setTimeout(()=>{ rearmando=false; },0);
+    };
     const onPop=()=>{
+      /* SIEMPRE reponemos el colchón primero: pase lo que pase, la app no se sale */
+      rearmar();
       /* 1) ¿el módulo actual tiene algo que cerrar por dentro? */
-      const cerroAlgo = backHandlerRef.current ? backHandlerRef.current() : false;
-      if(cerroAlgo){ rearmar(); setTimeout(rearmar,0); return; }
-      /* 2) ¿estamos en la raíz del inicio, sin historial? entonces salir con doble toque */
-      const enInicioReal = tabRef.current==="inicio" && histRef.current.length===0;
-      if(enInicioReal){
-        if(Date.now()-salirRef.current<2200){ try{ history.back(); }catch(e){} return; }
-        salirRef.current=Date.now();
-        rearmar();
-        show("Presiona atrás de nuevo para salir");
+      let cerroAlgo=false;
+      try{ cerroAlgo = backHandlerRef.current ? backHandlerRef.current() : false; }catch(e){ cerroAlgo=false; }
+      if(cerroAlgo) return;
+      /* 2) ¿hay módulos anteriores a los que volver? */
+      if(histRef.current.length>0){
+        setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
         return;
       }
-      /* 3) hay a dónde retroceder entre módulos (el handler ya dijo que no tiene nada) */
-      setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
-      rearmar();
-      setTimeout(rearmar,0);
+      /* 3) ¿estamos en un módulo pero sin historial? vuelve al inicio */
+      if(tabRef.current!=="inicio"){ setTab("inicio"); return; }
+      /* 4) raíz del inicio: solo aquí se sale, y con doble toque */
+      if(Date.now()-salirRef.current<2200){
+        try{ history.go(-3); }catch(e){}
+        return;
+      }
+      salirRef.current=Date.now();
+      show("Presiona atrás de nuevo para salir");
     };
     window.addEventListener("popstate",onPop);
     return ()=>window.removeEventListener("popstate",onPop);
@@ -13266,7 +13277,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v140</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v141</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13459,7 +13470,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b140</div>
+              Versión 16 jul 2026 b141</div>
           </div>
         </div>
       </div>
