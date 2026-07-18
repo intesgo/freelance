@@ -13,6 +13,8 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 /* La app (abierta o en segundo plano) pide mostrar un aviso en la bandeja */
 self.addEventListener("message", (e) => {
   const d = e.data || {};
+  /* el botón "Actualizar" pide que este service worker nuevo tome el control ya */
+  if (d.tipo === "activar-ya") { self.skipWaiting(); return; }
   if (d.tipo !== "aviso") return;
   self.registration.showNotification(d.titulo || "FREELANCE", {
     body: d.detalle || "",
@@ -53,7 +55,7 @@ self.addEventListener("notificationclick", (e) => {
    Al instalar, el teléfono guarda las pantallas. En el campo sin señal, la app
    abre igual (con la cola 4.4 protegiendo lo que se registre). Al volver la señal,
    se actualiza sola desde internet (red primero, guardado como respaldo). */
-const CACHE = "freelance-v1";
+const CACHE = "freelance-v2";
 const PIEZAS = [
   "./", "./index.html",
   "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
