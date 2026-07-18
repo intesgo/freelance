@@ -1411,6 +1411,9 @@ const PRESENTACIONES = PRODUCTOS
         diasCredito: 30,
         stock: STOCK_DEMO[pr.id] != null ? STOCK_DEMO[pr.id] : 0,
         promosFreelance: pr.promosFreelance,
+        /* costo del proveedor y costos operativos (demo; en Fase 4 vienen de Supabase) */
+        costo: pr.costo != null ? pr.costo : Math.round(pr.baseCredito*0.885*100)/100,
+        costosOper: pr.costosOper != null ? pr.costosOper : Math.round(pr.baseCredito*0.045*100)/100,
       }))
   );
 const CLIENTES = ["Comercial Mendoza","Tienda La Esquina","Distribuidora Ríos",
@@ -8333,52 +8336,59 @@ function ListaPrecios(){
 
   return (<>
     <div className="h1">Precios</div>
-    <div className="sub">Tu precio base por producto. Toca una línea para filtrar.</div>
 
-    <div className="ss" style={{marginBottom:12}}>
+    {/* buscador + selector de línea */}
+    <div className="ss" style={{marginBottom:10}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar producto…" onChange={e=>setQ(e.target.value)}/>
         {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
         <MicBtn onTexto={setQ}/></div>
     </div>
-
-    {/* Filtro por línea (chips) */}
-    <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4,marginBottom:14}}>
-      {lineas.map(ln=>(
-        <button key={ln} onClick={()=>setLineaSel(ln)} style={{
-          flex:"0 0 auto",padding:"8px 14px",borderRadius:999,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",
-          border:lineaSel===ln?"1px solid var(--field)":"1px solid var(--line)",
-          background:lineaSel===ln?"var(--field)":"#fff",color:lineaSel===ln?"#fff":"var(--grisTexto,#555)"}}>
-          {ln==="Todas"?ln:`${EMOJI_LINEA[ln]||""} ${ln}`}
-        </button>
-      ))}
-    </div>
+    <select value={lineaSel} onChange={e=>setLineaSel(e.target.value)}
+      style={{width:"100%",padding:"11px 12px",border:"1px solid var(--line)",borderRadius:12,
+        fontFamily:"inherit",fontSize:13.5,fontWeight:600,background:"#fff",color:"var(--field)",marginBottom:14}}>
+      {lineas.map(ln=><option key={ln} value={ln}>{ln==="Todas"?"Todas las líneas":`${EMOJI_LINEA[ln]||""} ${ln}`}</option>)}
+    </select>
 
     {lineasOrd.map(ln=>(
       <div key={ln} style={{marginBottom:18}}>
         <div className="sec-h"><h2>{EMOJI_LINEA[ln]||""} {ln}</h2><div className="grain"></div></div>
 
-        <div style={{display:"grid",gridTemplateColumns:"1.7fr .8fr .8fr .7fr",gap:6,padding:"4px 12px",fontSize:10.5,fontWeight:700,color:"var(--muted,#999)",textTransform:"uppercase",letterSpacing:.3}}>
-          <span>Producto</span><span style={{textAlign:"right"}}>Contado</span><span style={{textAlign:"right"}}>Crédito</span><span style={{textAlign:"right"}}>Stock</span>
-        </div>
-
         {porLinea[ln].map((p,i)=>{
           const sinStock=p.stock<=0;
+          const bruta=Math.round((p.baseCredito-(p.costo||0))*100)/100;
+          const neta=Math.round((bruta-(p.costosOper||0))*100)/100;
           return (
-            <div className="card" key={i} style={{padding:"11px 12px",marginBottom:6}}>
-              <div style={{display:"grid",gridTemplateColumns:"1.7fr .8fr .8fr .7fr",gap:6,alignItems:"center"}}>
+            <div className="card" key={i} style={{padding:"12px 13px",marginBottom:8}}>
+              {/* fila 1: producto y stock */}
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div className="cli" style={{fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
+                  <div className="meta" style={{fontSize:11}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")} · {p.diasCredito} días créd.</div>
+                </div>
+                <div style={{flexShrink:0,textAlign:"right"}}>
+                  <div className="num" style={{fontSize:13,fontWeight:800,color:sinStock?"#c0392b":"#2E7D52"}}>{sinStock?"Sin stock":p.stock+" qq"}</div>
+                </div>
+              </div>
+
+              {/* fila 2: precios y utilidades en cuadrícula */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginTop:10,
+                borderTop:"1px solid #F0ECE2",paddingTop:9}}>
                 <div>
-                  <div className="cli" style={{fontSize:14}}>{p.marca}</div>
-                  <div className="meta">{p.unidad} · {p.diasCredito} días créd.</div>
+                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Contado</div>
+                  <div className="num" style={{fontSize:14,fontWeight:700}}>{money(p.baseContado)}</div>
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div className="amt num" style={{fontSize:15}}>{money(p.baseContado)}</div>
+                <div>
+                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Crédito</div>
+                  <div className="num" style={{fontSize:14,fontWeight:700}}>{money(p.baseCredito)}</div>
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div className="num" style={{fontSize:14,fontWeight:700,color:"var(--grisTexto,#555)"}}>{money(p.baseCredito)}</div>
+                <div>
+                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. bruta</div>
+                  <div className="num" style={{fontSize:14,fontWeight:700,color:"var(--field)"}}>{money(bruta)}</div>
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div className="num" style={{fontSize:13,fontWeight:700,color:sinStock?"#c0392b":"#2E7D52"}}>{sinStock?"0":p.stock}</div>
+                <div>
+                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. neta</div>
+                  <div className="num" style={{fontSize:14,fontWeight:800,color:neta>0?"#2E7D52":"#c0392b"}}>{money(neta)}</div>
                 </div>
               </div>
             </div>
@@ -12258,7 +12268,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v110</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v111</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12447,7 +12457,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b110</div>
+              Versión 16 jul 2026 b111</div>
           </div>
         </div>
       </div>
