@@ -3370,7 +3370,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"171", fecha:"18 jul 2026", desc:"Arreglo visual en Comisiones por pedido"};
+const VERSION={n:"172", fecha:"18 jul 2026", desc:"Buscador predictivo: Clientes, Solicitudes, Equipo, Agenda"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -7545,9 +7545,9 @@ function Potenciales({toast}){
       <div className="field"><label>Nombre del negocio</label><input value={np.nombre} onChange={e=>setNp({...np,nombre:e.target.value})} placeholder="Ej. Comercial Nuevo"/></div>
       <div className="field"><label>Tipo de negocio</label><input value={np.negocio} onChange={e=>setNp({...np,negocio:e.target.value})} placeholder="Ej. Abarrotes"/></div>
       <div className="field"><label>Canal estimado</label>
-        <select value={np.canal} onChange={e=>setNp({...np,canal:e.target.value})}>
-          {Object.keys(CANALES).map(c=><option key={c} value={c}>{c}</option>)}
-        </select></div>
+        <FiltroBuscador items={Object.keys(CANALES)} value={np.canal||""}
+          onPick={v=>setNp({...np,canal:v==="__"?"":v})}
+          todos="__" etiquetaTodos="Elige canal…"/></div>
       <div className="field"><label>Contacto</label><input value={np.contacto} onChange={e=>setNp({...np,contacto:e.target.value})} placeholder="Nombre de la persona"/></div>
       <div className="field"><label>Teléfono</label><input type="tel" value={np.tel} onChange={e=>setNp({...np,tel:e.target.value})} placeholder="09…"/></div>
       <div style={{display:"flex",gap:8}}>
@@ -10135,17 +10135,13 @@ function Agenda({toast, verCliente}){
     {verFiltros && (
       <div className="card" style={{padding:"13px 14px",marginBottom:12}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
-          <select className="selmini" value={fTipo} onChange={e=>setFTipo(e.target.value)}>
-            <option value="Todos">Tipo: todos</option>
-            {TIPOS.map(t=><option key={t.k} value={t.k}>{t.k}</option>)}
-          </select>
-          <select className="selmini" value={fEstado} onChange={e=>setFEstado(e.target.value)}>
-            <option value="Todos">Estado: todos</option>
-            {Object.keys(ESTADOS).map(k=><option key={k} value={k}>{ESTADOS[k].t}</option>)}
-          </select>
-          <select className="selmini" value={fZona} onChange={e=>setFZona(e.target.value)} style={{gridColumn:"1 / -1"}}>
-            {zonas.map(z=><option key={z} value={z}>{z==="Todas"?"Zona: todas":z}</option>)}
-          </select>
+          <FiltroBuscador items={TIPOS.map(t=>t.k)} value={fTipo} onPick={setFTipo}
+            todos="Todos" etiquetaTodos="Tipo: todos"/>
+          <FiltroBuscador items={Object.keys(ESTADOS)} value={fEstado} onPick={setFEstado}
+            todos="Todos" etiquetaTodos="Estado: todos" render={k=>ESTADOS[k]?ESTADOS[k].t:k}/>
+          <FiltroBuscador estilo={{gridColumn:"1 / -1"}}
+            items={zonas.filter(z=>z!=="Todas")} value={fZona} onPick={setFZona}
+            todos="Todas" etiquetaTodos="Zona: todas"/>
         </div>
         {(fTipo!=="Todos"||fEstado!=="Todos"||fZona!=="Todas") && (
           <button className="mini-link" style={{marginTop:9}}
@@ -10227,12 +10223,10 @@ function Agenda({toast, verCliente}){
           <div className="meta" style={{marginBottom:12}}>{completando.tipo} · {completando.cli}</div>
 
           {completando.tipo==="Visita" && (<>
-            <div className="field"><label>Resultado de la visita *</label>
-              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
-                <option value="">Elige…</option>
-                <option>Pedido tomado</option><option>No compró</option>
-                <option>No estaba el encargado</option><option>Local cerrado</option>
-              </select></div>
+            <div><div className="ficha-sec" style={{marginBottom:6}}>Resultado de la visita *</div>
+              <FiltroBuscador items={["Pedido tomado","No compró","No estaba el encargado","Local cerrado"]}
+                value={evResultado||""} onPick={v=>setEvResultado(v==="__"?"":v)}
+                todos="__" etiquetaTodos="Elige…"/></div>
             <div className="field" style={{marginTop:10}}><label>Observación</label>
               <input value={evObs} onChange={e=>setEvObs(e.target.value)} placeholder="Ej.: pidió visitarlo el lunes"/></div>
           </>)}
@@ -10240,34 +10234,31 @@ function Agenda({toast, verCliente}){
           {completando.tipo==="Cobro" && (<>
             <div className="field"><label>Valor cobrado *</label>
               <input type="number" inputMode="decimal" value={evValor} onChange={e=>setEvValor(e.target.value)} placeholder="0,00"/></div>
-            <div className="field" style={{marginTop:10}}><label>Forma de pago</label>
-              <select value={evForma} onChange={e=>setEvForma(e.target.value)}>
-                <option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Cheque</option>
-              </select></div>
-            <div className="field" style={{marginTop:10}}><label>Resultado *</label>
-              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
-                <option value="">Elige…</option>
-                <option>Cobro completo</option><option>Abono parcial</option><option>No pagó</option>
-              </select></div>
+            <div style={{marginTop:10}}><div className="ficha-sec" style={{marginBottom:6}}>Forma de pago</div>
+              <FiltroBuscador items={["Efectivo","Transferencia","Depósito","Cheque"]}
+                value={evForma||""} onPick={v=>setEvForma(v==="__"?"":v)}
+                todos="__" etiquetaTodos="Elige…"/></div>
+            <div style={{marginTop:10}}><div className="ficha-sec" style={{marginBottom:6}}>Resultado *</div>
+              <FiltroBuscador items={["Cobro completo","Abono parcial","No pagó"]}
+                value={evResultado||""} onPick={v=>setEvResultado(v==="__"?"":v)}
+                todos="__" etiquetaTodos="Elige…"/></div>
           </>)}
 
           {completando.tipo==="Stock" && (<>
-            <div className="field"><label>Resultado *</label>
-              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
-                <option value="">Elige…</option>
-                <option>Stock alto</option><option>Stock medio</option><option>Stock bajo</option><option>Sin stock</option>
-              </select></div>
+            <div><div className="ficha-sec" style={{marginBottom:6}}>Resultado *</div>
+              <FiltroBuscador items={["Stock alto","Stock medio","Stock bajo","Sin stock"]}
+                value={evResultado||""} onPick={v=>setEvResultado(v==="__"?"":v)}
+                todos="__" etiquetaTodos="Elige…"/></div>
             <div className="field" style={{marginTop:10}}><label>Productos y cantidades</label>
               <input value={evObs} onChange={e=>setEvObs(e.target.value)} placeholder="Ej.: arroz 12 qq, azúcar 4 qq"/></div>
             <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>toast("Foto del stock (Fase 4)")}>📷 Foto del stock (opcional)</button>
           </>)}
 
           {completando.tipo==="Entrega" && (<>
-            <div className="field"><label>Resultado *</label>
-              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
-                <option value="">Elige…</option>
-                <option>Entregado conforme</option><option>Entrega parcial</option><option>Rechazada</option>
-              </select></div>
+            <div><div className="ficha-sec" style={{marginBottom:6}}>Resultado *</div>
+              <FiltroBuscador items={["Entregado conforme","Entrega parcial","Rechazada"]}
+                value={evResultado||""} onPick={v=>setEvResultado(v==="__"?"":v)}
+                todos="__" etiquetaTodos="Elige…"/></div>
             <div className="field" style={{marginTop:10}}><label>Pedido o factura relacionada</label>
               <input value={evObs} onChange={e=>setEvObs(e.target.value)} placeholder="Ej.: factura 000127"/></div>
             <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>toast("Firma o foto (Fase 4)")}>✍️ Firma o foto</button>
@@ -10371,16 +10362,16 @@ function Agenda({toast, verCliente}){
           {cruce && !todoDia && <div className="meta" style={{fontSize:11,color:"#C9A227",marginTop:4}}>⚠️ Ya tienes una actividad a esa hora</div>}
 
           <div className="row" style={{gap:9,marginTop:10}}>
-            <div className="field" style={{flex:1}}><label>Duración</label>
-              <select value={dur} onChange={e=>setDur(Number(e.target.value))}>
-                <option value={15}>15 min</option><option value={30}>30 min</option>
-                <option value={45}>45 min</option><option value={60}>1 hora</option><option value={120}>2 horas</option>
-              </select></div>
-            <div className="field" style={{flex:1}}><label>Recordatorio</label>
-              <select value={recor} onChange={e=>setRecor(Number(e.target.value))}>
-                <option value={0}>Sin recordatorio</option><option value={15}>15 min antes</option>
-                <option value={30}>30 min antes</option><option value={60}>1 hora antes</option>
-              </select></div>
+            <div style={{flex:1,minWidth:0}}><div className="ficha-sec" style={{marginBottom:6}}>Duración</div>
+              <FiltroBuscador items={[15,30,45,60,120]} value={dur}
+                onPick={v=>setDur(v==="__"?15:Number(v))}
+                todos="__" etiquetaTodos="Duración…"
+                render={v=>({15:"15 min",30:"30 min",45:"45 min",60:"1 hora",120:"2 horas"})[v]||v}/></div>
+            <div style={{flex:1,minWidth:0}}><div className="ficha-sec" style={{marginBottom:6}}>Recordatorio</div>
+              <FiltroBuscador items={[0,15,30,60]} value={recor}
+                onPick={v=>setRecor(v==="__"?0:Number(v))}
+                todos="__" etiquetaTodos="Recordatorio…"
+                render={v=>({0:"Sin recordatorio",15:"15 min antes",30:"30 min antes",60:"1 hora antes"})[v]||v}/></div>
           </div>
 
           <div style={{display:"flex",gap:16,marginTop:11}}>
@@ -12398,14 +12389,10 @@ function Solicitudes({toast, verCliente}){
     {verFiltros && (
       <div className="card" style={{padding:"13px 14px",marginBottom:12}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
-          <select className="selmini" value={fTipo} onChange={e=>setFTipo(e.target.value)}>
-            <option value="Todos">Tipo: todos</option>
-            {ORDEN_TIPO_SOL.map(k=><option key={k} value={k}>{TIPO_SOL[k].t}</option>)}
-          </select>
-          <select className="selmini" value={fEstado} onChange={e=>setFEstado(e.target.value)}>
-            <option value="Todos">Estado: todos</option>
-            {Object.keys(ESTADO_SOL).map(k=><option key={k} value={k}>{ESTADO_SOL[k].t}</option>)}
-          </select>
+          <FiltroBuscador items={ORDEN_TIPO_SOL} value={fTipo} onPick={setFTipo}
+            todos="Todos" etiquetaTodos="Tipo: todos" render={k=>TIPO_SOL[k]?TIPO_SOL[k].t:k}/>
+          <FiltroBuscador items={Object.keys(ESTADO_SOL)} value={fEstado} onPick={setFEstado}
+            todos="Todos" etiquetaTodos="Estado: todos" render={k=>ESTADO_SOL[k]?ESTADO_SOL[k].t:k}/>
         </div>
         {(fTipo!=="Todos"||fEstado!=="Todos") && (
           <button className="mini-link" style={{marginTop:9}}
@@ -12572,11 +12559,11 @@ function Solicitudes({toast, verCliente}){
           </div>
 
           {nTipo==="nc" && (<>
-            <div className="field" style={{marginTop:10}}><label>Motivo autorizado *</label>
-              <select value={nMotivo} onChange={e=>setNMotivo(e.target.value)}>
-                <option value="">Elige un motivo…</option>
-                {MOTIVOS_NC.map(m=><option key={m} value={m}>{m}</option>)}
-              </select></div>
+            <div style={{marginTop:10}}>
+              <div className="ficha-sec" style={{marginBottom:6}}>Motivo autorizado *</div>
+              <FiltroBuscador items={MOTIVOS_NC} value={nMotivo||""} onPick={v=>setNMotivo(v==="__"?"":v)}
+                todos="__" etiquetaTodos="Elige un motivo…"/>
+            </div>
             <div style={{background:"#FBF3DC",borderRadius:10,padding:"9px 11px",marginTop:8,
               fontSize:11,color:"#8A6D12",fontWeight:600}}>
               Por política de INTESGO no se emiten notas de crédito por descuento comercial.</div>
@@ -12946,14 +12933,11 @@ function Equipo({toast}){
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
       <div className="eq-filtros">
-        <select value={fZona} onChange={e=>setFZona(e.target.value)}>
-          {zonas.map(z=><option key={z} value={z}>{z==="Todas"?"Todas las zonas":"Zona "+z}</option>)}
-        </select>
-        <select value={fEstado} onChange={e=>setFEstado(e.target.value)}>
-          <option value="Todos">Todos los estados</option>
-          <option value="Activos">Solo activos</option>
-          <option value="Bloqueados">Solo bloqueados</option>
-        </select>
+        <FiltroBuscador items={zonas.filter(z=>z!=="Todas")} value={fZona} onPick={setFZona}
+          todos="Todas" etiquetaTodos="Todas las zonas" render={z=>"Zona "+z}/>
+        <FiltroBuscador items={["Activos","Bloqueados"]} value={fEstado} onPick={setFEstado}
+          todos="Todos" etiquetaTodos="Todos los estados"
+          render={v=>v==="Activos"?"Solo activos":v==="Bloqueados"?"Solo bloqueados":v}/>
       </div>
       {equipoFiltrado.length===0 && <div className="ph">Ningún subcomisionista coincide con la búsqueda.</div>}
       {equipoFiltrado.map(sc=>(
