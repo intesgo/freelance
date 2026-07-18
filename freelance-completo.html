@@ -3307,6 +3307,9 @@ const TIPO_SOL={
   otro:      {ico:"datos",    t:"Otro",                  col:"#6B7280", bg:"#EFF1F3"},
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
+/* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
+const VERSION={n:"166", fecha:"18 jul 2026", desc:"Borradores y aviso de duplicado"};
+
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
   enviada:   {t:"Enviada",            col:"#C9A227", bg:"#FBF3DC"},
@@ -11956,21 +11959,88 @@ function Solicitudes({toast, verCliente}){
   const [nCli,setNCli]=useState("");
   const [nDetalle,setNDetalle]=useState("");
   const [nMotivo,setNMotivo]=useState("");
+  const [nBorrador,setNBorrador]=useState(null);    // id del borrador que se está editando (null = nuevo)
+  const [borrAEliminar,setBorrAEliminar]=useState(null);  // borrador en confirmación de eliminar
+  const [avisoDup,setAvisoDup]=useState(null);            // solicitud activa detectada como duplicado
 
   useModal(!!sel, React.useCallback(()=>setSel(null),[]));
   useModal(!!accion, React.useCallback(()=>setAccion(null),[]));
   useModal(crear, React.useCallback(()=>setCrear(false),[]));
   useModal(verFiltros, React.useCallback(()=>setVerFiltros(false),[]));
+  useModal(!!borrAEliminar, React.useCallback(()=>setBorrAEliminar(null),[]));
+  useModal(!!avisoDup, React.useCallback(()=>setAvisoDup(null),[]));
   useRetroceso(()=>{
+    if(avisoDup){ setAvisoDup(null); return true; }
+    if(borrAEliminar){ setBorrAEliminar(null); return true; }
     if(accion){ setAccion(null); return true; }
     if(sel){ setSel(null); return true; }
-    if(crear){ setCrear(false); return true; }
+    if(crear){ setCrear(false); setNBorrador(null); setNCli(""); setNDetalle(""); setNMotivo(""); setNTipo("posfechar"); return true; }
     if(verFiltros){ setVerFiltros(false); return true; }
     return false;
   });
 
   const tipoDe=k=>TIPO_SOL[k]||TIPO_SOL.otro;
   const estDe=k=>ESTADO_SOL[k]||ESTADO_SOL.pendiente;
+  const au=()=>"AU-260718-"+Math.floor(1000+Math.random()*9000);
+
+  /* ── borradores ── */
+  const limpiarForm=()=>{ setNBorrador(null); setNCli(""); setNDetalle(""); setNMotivo(""); setNTipo("posfechar"); };
+  const cerrarCrear=()=>{ setCrear(false); limpiarForm(); };
+  const abrirNueva=()=>{ limpiarForm(); setCrear(true); };
+  const abrirBorrador=(s)=>{
+    setNBorrador(s.id);
+    setNTipo(s.tipo||"posfechar");
+    setNCli(s.cli||"");
+    setNDetalle(s.detalle||"");
+    setNMotivo((s.d&&s.d.motivo)||"");
+    setCrear(true);
+  };
+  /* hay algo escrito que valga la pena guardar */
+  const hayContenido = !!nCli || !!nDetalle.trim() || !!nMotivo;
+  const guardarBorrador=()=>{
+    if(!hayContenido){ toast("Escribe algo antes de guardar el borrador"); return; }
+    const datos={tipo:nTipo, cli:nCli||"Sin cliente", detalle:nDetalle||"Sin detalle",
+      estado:"borrador", prioridad:"normal", d:{motivo:nMotivo}, proveedor:"Agrícola del Valle",
+      nivel:"Aprueba: Proveedor"};
+    if(nBorrador){
+      setMias(arr=>arr.map(s=>s.id===nBorrador?{...s,...datos,fecha:"ahora"}:s));
+      toast("Borrador actualizado");
+    }else{
+      const id=Math.max(100,...mias.map(s=>s.id))+1;
+      const num="BOR-"+String(1+mias.filter(s=>s.estado==="borrador").length).padStart(6,"0");
+      setMias([{id, num, ...datos, fecha:"ahora", comentarios:[]}, ...mias]);
+      toast("Guardado en borradores");
+    }
+    cerrarCrear();
+  };
+  const eliminarBorrador=(s)=>{
+    setMias(arr=>arr.filter(x=>x.id!==s.id));
+    setBorrAEliminar(null);
+    toast("Borrador eliminado");
+  };
+
+  /* ── duplicados: misma solicitud viva para el mismo cliente y tipo ── */
+  const ESTADOS_VIVOS=["enviada","pendiente","revision","correccion"];
+  const duplicada = mias.find(s=>
+    s.id!==nBorrador &&                       // el borrador que estoy enviando no se cuenta a sí mismo
+    s.cli===nCli &&
+    s.tipo===nTipo &&
+    ESTADOS_VIVOS.includes(s.estado)
+  ) || null;
+
+  /* envío real de la solicitud (se usa directo o tras confirmar el duplicado) */
+  const enviarSolicitud=()=>{
+    const num="SOL-"+String(145+mias.filter(s=>s.estado!=="borrador").length).padStart(6,"0");
+    const nuevaId=Math.max(100,...mias.map(s=>s.id))+1;
+    const reg={id:nBorrador||nuevaId, num, tipo:nTipo, cli:nCli, proveedor:"Agrícola del Valle",
+      detalle:nDetalle, fecha:"ahora", estado:"enviada", prioridad:"normal",
+      d:{motivo:nMotivo}, nivel:"Aprueba: Proveedor", comentarios:[]};
+    if(nBorrador) setMias(arr=>arr.map(s=>s.id===nBorrador?reg:s));
+    else setMias(arr=>[reg,...arr]);
+    setAvisoDup(null);
+    cerrarCrear();
+    toast(`Solicitud enviada al proveedor · auditado ${au()}`);
+  };
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const lista = pestana==="aprobar" ? sols : mias;
 
@@ -11988,6 +12058,7 @@ function Solicitudes({toast, verCliente}){
   const cuenta=(e)=>lista.filter(s=>s.estado===e).length;
   const nPend=cuenta("pendiente")+cuenta("enviada");
   const nRev=cuenta("revision"), nApr=cuenta("aprobada"), nRech=cuenta("rechazada"), nCorr=cuenta("correccion");
+  const nBorr=cuenta("borrador");
   const urgentes=lista.filter(s=>s.prioridad==="urgente").length;
   const vencidas=lista.filter(s=>s.prioridad==="vencida").length;
 
@@ -12058,8 +12129,17 @@ function Solicitudes({toast, verCliente}){
             </div>
           </div>
         </div>
-        <button className="mini-cta" style={{width:"100%",marginTop:9,textAlign:"center"}}
-          onClick={()=>setSel(s)}>Revisar solicitud</button>
+        {s.estado==="borrador" ? (
+          <div style={{display:"flex",gap:8,marginTop:9}}>
+            <button className="mini-cta" style={{flex:1,textAlign:"center"}}
+              onClick={()=>abrirBorrador(s)}>Continuar</button>
+            <button className="mini-cta" style={{flex:1,textAlign:"center",color:"#C2603A"}}
+              onClick={()=>setBorrAEliminar(s)}>Eliminar</button>
+          </div>
+        ) : (
+          <button className="mini-cta" style={{width:"100%",marginTop:9,textAlign:"center"}}
+            onClick={()=>setSel(s)}>Revisar solicitud</button>
+        )}
       </div>
     );
   };
@@ -12234,7 +12314,8 @@ function Solicitudes({toast, verCliente}){
     {/* resumen compacto */}
     <div className="neu" style={{padding:"12px 14px",marginBottom:11,marginTop:10}}>
       <div style={{display:"flex",justifyContent:"space-between",textAlign:"center"}}>
-        {[[nPend,"Pend.","#C9A227"],[nRev,"Revisión","#2B6CB0"],[nApr,"Aprob.","#2E7D52"],
+        {[...(pestana==="mias"?[[nBorr,"Borr.","#6B7280"]]:[]),
+          [nPend,"Pend.","#C9A227"],[nRev,"Revisión","#2B6CB0"],[nApr,"Aprob.","#2E7D52"],
           [nRech,"Rech.","#C2603A"],[nCorr,"Corrig.","#D98324"]].map(([n,l,c],i)=>(
           <span key={i} style={{flex:1}}>
             <span className="num" style={{display:"block",fontSize:17,fontWeight:800,color:c}}>{n}</span>
@@ -12283,13 +12364,25 @@ function Solicitudes({toast, verCliente}){
       </div>
     )}
 
-    {filtradas.map(s=><Tarjeta key={s.id} s={s}/>)}
-    {filtradas.length===0 && (
-      <div className="ph">{pestana==="aprobar"?"No hay solicitudes por aprobar.":"No has enviado solicitudes."}</div>
-    )}
+    {(()=>{
+      const borrs = filtradas.filter(s=>s.estado==="borrador");
+      const resto = filtradas.filter(s=>s.estado!=="borrador");
+      return (<>
+        {borrs.length>0 && (<>
+          <div className="ficha-sec" style={{marginTop:2,marginBottom:7}}>
+            Borradores · {borrs.length}</div>
+          {borrs.map(s=><Tarjeta key={s.id} s={s}/>)}
+          <div style={{height:1,background:"#E0DBCE",margin:"12px 0 12px"}}></div>
+        </>)}
+        {resto.map(s=><Tarjeta key={s.id} s={s}/>)}
+        {filtradas.length===0 && (
+          <div className="ph">{pestana==="aprobar"?"No hay solicitudes por aprobar.":"No has enviado solicitudes."}</div>
+        )}
+      </>);
+    })()}
 
     {pestana==="mias" && (
-      <button className="cta" style={{marginTop:6}} onClick={()=>setCrear(true)}>+ Nueva solicitud</button>
+      <button className="cta" style={{marginTop:6}} onClick={abrirNueva}>+ Nueva solicitud</button>
     )}
 
     {/* ══ DETALLE ══ */}
@@ -12402,9 +12495,9 @@ function Solicitudes({toast, verCliente}){
 
     {/* ══ NUEVA SOLICITUD ══ */}
     {crear && (
-      <div className="ov" onClick={()=>setCrear(false)}>
+      <div className="ov" onClick={cerrarCrear}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Nueva solicitud</h3>
+          <h3>{nBorrador?"Continuar borrador":"Nueva solicitud"}</h3>
           <div className="ficha-sec" style={{marginTop:8}}>Tipo *</div>
           <div className="tipochips">
             {ORDEN_TIPO_SOL.map(k=>(
@@ -12441,18 +12534,76 @@ function Solicitudes({toast, verCliente}){
                 placeholder="Por qué lo necesitas"/></div>
           )}
 
+          {/* aviso en vivo dentro del formulario */}
+          {duplicada && (
+            <div style={{background:"#FBF3DC",borderRadius:10,padding:"9px 11px",marginTop:12,
+              fontSize:11.5,color:"#8A6D12",fontWeight:600,lineHeight:1.45}}>
+              ⚠️ Ya tienes una solicitud activa de <b>{tipoDe(nTipo).t}</b> para {nCli} ({duplicada.num} · {estDe(duplicada.estado).t}).
+            </div>
+          )}
+
           <button className="cta" style={{marginTop:14}}
             disabled={!nCli || !nDetalle.trim() || !nMotivo}
-            onClick={()=>{
-              const id=Math.max(100,...mias.map(s=>s.id))+1;
-              const num="SOL-"+String(145+mias.length).padStart(6,"0");
-              setMias([{id, num, tipo:nTipo, cli:nCli, proveedor:"Agrícola del Valle",
-                detalle:nDetalle, fecha:"ahora", estado:"enviada", prioridad:"normal",
-                d:{motivo:nMotivo}, nivel:"Aprueba: Proveedor", comentarios:[]}, ...mias]);
-              setCrear(false); setNCli(""); setNDetalle(""); setNMotivo("");
-              toast("Solicitud enviada al proveedor");
-            }}>Enviar solicitud</button>
-          <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setCrear(false)}>Cancelar</button>
+            onClick={()=>{ if(duplicada) setAvisoDup(duplicada); else enviarSolicitud(); }}
+            >Enviar solicitud</button>
+
+          <button className="back" style={{width:"100%",marginTop:8}}
+            disabled={!hayContenido}
+            onClick={guardarBorrador}>
+            {nBorrador?"Guardar cambios del borrador":"Guardar como borrador"}</button>
+
+          <button className="back" style={{width:"100%",marginTop:8}} onClick={cerrarCrear}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* ══ ELIMINAR BORRADOR ══ */}
+    {borrAEliminar && (
+      <div className="ov" onClick={()=>setBorrAEliminar(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Eliminar borrador</h3>
+          <div className="meta" style={{fontSize:12.5,lineHeight:1.5,marginTop:6}}>
+            Se elimina <b>{borrAEliminar.num}</b> de {borrAEliminar.cli}. No se puede recuperar.
+          </div>
+          <button className="cta" style={{marginTop:14,background:"#C2603A"}}
+            onClick={()=>eliminarBorrador(borrAEliminar)}>Sí, eliminar</button>
+          <button className="back" style={{width:"100%",marginTop:8}}
+            onClick={()=>setBorrAEliminar(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* ══ AVISO DE DUPLICADO ══ */}
+    {avisoDup && (
+      <div className="ov" onClick={()=>setAvisoDup(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Ya existe una solicitud activa</h3>
+          <div className="meta" style={{fontSize:12.5,lineHeight:1.5,marginTop:6}}>
+            Para <b>{avisoDup.cli}</b> ya hay una solicitud de <b>{tipoDe(avisoDup.tipo).t}</b> esperando
+            respuesta. Puedes revisarla antes de enviar otra.
+          </div>
+
+          <div className="card" style={{padding:"11px 12px",marginTop:12,
+            borderLeft:`3px solid ${tipoDe(avisoDup.tipo).col}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}>
+              <span className="meta" style={{fontSize:10,fontWeight:700,flexShrink:0}}>{avisoDup.num}</span>
+              <span style={{flex:1}}></span>
+              <span style={{flexShrink:0,fontSize:9.5,fontWeight:700,padding:"2px 7px",borderRadius:7,
+                background:estDe(avisoDup.estado).bg,color:estDe(avisoDup.estado).col}}>
+                {estDe(avisoDup.estado).t}</span>
+            </div>
+            <div style={{fontSize:12.5,marginTop:4,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{avisoDup.detalle}</div>
+            <div className="meta" style={{fontSize:10.5,marginTop:2}}>{avisoDup.fecha}</div>
+          </div>
+
+          <button className="cta" style={{marginTop:14}}
+            onClick={()=>{ const d=avisoDup; setAvisoDup(null); cerrarCrear(); setSel(d); }}>
+            Ver la solicitud existente</button>
+          <button className="back" style={{width:"100%",marginTop:8}}
+            onClick={enviarSolicitud}>Enviar de todos modos</button>
+          <button className="back" style={{width:"100%",marginTop:8}}
+            onClick={()=>setAvisoDup(null)}>Cancelar</button>
         </div>
       </div>
     )}
@@ -14302,7 +14453,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v164</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v{VERSION.n}</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -14495,7 +14646,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 18 jul 2026 b164</div>
+              Versión {VERSION.fecha} b{VERSION.n} · {VERSION.desc}</div>
           </div>
         </div>
       </div>
