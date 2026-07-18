@@ -3603,8 +3603,10 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       if(verCarrito){ setVerCarrito(false); return true; }   // cierra el "Pedido en curso"
       if(verFact){ setVerFact(false); return true; }         // cierra el detalle de la última factura
       if(prod){ resetProducto(); return true; }              // vuelve a las 3 tarjetas (quita el producto)
-      if(prov && carrito.length===0){ setProv(null); setProd(null); reset(); return true; } // quita proveedor
-      if(cli && carrito.length===0){ cerrarPedido(); return true; } // quita cliente
+      /* con carrito en curso NO se pierde el pedido: se avisa y no se sale */
+      if(carrito.length>0){ toast("Tienes un pedido en curso. Ciérralo o vacíalo para salir."); return true; }
+      if(prov){ setProv(null); setProd(null); reset(); return true; }  // quita proveedor
+      if(cli){ cerrarPedido(); return true; }                          // quita cliente
       return false;                                          // nada que retroceder: sale del módulo
     });
 
@@ -13410,8 +13412,6 @@ function App({usuario, onSalir}){
 
     const onPop=()=>{
       colchones=Math.max(0,colchones-1);
-      /* DIAGNÓSTICO: qué está pasando en cada retroceso */
-      try{ show("POP · colchones:"+colchones+" · histLen:"+history.length+" · state:"+JSON.stringify(history.state)); }catch(e){}
       /* repone uno de inmediato y otro diferido (dos oportunidades) */
       poner();
       setTimeout(poner,60);
@@ -13424,8 +13424,9 @@ function App({usuario, onSalir}){
         setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
         return;
       }
-      /* 3) cualquier otro caso: al inicio. La app NUNCA se cierra sola desde aquí. */
+      /* 3) estamos en un módulo sin historial: al inicio, NUNCA salir */
       if(tabRef.current!=="inicio"){ setTab("inicio"); setHist([]); return; }
+      /* 4) raíz del inicio: solo avisa */
       show("Estás en el inicio de la aplicación");
     };
     window.addEventListener("popstate",onPop);
@@ -13529,7 +13530,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v155</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v156</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13722,7 +13723,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b155</div>
+              Versión 16 jul 2026 b156</div>
           </div>
         </div>
       </div>
