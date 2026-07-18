@@ -974,6 +974,20 @@
   .graf-t{font-size:13px;font-weight:700;color:var(--field);margin-bottom:12px}
   .ag-bar{height:8px;background:#EEEbE2;border-radius:6px;overflow:hidden}
   .ag-fill{height:100%;border-radius:6px;transition:width .3s}
+  /* botón flotante de crear: siempre visible, arrastrable, pegado a un borde.
+     Se alinea al mismo ancho que la app (480px máx) para que en pantallas
+     anchas no quede despegado del contenido. */
+  .fab-zona{position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);
+    width:100%;max-width:480px;pointer-events:none;z-index:55}
+  .fab{position:absolute;width:56px;height:56px;border-radius:50%;
+    background:var(--maize);color:#3A2E12;border:none;pointer-events:auto;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 4px 14px rgba(74,59,34,.28),0 2px 4px rgba(74,59,34,.18);
+    transform:translateY(-50%);touch-action:none;transition:box-shadow .15s,transform .12s}
+  .fab:active{transform:translateY(-50%) scale(.94)}
+  .fab.mov{box-shadow:0 8px 26px rgba(74,59,34,.38);opacity:.92}
+  .fab-mas{font-size:30px;font-weight:400;line-height:1;margin-top:-3px;
+    font-family:Inter,system-ui,sans-serif}
   /* buscador predictivo compacto para filtros (reemplaza al select nativo).
      Sin lupa y con fondo suave: se lee como filtro, no como otro buscador. */
   .fb{position:relative;min-width:0;width:100%}
@@ -2445,6 +2459,77 @@ function Inicio({go, irCliente, irProducto, irFactura}){
 /* Buscador predictivo compacto para FILTROS (regla sellada: nada de select nativo).
    Mismo alto que el select que reemplaza, para no romper las cuadrículas de filtros.
    Muestra el valor elegido dentro de la propia caja; se limpia con ×. */
+/* Botón flotante de crear (+). Siempre visible, arrastrable en vertical:
+   se pega al borde izquierdo o derecho y recuerda dónde lo dejó el usuario. */
+function BotonCrear({onClick, titulo}){
+  const LADO_INI="der", ALTO_INI=0.72;   // 72% de la pantalla: sobre la barra de navegación
+  const leer=()=>{
+    try{
+      const g=JSON.parse(localStorage.getItem("fabPos")||"null");
+      if(g && (g.lado==="izq"||g.lado==="der") && typeof g.y==="number") return g;
+    }catch(e){}
+    return {lado:LADO_INI, y:ALTO_INI};
+  };
+  const [pos,setPos]=useState(leer);
+  const [moviendo,setMoviendo]=useState(false);
+  const ref=React.useRef(null);
+  const drag=React.useRef({activo:false, movido:false, x:0, y:0});
+
+  const guardar=(p)=>{ setPos(p); try{ localStorage.setItem("fabPos",JSON.stringify(p)); }catch(e){} };
+  /* mide la franja de la app (el contenedor del botón) para decidir izquierda/derecha */
+  const el_zona=(btn)=>{
+    const z=btn&&btn.parentElement;
+    return z ? z.getBoundingClientRect() : null;
+  };
+
+  const inicio=(e)=>{
+    const t=e.touches?e.touches[0]:e;
+    drag.current={activo:true, movido:false, x:t.clientX, y:t.clientY};
+    setMoviendo(true);
+  };
+  const mover=(e)=>{
+    if(!drag.current.activo) return;
+    const t=e.touches?e.touches[0]:e;
+    const dx=Math.abs(t.clientX-drag.current.x), dy=Math.abs(t.clientY-drag.current.y);
+    if(dx>6||dy>6) drag.current.movido=true;
+    if(!drag.current.movido) return;
+    if(e.cancelable) e.preventDefault();     // evita que la página se desplace al arrastrar
+    const alto=window.innerHeight;
+    let y=t.clientY/alto;
+    y=Math.min(0.88, Math.max(0.12, y));      // no se pega al techo ni al piso
+    /* el lado se decide respecto al ancho real de la app, no de la ventana */
+    const zona=el_zona(ref.current);
+    const medio = zona ? zona.left + zona.width/2 : window.innerWidth/2;
+    const lado = t.clientX < medio ? "izq" : "der";
+    setPos({lado, y});
+  };
+  const fin=()=>{
+    if(!drag.current.activo) return;
+    const eraMovimiento=drag.current.movido;
+    drag.current.activo=false; setMoviendo(false);
+    if(eraMovimiento) guardar(pos); else onClick();   // toque simple = crear
+  };
+
+  React.useEffect(()=>{
+    const el=ref.current; if(!el) return;
+    el.addEventListener("touchmove", mover, {passive:false});
+    return ()=>el.removeEventListener("touchmove", mover);
+  });
+
+  return (
+    <div className="fab-zona">
+      <button ref={ref} className={"fab"+(moviendo?" mov":"")}
+        style={{top:`${pos.y*100}%`, [pos.lado==="izq"?"left":"right"]:"16px"}}
+        title={titulo||"Crear"} aria-label={titulo||"Crear"}
+        onTouchStart={inicio} onTouchEnd={fin} onTouchCancel={fin}
+        onMouseDown={inicio} onMouseMove={mover} onMouseUp={fin}
+        onMouseLeave={()=>{drag.current.activo=false;setMoviendo(false);}}>
+        <span className="fab-mas">+</span>
+      </button>
+    </div>
+  );
+}
+
 function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
@@ -3379,7 +3464,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"178", fecha:"18 jul 2026", desc:"Diálogos de fecha y hora sin texto cortado"};
+const VERSION={n:"179", fecha:"18 jul 2026", desc:"Botón flotante + arrastrable para crear"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10104,7 +10189,7 @@ function Agenda({toast, verCliente}){
           </div>
         );
       })}
-      <button className="cta" style={{marginTop:10}} onClick={()=>setNueva(true)}>+ Nueva actividad</button>
+      <BotonCrear titulo="Nueva actividad" onClick={()=>setNueva(true)}/>
     </>);
   }
 
@@ -10175,7 +10260,7 @@ function Agenda({toast, verCliente}){
     <Grupo titulo="Completadas" items={grupos.completadas}/>
     {filtradas.length===0 && <div className="ph">No hay actividades que coincidan.</div>}
 
-    <button className="cta" style={{marginTop:6}} onClick={()=>setNueva(true)}>+ Nueva actividad</button>
+    <BotonCrear titulo="Nueva actividad" onClick={()=>setNueva(true)}/>
 
     {/* ══ ACCIONES RÁPIDAS ══ */}
     {sel && (()=>{
@@ -11631,7 +11716,7 @@ function Ruta({toast}){
     return (<>
       <div className="h1">Rutas de visita</div>
       <div className="sub">Arma tu recorrido por provincia: cobros, pedidos y prospectos.</div>
-      <button className="cta" style={{width:"100%",marginTop:4,marginBottom:18}} onClick={nuevaRuta}>+ Crear nueva ruta</button>
+      <BotonCrear titulo="Crear nueva ruta" onClick={nuevaRuta}/>
 
       {rutas.length===0 ? <div className="ph">No tienes rutas guardadas. Crea tu primera ruta.</div>
         : rutas.map(r=>{
@@ -12435,7 +12520,7 @@ function Solicitudes({toast, verCliente}){
     })()}
 
     {pestana==="mias" && (
-      <button className="cta" style={{marginTop:6}} onClick={abrirNueva}>+ Nueva solicitud</button>
+      <BotonCrear titulo="Nueva solicitud" onClick={abrirNueva}/>
     )}
 
     {/* ══ DETALLE ══ */}
@@ -13922,7 +14007,7 @@ function Documentos({toast, usuario}){
       </div>
     )}
 
-    <button className="cta" style={{width:"100%",margin:"4px 0 14px"}} onClick={()=>setCrear(true)}>+ Nueva entrega</button>
+    <BotonCrear titulo="Nueva entrega" onClick={()=>setCrear(true)}/>
 
     <div className="ss" style={{marginBottom:10}}>
       <div className="box"><span className="mag">⌕</span>
