@@ -8343,73 +8343,63 @@ function ListaPrecios(){
   lista.forEach(p=>{ (porLinea[p.linea]=porLinea[p.linea]||[]).push(p); });
   const lineasOrd=Object.keys(porLinea).sort();
 
-  /* datos del dashboard */
-  const utilPorLinea=Array.from(new Set(conUtil.map(p=>p.linea))).map(ln=>{
-    const ps=conUtil.filter(p=>p.linea===ln);
+  /* datos del dashboard (filtrados por la línea elegida) */
+  const baseDash = lineaSel==="Todas" ? conUtil : conUtil.filter(p=>p.linea===lineaSel);
+  const utilPorLinea=Array.from(new Set(baseDash.map(p=>p.linea))).map(ln=>{
+    const ps=baseDash.filter(p=>p.linea===ln);
     const prom=ps.reduce((s,p)=>s+p.neta,0)/(ps.length||1);
     return {linea:ln, prom:Math.round(prom*100)/100, n:ps.length};
   }).sort((a,b)=>b.prom-a.prom);
   const maxProm=Math.max(...utilPorLinea.map(x=>x.prom),1);
-  const top3=[...conUtil].sort((a,b)=>b.neta-a.neta).slice(0,3);
-  const sinStock=conUtil.filter(p=>p.stock<=0);
+  const top3=[...baseDash].sort((a,b)=>b.neta-a.neta).slice(0,3);
+  const sinStock=baseDash.filter(p=>p.stock<=0);
 
   if(vista==="inicio"){
     return (<>
       <div className="h1">Precios</div>
 
-      {/* KPIs con anillo */}
+      {/* selector de línea para enfocar el dashboard */}
+      <select value={lineaSel} onChange={e=>setLineaSel(e.target.value)}
+        style={{width:"100%",padding:"11px 12px",border:"1px solid var(--line)",borderRadius:12,
+          fontFamily:"inherit",fontSize:13.5,fontWeight:600,background:"#fff",color:"var(--field)",marginBottom:12}}>
+        {lineas.map(ln=><option key={ln} value={ln}>{ln==="Todas"?"Todas las líneas":`${EMOJI_LINEA[ln]||""} ${ln}`}</option>)}
+      </select>
+
+      {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-        {(()=>{
-          const pctStock=conUtil.length?Math.round((conUtil.length-sinStock.length)/conUtil.length*100):0;
-          const anillo=(valor,sub,pct,col,txt)=>{
-            const R=28, C=2*Math.PI*R, largo=C*Math.max(4,pct)/100;
-            return (
-              <div className="card" style={{margin:0,padding:"12px 10px",display:"flex",flexDirection:"column",alignItems:"center"}}>
-                <svg viewBox="0 0 72 72" style={{width:72,height:72}}>
-                  <circle cx="36" cy="36" r={R} fill="none" stroke="#EFEBE0" strokeWidth="8"/>
-                  <circle cx="36" cy="36" r={R} fill="none" stroke={col} strokeWidth="8" strokeLinecap="round"
-                    strokeDasharray={`${largo} ${C-largo}`} transform="rotate(-90 36 36)"
-                    style={{transition:"stroke-dasharray .8s ease"}}/>
-                  <text x="36" y="41" textAnchor="middle" fontSize="18" fontWeight="800" fill="#1E3A2B" fontFamily="inherit">{valor}</text>
-                </svg>
-                <div style={{fontSize:12,fontWeight:700,marginTop:2}}>{txt}</div>
-                <div className="meta" style={{fontSize:10}}>{sub}</div>
-              </div>
-            );
-          };
-          return (<>
-            {anillo(conUtil.length, `${utilPorLinea.length} líneas`, 100, "#2E7D52", "Productos")}
-            {anillo(sinStock.length, `${pctStock}% disponible`, sinStock.length?Math.round(sinStock.length/conUtil.length*100):4,
-              sinStock.length?"#C2603A":"#2E7D52", "Sin stock")}
-          </>);
-        })()}
+        <div className="card" style={{margin:0,padding:"13px 14px"}}>
+          <div className="meta" style={{fontSize:10.5}}>Productos</div>
+          <div className="num" style={{fontSize:24,fontWeight:800,color:"var(--field)"}}>{baseDash.length}</div>
+          <div className="meta" style={{fontSize:10}}>en {utilPorLinea.length} línea{utilPorLinea.length!==1?"s":""}</div>
+        </div>
+        <div className="card" style={{margin:0,padding:"13px 14px"}}>
+          <div className="meta" style={{fontSize:10.5}}>Sin stock</div>
+          <div className="num" style={{fontSize:24,fontWeight:800,color:sinStock.length?"var(--clay)":"#2E7D52"}}>{sinStock.length}</div>
+          <div className="meta" style={{fontSize:10}}>{baseDash.length?Math.round((baseDash.length-sinStock.length)/baseDash.length*100):0}% disponible</div>
+        </div>
       </div>
 
-      {/* utilidad promedio por línea · anillos */}
-      <div className="card" style={{padding:"16px 14px",marginBottom:12}}>
-        <div style={{fontWeight:700,fontSize:13.5,marginBottom:14,textAlign:"center"}}>Utilidad neta promedio por línea</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,justifyItems:"center"}}>
-          {utilPorLinea.map((x,i)=>{
-            const R=34, C=2*Math.PI*R;
-            const pctAnillo=Math.max(6,Math.round(x.prom/maxProm*100));
-            const largo=C*pctAnillo/100;
-            const col=["#2E7D52","#C9A227","#D98324","#57A773","#8A6D12"][i%5];
-            return (
-              <div key={i} style={{textAlign:"center"}}>
-                <svg viewBox="0 0 88 88" style={{width:88,height:88}}>
-                  <circle cx="44" cy="44" r={R} fill="none" stroke="#EFEBE0" strokeWidth="10"/>
-                  <circle cx="44" cy="44" r={R} fill="none" stroke={col} strokeWidth="10" strokeLinecap="round"
-                    strokeDasharray={`${largo} ${C-largo}`} transform="rotate(-90 44 44)"
-                    style={{transition:"stroke-dasharray .8s ease"}}/>
-                  <text x="44" y="41" textAnchor="middle" fontSize="15" fontWeight="800" fill="#1E3A2B" fontFamily="inherit">{money(x.prom).replace("$","")}</text>
-                  <text x="44" y="54" textAnchor="middle" fontSize="8.5" fill="#8A9A8E" fontFamily="inherit">por qq</text>
-                </svg>
-                <div style={{fontSize:12,fontWeight:700,marginTop:3}}>{EMOJI_LINEA[x.linea]||""} {x.linea}</div>
-                <div className="meta" style={{fontSize:10}}>{x.n} producto{x.n!==1?"s":""}</div>
-              </div>
-            );
-          })}
+      {/* utilidad promedio por línea · barras horizontales */}
+      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12}}>
+          <span style={{fontWeight:700,fontSize:13.5}}>Utilidad neta por línea</span>
+          <span className="meta" style={{fontSize:10.5}}>promedio por qq</span>
         </div>
+        {utilPorLinea.map((x,i)=>{
+          const pct=Math.max(5,Math.round(x.prom/maxProm*100));
+          const col=i===0?"#2E7D52":i===1?"#57A773":i===2?"#C9A227":"#A8B5AC";
+          return (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:9,padding:"5px 0"}}>
+              <span style={{width:74,flexShrink:0,fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {EMOJI_LINEA[x.linea]||""} {x.linea}</span>
+              <span style={{flex:1,minWidth:0,height:16,background:"#F2EFE6",borderRadius:6,overflow:"hidden",position:"relative"}}>
+                <span style={{position:"absolute",left:0,top:0,bottom:0,width:pct+"%",background:col,
+                  borderRadius:6,transition:"width .7s ease"}}></span>
+              </span>
+              <span className="num" style={{width:52,flexShrink:0,textAlign:"right",fontSize:12.5,fontWeight:700,color:col}}>{money(x.prom)}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* top 3 mejor utilidad */}
@@ -12353,7 +12343,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v113</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v114</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12542,7 +12532,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b113</div>
+              Versión 16 jul 2026 b114</div>
           </div>
         </div>
       </div>
