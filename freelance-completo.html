@@ -8358,7 +8358,7 @@ function HistorialLineas({nombre, toast}){
 }
 
 // ---------- LISTA DE PRECIOS (dashboard + consulta por línea/marca) ----------
-function ListaPrecios({backRef}){
+function ListaPrecios({backRef, pedirCon}){
   const [q,setQ]=useState("");
   const [lineaSel,setLineaSel]=useState("Todas");
   const [vista,setVista]=useState("inicio"); // inicio | lista
@@ -8769,27 +8769,57 @@ function ListaPrecios({backRef}){
       {conPromo.length===0 && <div className="ph">No hay promociones activas.</div>}
       {conPromo.map((p,i)=>{
         const pf=(p.promosFreelance&&p.promosFreelance[0])||null;
+        const mejor=pf?Math.min(p.promoProv,pf.base):p.promoProv;
+        const ahorro=Math.round((p.baseCredito-mejor)*100)/100;
+        const pctAh=p.baseCredito?Math.round(ahorro/p.baseCredito*1000)/10:0;
         return (
-          <div className="card" key={i} onClick={()=>setProdSel(p)} style={{padding:"12px 13px",marginBottom:8,cursor:"pointer"}}>
-            <div style={{display:"flex",alignItems:"center",gap:11}}>
+          <div className="card fade-in" key={i} style={{padding:"14px 15px",marginBottom:10,animationDelay:(i*35)+"ms"}}>
+            {/* cabecera: producto y ahorro */}
+            <div style={{display:"flex",alignItems:"flex-start",gap:11}}>
               <span style={{fontSize:22,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
               <div style={{flex:1,minWidth:0}}>
-                <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
+                <div style={{fontSize:14,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
                 <div className="meta" style={{fontSize:10.5}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</div>
               </div>
+              {ahorro>0 && (
+                <span style={{flexShrink:0,background:"#EAF3EC",color:"#2E7D52",borderRadius:8,
+                  padding:"4px 9px",fontSize:10.5,fontWeight:800,whiteSpace:"nowrap"}}>−{pctAh}%</span>
+              )}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:9,borderTop:"1px solid #F2EFE6",paddingTop:8}}>
+
+            {/* precios: normal tachado + promocional */}
+            <div style={{display:"flex",alignItems:"flex-end",gap:14,marginTop:11,
+              paddingTop:10,borderTop:"1px solid #F2EFE6",flexWrap:"wrap"}}>
               <div>
-                <div className="meta" style={{fontSize:9.5,textTransform:"uppercase"}}>🟣 Promo proveedor</div>
-                <div className="num" style={{fontSize:14,fontWeight:800,color:"#7C5CBF"}}>{money(p.promoProv)}</div>
+                <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Normal</div>
+                <div className="num" style={{fontSize:13,color:"var(--muted)",textDecoration:"line-through"}}>{money(p.baseCredito)}</div>
+              </div>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{width:7,height:7,borderRadius:"50%",background:"#7C5CBF",flexShrink:0}}></span>
+                  <span className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Proveedor</span>
+                </div>
+                <div className="num" style={{fontSize:16,fontWeight:800,color:"#7C5CBF"}}>{money(p.promoProv)}</div>
               </div>
               {pf && (
-                <div>
-                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase"}}>🟠 {pf.nombre}</div>
-                  <div className="num" style={{fontSize:14,fontWeight:800,color:"#D98324"}}>{money(pf.base)}</div>
+                <div style={{minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <span style={{width:7,height:7,borderRadius:"50%",background:"#D98324",flexShrink:0}}></span>
+                    <span className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em",
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pf.nombre}</span>
+                  </div>
+                  <div className="num" style={{fontSize:16,fontWeight:800,color:"#D98324"}}>{money(pf.base)}</div>
                   {pf.detalle && <div className="meta" style={{fontSize:9.5}}>{pf.detalle}</div>}
                 </div>
               )}
+            </div>
+
+            {/* acciones */}
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button className="back" style={{flex:1,padding:"9px 10px",fontSize:12}}
+                onClick={()=>{ setMarcados([p.id]); setTimeout(enviarInforme,0); }}>Compartir promo</button>
+              <button className="mini-cta" style={{flex:1,padding:"9px 10px",fontSize:12,textAlign:"center"}}
+                onClick={()=>pedirCon&&pedirCon(p)}>Tomar pedido</button>
             </div>
           </div>
         );
@@ -12930,7 +12960,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v131</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v132</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13004,7 +13034,8 @@ function App({usuario, onSalir}){
         {tab==="ajustes" && <Ajustes prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif} usuario={usuario} onSalir={onSalir} tema={tema} setTema={setTema}
           oscuro={oscuro} setOscuro={setOscuro} fontGrande={fontGrande} setFontGrande={setFontGrande} toast={show}/>}
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
-        {tab==="precios" && <ListaPrecios backRef={backHandlerRef}/>}
+        {tab==="precios" && <ListaPrecios backRef={backHandlerRef}
+          pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
         {tab==="novedades" && <Novedades toast={show} go={navegar}/>}
       </div>
       {toast && <div className="toast">{toast}</div>}
@@ -13119,7 +13150,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b131</div>
+              Versión 16 jul 2026 b132</div>
           </div>
         </div>
       </div>
