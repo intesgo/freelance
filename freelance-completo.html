@@ -8324,6 +8324,7 @@ function ListaPrecios(){
   const [q,setQ]=useState("");
   const [lineaSel,setLineaSel]=useState("Todas");
   const [vista,setVista]=useState("inicio"); // inicio | lista
+  const [prodSel,setProdSel]=useState(null); // producto abierto en dashboard
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const lineas=["Todas",...Array.from(new Set(PRESENTACIONES.map(p=>p.linea)))];
 
@@ -8353,6 +8354,92 @@ function ListaPrecios(){
   const maxProm=Math.max(...utilPorLinea.map(x=>x.prom),1);
   const top3=[...baseDash].sort((a,b)=>b.neta-a.neta).slice(0,3);
   const sinStock=baseDash.filter(p=>p.stock<=0);
+
+  if(prodSel){
+    const p=prodSel;
+    const promLinea=(()=>{ const ps=conUtil.filter(x=>x.linea===p.linea); return ps.reduce((s,x)=>s+x.neta,0)/(ps.length||1); })();
+    const dif=Math.round((p.neta-promLinea)*100)/100;
+    const maxBarra=Math.max(p.baseCredito,p.baseContado,p.costo||0,1);
+    const barra=(lbl,val,col,destac)=>(
+      <div style={{marginBottom:11}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+          <span style={{fontSize:12,fontWeight:destac?800:600}}>{lbl}</span>
+          <span className="num" style={{fontSize:destac?15:13.5,fontWeight:destac?800:700,color:col}}>{money(val)}</span>
+        </div>
+        <div style={{height:destac?14:10,background:"#F2EFE6",borderRadius:6,overflow:"hidden"}}>
+          <div style={{height:"100%",width:Math.max(4,Math.round(val/maxBarra*100))+"%",background:col,
+            borderRadius:6,transition:"width .7s ease"}}></div>
+        </div>
+      </div>
+    );
+    return (<>
+      <button className="ghost" onClick={()=>setProdSel(null)} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver a precios</button>
+
+      {/* encabezado del producto */}
+      <div className="card" style={{padding:"16px",marginBottom:12,borderLeft:"4px solid var(--field)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:32,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:17,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
+            <div className="meta" style={{fontSize:11.5}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")} · {p.linea}</div>
+          </div>
+          <div style={{flexShrink:0,textAlign:"right"}}>
+            <div className="num" style={{fontSize:13,fontWeight:800,color:p.stock<=0?"var(--clay)":"#2E7D52"}}>{p.stock<=0?"Sin stock":p.stock+" qq"}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* utilidad destacada */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        <div className="card" style={{margin:0,padding:"13px 14px"}}>
+          <div className="meta" style={{fontSize:10.5}}>Utilidad bruta</div>
+          <div className="num" style={{fontSize:21,fontWeight:800,color:"var(--field)"}}>{money(p.bruta)}</div>
+          <div className="meta" style={{fontSize:10}}>{p.baseCredito?Math.round(p.bruta/p.baseCredito*1000)/10:0}% del precio</div>
+        </div>
+        <div className="card" style={{margin:0,padding:"13px 14px"}}>
+          <div className="meta" style={{fontSize:10.5}}>Utilidad neta</div>
+          <div className="num" style={{fontSize:21,fontWeight:800,color:p.neta>0?"#2E7D52":"var(--clay)"}}>{money(p.neta)}</div>
+          <div className="meta" style={{fontSize:10}}>{p.pct}% del precio</div>
+        </div>
+      </div>
+
+      {/* comparación de precios */}
+      <div className="card" style={{padding:"15px 16px",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13.5,marginBottom:13}}>Estructura de precios</div>
+        {barra("Precio de compra",p.costo||0,"#A8B5AC")}
+        {barra("Venta contado",p.baseContado,"#57A773")}
+        {barra("Venta crédito",p.baseCredito,"#2E7D52",true)}
+        {(p.promosFreelance||[]).map((pr,i)=>barra(`Promo · ${pr.nombre}`,pr.base,"#C9A227"))}
+      </div>
+
+      {/* comparación con la línea */}
+      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13.5,marginBottom:8}}>Frente a su línea</div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"4px 0"}}>
+          <span className="meta">Promedio {p.linea}</span>
+          <span className="num" style={{fontWeight:700}}>{money(Math.round(promLinea*100)/100)}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"4px 0",
+          borderTop:"1px dashed #E0DBCE",marginTop:5,paddingTop:8}}>
+          <span style={{fontWeight:700}}>Este producto</span>
+          <span className="num" style={{fontWeight:800,color:dif>=0?"#2E7D52":"var(--clay)"}}>
+            {dif>=0?"▲ ":"▼ "}{money(Math.abs(dif))} {dif>=0?"mejor":"menos"}
+          </span>
+        </div>
+      </div>
+
+      {/* datos del crédito */}
+      <div className="card" style={{padding:"13px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}}>
+          <span className="meta">Días de crédito</span><span style={{fontWeight:700}}>{p.diasCredito} días</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}}>
+          <span className="meta">Diferencia contado/crédito</span>
+          <span className="num" style={{fontWeight:700}}>{money(Math.round((p.baseCredito-p.baseContado)*100)/100)}</span>
+        </div>
+      </div>
+    </>);
+  }
 
   if(vista==="inicio"){
     return (<>
@@ -8448,7 +8535,7 @@ function ListaPrecios(){
         {porLinea[ln].map((p,i)=>{
           const sin=p.stock<=0;
           return (
-            <div className="card" key={i} style={{padding:"12px 13px",marginBottom:8,cursor:"pointer"}}>
+            <div className="card" key={i} onClick={()=>setProdSel(p)} style={{padding:"12px 13px",marginBottom:8,cursor:"pointer"}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:20,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
                 <div style={{flex:1,minWidth:0}}>
@@ -12343,7 +12430,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v114</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v115</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12532,7 +12619,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b114</div>
+              Versión 16 jul 2026 b115</div>
           </div>
         </div>
       </div>
