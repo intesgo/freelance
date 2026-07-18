@@ -6196,7 +6196,7 @@ function ChequeDetalle({cheque, volver, toast}){
   </>);
 }
 
-function Cartera({toast, onCobrar}){
+function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("resumen"); // resumen | facturas | analisis | cheques
@@ -6214,6 +6214,11 @@ function Cartera({toast, onCobrar}){
   const [subCheque,setSubCheque]=useState("resumen"); // resumen | historial
   const [verChq,setVerChq]=useState(null); // cheque abierto
   const [qChq,setQChq]=useState(""); // búsqueda en historial de cheques
+  /* si se abre desde la ficha de un cliente, filtra Facturas por ese cliente */
+  React.useEffect(()=>{
+    if(clienteIni){ setQ(clienteIni); setPestana("facturas"); if(onClienteConsumido) onClienteConsumido(); }
+  // eslint-disable-next-line
+  },[clienteIni]);
   const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
@@ -6301,7 +6306,7 @@ function Cartera({toast, onCobrar}){
     {pestana==="facturas" && <div className="cf-barra">
       <div className="ss" style={{flex:1,margin:0}}>
         <div className="box"><span className="mag">⌕</span>
-          <input value={q} placeholder="Buscar cliente, vendedor o factura…" onChange={e=>setQ(e.target.value)}/>
+          <input value={q} placeholder="Buscar…" onChange={e=>setQ(e.target.value)}/>
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
           <MicBtn onTexto={setQ}/></div>
       </div>
@@ -7003,7 +7008,7 @@ function CarteraClientes({volver, ver}){
   </>);
 }
 
-function Clientes({toast, backRef, nuevoPedido}){
+function Clientes({toast, backRef, nuevoPedido, verCartera}){
   const [q,setQ]=useState("");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState(null);            /* sub-pantalla de la ficha (vive aquí por el retroceso jerárquico) */
@@ -7036,7 +7041,7 @@ function Clientes({toast, backRef, nuevoPedido}){
   if(nuevo) return <ClienteNuevo volver={()=>setNuevo(false)} toast={toast}/>;
   if(verSolic) return <SolicitudesCredito volver={()=>setVerSolic(false)}/>;
   if(verBloq) return <ClientesBloqueados volver={()=>setVerBloq(false)} ver={c=>{setVerBloq(false);verCliente(c);}}/>;
-  if(sel) return <FichaCliente key={sel} nombre={sel} sec={sec} setSec={setSec} volver={()=>setSel(null)} toast={toast} nuevoPedido={nuevoPedido}/>;
+  if(sel) return <FichaCliente key={sel} nombre={sel} sec={sec} setSec={setSec} volver={()=>setSel(null)} toast={toast} nuevoPedido={nuevoPedido} verCartera={verCartera}/>;
   if(vista && vista.tipo==="lista") return <ListaClientes filtroIni={vista.filtro} volver={()=>setVista(null)} ver={c=>{setVista(null);verCliente(c);}}/>;
   if(vista && vista.tipo==="cartera") return <CarteraClientes volver={()=>setVista(null)} ver={c=>{setVista(null);verCliente(c);}}/>;
 
@@ -7448,7 +7453,7 @@ function ComprasMensuales({nombre}){
   );
 }
 
-function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
+function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido, verCartera}){
   const f=FICHA_CLIENTE[nombre];
   const [foto,setFoto]=useState(false); /* simula tener foto del local */
   const [fmtEC,setFmtEC]=useState(FORMATO_EC[nombre]||"resumen"); /* formato del estado de cuenta (arranca en el predeterminado) */
@@ -8048,7 +8053,11 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido}){
     <div className="fbot-grid">
       {BOTONES.map(([k,ic,t,x])=>(
         <button key={k} className={"fbot"+(k==="nuevo"?" destacado":"")}
-          onClick={()=>{ if(k==="nuevo"){ nuevoPedido ? nuevoPedido(nombre) : toast("Abre el módulo Pedido"); } else setSec(k); }}>
+          onClick={()=>{
+            if(k==="nuevo"){ nuevoPedido ? nuevoPedido(nombre) : toast("Abre el módulo Pedido"); }
+            else if(k==="cartera" && verCartera){ verCartera(nombre); }
+            else setSec(k);
+          }}>
           {x && x.dot ? <span className="fb-dot" style={{background:x.dot}}></span> : null}
           {x && x.n ? <span className="fb-n">{x.n}</span> : null}
           <span className="fb-ic">{ic}</span>
@@ -11873,6 +11882,7 @@ function App({usuario, onSalir}){
   const [prodInicial,setProdInicial]=useState(null); // presentación precargada desde Productos
   const [cobroInicial,setCobroInicial]=useState(null); // cliente precargado desde Cartera → Cobrar
   const [cliInicial,setCliInicial]=useState(null); // cliente precargado desde Ficha de cliente → Nuevo pedido
+  const [carteraCliente,setCarteraCliente]=useState(null); // cliente para filtrar Cartera desde su ficha
   const [pendientes,setPendientes]=useState(PENDIENTES_SYNC);
   const [verSync,setVerSync]=useState(false);
   const [verAyuda,setVerAyuda]=useState(false);   // sección "Cómo funciona" de la campanilla
@@ -12114,8 +12124,8 @@ function App({usuario, onSalir}){
         {tab==="ruta" && <Ruta toast={show}/>}
         {tab==="agenda" && <Agenda toast={show}/>}
         {tab==="stock" && <Stock toast={show}/>}
-        {tab==="cartera" && <Cartera toast={show} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
-        {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}}/>}
+        {tab==="cartera" && <Cartera toast={show} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
+        {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
         {tab==="potenciales" && <Potenciales toast={show}/>}
         {tab==="proveedores" && <Proveedores toast={show}/>}
         {tab==="documentos" && <Documentos toast={show} usuario={usuario}/>}
@@ -12284,7 +12294,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b94</div>
+              Versión 16 jul 2026 b95</div>
           </div>
         </div>
       </div>
