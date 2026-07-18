@@ -55,7 +55,7 @@ self.addEventListener("notificationclick", (e) => {
    Al instalar, el teléfono guarda las pantallas. En el campo sin señal, la app
    abre igual (con la cola 4.4 protegiendo lo que se registre). Al volver la señal,
    se actualiza sola desde internet (red primero, guardado como respaldo). */
-const CACHE = "freelance-v2";
+const CACHE = "freelance-v3";
 const PIEZAS = [
   "./", "./index.html",
   "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
@@ -79,13 +79,23 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;   /* Supabase y demás siguen directo a internet */
   e.respondWith(
-    fetch(e.request)
-      .then((resp) => {
+    (async () => {
+      /* Red primero, pero con límite: si en 4 s no responde, servimos la copia guardada.
+         Así la app nunca se queda cargando por una red lenta. */
+      const guardada = await caches.match(e.request, { ignoreSearch: true });
+      try {
+        const conLimite = new Promise((_, rechaza) => setTimeout(() => rechaza(new Error("lenta")), 4000));
+        const resp = await Promise.race([fetch(e.request), conLimite]);
         const copia = resp.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copia));
+        caches.open(CACHE).then((c) => c.put(e.request, copia)).catch(() => {});
         return resp;
-      })
-      .catch(() => caches.match(e.request, { ignoreSearch: true })
-        .then((guardada) => guardada || caches.match("./index.html")))
+      } catch (err) {
+        if (guardada) return guardada;
+        const inicio = await caches.match("./index.html");
+        if (inicio) return inicio;
+        /* último recurso: intentar la red sin límite */
+        return fetch(e.request);
+      }
+    })()
   );
 });
