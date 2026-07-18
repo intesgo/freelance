@@ -8476,9 +8476,17 @@ function ListaPrecios({backRef}){
 
   if(prodSel && verHist){
     const p=prodSel;
-    const TIPOS=[["contado","Contado"],["credito","Crédito"],["promoProv","Promoción proveedor"],["especial","Precio especial"]];
-    const actual = tipoHist==="contado"?p.baseContado : tipoHist==="credito"?p.baseCredito
-                 : tipoHist==="promoProv"?p.promoProv : p.precioEspecial;
+    const pf=(p.promosFreelance&&p.promosFreelance[0])||null;
+    const TIPOS=[
+      {k:"contado",   t:"Contado",    col:"#2E7D52", val:p.baseContado},
+      {k:"credito",   t:"Crédito",    col:"#2B6CB0", val:p.baseCredito},
+      {k:"promoProv", t:"Promo prov.", col:"#7C5CBF", val:p.promoProv},
+    ];
+    if(pf) TIPOS.push({k:"promoFree", t:"Promo Freelance", col:"#D98324", val:pf.base});
+    TIPOS.push({k:"especial", t:"Especial", col:"#2AA198", val:p.precioEspecial});
+    const tipoOk = TIPOS.find(x=>x.k===tipoHist) ? tipoHist : "contado";
+    const tSel = TIPOS.find(x=>x.k===tipoOk);
+    const actual = tSel.val;
     /* historial demo: 5 puntos hacia atrás con variaciones suaves */
     const FACT=[0.905,0.945,0.972,0.986,1];
     const FECHAS=["01/02","01/03","01/04","01/05","01/06"];
@@ -8507,13 +8515,28 @@ function ListaPrecios({backRef}){
         </div>
       </div>
 
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-        <span className="meta" style={{fontSize:11.5,flexShrink:0}}>Tipo de precio</span>
-        <select value={tipoHist} onChange={e=>setTipoHist(e.target.value)}
-          style={{flex:1,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:11,
-            fontFamily:"inherit",fontSize:13,fontWeight:600,background:"#fff",color:"var(--field)"}}>
-          {TIPOS.map(([k,t])=><option key={k} value={k}>{t}</option>)}
-        </select>
+      {/* chips de tipo de precio */}
+      <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:6,marginBottom:12,WebkitOverflowScrolling:"touch"}}>
+        {TIPOS.map(x=>(
+          <button key={x.k} onClick={()=>setTipoHist(x.k)}
+            style={{flex:"0 0 auto",padding:"9px 15px",borderRadius:999,cursor:"pointer",fontFamily:"inherit",
+              fontSize:12.5,fontWeight:700,whiteSpace:"nowrap",
+              border:tipoOk===x.k?"none":"1px solid var(--line)",
+              background:tipoOk===x.k?x.col:"#fff",
+              color:tipoOk===x.k?"#fff":"#2C3A32"}}>
+            {x.t}
+          </button>
+        ))}
+      </div>
+
+      {/* precio actual destacado */}
+      <div className="card" style={{padding:"13px 16px",marginBottom:12,display:"flex",
+        justifyContent:"space-between",alignItems:"center",borderLeft:`4px solid ${tSel.col}`}}>
+        <div>
+          <div className="meta" style={{fontSize:10.5}}>Precio actual · {tSel.t}</div>
+          {pf && tipoOk==="promoFree" && pf.detalle && <div className="meta" style={{fontSize:10}}>{pf.detalle}</div>}
+        </div>
+        <div className="num" style={{fontSize:22,fontWeight:800,color:tSel.col}}>{money(actual)}</div>
       </div>
 
       <div className="card" style={{padding:"14px 12px",marginBottom:12}}>
@@ -8526,9 +8549,9 @@ function ListaPrecios({backRef}){
               <text x={PX-4} y={yy+3} textAnchor="end" fontSize="7.5" fill="#9AA79C" fontFamily="inherit">{v.toFixed(2)}</text>
             </g>);
           })}
-          <polyline points={puntos} fill="none" stroke="#2AA198" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round"/>
+          <polyline points={puntos} fill="none" stroke={tSel.col} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round"/>
           {serie.map((s,i)=>(<g key={i}>
-            <circle cx={x(i)} cy={y(s.valor)} r="4" fill="#fff" stroke="#2AA198" strokeWidth="2.2"/>
+            <circle cx={x(i)} cy={y(s.valor)} r="4" fill="#fff" stroke={tSel.col} strokeWidth="2.2"/>
             <text x={x(i)} y={y(s.valor)-9} textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#1E3A2B" fontFamily="inherit">{s.valor.toFixed(2)}</text>
             <text x={x(i)} y={H-6} textAnchor="middle" fontSize="8" fill="#9AA79C" fontFamily="inherit">{s.fecha}</text>
           </g>))}
@@ -12771,7 +12794,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v125</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v126</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12960,7 +12983,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b125</div>
+              Versión 16 jul 2026 b126</div>
           </div>
         </div>
       </div>
