@@ -8330,10 +8330,13 @@ function ListaPrecios({backRef}){
   const [prodSel,setProdSel]=useState(null); // producto abierto en dashboard
   const [modoEnvio,setModoEnvio]=useState(false); // seleccionar productos para enviar
   const [marcados,setMarcados]=useState([]); // ids seleccionados
+  const [verHist,setVerHist]=useState(false); // historial de precios del producto
+  const [tipoHist,setTipoHist]=useState("contado"); // tipo de precio en el historial
   /* botón atrás inteligente: producto → lista → inicio → sale */
   React.useEffect(()=>{
     if(!backRef) return;
     backRef.current=()=>{
+      if(verHist){ setVerHist(false); return true; }
       if(prodSel){ setProdSel(null); return true; }
       if(modoEnvio){ setModoEnvio(false); setMarcados([]); return true; }
       if(vista!=="inicio"){ setVista("inicio"); return true; }
@@ -8396,6 +8399,94 @@ function ListaPrecios({backRef}){
     window.open(url,"_blank");
   };
 
+  if(prodSel && verHist){
+    const p=prodSel;
+    const TIPOS=[["contado","Contado"],["credito","Crédito"],["promoProv","Promoción proveedor"],["especial","Precio especial"]];
+    const actual = tipoHist==="contado"?p.baseContado : tipoHist==="credito"?p.baseCredito
+                 : tipoHist==="promoProv"?p.promoProv : p.precioEspecial;
+    /* historial demo: 5 puntos hacia atrás con variaciones suaves */
+    const FACT=[0.905,0.945,0.972,0.986,1];
+    const FECHAS=["01/02","01/03","01/04","01/05","01/06"];
+    const serie=FACT.map((f,i)=>({fecha:FECHAS[i], valor:Math.round(actual*f*100)/100}));
+    const cambios=[];
+    for(let i=serie.length-1;i>0;i--){
+      const ant=serie[i-1].valor, nue=serie[i].valor;
+      cambios.push({fecha:serie[i].fecha, ant, nue, pct:Math.round((nue-ant)/ant*10000)/100});
+    }
+    const W=300,H=140,PX=34,PY=18;
+    const vals=serie.map(s=>s.valor);
+    const min=Math.min(...vals)*0.97, max=Math.max(...vals)*1.03;
+    const x=i=>PX+(i*(W-PX-14))/(serie.length-1);
+    const y=v=>PY+(H-PY-24)*(1-(v-min)/((max-min)||1));
+    const puntos=serie.map((s,i)=>`${x(i)},${y(s.valor)}`).join(" ");
+    return (<>
+      <button className="ghost" onClick={()=>setVerHist(false)} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver al producto</button>
+
+      <div className="card" style={{padding:"13px 14px",marginBottom:12}}>
+        <div style={{display:"flex",gap:12,alignItems:"center"}}>
+          <div style={{flexShrink:0,width:54,height:54,borderRadius:10,background:"#F5F2E9",
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>{EMOJI_LINEA[p.linea]||"📦"}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
+            <div className="meta" style={{fontSize:11}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")} · Código {p.id}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <span className="meta" style={{fontSize:11.5,flexShrink:0}}>Tipo de precio</span>
+        <select value={tipoHist} onChange={e=>setTipoHist(e.target.value)}
+          style={{flex:1,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:11,
+            fontFamily:"inherit",fontSize:13,fontWeight:600,background:"#fff",color:"var(--field)"}}>
+          {TIPOS.map(([k,t])=><option key={k} value={k}>{t}</option>)}
+        </select>
+      </div>
+
+      <div className="card" style={{padding:"14px 12px",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:8,padding:"0 4px"}}>Evolución del precio</div>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto"}}>
+          {[0,.25,.5,.75,1].map((t,i)=>{
+            const yy=PY+(H-PY-24)*t, v=max-(max-min)*t;
+            return (<g key={i}>
+              <line x1={PX} y1={yy} x2={W-8} y2={yy} stroke="#EFEBE0" strokeWidth="1"/>
+              <text x={PX-4} y={yy+3} textAnchor="end" fontSize="7.5" fill="#9AA79C" fontFamily="inherit">{v.toFixed(2)}</text>
+            </g>);
+          })}
+          <polyline points={puntos} fill="none" stroke="#2AA198" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round"/>
+          {serie.map((s,i)=>(<g key={i}>
+            <circle cx={x(i)} cy={y(s.valor)} r="4" fill="#fff" stroke="#2AA198" strokeWidth="2.2"/>
+            <text x={x(i)} y={y(s.valor)-9} textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#1E3A2B" fontFamily="inherit">{s.valor.toFixed(2)}</text>
+            <text x={x(i)} y={H-6} textAnchor="middle" fontSize="8" fill="#9AA79C" fontFamily="inherit">{s.fecha}</text>
+          </g>))}
+        </svg>
+      </div>
+
+      <div className="card" style={{padding:"14px 14px"}}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>Historial de cambios</div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,tableLayout:"fixed"}}>
+          <colgroup><col style={{width:"24%"}}/><col style={{width:"26%"}}/><col style={{width:"26%"}}/><col style={{width:"24%"}}/></colgroup>
+          <thead><tr>
+            {["Fecha","Anterior","Nuevo","Variación"].map((h,i)=>(
+              <th key={i} style={{padding:"6px 4px",borderBottom:"1px solid #E2E6DF",textAlign:i>0?"right":"left",
+                fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {cambios.map((c,i)=>(
+              <tr key={i}>
+                <td style={{padding:"8px 4px",borderBottom:"1px solid #F2EFE6"}}>{c.fecha}</td>
+                <td className="num" style={{padding:"8px 4px",borderBottom:"1px solid #F2EFE6",textAlign:"right",color:"var(--muted)"}}>{money(c.ant)}</td>
+                <td className="num" style={{padding:"8px 4px",borderBottom:"1px solid #F2EFE6",textAlign:"right",fontWeight:700}}>{money(c.nue)}</td>
+                <td className="num" style={{padding:"8px 4px",borderBottom:"1px solid #F2EFE6",textAlign:"right",fontWeight:700,
+                  color:c.pct>=0?"#2E7D52":"#C2603A"}}>{c.pct>=0?"+":""}{c.pct}% {c.pct>=0?"▲":"▼"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="meta" style={{fontSize:10,marginTop:9}}>Historial de ejemplo · en producción se registra cada cambio real.</div>
+      </div>
+    </>);
+  }
   if(prodSel){
     const p=prodSel;
     const promLinea=(()=>{ const ps=conUtil.filter(x=>x.linea===p.linea); return ps.reduce((s,x)=>s+x.neta,0)/(ps.length||1); })();
@@ -8481,7 +8572,7 @@ function ListaPrecios({backRef}){
       </div>
 
       {/* comparación con la línea */}
-      <div className="card" style={{padding:"14px 16px"}}>
+      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13.5,marginBottom:8}}>Frente a su línea</div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"4px 0"}}>
           <span className="meta">Promedio {p.linea}</span>
@@ -8495,6 +8586,8 @@ function ListaPrecios({backRef}){
           </span>
         </div>
       </div>
+
+      <button className="back" style={{width:"100%"}} onClick={()=>setVerHist(true)}>📈 Ver historial de precios</button>
     </>);
   }
 
@@ -12531,7 +12624,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v118</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v119</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12720,7 +12813,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b118</div>
+              Versión 16 jul 2026 b119</div>
           </div>
         </div>
       </div>
