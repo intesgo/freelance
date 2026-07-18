@@ -336,6 +336,33 @@
   .qa .t{font-size:14px;font-weight:600}
   .qa .s{font-size:12px;color:var(--muted);margin-top:2px}
   /* cards */
+  /* ═══ UI KIT NEUMÓRFICO (módulos financieros) ═══ */
+  .neu{background:var(--card);border-radius:22px;padding:18px;margin-bottom:14px;
+    box-shadow:6px 6px 16px rgba(23,43,32,.07), -6px -6px 16px rgba(255,255,255,.85);
+    border:none}
+  .neu-in{background:var(--paper);border-radius:16px;padding:14px;
+    box-shadow:inset 3px 3px 8px rgba(23,43,32,.06), inset -3px -3px 8px rgba(255,255,255,.9)}
+  .neu-t{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:2px}
+  .neu-s{font-size:10.5px;color:var(--muted);margin-bottom:14px}
+  .neu-chips{display:inline-flex;gap:4px;background:var(--paper);border-radius:99px;padding:3px;
+    box-shadow:inset 2px 2px 6px rgba(23,43,32,.07), inset -2px -2px 6px rgba(255,255,255,.9)}
+  .neu-chip{border:none;background:transparent;border-radius:99px;padding:6px 14px;font-family:inherit;
+    font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .18s ease}
+  .neu-chip.on{background:var(--card);color:var(--field);
+    box-shadow:2px 2px 6px rgba(23,43,32,.09), -2px -2px 6px rgba(255,255,255,.9)}
+  /* en Sol el relieve se atenúa para no perder contraste bajo el sol */
+  [data-tema="sol"] .neu{box-shadow:0 1px 3px rgba(0,0,0,.10),0 6px 16px rgba(0,0,0,.07);border:1px solid #E3E0D4}
+  [data-tema="sol"] .neu-in{box-shadow:none;border:1px solid #E3E0D4}
+  /* en Noche el relieve usa luces oscuras */
+  [data-tema="noche"] .neu{background:#182420;
+    box-shadow:6px 6px 16px rgba(0,0,0,.45), -6px -6px 16px rgba(255,255,255,.03)}
+  [data-tema="noche"] .neu-in{background:#141F1A;
+    box-shadow:inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(255,255,255,.03)}
+  [data-tema="noche"] .neu-chips{background:#141F1A;
+    box-shadow:inset 2px 2px 6px rgba(0,0,0,.5), inset -2px -2px 6px rgba(255,255,255,.03)}
+  [data-tema="noche"] .neu-chip.on{background:#22322B;color:#E6EDE8;
+    box-shadow:2px 2px 6px rgba(0,0,0,.4), -2px -2px 6px rgba(255,255,255,.04)}
+
   .card{background:var(--card);border:1px solid rgba(0,0,0,.045);border-radius:16px;
     padding:16px;box-shadow:0 1px 2px rgba(23,43,32,.04),0 4px 12px rgba(23,43,32,.05);
     margin-bottom:12px;transition:transform .14s ease,box-shadow .14s ease}
@@ -1541,6 +1568,141 @@ function retrocederEnModulo(){
     try{ if(RETROCESOS[i].run()) return true; }catch(e){}
   }
   return false;
+}
+
+/* ══════ UI KIT NEUMÓRFICO · componentes financieros ══════ */
+
+/* Anillo de progreso con el monto al centro */
+function NeuAnillo({pct=0, valor, etiqueta, sub, color="#2E7D52", tam=150}){
+  const R=tam*0.38, C=2*Math.PI*R, cx=tam/2, cy=tam/2;
+  const largo=C*Math.min(100,Math.max(0,pct))/100;
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <svg viewBox={`0 0 ${tam} ${tam}`} style={{width:tam,height:tam}}>
+        <circle cx={cx} cy={cy} r={R} fill="none" stroke="rgba(23,43,32,.07)" strokeWidth={tam*0.085}/>
+        <circle cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeWidth={tam*0.085} strokeLinecap="round"
+          strokeDasharray={`${largo} ${C-largo}`} transform={`rotate(-90 ${cx} ${cy})`}
+          style={{transition:"stroke-dasharray .9s cubic-bezier(.4,0,.2,1)"}}/>
+        <text x={cx} y={cy-2} textAnchor="middle" fontSize={tam*0.155} fontWeight="800"
+          fill="var(--ink)" fontFamily="'Space Grotesk',sans-serif">{valor}</text>
+        <text x={cx} y={cy+tam*0.115} textAnchor="middle" fontSize={tam*0.075} fill="var(--muted)" fontFamily="inherit">{etiqueta}</text>
+      </svg>
+      {sub && <div className="meta" style={{fontSize:11,marginTop:4,textAlign:"center"}}>{sub}</div>}
+    </div>
+  );
+}
+
+/* Gráfico de línea suave con área y puntos */
+function NeuLinea({datos=[], etiquetas=[], color="#2E7D52", alto=130, formato=(v)=>v}){
+  if(!datos.length) return <div className="ph">Sin datos.</div>;
+  const W=320, H=alto, PX=8, PY=16, PB=20;
+  const min=Math.min(...datos), max=Math.max(...datos);
+  const rango=(max-min)||1;
+  const x=i=>PX+(i*(W-PX*2))/Math.max(1,datos.length-1);
+  const y=v=>PY+(H-PY-PB)*(1-(v-min)/rango);
+  const pts=datos.map((v,i)=>[x(i),y(v)]);
+  /* curva suave */
+  let d=`M ${pts[0][0]},${pts[0][1]}`;
+  for(let i=1;i<pts.length;i++){
+    const [px,py]=pts[i-1], [cx2,cy2]=pts[i];
+    const mx=(px+cx2)/2;
+    d+=` C ${mx},${py} ${mx},${cy2} ${cx2},${cy2}`;
+  }
+  const area=d+` L ${pts[pts.length-1][0]},${H-PB} L ${pts[0][0]},${H-PB} Z`;
+  const idMax=datos.indexOf(max);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+      <defs>
+        <linearGradient id={"gr"+color.replace("#","")} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity=".22"/>
+          <stop offset="100%" stopColor={color} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#gr${color.replace("#","")})`}/>
+      <path d={d} fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"/>
+      {pts.map(([px,py],i)=>(
+        <circle key={i} cx={px} cy={py} r={i===idMax?4.5:3} fill="var(--card)" stroke={color} strokeWidth="2.4"/>
+      ))}
+      {idMax>=0 && (
+        <text x={pts[idMax][0]} y={pts[idMax][1]-10} textAnchor="middle" fontSize="10" fontWeight="800"
+          fill="var(--ink)" fontFamily="'Space Grotesk',sans-serif">{formato(max)}</text>
+      )}
+      {etiquetas.map((e,i)=>(
+        <text key={i} x={x(i)} y={H-5} textAnchor="middle" fontSize="8.5" fill="var(--muted)" fontFamily="inherit">{e}</text>
+      ))}
+    </svg>
+  );
+}
+
+/* Barras comparativas (por ejemplo, dos años) */
+function NeuBarras({series=[], etiquetas=[], colores=["#2E7D52","#C9A227"], nombres=[], formato=(v)=>v}){
+  const todos=series.flat();
+  const max=Math.max(...todos,1);
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"flex-end",gap:6,height:120,padding:"0 2px"}}>
+        {etiquetas.map((e,i)=>(
+          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <div style={{display:"flex",alignItems:"flex-end",gap:2,height:100,width:"100%",justifyContent:"center"}}>
+              {series.map((s,si)=>(
+                <div key={si} title={formato(s[i])} style={{
+                  width:series.length>1?"42%":"62%",
+                  height:Math.max(3,Math.round((s[i]||0)/max*100))+"%",
+                  background:colores[si],borderRadius:"5px 5px 2px 2px",
+                  transition:"height .7s cubic-bezier(.4,0,.2,1)"}}></div>
+              ))}
+            </div>
+            <span style={{fontSize:8.5,color:"var(--muted)"}}>{e}</span>
+          </div>
+        ))}
+      </div>
+      {nombres.length>0 && (
+        <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:10}}>
+          {nombres.map((n,i)=>(
+            <span key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600}}>
+              <span style={{width:9,height:9,borderRadius:3,background:colores[i]}}></span>{n}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Calendario del mes con días destacados */
+function NeuCalendario({anio, mes, marcados=[], color="#2E7D52", onDia}){
+  const DIAS=["L","M","M","J","V","S","D"];
+  const primero=new Date(anio,mes,1);
+  const desplazamiento=(primero.getDay()+6)%7;      // lunes primero
+  const total=new Date(anio,mes+1,0).getDate();
+  const celdas=[];
+  for(let i=0;i<desplazamiento;i++) celdas.push(null);
+  for(let d=1;d<=total;d++) celdas.push(d);
+  const marca=(d)=>marcados.find(m=>m.dia===d);
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:5}}>
+        {DIAS.map((d,i)=><span key={i} style={{textAlign:"center",fontSize:9.5,fontWeight:700,color:"var(--muted)"}}>{d}</span>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+        {celdas.map((d,i)=>{
+          if(d===null) return <span key={i}></span>;
+          const m=marca(d);
+          return (
+            <button key={i} onClick={()=>onDia&&m&&onDia(m)} disabled={!m}
+              style={{aspectRatio:"1",border:"none",borderRadius:9,fontFamily:"inherit",fontSize:11,
+                fontWeight:m?800:500,cursor:m?"pointer":"default",
+                background:m?(m.color||color):"transparent",
+                color:m?"#fff":"var(--ink)",
+                boxShadow:m?"2px 2px 6px rgba(23,43,32,.14)":"none",
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {d}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 const CLIENTES = ["Comercial Mendoza","Tienda La Esquina","Distribuidora Ríos",
@@ -9778,6 +9940,63 @@ function Cuenta({usuario, onSalir}){
         <div className="cu-line" style={{borderTop:"1px solid var(--line)",paddingTop:10,marginTop:4}}><span><b>Neto a recibir</b></span><b className="num">{money(neto)}</b></div>
       </div>
 
+      {/* ── Kit neumórfico: meta del mes y evolución ── */}
+      <div className="neu" style={{marginTop:14}}>
+        <div className="neu-t">Meta del mes</div>
+        <div className="neu-s">Avance de tu venta frente a la meta</div>
+        <div style={{display:"flex",alignItems:"center",gap:18}}>
+          <NeuAnillo pct={metaPct} valor={metaPct+"%"} etiqueta="cumplido"
+            color={metaPct>=90?"#2E7D52":metaPct>=60?"#C9A227":"#C2603A"} tam={132}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="neu-in" style={{marginBottom:9}}>
+              <div className="meta" style={{fontSize:10}}>Vendido</div>
+              <div className="num" style={{fontSize:16,fontWeight:800,color:"var(--field)"}}>{money(ventaActual)}</div>
+            </div>
+            <div className="neu-in">
+              <div className="meta" style={{fontSize:10}}>Meta</div>
+              <div className="num" style={{fontSize:16,fontWeight:800}}>{money(metaTotal)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {(()=>{
+        const MESES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+        const serieAnio=(comFreelanceMes||[]).map(v=>Number(v)||0);
+        const hasta=Math.max(1,new Date().getMonth()+1);
+        const datos=serieAnio.slice(0,hasta);
+        const etiq=MESES.slice(0,hasta);
+        const anioAnt=COMISION_FREELANCE[anio-1];
+        return (<>
+          <div className="neu">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+              <div>
+                <div className="neu-t">Evolución de tu comisión</div>
+                <div className="neu-s" style={{marginBottom:0}}>Mes a mes · {anio}</div>
+              </div>
+              <div className="neu-chips">
+                <button className={"neu-chip"+(medida==="usd"?" on":"")} onClick={()=>setMedida("usd")}>USD</button>
+                <button className={"neu-chip"+(medida==="qq"?" on":"")} onClick={()=>setMedida("qq")}>qq</button>
+              </div>
+            </div>
+            <NeuLinea datos={datos} etiquetas={etiq} color="#2E7D52" formato={v=>money(v)}/>
+          </div>
+
+          {anioAnt && (
+            <div className="neu">
+              <div className="neu-t">Comparativo por año</div>
+              <div className="neu-s">{anio-1} vs {anio}</div>
+              <NeuBarras
+                series={[ (anioAnt||[]).slice(0,12).map(v=>Number(v)||0), serieAnio.slice(0,12) ]}
+                etiquetas={MESES}
+                colores={["#C9A227","#2E7D52"]}
+                nombres={[String(anio-1),String(anio)]}
+                formato={v=>money(v)}/>
+            </div>
+          )}
+        </>);
+      })()}
+
       <div className="cu-grid">
         <div className="cu-card"><div className="cu-ic" style={{background:"#E4F1E9"}}><Ico n="ok" c="#2E7D52" s={19}/></div>
           <div className="cu-v num">{money(liberadas)}</div><div className="cu-k">Comisiones liberadas</div></div>
@@ -13274,7 +13493,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v148</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v149</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13467,7 +13686,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b148</div>
+              Versión 16 jul 2026 b149</div>
           </div>
         </div>
       </div>
