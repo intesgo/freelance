@@ -9728,169 +9728,559 @@ function FichaMarca({marca, volver, vender}){
   </>);
 }
 
-function Agenda({toast}){
-  useRetroceso(()=>{
-      if(nueva){ setNueva(false); return true; }
-      if(verFiltros){ setVerFiltros(false); return true; }
-      return false;
-    });
+function Agenda({toast, verCliente}){
   const HOY="2026-06-13";
+  /* ── datos demo enriquecidos ── */
   const inicial=[
-    {id:1, fecha:"2026-06-13", hora:"08:30", cli:"Comercial Mendoza", tipo:"Visita", nota:"Tomar pedido mensual de arroz", hecho:false},
-    {id:2, fecha:"2026-06-13", hora:"10:00", cli:"Bodega El Agricultor", tipo:"Cobro", nota:"Retirar cheque · factura vence hoy", hecho:false},
-    {id:3, fecha:"2026-06-15", hora:"11:30", cli:"Distribuidora Ríos", tipo:"Stock", nota:"Revisar bodega y reportar existencias", hecho:false},
-    {id:4, fecha:"2026-06-13", hora:"15:00", cli:"Tienda La Esquina", tipo:"Entrega", nota:"Coordinar descarga con encargado", hecho:true},
-    {id:5, fecha:"2026-06-17", hora:"09:00", cli:"Mayorista Santa Rosa", tipo:"Visita", nota:"Presentar nueva línea de harina", hecho:false},
+    {id:1, fecha:"2026-06-11", hora:"15:00", cli:"Bodega El Agricultor", tipo:"Cobro",
+     objetivo:"Cobrar factura 000091", ubic:"Quevedo, San Camilo", estado:"pendiente", dur:30, recordatorio:15},
+    {id:2, fecha:"2026-06-12", hora:"09:00", cli:"Mayorista Santa Rosa", tipo:"Stock",
+     objetivo:"Revisar existencias de arroz", ubic:"Santa Rosa, El Cambio", estado:"pendiente", dur:45, recordatorio:15},
+    {id:3, fecha:"2026-06-13", hora:"08:30", cli:"Comercial Mendoza", tipo:"Visita",
+     objetivo:"Tomar pedido mensual de arroz", ubic:"Milagro, Las Piñas", estado:"camino", dur:30, recordatorio:15},
+    {id:4, fecha:"2026-06-13", hora:"10:00", cli:"Distribuidora Ríos", tipo:"Cobro",
+     objetivo:"Retirar cheque · factura vence hoy", ubic:"Ambato, Ficoa", estado:"pendiente", dur:20, recordatorio:15},
+    {id:5, fecha:"2026-06-13", hora:"15:00", cli:"Tienda La Esquina", tipo:"Entrega",
+     objetivo:"Coordinar descarga con encargado", ubic:"Milagro, Centro", estado:"completada", dur:60, recordatorio:30,
+     resultado:"Entregado conforme", obs:"Recibió el encargado"},
+    {id:6, fecha:"2026-06-14", hora:"09:30", cli:"Abarrotes Don Pepe", tipo:"Visita",
+     objetivo:"Presentar nueva línea de harina", ubic:"Guayaquil, Sur", estado:"pendiente", dur:40, recordatorio:15},
+    {id:7, fecha:"2026-06-17", hora:"11:00", cli:"Comisariato La Y", tipo:"Visita",
+     objetivo:"Negociar espacio en góndola", ubic:"Guayaquil, Norte", estado:"pendiente", dur:60, recordatorio:30},
   ];
   const [tareas,setTareas]=useState(inicial);
   const [nueva,setNueva]=useState(false);
-  useModal(nueva, React.useCallback(()=>setNueva(false),[]));
+  const [sel,setSel]=useState(null);          // actividad abierta (acciones rápidas)
+  const [completando,setCompletando]=useState(null);  // actividad en proceso de completar
+  const [reprog,setReprog]=useState(null);    // actividad a reprogramar
+  const [noReal,setNoReal]=useState(null);    // actividad no realizada
+  const [vista,setVista]=useState("lista");   // lista | dia
+  const [q,setQ]=useState("");
   const [verFiltros,setVerFiltros]=useState(false);
-  const [periodo,setPeriodo]=useState("todas"); // hoy | semana | todas
-  const [ubic,setUbic]=useState("");
-  const [tPeriodo,setTPeriodo]=useState("todas");
-  const [tUbic,setTUbic]=useState("");
+  const [fTipo,setFTipo]=useState("Todos");
+  const [fEstado,setFEstado]=useState("Todos");
+  const [fZona,setFZona]=useState("Todas");
+  /* formulario de nueva actividad */
   const [fecha,setFecha]=useState("");
   const [hora,setHora]=useState("");
   const [cli,setCli]=useState(null);
   const [tipo,setTipo]=useState("Visita");
-  const [nota,setNota]=useState("");
-  const TIPOS=["Visita","Cobro","Stock","Entrega","Otro"];
+  const [objetivo,setObjetivo]=useState("");
+  const [ubicF,setUbicF]=useState("");
+  const [dur,setDur]=useState(30);
+  const [recor,setRecor]=useState(15);
+  const [todoDia,setTodoDia]=useState(false);
+  const [recurrente,setRecurrente]=useState(false);
+  const [detalleTipo,setDetalleTipo]=useState("");   // campo dinámico según tipo
+  /* evidencia al completar */
+  const [evResultado,setEvResultado]=useState("");
+  const [evObs,setEvObs]=useState("");
+  const [evValor,setEvValor]=useState("");
+  const [evForma,setEvForma]=useState("Efectivo");
+  const [motivoR,setMotivoR]=useState("");
+  const [nuevaFechaR,setNuevaFechaR]=useState("");
 
-  const toggle=id=>setTareas(tareas.map(t=>t.id===id?{...t,hecho:!t.hecho}:t));
-  const colorTipo={Visita:"#15392B",Cobro:"#2E7D52",Stock:"#C77F00",Entrega:"#7A6F50",Otro:"#555"};
-
-  const finSemana=(()=>{const d=new Date(HOY);d.setDate(d.getDate()+7);return d.toISOString().slice(0,10);})();
-  const norm=s=>(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  const ubicCliente=(c)=>{const f=FICHA_CLIENTE[c];return f?`${f.prov} ${f.ciudad} ${f.zona} ${f.barrio}`:"";};
-
-  const filtradas=tareas.filter(t=>{
-    const perOk = periodo==="todas" ? true
-      : periodo==="hoy" ? t.fecha===HOY
-      : (t.fecha>=HOY && t.fecha<=finSemana); // semana
-    const ubicOk = ubic==="" || norm(ubicCliente(t.cli)).includes(norm(ubic));
-    return perOk && ubicOk;
+  useModal(nueva, React.useCallback(()=>setNueva(false),[]));
+  useModal(!!sel, React.useCallback(()=>setSel(null),[]));
+  useModal(!!completando, React.useCallback(()=>setCompletando(null),[]));
+  useModal(!!reprog, React.useCallback(()=>setReprog(null),[]));
+  useModal(!!noReal, React.useCallback(()=>setNoReal(null),[]));
+  useModal(verFiltros, React.useCallback(()=>setVerFiltros(false),[]));
+  useRetroceso(()=>{
+    if(completando){ setCompletando(null); return true; }
+    if(reprog){ setReprog(null); return true; }
+    if(noReal){ setNoReal(null); return true; }
+    if(sel){ setSel(null); return true; }
+    if(nueva){ setNueva(false); return true; }
+    if(verFiltros){ setVerFiltros(false); return true; }
+    return false;
   });
-  const pend=filtradas.filter(t=>!t.hecho).length;
-  const PER_LBL={todas:"Todas",hoy:"Hoy",semana:"Esta semana"};
-  const nFiltros=(periodo!=="todas"?1:0)+(ubic?1:0);
-  const abrirFiltros=()=>{setTPeriodo(periodo);setTUbic(ubic);setVerFiltros(true);};
-  const aplicar=()=>{setPeriodo(tPeriodo);setUbic(tUbic);setVerFiltros(false);};
 
-  const guardar=()=>{
-    const nuevaTarea={id:Date.now(), fecha:fecha||"", hora:hora||"--:--", cli:cli||"Sin cliente", tipo, nota:nota||"", hecho:false};
-    setTareas([...tareas, nuevaTarea].sort((a,b)=>a.hora.localeCompare(b.hora)));
-    setFecha("");setHora("");setCli(null);setTipo("Visita");setNota("");setNueva(false);
-    toast("Tarea agregada a tu agenda.");
+  /* ── configuración de tipos ── */
+  const TIPOS=[
+    {k:"Visita",  ico:"clientes", col:"#2B6CB0", bg:"#E9F0F8"},
+    {k:"Cobro",   ico:"cobros",   col:"#2E7D52", bg:"#E4F1E9"},
+    {k:"Stock",   ico:"stock",    col:"#D98324", bg:"#FBF0E4"},
+    {k:"Entrega", ico:"pedidos",  col:"#7C5CBF", bg:"#F3ECF9"},
+    {k:"Otro",    ico:"datos",    col:"#6B7280", bg:"#EFF1F3"},
+  ];
+  const tipoDe=k=>TIPOS.find(t=>t.k===k)||TIPOS[4];
+  const ESTADOS={
+    pendiente:{t:"Pendiente",     col:"#6B7280", bg:"#EFF1F3"},
+    camino:   {t:"En camino",     col:"#2B6CB0", bg:"#E9F0F8"},
+    proceso:  {t:"En proceso",    col:"#C9A227", bg:"#FBF3DC"},
+    completada:{t:"Completada",   col:"#2E7D52", bg:"#E4F1E9"},
+    norealizada:{t:"No realizada",col:"#C2603A", bg:"#FBE9E4"},
+    reprogramada:{t:"Reprogramada",col:"#7C5CBF", bg:"#F3ECF9"},
+  };
+  const estadoDe=k=>ESTADOS[k]||ESTADOS.pendiente;
+
+  /* ── utilidades de fecha ── */
+  const DIAS=["Dom.","Lun.","Mar.","Mié.","Jue.","Vie.","Sáb."];
+  const MES3=["ene.","feb.","mar.","abr.","may.","jun.","jul.","ago.","sep.","oct.","nov.","dic."];
+  const dObj=f=>new Date(f+"T00:00:00");
+  const fAmable=f=>{ const d=dObj(f); return isNaN(d)?f:`${DIAS[d.getDay()]} ${d.getDate()} ${MES3[d.getMonth()]}`; };
+  const maniana=(()=>{ const d=dObj(HOY); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+
+  /* ── filtrado y agrupación ── */
+  const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const zonas=["Todas",...Array.from(new Set(tareas.map(t=>(t.ubic||"").split(",")[0]).filter(Boolean)))];
+  const filtradas=tareas.filter(t=>{
+    if(fTipo!=="Todos" && t.tipo!==fTipo) return false;
+    if(fEstado!=="Todos" && t.estado!==fEstado) return false;
+    if(fZona!=="Todas" && !(t.ubic||"").startsWith(fZona)) return false;
+    if(q.trim()){ const s=norm(t.cli+" "+t.objetivo+" "+t.ubic); if(!s.includes(norm(q))) return false; }
+    return true;
+  }).sort((a,b)=> (a.fecha+a.hora) < (b.fecha+b.hora) ? -1 : 1);
+
+  const grupos=(()=>{
+    const g={vencidas:[],hoy:[],maniana:[],proximas:[],completadas:[]};
+    filtradas.forEach(t=>{
+      if(t.estado==="completada"||t.estado==="norealizada"){ g.completadas.push(t); return; }
+      if(t.fecha<HOY) g.vencidas.push(t);
+      else if(t.fecha===HOY) g.hoy.push(t);
+      else if(t.fecha===maniana) g.maniana.push(t);
+      else g.proximas.push(t);
+    });
+    return g;
+  })();
+  const nPend=tareas.filter(t=>t.estado!=="completada"&&t.estado!=="norealizada").length;
+  const nHechas=tareas.filter(t=>t.estado==="completada").length;
+  const nVenc=grupos.vencidas.length;
+  const proxima=[...grupos.hoy].filter(t=>t.hora>="00:00").sort((a,b)=>a.hora<b.hora?-1:1)[0];
+
+  /* ── acciones ── */
+  const actualizar=(id,cambios)=>setTareas(ts=>ts.map(t=>t.id===id?{...t,...cambios}:t));
+  const iniciar=(t)=>{ actualizar(t.id,{estado:"proceso"}); setSel(null); toast("Actividad iniciada"); };
+  const abrirMapa=(t)=>{ window.open("https://www.google.com/maps/search/?api=1&query="+encodeURIComponent((t.ubic||t.cli)+", Ecuador"),"_blank"); };
+  const llamar=(t)=>{ const f=FICHA_CLIENTE[t.cli]||{}; if(!f.tel){ toast("Este cliente no tiene teléfono registrado"); return; } window.location.href="tel:"+f.tel; };
+  const guardarCompletada=()=>{
+    const t=completando;
+    if(!evResultado.trim()){ toast("Indica el resultado de la actividad"); return; }
+    const extra={resultado:evResultado, obs:evObs};
+    if(t.tipo==="Cobro"){ extra.valorCobrado=evValor; extra.forma=evForma; }
+    actualizar(t.id,{estado:"completada",...extra});
+    setCompletando(null); setSel(null); setEvResultado(""); setEvObs(""); setEvValor("");
+    toast("Actividad completada");
+  };
+  const guardarReprog=()=>{
+    if(!nuevaFechaR){ toast("Elige la nueva fecha"); return; }
+    if(!motivoR.trim()){ toast("Indica el motivo de la reprogramación"); return; }
+    actualizar(reprog.id,{fecha:nuevaFechaR, estado:"pendiente", motivoReprog:motivoR});
+    setReprog(null); setSel(null); setMotivoR(""); setNuevaFechaR("");
+    toast("Actividad reprogramada");
+  };
+  const guardarNoReal=()=>{
+    if(!motivoR.trim()){ toast("Indica por qué no se realizó"); return; }
+    actualizar(noReal.id,{estado:"norealizada", motivoNo:motivoR});
+    setNoReal(null); setSel(null); setMotivoR("");
+    toast("Marcada como no realizada");
+  };
+  /* validación del formulario */
+  const cruce=tareas.some(t=>t.fecha===fecha && t.hora===hora && t.estado!=="completada");
+  const fechaPasada=fecha && fecha<HOY;
+  const formOk = cli && fecha && tipo && objetivo.trim().length>0;
+  const agregar=()=>{
+    if(!formOk) return;
+    const id=Math.max(0,...tareas.map(t=>t.id))+1;
+    setTareas([...tareas,{id, fecha, hora:todoDia?"":(hora||"08:00"), cli, tipo, objetivo,
+      ubic:ubicF||((FICHA_CLIENTE[cli]||{}).ciudad||""), estado:"pendiente", dur, recordatorio:recor,
+      todoDia, recurrente, detalle:detalleTipo}]);
+    setNueva(false);
+    setCli(null); setFecha(""); setHora(""); setObjetivo(""); setUbicF(""); setDetalleTipo("");
+    setTodoDia(false); setRecurrente(false);
+    toast("Actividad agregada a la agenda");
   };
 
+  /* ── tarjeta de actividad ── */
+  const Tarjeta=({t})=>{
+    const tp=tipoDe(t.tipo), es=estadoDe(t.estado);
+    const venc=t.fecha<HOY && t.estado!=="completada" && t.estado!=="norealizada";
+    return (
+      <div className="card" onClick={()=>setSel(t)}
+        style={{padding:"11px 12px",marginBottom:8,cursor:"pointer",
+          borderLeft:`3px solid ${venc?"#C2603A":tp.col}`}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+          <span style={{width:30,height:30,borderRadius:9,background:tp.bg,flexShrink:0,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Ico n={tp.ico} c={tp.col} s={16}/></span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}>
+              <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.cli}</span>
+              <span style={{flexShrink:0,fontSize:9.5,fontWeight:700,padding:"2px 7px",borderRadius:7,
+                background:es.bg,color:es.col}}>{es.t}</span>
+            </div>
+            <div className="meta" style={{fontSize:11.5,marginTop:2,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.objetivo}</div>
+            <div className="meta" style={{fontSize:10.5,marginTop:3,display:"flex",gap:8,flexWrap:"wrap"}}>
+              <span style={{color:venc?"#C2603A":"inherit",fontWeight:venc?700:400}}>
+                {fAmable(t.fecha)}{t.hora?" · "+t.hora:" · todo el día"}</span>
+              {t.ubic && <span>· {t.ubic}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const Grupo=({titulo, items, alerta})=>{
+    if(!items.length) return null;
+    return (
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,margin:"0 2px 7px"}}>
+          <span style={{fontSize:11,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",
+            color:alerta?"#C2603A":"var(--muted)"}}>{titulo} ({items.length})</span>
+          <span style={{flex:1,height:1,background:"#E6E1D4"}}></span>
+        </div>
+        {items.map(t=><Tarjeta key={t.id} t={t}/>)}
+      </div>
+    );
+  };
+
+  /* ══ VISTA DÍA ══ */
+  if(vista==="dia"){
+    const delDia=filtradas.filter(t=>t.fecha===HOY);
+    const HORAS=["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"];
+    return (<>
+      <div className="h1">Agenda</div>
+      <div className="eq-tabs" style={{marginBottom:12}}>
+        <button className={vista==="lista"?"on":""} onClick={()=>setVista("lista")}>Lista</button>
+        <button className={vista==="dia"?"on":""} onClick={()=>setVista("dia")}>Día</button>
+      </div>
+      <div className="neu" style={{padding:"12px 14px",marginBottom:12}}>
+        <div className="neu-t">{fAmable(HOY)}</div>
+        <div className="neu-s" style={{marginBottom:0}}>{delDia.length} actividad(es) programadas</div>
+      </div>
+      {HORAS.map(h=>{
+        const enHora=delDia.filter(t=>(t.hora||"").slice(0,2)===h.slice(0,2));
+        return (
+          <div key={h} style={{display:"flex",gap:10,marginBottom:enHora.length?8:2}}>
+            <span style={{width:42,flexShrink:0,fontSize:10.5,fontWeight:700,color:"var(--muted)",paddingTop:3}}>{h}</span>
+            <div style={{flex:1,minWidth:0,borderTop:"1px solid #EFEBE0",paddingTop:enHora.length?0:4}}>
+              {enHora.map(t=><Tarjeta key={t.id} t={t}/>)}
+            </div>
+          </div>
+        );
+      })}
+      <button className="cta" style={{marginTop:10}} onClick={()=>setNueva(true)}>+ Nueva actividad</button>
+    </>);
+  }
+
+  /* ══ VISTA LISTA (principal) ══ */
   return (<>
     <div className="h1">Agenda</div>
-    <div className="sub">Tus visitas y tareas · {pend} pendientes de {filtradas.length}.</div>
 
-    <div className="row" style={{gap:10,marginBottom:14,alignItems:"stretch"}}>
-      <button className="cta" style={{flex:1,marginTop:0}} onClick={()=>setNueva(true)}>+ Nueva tarea</button>
-      <button className="filtrar-btn" onClick={abrirFiltros}>⚙ Filtrar{nFiltros>0?` · ${nFiltros}`:""}</button>
+    {/* resumen compacto */}
+    <div className="neu" style={{padding:"12px 14px",marginBottom:11}}>
+      <div style={{display:"flex",justifyContent:"space-between",textAlign:"center"}}>
+        <span style={{flex:1}}>
+          <span className="num" style={{display:"block",fontSize:18,fontWeight:800,color:"var(--field)"}}>{nPend}</span>
+          <span className="meta" style={{fontSize:9.5}}>Pendientes</span></span>
+        <span style={{flex:1}}>
+          <span className="num" style={{display:"block",fontSize:18,fontWeight:800,color:"#2E7D52"}}>{nHechas}</span>
+          <span className="meta" style={{fontSize:9.5}}>Completadas</span></span>
+        <span style={{flex:1}}>
+          <span className="num" style={{display:"block",fontSize:18,fontWeight:800,color:nVenc?"#C2603A":"var(--muted)"}}>{nVenc}</span>
+          <span className="meta" style={{fontSize:9.5}}>Vencidas</span></span>
+      </div>
+      {proxima && (
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:9,borderTop:"1px dashed #E0DBCE"}}>
+          <Ico n="reloj" c="#C9A227" s={15}/>
+          <span style={{flex:1,minWidth:0,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            <b>Próxima {proxima.hora}</b> · {proxima.cli}</span>
+        </div>
+      )}
     </div>
 
-    {(periodo!=="todas"||ubic) && (
-      <div className="row" style={{margin:"0 2px 14px",alignItems:"center",flexWrap:"wrap",gap:6}}>
-        {periodo!=="todas" && <span className="fchip on" style={{fontSize:11.5}}>{PER_LBL[periodo]}</span>}
-        {ubic && <span className="fchip on" style={{fontSize:11.5}}>📍 {ubic}</span>}
-        <button className="mini-link" onClick={()=>{setPeriodo("todas");setUbic("");}}>Quitar</button>
-      </div>
-    )}
+    {/* vistas */}
+    <div className="eq-tabs" style={{marginBottom:10}}>
+      <button className={vista==="lista"?"on":""} onClick={()=>setVista("lista")}>Lista</button>
+      <button className={vista==="dia"?"on":""} onClick={()=>setVista("dia")}>Día</button>
+    </div>
 
-    {filtradas.map(t=>(
-      <div className="card" key={t.id} style={{opacity:t.hecho?.6:1}}>
-        <div className="row" style={{alignItems:"flex-start"}}>
-          <button onClick={()=>toggle(t.id)} style={{
-            width:26,height:26,borderRadius:8,flexShrink:0,marginTop:2,
-            border:"2px solid "+(t.hecho?"var(--ok)":"var(--line)"),
-            background:t.hecho?"var(--ok)":"#fff",color:"#fff",fontSize:15,fontWeight:700,
-            display:"flex",alignItems:"center",justifyContent:"center"}}>
-            {t.hecho?"✓":""}</button>
-          <div style={{flex:1,marginLeft:12}}>
-            <div className="cli" style={{fontSize:14,textDecoration:t.hecho?"line-through":"none"}}>{t.cli}</div>
-            <div className="meta">{t.nota}</div>
-            {FICHA_CLIENTE[t.cli] && <div className="meta" style={{fontSize:11,marginTop:2}}>📍 {FICHA_CLIENTE[t.cli].ciudad}, {FICHA_CLIENTE[t.cli].zona}</div>}
-          </div>
-          <div style={{textAlign:"right",flexShrink:0}}>
-            <div className="num" style={{fontSize:14,fontWeight:600}}>{t.hora}</div>
-            {t.fecha && <div className="meta" style={{fontSize:11}}>{t.fecha}</div>}
-            <span className="chip" style={{background:"#EDEAE0",color:colorTipo[t.tipo],marginTop:4}}>
-              {t.tipo}</span>
-          </div>
-        </div>
+    {/* buscador y filtros */}
+    <div className="row" style={{gap:9,marginBottom:12,alignItems:"stretch"}}>
+      <div className="ss" style={{flex:1,marginBottom:0}}>
+        <div className="box"><span className="mag">⌕</span>
+          <input value={q} placeholder="Buscar…" onChange={e=>setQ(e.target.value)}/>
+          <MicBtn onTexto={setQ}/>
+          {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
-    ))}
-    {filtradas.length===0 && <div className="ph">Sin tareas que coincidan con los filtros.</div>}
-
+      <button className="filtrar-btn" onClick={()=>setVerFiltros(v=>!v)}>Filtros</button>
+    </div>
     {verFiltros && (
-      <div className="ov" onClick={()=>setVerFiltros(false)}>
+      <div className="card" style={{padding:"13px 14px",marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+          <select className="selmini" value={fTipo} onChange={e=>setFTipo(e.target.value)}>
+            <option value="Todos">Tipo: todos</option>
+            {TIPOS.map(t=><option key={t.k} value={t.k}>{t.k}</option>)}
+          </select>
+          <select className="selmini" value={fEstado} onChange={e=>setFEstado(e.target.value)}>
+            <option value="Todos">Estado: todos</option>
+            {Object.keys(ESTADOS).map(k=><option key={k} value={k}>{ESTADOS[k].t}</option>)}
+          </select>
+          <select className="selmini" value={fZona} onChange={e=>setFZona(e.target.value)} style={{gridColumn:"1 / -1"}}>
+            {zonas.map(z=><option key={z} value={z}>{z==="Todas"?"Zona: todas":z}</option>)}
+          </select>
+        </div>
+        {(fTipo!=="Todos"||fEstado!=="Todos"||fZona!=="Todas") && (
+          <button className="mini-link" style={{marginTop:9}}
+            onClick={()=>{setFTipo("Todos");setFEstado("Todos");setFZona("Todas");}}>Quitar filtros</button>
+        )}
+      </div>
+    )}
+
+    <Grupo titulo="Vencidas" items={grupos.vencidas} alerta/>
+    <Grupo titulo={"Hoy · "+fAmable(HOY)} items={grupos.hoy}/>
+    <Grupo titulo={"Mañana · "+fAmable(maniana)} items={grupos.maniana}/>
+    <Grupo titulo="Próximas" items={grupos.proximas}/>
+    <Grupo titulo="Completadas" items={grupos.completadas}/>
+    {filtradas.length===0 && <div className="ph">No hay actividades que coincidan.</div>}
+
+    <button className="cta" style={{marginTop:6}} onClick={()=>setNueva(true)}>+ Nueva actividad</button>
+
+    {/* ══ ACCIONES RÁPIDAS ══ */}
+    {sel && (()=>{
+      const tp=tipoDe(sel.tipo), es=estadoDe(sel.estado);
+      const fin = sel.estado==="completada"||sel.estado==="norealizada";
+      const Fila=({ico,col,txt,onClick,destac})=>(
+        <button onClick={onClick} style={{display:"flex",width:"100%",alignItems:"center",gap:11,
+          padding:"12px 4px",background:"none",border:"none",borderTop:"1px solid #F2EFE6",
+          cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+          <Ico n={ico} c={col} s={18}/>
+          <span style={{flex:1,fontSize:13.5,fontWeight:destac?800:600,color:destac?col:"var(--ink)"}}>{txt}</span>
+          <span style={{color:"var(--muted)",fontSize:15}}>›</span>
+        </button>
+      );
+      return (
+        <div className="ov" onClick={()=>setSel(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:4}}>
+              <span style={{width:36,height:36,borderRadius:10,background:tp.bg,flexShrink:0,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Ico n={tp.ico} c={tp.col} s={18}/></span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:800,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.cli}</div>
+                <div className="meta" style={{fontSize:11}}>{sel.tipo} · {fAmable(sel.fecha)}{sel.hora?" · "+sel.hora:""}</div>
+              </div>
+              <span style={{flexShrink:0,fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:7,
+                background:es.bg,color:es.col}}>{es.t}</span>
+            </div>
+            <div className="meta" style={{fontSize:11.5,marginBottom:10}}>{sel.objetivo}</div>
+
+            <Fila ico="clientes" col="#2B6CB0" txt="Ver ficha del cliente"
+              onClick={()=>{ setSel(null); verCliente && verCliente(sel.cli); }}/>
+            <Fila ico="datos" col="#2E7D52" txt="Llamar" onClick={()=>llamar(sel)}/>
+            <Fila ico="ruta" col="#C2603A" txt="Abrir ubicación" onClick={()=>abrirMapa(sel)}/>
+
+            {!fin && (<>
+              {sel.estado!=="proceso" && <Fila ico="ok" col="#C9A227" txt="Iniciar actividad" onClick={()=>iniciar(sel)} destac/>}
+              <Fila ico="ok" col="#2E7D52" txt="Completar actividad" destac
+                onClick={()=>{ setCompletando(sel); setEvResultado(""); setEvObs(""); setEvValor(""); }}/>
+              <Fila ico="visitas" col="#7C5CBF" txt="Reprogramar"
+                onClick={()=>{ setReprog(sel); setMotivoR(""); setNuevaFechaR(""); }}/>
+              <Fila ico="menos" col="#C2603A" txt="Marcar como no realizada"
+                onClick={()=>{ setNoReal(sel); setMotivoR(""); }}/>
+            </>)}
+            {fin && sel.resultado && (
+              <div className="neu-in" style={{marginTop:10}}>
+                <div className="meta" style={{fontSize:10}}>Resultado</div>
+                <div style={{fontSize:13,fontWeight:700}}>{sel.resultado}</div>
+                {sel.obs && <div className="meta" style={{fontSize:11,marginTop:3}}>{sel.obs}</div>}
+              </div>
+            )}
+            <button className="back" style={{width:"100%",marginTop:12}} onClick={()=>setSel(null)}>Cerrar</button>
+          </div>
+        </div>
+      );
+    })()}
+
+    {/* ══ COMPLETAR: evidencia según tipo ══ */}
+    {completando && (
+      <div className="ov" onClick={()=>setCompletando(null)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Filtrar agenda</h3>
+          <h3>Completar actividad</h3>
+          <div className="meta" style={{marginBottom:12}}>{completando.tipo} · {completando.cli}</div>
 
-          <div className="ficha-sec" style={{marginTop:6}}>Periodo</div>
-          <div className="chip-row" style={{flexWrap:"wrap",overflow:"visible"}}>
-            {[["todas","Todas"],["hoy","Hoy"],["semana","Esta semana"]].map(([k,l])=>(
-              <button key={k} className={"fchip"+(tPeriodo===k?" on":"")} onClick={()=>setTPeriodo(k)}>{l}</button>
-            ))}
-          </div>
+          {completando.tipo==="Visita" && (<>
+            <div className="field"><label>Resultado de la visita *</label>
+              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
+                <option value="">Elige…</option>
+                <option>Pedido tomado</option><option>No compró</option>
+                <option>No estaba el encargado</option><option>Local cerrado</option>
+              </select></div>
+            <div className="field" style={{marginTop:10}}><label>Observación</label>
+              <input value={evObs} onChange={e=>setEvObs(e.target.value)} placeholder="Ej.: pidió visitarlo el lunes"/></div>
+          </>)}
 
-          <div className="ficha-sec">Ubicación (provincia, ciudad, zona o barrio)</div>
-          <div className="ss" style={{marginBottom:0}}>
-            <div className="box"><span className="mag">⌕</span>
-              <input value={tUbic} placeholder="Ej. Guayaquil, Norte, Alborada…" onChange={e=>setTUbic(e.target.value)}/>
-              {tUbic && <button className="clr" onClick={()=>setTUbic("")}>×</button>}</div>
-          </div>
+          {completando.tipo==="Cobro" && (<>
+            <div className="field"><label>Valor cobrado *</label>
+              <input type="number" inputMode="decimal" value={evValor} onChange={e=>setEvValor(e.target.value)} placeholder="0,00"/></div>
+            <div className="field" style={{marginTop:10}}><label>Forma de pago</label>
+              <select value={evForma} onChange={e=>setEvForma(e.target.value)}>
+                <option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Cheque</option>
+              </select></div>
+            <div className="field" style={{marginTop:10}}><label>Resultado *</label>
+              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
+                <option value="">Elige…</option>
+                <option>Cobro completo</option><option>Abono parcial</option><option>No pagó</option>
+              </select></div>
+          </>)}
 
-          <button className="cta" onClick={aplicar} style={{marginTop:18}}>Aplicar filtros</button>
-          <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>{setTPeriodo("todas");setTUbic("");}}>Limpiar</button>
+          {completando.tipo==="Stock" && (<>
+            <div className="field"><label>Resultado *</label>
+              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
+                <option value="">Elige…</option>
+                <option>Stock alto</option><option>Stock medio</option><option>Stock bajo</option><option>Sin stock</option>
+              </select></div>
+            <div className="field" style={{marginTop:10}}><label>Productos y cantidades</label>
+              <input value={evObs} onChange={e=>setEvObs(e.target.value)} placeholder="Ej.: arroz 12 qq, azúcar 4 qq"/></div>
+            <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>toast("Foto del stock (Fase 4)")}>📷 Foto del stock (opcional)</button>
+          </>)}
+
+          {completando.tipo==="Entrega" && (<>
+            <div className="field"><label>Resultado *</label>
+              <select value={evResultado} onChange={e=>setEvResultado(e.target.value)}>
+                <option value="">Elige…</option>
+                <option>Entregado conforme</option><option>Entrega parcial</option><option>Rechazada</option>
+              </select></div>
+            <div className="field" style={{marginTop:10}}><label>Pedido o factura relacionada</label>
+              <input value={evObs} onChange={e=>setEvObs(e.target.value)} placeholder="Ej.: factura 000127"/></div>
+            <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>toast("Firma o foto (Fase 4)")}>✍️ Firma o foto</button>
+          </>)}
+
+          {completando.tipo==="Otro" && (<>
+            <div className="field"><label>Descripción y resultado *</label>
+              <input value={evResultado} onChange={e=>setEvResultado(e.target.value)} placeholder="Qué se hizo y cómo terminó"/></div>
+            <div className="field" style={{marginTop:10}}><label>Observación</label>
+              <input value={evObs} onChange={e=>setEvObs(e.target.value)}/></div>
+          </>)}
+
+          <button className="cta" style={{marginTop:14}} disabled={!evResultado} onClick={guardarCompletada}>Completar actividad</button>
+          <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setCompletando(null)}>Cancelar</button>
         </div>
       </div>
     )}
 
+    {/* ══ REPROGRAMAR ══ */}
+    {reprog && (
+      <div className="ov" onClick={()=>setReprog(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Reprogramar</h3>
+          <div className="meta" style={{marginBottom:12}}>{reprog.cli} · actual {fAmable(reprog.fecha)}</div>
+          <div className="field"><label>Nueva fecha *</label>
+            <input type="date" value={nuevaFechaR} onChange={e=>setNuevaFechaR(e.target.value)}/></div>
+          <div className="field" style={{marginTop:10}}><label>Motivo *</label>
+            <input value={motivoR} onChange={e=>setMotivoR(e.target.value)} placeholder="Ej.: el cliente pidió otro día"/></div>
+          <button className="cta" style={{marginTop:14}} disabled={!nuevaFechaR||!motivoR.trim()} onClick={guardarReprog}>Reprogramar</button>
+          <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setReprog(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* ══ NO REALIZADA ══ */}
+    {noReal && (
+      <div className="ov" onClick={()=>setNoReal(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>No realizada</h3>
+          <div className="meta" style={{marginBottom:12}}>{noReal.cli} · {fAmable(noReal.fecha)}</div>
+          <div className="field"><label>¿Por qué no se realizó? *</label>
+            <select value={motivoR} onChange={e=>setMotivoR(e.target.value)}>
+              <option value="">Elige un motivo…</option>
+              <option>Local cerrado</option><option>No estaba el encargado</option>
+              <option>Falta de tiempo</option><option>Cliente canceló</option><option>Otro</option>
+            </select></div>
+          <button className="cta" style={{marginTop:14}} disabled={!motivoR} onClick={guardarNoReal}>Guardar</button>
+          <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setNoReal(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* ══ NUEVA ACTIVIDAD ══ */}
     {nueva && (
       <div className="ov" onClick={()=>setNueva(false)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Nueva visita o tarea</h3>
+          <h3>Nueva actividad</h3>
 
-          <div className="field"><label>Tipo</label>
-            <div className="tipogrid" style={{gridTemplateColumns:"repeat(3,1fr)"}}>
-              {TIPOS.map(tp=>(
-                <button key={tp} className={"tipobtn"+(tipo===tp?" on":"")} onClick={()=>setTipo(tp)}>
-                  <span className="tnom">{tp}</span></button>
+          <div className="ficha-sec" style={{marginTop:8}}>Tipo *</div>
+          <div className="tipochips">
+            {TIPOS.map(t=>(
+              <button key={t.k} className={"tchip"+(tipo===t.k?" on":"")} onClick={()=>{setTipo(t.k);setDetalleTipo("");}}>
+                <span className="tchip-nom" style={tipo===t.k?{color:"#fff"}:{color:"#2C3A32"}}>{t.k}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="ficha-sec">Cliente *</div>
+          <SearchSelect label="Cliente" sinLabel items={CLIENTES} value={cli} multiPalabra
+            onPick={c=>{ setCli(c); const f=FICHA_CLIENTE[c]||{}; setUbicF(f.ciudad?`${f.ciudad}${f.zona?", "+f.zona:""}`:""); }}
+            onClear={()=>setCli(null)}
+            render={{ text:c=>c, option:c=>(<div className="o1">{c}</div>),
+              picked:c=>(<><div className="p1">{c}</div><div className="p2">{(FICHA_CLIENTE[c]||{}).negocio||"Cliente"}</div></>) }}/>
+          {!cli && (
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+              <span className="meta" style={{fontSize:10.5,width:"100%"}}>Recientes:</span>
+              {CLIENTES.slice(0,3).map(c=>(
+                <button key={c} className="fchip" onClick={()=>setCli(c)} style={{fontSize:11}}>{c}</button>
               ))}
             </div>
+          )}
+
+          {/* campo dinámico según tipo */}
+          <div className="field" style={{marginTop:12}}>
+            <label>{tipo==="Visita"?"Motivo de la visita"
+              : tipo==="Cobro"?"Facturas y valor esperado"
+              : tipo==="Stock"?"Producto o categoría a revisar"
+              : tipo==="Entrega"?"Pedido, factura o documento"
+              : "Descripción *"}</label>
+            <input value={detalleTipo} onChange={e=>setDetalleTipo(e.target.value)}
+              placeholder={tipo==="Cobro"?"Ej.: fact. 000091 · $860,00":"Escribe aquí…"}/>
           </div>
 
-          <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
-            onPick={c=>setCli(c)} onClear={()=>setCli(null)}
-            render={{
-              text:c=>c,
-              option:c=>(<div className="o1">{c}</div>),
-              picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente de la tarea</div></>)
-            }}/>
-
-          <div className="fecha-row">
-            <div className="fcol"><label>Fecha</label>
+          <div className="row" style={{gap:9,marginTop:10}}>
+            <div className="field" style={{flex:1}}><label>Fecha *</label>
               <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
-            <div className="fcol"><label>Hora</label>
-              <input type="time" value={hora} onChange={e=>setHora(e.target.value)}/></div>
+            <div className="field" style={{flex:1}}><label>Hora</label>
+              <input type="time" value={hora} onChange={e=>setHora(e.target.value)} disabled={todoDia}/></div>
+          </div>
+          {fechaPasada && <div className="meta" style={{fontSize:11,color:"#C2603A",marginTop:4}}>⚠️ Esa fecha ya pasó</div>}
+          {cruce && !todoDia && <div className="meta" style={{fontSize:11,color:"#C9A227",marginTop:4}}>⚠️ Ya tienes una actividad a esa hora</div>}
+
+          <div className="row" style={{gap:9,marginTop:10}}>
+            <div className="field" style={{flex:1}}><label>Duración</label>
+              <select value={dur} onChange={e=>setDur(Number(e.target.value))}>
+                <option value={15}>15 min</option><option value={30}>30 min</option>
+                <option value={45}>45 min</option><option value={60}>1 hora</option><option value={120}>2 horas</option>
+              </select></div>
+            <div className="field" style={{flex:1}}><label>Recordatorio</label>
+              <select value={recor} onChange={e=>setRecor(Number(e.target.value))}>
+                <option value={0}>Sin recordatorio</option><option value={15}>15 min antes</option>
+                <option value={30}>30 min antes</option><option value={60}>1 hora antes</option>
+              </select></div>
           </div>
 
-          <div className="field"><label>Nota</label>
-            <input className="inp" value={nota} onChange={e=>setNota(e.target.value)} placeholder="Ej. Retirar cheque, tomar pedido…"/></div>
+          <div style={{display:"flex",gap:16,marginTop:11}}>
+            <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,cursor:"pointer"}}>
+              <input type="checkbox" checked={todoDia} onChange={e=>setTodoDia(e.target.checked)} style={{width:16,height:16}}/>
+              Todo el día</label>
+            <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,cursor:"pointer"}}>
+              <input type="checkbox" checked={recurrente} onChange={e=>setRecurrente(e.target.checked)} style={{width:16,height:16}}/>
+              Recurrente</label>
+          </div>
 
-          <button className="cta" onClick={guardar} style={{marginTop:8}}>Agregar a la agenda</button>
-          <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setNueva(false)}>Cancelar</button>
+          <div className="field" style={{marginTop:11}}><label>Ubicación</label>
+            <input value={ubicF} onChange={e=>setUbicF(e.target.value)} placeholder="Ciudad, sector"/></div>
+
+          <div className="field" style={{marginTop:10}}><label>Objetivo o indicaciones *</label>
+            <input value={objetivo} onChange={e=>setObjetivo(e.target.value)} placeholder="Qué hay que lograr en esta actividad"/></div>
+
+          <button className="cta" style={{marginTop:14}} disabled={!formOk} onClick={agregar}>Agregar a la agenda</button>
+          <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setNueva(false)}>Cancelar</button>
         </div>
       </div>
     )}
   </>);
 }
-
 function BarrasComision({valores, color, unidad, unidadLbl}){
   const esOtra=unidad==="qq"||unidad==="otra";
   const suf=unidadLbl||"qq";
@@ -13589,8 +13979,6 @@ function App({usuario, onSalir}){
           </div>
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
-          <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v160</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13610,7 +13998,7 @@ function App({usuario, onSalir}){
         {tab==="solicitudes" && <Solicitudes toast={show}/>}
         {tab==="autorizaciones" && <Autorizaciones toast={show} usuario={usuario}/>}
         {tab==="ruta" && <Ruta toast={show}/>}
-        {tab==="agenda" && <Agenda toast={show}/>}
+        {tab==="agenda" && <Agenda toast={show} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
         {tab==="stock" && <Stock toast={show}/>}
         {tab==="cartera" && <Cartera toast={show} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
         {tab==="clientes" && <Clientes toast={show} cliIni={cliFicha} onCliConsumido={()=>setCliFicha(null)} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
@@ -13783,7 +14171,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b160</div>
+              Versión 18 jul 2026 b161</div>
           </div>
         </div>
       </div>
