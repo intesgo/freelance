@@ -1504,6 +1504,25 @@ const Ico=({n,c="#2E7D52",s=22})=>{
   return <svg {...P}>{D[n]||D.datos}</svg>;
 };
 
+/* ── Registro global de modales abiertos ──
+   Cualquier ventana emergente se apunta aquí al abrirse. El botón atrás (app o Android)
+   cierra SIEMPRE el último modal abierto antes de retroceder de pantalla. */
+const MODALES=[];
+function useModal(abierto, cerrar){
+  React.useEffect(()=>{
+    if(!abierto) return;
+    const item={cerrar};
+    MODALES.push(item);
+    return ()=>{ const i=MODALES.indexOf(item); if(i>=0) MODALES.splice(i,1); };
+  },[abierto,cerrar]);
+}
+function cerrarUltimoModal(){
+  if(MODALES.length===0) return false;
+  const m=MODALES[MODALES.length-1];
+  try{ m.cerrar(); }catch(e){}
+  return true;
+}
+
 const CLIENTES = ["Comercial Mendoza","Tienda La Esquina","Distribuidora Ríos",
 
   "Bodega El Agricultor","Mayorista Santa Rosa","Abarrotes Don Pepe","Comisariato La Y"];
@@ -1978,6 +1997,7 @@ function Portafolio({ modo, miSector, miDistribuidor }){
 
 function Inicio({go, irCliente, irProducto, irFactura, backRef}){
   const [verVisitas,setVerVisitas]=useState(false);
+  useModal(verVisitas, React.useCallback(()=>setVerVisitas(false),[]));
   const [qGlobal,setQGlobal]=useState("");
   /* el botón atrás cierra primero la búsqueda y el panel de visitas */
   React.useEffect(()=>{
@@ -3310,7 +3330,8 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
   const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
   const [verHist,setVerHist]=useState(false);     // desplegar el historial de compras del producto
   const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
-  const [pidiendo,setPidiendo]=useState(false);   // hoja de solicitud abierta
+  const [pidiendo,setPidiendo]=useState(false);
+  useModal(pidiendo, React.useCallback(()=>setPidiendo(false),[]));   // hoja de solicitud abierta
   const [mtvAut,setMtvAut]=useState("paga_hoy");
   const [fPromesa,setFPromesa]=useState("");
   const [vPromesa,setVPromesa]=useState("");
@@ -3327,8 +3348,10 @@ function Pedido({toast, backRef, prodInicial, onConsumir, onGuardarPedido, cliIn
   const [comProp,setComProp]=useState("");       // comisión propuesta (P5)
   const [motivo,setMotivo]=useState("");
   const [carrito,setCarrito]=useState([]);        // productos del pedido (carrito)
-  const [verCarrito,setVerCarrito]=useState(false); // ventana tras guardar
-  const [guardadoOk,setGuardadoOk]=useState(null);   // pedido recién guardado → siguiente acción
+  const [verCarrito,setVerCarrito]=useState(false);
+  useModal(verCarrito, React.useCallback(()=>setVerCarrito(false),[])); // ventana tras guardar
+  const [guardadoOk,setGuardadoOk]=useState(null);
+  useModal(guardadoOk, React.useCallback(()=>setGuardadoOk(null),[]));   // pedido recién guardado → siguiente acción
   const [codigo,setCodigo]=useState("");           // código de desbloqueo ingresado
   const [desbloqueado,setDesbloqueado]=useState(false);
   const [dashAbierto,setDashAbierto]=useState(null); // tarjeta del dashboard de entrada abierta: entregar|mes|recompra|top
@@ -4635,7 +4658,8 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
   const [diaHist,setDiaHist]=useState(null);        // cierre histórico abierto (null = hoy)
   const [expProv,setExpProv]=useState(null);        // proveedor desplegado
   const [menuRec,setMenuRec]=useState(null);        // menú ⋮ de un recibo
-  const [cerrando,setCerrando]=useState(false);     // confirmación de cierre con pendientes
+  const [cerrando,setCerrando]=useState(false);
+  useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));     // confirmación de cierre con pendientes
   const [motivoCie,setMotivoCie]=useState("");
   const [histPag,setHistPag]=useState(1);           // paginación del historial (regla de oro)
   React.useEffect(()=>{  /* corte automático a la hora acordada: nadie tiene que acordarse de cerrar */
@@ -4643,7 +4667,8 @@ function Cobros({toast, cobroInicial, onConsumir, backRef, go}){
     if(c.length){ setTick(t=>t+1);
       toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")} · sin confirmar por el cobrador`); }
   },[]);
-  const [anulando,setAnulando]=useState(null);      // recibo en proceso de anulación
+  const [anulando,setAnulando]=useState(null);
+  useModal(anulando, React.useCallback(()=>setAnulando(null),[]));      // recibo en proceso de anulación
   const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
   const [previa,setPrevia]=useState(false);         // vista previa del comprobante antes de compartir
@@ -6067,7 +6092,8 @@ function Stock({toast, backRef}){
 }
 
 function DetalleFactura({it, volver, toast, onCobrar}){
-  const [verImg,setVerImg]=useState(null); // "guia" | "factura" | null
+  const [verImg,setVerImg]=useState(null);
+  useModal(verImg, React.useCallback(()=>setVerImg(null),[])); // "guia" | "factura" | null
   const d=detalleDe(it.fac, it.saldo, it.cli);
   const sumAbonos=d.abonos.reduce((s,a)=>s+a.monto,0);
   const sumRet=d.retenciones.reduce((s,r)=>s+r.monto,0);
@@ -6309,6 +6335,7 @@ function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura})
 
 function ChequeDetalle({cheque, volver, toast, subActual, irA}){
   const [verFoto,setVerFoto]=useState(false);
+  useModal(verFoto, React.useCallback(()=>setVerFoto(false),[]));
   const [reprog,setReprog]=useState(false);
   const [nuevaFecha,setNuevaFecha]=useState("");
   const [motivo,setMotivo]=useState("");
@@ -6444,7 +6471,8 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido, backRef}){
   const [fCli,setFCli]=useState("Todos");
   const [fEstado,setFEstado]=useState("Todos");   // Todos | porvencer | vencidas
   const [fAging,setFAging]=useState("Todos");      // Todos | 1-30 | 31-60 | 61-90 | +90
-  const [verFiltros,setVerFiltros]=useState(false); // panel de filtros plegable
+  const [verFiltros,setVerFiltros]=useState(false);
+  useModal(verFiltros, React.useCallback(()=>setVerFiltros(false),[])); // panel de filtros plegable
   const [secAbierta,setSecAbierta]=useState("deudores"); // sección de análisis abierta (acordeón)
   const [verAging,setVerAging]=useState(null); // tramo abierto al tocar la dona
   const [pagFac,setPagFac]=useState(1); // paginación de facturas
@@ -9473,6 +9501,7 @@ function Agenda({toast, backRef}){
   ];
   const [tareas,setTareas]=useState(inicial);
   const [nueva,setNueva]=useState(false);
+  useModal(nueva, React.useCallback(()=>setNueva(false),[]));
   const [verFiltros,setVerFiltros]=useState(false);
   const [periodo,setPeriodo]=useState("todas"); // hoy | semana | todas
   const [ubic,setUbic]=useState("");
@@ -11194,7 +11223,8 @@ function Solicitudes({toast, backRef}){
     ...POTENCIALES_INI.filter(p=>p.etapa!=="Perdido").map(p=>({nombre:p.nombre, tipo:"potencial"})),
   ];
 
-  const [rechazoSol,setRechazoSol]=useState(null); // {id, motivo} — canon: rechazar exige motivo
+  const [rechazoSol,setRechazoSol]=useState(null);
+  useModal(rechazoSol, React.useCallback(()=>setRechazoSol(null),[])); // {id, motivo} — canon: rechazar exige motivo
   const resolver=(id,nuevo)=>{
     const s=sols.find(x=>x.id===id);
     setSols(ss=>ss.map(x=>x.id===id?{...x,estado:nuevo}:x));
@@ -11441,7 +11471,8 @@ function Equipo({toast, backRef}){
     return ()=>{ if(backRef) backRef.current=null; };
   });
   const [equipo,setEquipo]=useState(EQUIPO_INI);
-  const [verBloqueo,setVerBloqueo]=useState(null); // subcomisionista a bloquear
+  const [verBloqueo,setVerBloqueo]=useState(null);
+  useModal(verBloqueo, React.useCallback(()=>setVerBloqueo(null),[])); // subcomisionista a bloquear
   const [motivo,setMotivo]=useState("");
   const [detalle,setDetalle]=useState(null);       // subcomisionista en pantalla de detalle
   const [q,setQ]=useState("");                     // búsqueda por nombre
@@ -13031,7 +13062,8 @@ function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
   const [secMenu,setSecMenu]=useState("gestion"); // sección abierta del menú (acordeón, una a la vez)
-  const [confirmarSalir,setConfirmarSalir]=useState(false); // confirmación de cierre de sesión
+  const [confirmarSalir,setConfirmarSalir]=useState(false);
+  useModal(confirmarSalir, React.useCallback(()=>setConfirmarSalir(false),[])); // confirmación de cierre de sesión
   const [tema,setTema]=useState(()=>{ try{ return localStorage.getItem("fl_tema")||"campo"; }catch(e){ return "campo"; } });
   const [oscuro,setOscuro]=useState(false);
   const [fontGrande,setFontGrande]=useState(false);
@@ -13045,6 +13077,7 @@ function App({usuario, onSalir}){
   const [cliFicha,setCliFicha]=useState(null); // abrir ficha de cliente desde el buscador global // cliente para filtrar Cartera desde su ficha
   const [pendientes,setPendientes]=useState(PENDIENTES_SYNC);
   const [verSync,setVerSync]=useState(false);
+  useModal(verSync, React.useCallback(()=>setVerSync(false),[]));
   const [verAyuda,setVerAyuda]=useState(false);   // sección "Cómo funciona" de la campanilla
   const [online,setOnline]=useState(typeof navigator!=="undefined" ? navigator.onLine!==false : true);
   const [sincronizando,setSincronizando]=useState(false);
@@ -13143,6 +13176,7 @@ function App({usuario, onSalir}){
     r.start();
   };
   const atras=()=>{
+    if(cerrarUltimoModal()) return;                                // primero cierra modales abiertos
     if(backHandlerRef.current && backHandlerRef.current()) return; // el módulo retrocedió por dentro
     setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
   };
@@ -13160,6 +13194,8 @@ function App({usuario, onSalir}){
     poner(3);                       // colchón inicial generoso
     const onPop=()=>{
       poner(2);                     // repone SIEMPRE, sin bloqueos ni esperas
+      /* 0) ¿hay un modal abierto? se cierra ese primero */
+      if(cerrarUltimoModal()) return;
       /* 1) ¿el módulo actual tiene algo que cerrar por dentro? */
       let cerroAlgo=false;
       try{ cerroAlgo = backHandlerRef.current ? backHandlerRef.current() : false; }catch(e){ cerroAlgo=false; }
@@ -13189,7 +13225,8 @@ function App({usuario, onSalir}){
   const badgePedidos = pedidos.filter(p=>p.sync==="pend").length;                                    // pendientes de enviar
   const badgeEntregados = pedidos.filter(p=>p.estado==="Entregado").length;                          // entregados (para el panel del Inicio)
   const badgePedidosTotal = badgePedidos;                                                            // la barra solo refleja lo que sí se lista (en proceso)
-  const [verDetalle,setVerDetalle]=useState(null); // "novedades" | "pedidos" | "agenda" | "cuenta"
+  const [verDetalle,setVerDetalle]=useState(null);
+  useModal(verDetalle, React.useCallback(()=>setVerDetalle(null),[])); // "novedades" | "pedidos" | "agenda" | "cuenta"
   const ultClic=React.useRef({tab:null,t:0});
   const tocarTab=(t)=>{
     const ahora=Date.now();
@@ -13269,7 +13306,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v142</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v143</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13462,7 +13499,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b142</div>
+              Versión 16 jul 2026 b143</div>
           </div>
         </div>
       </div>
