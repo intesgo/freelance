@@ -8325,11 +8325,14 @@ function ListaPrecios({backRef}){
   const [lineaSel,setLineaSel]=useState("Todas");
   const [vista,setVista]=useState("inicio"); // inicio | lista
   const [prodSel,setProdSel]=useState(null); // producto abierto en dashboard
+  const [modoEnvio,setModoEnvio]=useState(false); // seleccionar productos para enviar
+  const [marcados,setMarcados]=useState([]); // ids seleccionados
   /* botón atrás inteligente: producto → lista → inicio → sale */
   React.useEffect(()=>{
     if(!backRef) return;
     backRef.current=()=>{
       if(prodSel){ setProdSel(null); return true; }
+      if(modoEnvio){ setModoEnvio(false); setMarcados([]); return true; }
       if(vista!=="inicio"){ setVista("inicio"); return true; }
       return false;
     };
@@ -8364,6 +8367,31 @@ function ListaPrecios({backRef}){
   const maxProm=Math.max(...utilPorLinea.map(x=>x.prom),1);
   const top3=[...baseDash].sort((a,b)=>b.neta-a.neta).slice(0,3);
   const sinStock=baseDash.filter(p=>p.stock<=0);
+
+  /* envío del informe de precios por WhatsApp */
+  const toggleMarca=(id)=>setMarcados(m=>m.includes(id)?m.filter(x=>x!==id):[...m,id]);
+  const marcarLinea=(ln)=>{
+    const ids=(porLinea[ln]||[]).map(p=>p.id);
+    const todos=ids.every(i=>marcados.includes(i));
+    setMarcados(m=>todos?m.filter(x=>!ids.includes(x)):Array.from(new Set([...m,...ids])));
+  };
+  const enviarInforme=()=>{
+    const sel=conUtil.filter(p=>marcados.includes(p.id));
+    if(!sel.length) return;
+    const porLn={};
+    sel.forEach(p=>{ (porLn[p.linea]=porLn[p.linea]||[]).push(p); });
+    let txt="*LISTA DE PRECIOS*\n_FREELANCE · 12 jun 2026_\n";
+    Object.keys(porLn).sort().forEach(ln=>{
+      txt+=`\n${EMOJI_LINEA[ln]||"📦"} *${ln.toUpperCase()}*\n`;
+      porLn[ln].forEach(p=>{
+        const un=(p.unidad||"").replace(/\s*\(100 lb\)/i,"");
+        txt+=`• ${p.marca} · ${un}\n   Contado ${money(p.baseContado)} · Crédito ${money(p.baseCredito)}\n`;
+      });
+    });
+    txt+="\n_Precios sujetos a disponibilidad de stock._";
+    const url="https://wa.me/?text="+encodeURIComponent(txt);
+    window.open(url,"_blank");
+  };
 
   if(prodSel){
     const p=prodSel;
@@ -8519,11 +8547,26 @@ function ListaPrecios({backRef}){
       </div>
 
       <button className="cta" onClick={()=>setVista("lista")}>Ver lista de precios →</button>
+      <button className="back" style={{width:"100%",marginTop:10}}
+        onClick={()=>{ setVista("lista"); setModoEnvio(true); }}>💬 Enviar precios por WhatsApp</button>
     </>);
   }
 
   return (<>
-    <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:12,textAlign:"left"}}>‹ Resumen de precios</button>
+    {modoEnvio ? (
+      <div className="card" style={{padding:"12px 14px",marginBottom:12,background:"#F2F7F3",borderLeft:"4px solid var(--field)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{flex:1,minWidth:0}}>
+            <span style={{display:"block",fontWeight:700,fontSize:13}}>Elige los productos a enviar</span>
+            <span className="meta" style={{fontSize:11}}>{marcados.length} seleccionado{marcados.length!==1?"s":""}</span>
+          </span>
+          <button className="back" style={{flexShrink:0,padding:"7px 12px",fontSize:12}}
+            onClick={()=>{setModoEnvio(false);setMarcados([]);}}>Cancelar</button>
+        </div>
+      </div>
+    ) : (
+      <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:12,textAlign:"left"}}>‹ Resumen de precios</button>
+    )}
 
     {/* buscador + selector de línea */}
     <div className="ss" style={{marginBottom:10}}>
@@ -8540,13 +8583,33 @@ function ListaPrecios({backRef}){
 
     {lineasOrd.map(ln=>(
       <div key={ln} style={{marginBottom:18}}>
-        <div className="sec-h"><h2>{EMOJI_LINEA[ln]||""} {ln}</h2><div className="grain"></div></div>
+        <div style={{display:"flex",alignItems:"center",gap:10,margin:"0 2px 8px"}}>
+          <span style={{fontWeight:800,fontSize:12,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".04em"}}>
+            {EMOJI_LINEA[ln]||""} {ln}</span>
+          <span style={{flex:1,height:1,background:"#E6E1D4"}}></span>
+          {modoEnvio && (
+            <button onClick={()=>marcarLinea(ln)} style={{flexShrink:0,background:"none",border:"none",
+              color:"var(--field)",fontSize:11,fontWeight:700,fontFamily:"inherit",cursor:"pointer",padding:0}}>
+              {(porLinea[ln]||[]).every(p=>marcados.includes(p.id))?"Quitar línea":"Toda la línea"}
+            </button>
+          )}
+        </div>
 
         {porLinea[ln].map((p,i)=>{
           const sin=p.stock<=0;
           return (
-            <div className="card" key={i} onClick={()=>setProdSel(p)} style={{padding:"12px 13px",marginBottom:8,cursor:"pointer"}}>
+            <div className="card" key={i} onClick={()=>modoEnvio?toggleMarca(p.id):setProdSel(p)}
+              style={{padding:"12px 13px",marginBottom:8,cursor:"pointer",
+                border:modoEnvio&&marcados.includes(p.id)?"2px solid var(--field)":"1px solid var(--line)",
+                background:modoEnvio&&marcados.includes(p.id)?"#F4F9F5":"#fff"}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {modoEnvio && (
+                  <span style={{flexShrink:0,width:20,height:20,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",
+                    border:marcados.includes(p.id)?"none":"2px solid #C9D2C9",
+                    background:marcados.includes(p.id)?"var(--field)":"#fff",color:"#fff",fontSize:13,fontWeight:800}}>
+                    {marcados.includes(p.id)?"✓":""}
+                  </span>
+                )}
                 <span style={{fontSize:20,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div className="cli" style={{fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
@@ -8569,6 +8632,15 @@ function ListaPrecios({backRef}){
       </div>
     ))}
     {lista.length===0 && <div className="ph">Sin productos que coincidan con “{q}”.</div>}
+
+    {modoEnvio && marcados.length>0 && (
+      <div style={{position:"fixed",left:12,right:12,bottom:78,zIndex:60}}>
+        <button className="cta" style={{width:"100%",boxShadow:"0 8px 24px rgba(0,0,0,.22)"}} onClick={enviarInforme}>
+          💬 Enviar {marcados.length} producto{marcados.length!==1?"s":""} por WhatsApp
+        </button>
+      </div>
+    )}
+    {modoEnvio && <div style={{height:70}}></div>}
   </>);
 }
 
@@ -12440,7 +12512,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v116</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v117</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12629,7 +12701,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b116</div>
+              Versión 16 jul 2026 b117</div>
           </div>
         </div>
       </div>
