@@ -7975,6 +7975,123 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido, verCarte
       }
     };
 
+    /* ── Vista previa con tablas reales (líneas), refleja el PDF ── */
+    const HOY_EC="2026-06-12";
+    const MES3=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const dmy=x=>{ if(!x) return "—"; const d=new Date(x+"T00:00:00"); return isNaN(d)?x:`${d.getDate()} ${MES3[d.getMonth()]} ${d.getFullYear()}`; };
+    const dm2=x=>{ if(!x) return "—"; const d=new Date(x+"T00:00:00"); return isNaN(d)?x:`${d.getDate()} ${MES3[d.getMonth()]}`; };
+    const numFac=x=>(x||"").replace(/^001-001-/,"");
+    /* estilos de tabla */
+    const TB={width:"100%",borderCollapse:"collapse",fontSize:12,tableLayout:"fixed"};
+    const TH={background:"var(--field)",color:"#fff",fontWeight:700,fontSize:10,textTransform:"uppercase",letterSpacing:".02em",padding:"6px 8px",border:"1px solid #C4CAC2",textAlign:"left"};
+    const THr={...TH,textAlign:"right"};
+    const TD={padding:"6px 8px",border:"1px solid #E2E6DF",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
+    const TDr={...TD,textAlign:"right",fontVariantNumeric:"tabular-nums"};
+    const TOT={background:"#F4F0E5",fontWeight:800};
+    const Sub=({children})=>(<div style={{fontWeight:700,fontSize:11,color:"var(--field)",margin:"12px 0 5px",textTransform:"uppercase",letterSpacing:".03em"}}>{children}</div>);
+    const PreviaEC=()=>{
+      if(fmtEC==="simple"){
+        const prox=factOrden[0];
+        return (<table style={TB}><tbody>
+          <tr><td style={TD}>Saldo total</td><td style={{...TDr,...TOT}}>{money(deudaTotal)}</td></tr>
+          {prox && <tr><td style={TD}>Próximo vencimiento</td><td style={TDr}>{money(prox.valor)} · {prox.vence.toLowerCase()}</td></tr>}
+        </tbody></table>);
+      }
+      if(fmtEC==="factura"){
+        if(!factsConTot.length) return <div className="meta">Sin facturas pendientes.</div>;
+        return (<div>{factsConTot.map((fa,ix)=>(
+          <div key={ix} style={{marginBottom:12}}>
+            <Sub>Fact. {numFac(fa.factura)} · {dm2(fa.fecha)}{fa.vence?` · ${fa.vence}`:""}</Sub>
+            <table style={TB}><colgroup><col style={{width:"46%"}}/><col style={{width:"14%"}}/><col style={{width:"18%"}}/><col style={{width:"22%"}}/></colgroup>
+              <thead><tr><th style={TH}>Producto</th><th style={THr}>Cant.</th><th style={THr}>Precio</th><th style={THr}>Total</th></tr></thead>
+              <tbody>
+                {fa.items.map((it,i)=>(<tr key={i}><td style={TD}>{(it.prod||"").replace(/\s*\(100 lb\)/i,"")}</td><td style={TDr}>{it.cant}</td><td style={TDr}>{money(it.precio)}</td><td style={TDr}>{money(it.cant*it.precio)}</td></tr>))}
+                <tr><td style={TDr} colSpan={3}>Subtotal</td><td style={TDr}>{money(fa.sub)}</td></tr>
+                {fa.retencion>0 && <tr><td style={TDr} colSpan={3}>Retención</td><td style={TDr}>-{money(fa.retencion)}</td></tr>}
+                {fa.descuento>0 && <tr><td style={TDr} colSpan={3}>Descuento</td><td style={TDr}>-{money(fa.descuento)}</td></tr>}
+                {(fa.ncs||[]).map((n,i)=>(<tr key={"n"+i}><td style={TDr} colSpan={3}>{n.num} {n.motivo} · {dm2(n.fecha)}</td><td style={TDr}>-{money(n.valor)}</td></tr>))}
+                <tr><td style={{...TDr,...TOT}} colSpan={3}>Total factura</td><td style={{...TDr,...TOT}}>{money(fa.tot)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
+        {factsConTot.length>1 && (
+          <table style={TB}><tbody><tr><td style={{...TD,...TOT}}>Total a pagar</td><td style={{...TDr,...TOT}}>{money(netoFacturas)}</td></tr></tbody></table>
+        )}
+        </div>);
+      }
+      if(fmtEC==="calendario"){
+        if(!factOrden.length) return <div className="meta">Sin pagos programados.</div>;
+        return (<table style={TB}><colgroup><col style={{width:"60%"}}/><col style={{width:"40%"}}/></colgroup>
+          <thead><tr><th style={TH}>Vence</th><th style={THr}>Valor</th></tr></thead>
+          <tbody>
+            {factOrden.map((x,i)=>(<tr key={i}><td style={TD}>{x.vence}</td><td style={TDr}>{money(x.valor)}</td></tr>))}
+            <tr><td style={{...TD,...TOT}}>Total</td><td style={{...TDr,...TOT}}>{money(factOrden.reduce((s,x)=>s+x.valor,0))}</td></tr>
+          </tbody>
+        </table>);
+      }
+      if(fmtEC==="cuenta"){
+        if(!movsCli.length) return <div className="meta">Sin movimientos registrados.</div>;
+        return (<table style={TB}><colgroup><col style={{width:"16%"}}/><col style={{width:"32%"}}/><col style={{width:"17%"}}/><col style={{width:"17%"}}/><col style={{width:"18%"}}/></colgroup>
+          <thead><tr><th style={TH}>Fecha</th><th style={TH}>Concepto</th><th style={THr}>Debe</th><th style={THr}>Haber</th><th style={THr}>Saldo</th></tr></thead>
+          <tbody>
+            <tr><td style={TD}></td><td style={{...TD,fontStyle:"italic"}}>Saldo al {dm2(fDesde)}</td><td style={TD}></td><td style={TD}></td><td style={{...TDr,fontStyle:"italic"}}>{money(cta.saldoIni)}</td></tr>
+            {cta.filas.map((m,i)=>(<tr key={i}><td style={TD}>{dm2(m.fecha)}</td><td style={TD}>{m.concepto}</td><td style={TDr}>{m.debe?money(m.debe):""}</td><td style={TDr}>{m.haber?money(m.haber):""}</td><td style={TDr}>{money(m.saldo)}</td></tr>))}
+            <tr><td style={{...TDr,...TOT}} colSpan={4}>Saldo al {dm2(fHasta)}</td><td style={{...TDr,...TOT}}>{money(cta.saldoFin)}</td></tr>
+          </tbody>
+        </table>);
+      }
+      if(fmtEC==="liq"){
+        if(!movsCli.length) return <div className="meta">Sin movimientos registrados.</div>;
+        return (<div>
+          <Sub>Facturado</Sub>
+          <table style={TB}><colgroup><col style={{width:"22%"}}/><col style={{width:"22%"}}/><col style={{width:"18%"}}/><col style={{width:"16%"}}/><col style={{width:"22%"}}/></colgroup>
+            <thead><tr><th style={TH}>Fact.</th><th style={THr}>Factura</th><th style={THr}>NC</th><th style={THr}>Rte.</th><th style={THr}>Neto</th></tr></thead>
+            <tbody>
+              {liq.rows.map((r,i)=>(<tr key={i}><td style={TD}>{r.num}</td><td style={TDr}>{money(r.valor)}</td><td style={TDr}>{r.ncP>0?money(r.ncP):"—"}</td><td style={TDr}>{r.rte>0?money(r.rte):"—"}</td><td style={TDr}>{money(r.neto)}</td></tr>))}
+              <tr><td style={{...TDr,...TOT}} colSpan={4}>Total facturado</td><td style={{...TDr,...TOT}}>{money(liq.totF)}</td></tr>
+            </tbody>
+          </table>
+          {liq.devs.length>0 && (<>
+            <Sub>Devoluciones</Sub>
+            <table style={TB}><colgroup><col style={{width:"70%"}}/><col style={{width:"30%"}}/></colgroup>
+              <thead><tr><th style={TH}>Detalle</th><th style={THr}>Valor</th></tr></thead>
+              <tbody>
+                {liq.devs.map((n,i)=>(<tr key={i}><td style={TD}>{n.num} · {n.cant} {n.prod} · {dm2(n.fecha)}</td><td style={TDr}>-{money(n.valor)}</td></tr>))}
+                <tr><td style={{...TDr,...TOT}}>Total devoluciones</td><td style={{...TDr,...TOT}}>-{money(liq.totD)}</td></tr>
+              </tbody>
+            </table>
+          </>)}
+          <Sub>Abonos</Sub>
+          <table style={TB}><colgroup><col style={{width:"20%"}}/><col style={{width:"50%"}}/><col style={{width:"30%"}}/></colgroup>
+            <thead><tr><th style={TH}>Fecha</th><th style={TH}>Detalle</th><th style={THr}>Valor</th></tr></thead>
+            <tbody>
+              {liq.abs.length?liq.abs.map((m,i)=>(<tr key={i}><td style={TD}>{dm2(m.fecha)}</td><td style={TD}>{m.concepto}</td><td style={TDr}>-{money(m.haber)}</td></tr>)):
+                <tr><td style={{...TD,textAlign:"center",color:"var(--muted)"}} colSpan={3}>Sin abonos en el período</td></tr>}
+              {liq.abs.length>0 && <tr><td style={{...TDr,...TOT}} colSpan={2}>Total abonos</td><td style={{...TDr,...TOT}}>-{money(liq.totA)}</td></tr>}
+            </tbody>
+          </table>
+          <Sub>Resumen</Sub>
+          <table style={TB}><tbody>
+            <tr><td style={TD}>Facturado neto</td><td style={TDr}>{money(liq.totF)}</td></tr>
+            {liq.totD>0 && <tr><td style={TD}>(-) Devoluciones</td><td style={TDr}>-{money(liq.totD)}</td></tr>}
+            {liq.totA>0 && <tr><td style={TD}>(-) Abonos</td><td style={TDr}>-{money(liq.totA)}</td></tr>}
+            <tr><td style={{...TD,...TOT}}>Total a pagar</td><td style={{...TDr,...TOT}}>{money(liq.total)}</td></tr>
+          </tbody></table>
+        </div>);
+      }
+      /* resumen (por defecto) */
+      return (<table style={TB}><tbody>
+        <tr><td style={TD}>Al día</td><td style={TDr}>{money(edad.alDia)}</td></tr>
+        <tr><td style={TD}>Por vencer</td><td style={TDr}>{money(edad.porVencer)}</td></tr>
+        <tr><td style={TD}>Vencido</td><td style={TDr}>{money(edad.vencido)}</td></tr>
+        <tr><td style={{...TD,...TOT}}>Total</td><td style={{...TDr,...TOT}}>{money(deudaTotal)}</td></tr>
+        <tr><td style={TD}>Facturas pendientes</td><td style={TDr}>{f.nFacturas}</td></tr>
+        <tr><td style={TD}>Cheques posfechados</td><td style={TDr}>{f.nCheques}</td></tr>
+        <tr><td style={TD}>Días de crédito</td><td style={TDr}>{f.diasCredito} días</td></tr>
+      </tbody></table>);
+    };
+
     return (<>{cabecera}
       <div className="ficha-sec">Formato del informe</div>
       <div className="nchips" style={{flexWrap:"wrap"}}>
@@ -8005,8 +8122,8 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido, verCarte
       <div className="ficha-sec">Vista previa</div>
       <div className="fcard" style={{marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13}}>ESTADO DE CUENTA</div>
-        <div className="meta" style={{marginBottom:8}}>{nombre} · 12 jun 2026</div>
-        <pre style={{margin:0,fontFamily:"'Space Grotesk',monospace",fontSize:12,lineHeight:1.65,whiteSpace:"pre",overflowX:"auto"}}>{tabla()}</pre>
+        <div className="meta" style={{marginBottom:10}}>{nombre} · {dmy(HOY_EC)}</div>
+        <PreviaEC/>
       </div>
 
       <div className="ficha-sec">Tono del mensaje</div>
@@ -12124,7 +12241,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v108</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v109</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12313,7 +12430,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b108</div>
+              Versión 16 jul 2026 b109</div>
           </div>
         </div>
       </div>
