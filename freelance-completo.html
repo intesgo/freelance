@@ -1976,8 +1976,21 @@ function Portafolio({ modo, miSector, miDistribuidor }){
   );
 }
 
-function Inicio({go}){
+function Inicio({go, irCliente, irProducto, irFactura}){
   const [verVisitas,setVerVisitas]=useState(false);
+  const [qGlobal,setQGlobal]=useState("");
+  /* ── Buscador universal: clientes, productos, facturas y pedidos ── */
+  const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const tq=normG(qGlobal.trim());
+  const resultados=(()=>{
+    if(tq.length<2) return null;
+    const cli=CLIENTES.filter(c=>normG(c).includes(tq)).slice(0,3);
+    const prod=PRESENTACIONES.filter(p=>normG(p.marca+" "+p.linea+" "+p.unidad).includes(tq)).slice(0,3);
+    const fac=[...CARTERA_INI].filter(f=>normG(f.cli+" "+f.fac+" "+f.vendedor).includes(tq)).slice(0,3);
+    const ped=PEDIDOS_INI.filter(p=>normG(p.cli+" "+p.prod+" "+p.prov).includes(tq)).slice(0,3);
+    const total=cli.length+prod.length+fac.length+ped.length;
+    return {cli, prod, fac, ped, total};
+  })();
   const porVisitar=clientesPorVisitar();
   const nRojo=porVisitar.filter(x=>x.nivel==="rojo").length;
   const pct=82;                                                   // cumplimiento de meta
@@ -1995,6 +2008,88 @@ function Inicio({go}){
     {k:"cuenta",   ico:"comisiones", col:"#7C5CBF", bg:"#F3ECF9", t:"Comisiones", s:"Tuyas y del equipo"},
   ];
   return (<>
+    {/* ── Buscador universal ── */}
+    <div className="ss" style={{marginBottom:qGlobal?10:14}}>
+      <div className="box"><span className="mag">⌕</span>
+        <input value={qGlobal} placeholder="Buscar cliente, producto, factura…"
+          onChange={e=>setQGlobal(e.target.value)}/>
+        {qGlobal && <button className="clr" onClick={()=>setQGlobal("")}>×</button>}
+        <MicBtn onTexto={setQGlobal}/></div>
+    </div>
+
+    {resultados && (
+      <div style={{marginBottom:16}}>
+        {resultados.total===0 && <div className="ph">Nada coincide con “{qGlobal}”.</div>}
+
+        {resultados.cli.length>0 && (<>
+          <div className="drawer-sec" style={{margin:"0 4px 6px"}}>Clientes</div>
+          {resultados.cli.map((c,i)=>(
+            <button key={i} className="card" onClick={()=>irCliente&&irCliente(c)}
+              style={{display:"flex",width:"100%",alignItems:"center",gap:11,padding:"11px 13px",marginBottom:7,
+                cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+              <span style={{width:32,height:32,borderRadius:9,background:"#E9F0F8",display:"flex",
+                alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="clientes" c="#2B6CB0" s={17}/></span>
+              <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c}</span>
+              <span style={{color:"var(--muted)",fontSize:15,flexShrink:0}}>›</span>
+            </button>
+          ))}
+        </>)}
+
+        {resultados.prod.length>0 && (<>
+          <div className="drawer-sec" style={{margin:"10px 4px 6px"}}>Productos</div>
+          {resultados.prod.map((p,i)=>(
+            <button key={i} className="card" onClick={()=>irProducto&&irProducto(p)}
+              style={{display:"flex",width:"100%",alignItems:"center",gap:11,padding:"11px 13px",marginBottom:7,
+                cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+              <span style={{width:32,height:32,borderRadius:9,background:"#E6F5F3",display:"flex",
+                alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="precios" c="#2AA198" s={17}/></span>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</span>
+                <span className="meta" style={{fontSize:10.5}}>{p.unidad} · {money(p.baseCredito)}</span>
+              </span>
+              <span style={{color:"var(--muted)",fontSize:15,flexShrink:0}}>›</span>
+            </button>
+          ))}
+        </>)}
+
+        {resultados.fac.length>0 && (<>
+          <div className="drawer-sec" style={{margin:"10px 4px 6px"}}>Facturas</div>
+          {resultados.fac.map((f,i)=>(
+            <button key={i} className="card" onClick={()=>irFactura&&irFactura(f)}
+              style={{display:"flex",width:"100%",alignItems:"center",gap:11,padding:"11px 13px",marginBottom:7,
+                cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+              <span style={{width:32,height:32,borderRadius:9,background:"#FBF0D8",display:"flex",
+                alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="factura" c="#8A6D12" s={17}/></span>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.cli}</span>
+                <span className="meta" style={{fontSize:10.5}}>Fact. {(f.fac||"").replace(/^001-001-/,"")} · {money(f.saldo)}</span>
+              </span>
+              <span style={{color:f.dias>0?"var(--clay)":"var(--muted)",fontSize:11,fontWeight:700,flexShrink:0}}>
+                {f.dias>0?`${f.dias}v`:"al día"}</span>
+            </button>
+          ))}
+        </>)}
+
+        {resultados.ped.length>0 && (<>
+          <div className="drawer-sec" style={{margin:"10px 4px 6px"}}>Pedidos</div>
+          {resultados.ped.map((p,i)=>(
+            <button key={i} className="card" onClick={()=>go("pedidos")}
+              style={{display:"flex",width:"100%",alignItems:"center",gap:11,padding:"11px 13px",marginBottom:7,
+                cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+              <span style={{width:32,height:32,borderRadius:9,background:"#F3ECF9",display:"flex",
+                alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="pedidos" c="#7C5CBF" s={17}/></span>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
+                <span className="meta" style={{fontSize:10.5}}>{p.cant} qq · {money(p.cant*p.precio)}</span>
+              </span>
+              <span style={{color:"var(--muted)",fontSize:15,flexShrink:0}}>›</span>
+            </button>
+          ))}
+        </>)}
+      </div>
+    )}
+
+    {!resultados && (<>
     {/* banda financiera compacta: el dato como contexto, no como protagonista */}
     <div className="hero"
       style={{display:"flex",alignItems:"center",gap:14,padding:"15px 17px",width:"100%"}}>
@@ -2064,6 +2159,7 @@ function Inicio({go}){
         </div>
       </div>
     )}
+    </>)}
     </>);
 }
 
@@ -7179,7 +7275,7 @@ function CarteraClientes({volver, ver}){
   </>);
 }
 
-function Clientes({toast, backRef, nuevoPedido, verCartera}){
+function Clientes({toast, backRef, nuevoPedido, verCartera, cliIni, onCliConsumido}){
   const [q,setQ]=useState("");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState(null);            /* sub-pantalla de la ficha (vive aquí por el retroceso jerárquico) */
@@ -7188,6 +7284,11 @@ function Clientes({toast, backRef, nuevoPedido, verCartera}){
   const [verBloq,setVerBloq]=useState(false);
   const [vista,setVista]=useState(null);        /* null | {tipo:"lista", filtro} | {tipo:"cartera"} */
   const verCliente=c=>{ setSec(null); setSel(c); };
+  /* si viene del buscador global, abre esa ficha directo */
+  React.useEffect(()=>{
+    if(cliIni){ setSec(null); setSel(cliIni); if(onCliConsumido) onCliConsumido(); }
+  // eslint-disable-next-line
+  },[cliIni]);
 
   /* Retroceso jerárquico: el Atrás del app baja un nivel a la vez dentro del módulo */
   React.useEffect(()=>{
@@ -12905,7 +13006,8 @@ function App({usuario, onSalir}){
   const [prodInicial,setProdInicial]=useState(null); // presentación precargada desde Productos
   const [cobroInicial,setCobroInicial]=useState(null); // cliente precargado desde Cartera → Cobrar
   const [cliInicial,setCliInicial]=useState(null); // cliente precargado desde Ficha de cliente → Nuevo pedido
-  const [carteraCliente,setCarteraCliente]=useState(null); // cliente para filtrar Cartera desde su ficha
+  const [carteraCliente,setCarteraCliente]=useState(null);
+  const [cliFicha,setCliFicha]=useState(null); // abrir ficha de cliente desde el buscador global // cliente para filtrar Cartera desde su ficha
   const [pendientes,setPendientes]=useState(PENDIENTES_SYNC);
   const [verSync,setVerSync]=useState(false);
   const [verAyuda,setVerAyuda]=useState(false);   // sección "Cómo funciona" de la campanilla
@@ -13126,12 +13228,15 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v138</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v139</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
       <div className="body">
-        {tab==="inicio" && <Inicio go={navegar}/>}
+        {tab==="inicio" && <Inicio go={navegar}
+          irCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}
+          irProducto={(p)=>{ setProdInicial(p); navegar("pedido"); }}
+          irFactura={(f)=>{ setCarteraCliente(f.cli); navegar("cartera"); }}/>}
         {tab==="pedido" && <Pedido toast={show} backRef={backHandlerRef} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
@@ -13146,7 +13251,7 @@ function App({usuario, onSalir}){
         {tab==="agenda" && <Agenda backRef={backHandlerRef} toast={show}/>}
         {tab==="stock" && <Stock backRef={backHandlerRef} toast={show}/>}
         {tab==="cartera" && <Cartera toast={show} backRef={backHandlerRef} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
-        {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
+        {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} cliIni={cliFicha} onCliConsumido={()=>setCliFicha(null)} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
         {tab==="potenciales" && <Potenciales backRef={backHandlerRef} toast={show}/>}
         {tab==="proveedores" && <Proveedores toast={show}/>}
         {tab==="documentos" && <Documentos backRef={backHandlerRef} toast={show} usuario={usuario}/>}
@@ -13316,7 +13421,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b138</div>
+              Versión 16 jul 2026 b139</div>
           </div>
         </div>
       </div>
