@@ -3370,7 +3370,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"172", fecha:"18 jul 2026", desc:"Buscador predictivo: Clientes, Solicitudes, Equipo, Agenda"};
+const VERSION={n:"173", fecha:"18 jul 2026", desc:"Buscador predictivo: Documentos, Stock, Ruta, Catálogo"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6197,18 +6197,17 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
     {/* selectores: en Activos van Estado·Fecha·Ordenar; en Historial solo Fecha·Ordenar */}
     <div style={{display:"grid",gridTemplateColumns:pestana==="activos"?"1fr 1fr 1fr":"1fr 1fr",gap:7,marginBottom:12}}>
       {pestana==="activos" && (
-        <select className="selmini" value={estado} onChange={e=>{setEstado(e.target.value);setPagina(1);}}>
-          {ESTADOS.map(e=><option key={e} value={e}>{e==="Todos"?"Estado: todos":e}</option>)}
-        </select>
+        <FiltroBuscador estilo={{flex:1,minWidth:110}} items={ESTADOS.filter(e=>e!=="Todos")}
+          value={estado} onPick={v=>{setEstado(v);setPagina(1);}}
+          todos="Todos" etiquetaTodos="Estado: todos"/>
       )}
       <button className={"selmini"+((desde||hasta)?" on":"")} onClick={()=>setVerFechas(v=>!v)}>
         {(desde||hasta) ? `${desde?desde.slice(5):"…"}→${hasta?hasta.slice(5):"…"}` : "Fecha"} ▾
       </button>
-      <select className="selmini" value={orden} onChange={e=>{setOrden(e.target.value);setPagina(1);}}>
-        <option value="recientes">Recientes</option>
-        <option value="antiguos">Antiguos</option>
-        <option value="comision">Mayor comisión</option>
-      </select>
+      <FiltroBuscador estilo={{flex:1,minWidth:110}} items={["recientes","antiguos","comision"]}
+        value={orden} onPick={v=>{setOrden(v==="__"?"recientes":v);setPagina(1);}}
+        todos="__" etiquetaTodos="Ordenar…"
+        render={v=>({recientes:"Recientes",antiguos:"Antiguos",comision:"Mayor comisión"})[v]||v}/>
     </div>
 
     {verFechas && (
@@ -9791,10 +9790,11 @@ function FichaMarca({marca, volver, vender}){
         <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>setEditAgr(true)}>Editar agrupación</button>
         {guardado && <div className="part-ok" style={{marginTop:8}}>✓ Agrupación guardada</div>}
       </>) : (<>
-        <div className="field"><label>Unidad base de venta</label>
-          <select value={agr.base} onChange={e=>setAgr({...agr,base:e.target.value})}>
-            {UNIDADES_MEDIDA.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
-          </select></div>
+        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Unidad base de venta</div>
+          <FiltroBuscador items={UNIDADES_MEDIDA.map(u=>u.id)} value={agr.base||""}
+            onPick={v=>setAgr({...agr,base:v==="__"?"":v})}
+            todos="__" etiquetaTodos="Elige unidad…"
+            render={id=>{const u=UNIDADES_MEDIDA.find(x=>x.id===id);return u?u.nombre:id;}}/></div>
         <div className="field"><label>Unidades por caja (0 si no aplica)</label>
           <input type="number" value={agr.uxCaja} onChange={e=>setAgr({...agr,uxCaja:Number(e.target.value)||0})} placeholder="Ej. 48"/></div>
         <div className="field"><label>Unidades por fardo (0 si no aplica)</label>
@@ -10299,12 +10299,10 @@ function Agenda({toast, verCliente}){
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>No realizada</h3>
           <div className="meta" style={{marginBottom:12}}>{noReal.cli} · {fAmable(noReal.fecha)}</div>
-          <div className="field"><label>¿Por qué no se realizó? *</label>
-            <select value={motivoR} onChange={e=>setMotivoR(e.target.value)}>
-              <option value="">Elige un motivo…</option>
-              <option>Local cerrado</option><option>No estaba el encargado</option>
-              <option>Falta de tiempo</option><option>Cliente canceló</option><option>Otro</option>
-            </select></div>
+          <div><div className="ficha-sec" style={{marginBottom:6}}>¿Por qué no se realizó? *</div>
+            <FiltroBuscador items={["Local cerrado","No estaba el encargado","Falta de tiempo","Cliente canceló","Otro"]}
+              value={motivoR||""} onPick={v=>setMotivoR(v==="__"?"":v)}
+              todos="__" etiquetaTodos="Elige un motivo…"/></div>
           <button className="cta" style={{marginTop:14}} disabled={!motivoR} onClick={guardarNoReal}>Guardar</button>
           <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setNoReal(null)}>Cancelar</button>
         </div>
@@ -11709,11 +11707,10 @@ function Ruta({toast}){
               <div className="graf-t">Nuevo cliente para la ruta</div>
               <div className="field"><label>Nombre del negocio</label>
                 <input value={pn.nombre} onChange={e=>setPn({...pn,nombre:e.target.value})} placeholder="Ej. Comercial Nuevo"/></div>
-              <div className="field"><label>Provincia</label>
-                <select value={pn.prov} onChange={e=>setPn({...pn,prov:e.target.value})}>
-                  <option value="">Elige…</option>
-                  {PROVINCIAS_EC.map(p=><option key={p} value={p}>{p}</option>)}
-                </select></div>
+              <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Provincia</div>
+                <FiltroBuscador items={PROVINCIAS_EC} value={pn.prov||""}
+                  onPick={v=>setPn({...pn,prov:v==="__"?"":v})}
+                  todos="__" etiquetaTodos="Busca la provincia…"/></div>
               <div className="field"><label>Ciudad</label>
                 <input value={pn.ciudad} onChange={e=>setPn({...pn,ciudad:e.target.value})} placeholder="Ciudad"/></div>
               <div className="field"><label>Dirección (para Maps)</label>
@@ -11790,11 +11787,10 @@ function Ruta({toast}){
         )}
         {r.partidaUrl && <a className="rcli-maps" href={r.partidaUrl} target="_blank" rel="noreferrer" style={{marginTop:4,marginBottom:6}}>📍 Ver punto de partida en Maps</a>}
         {!coordsDeUrl(r.partidaUrl) && (
-          <div className="field"><label>Ciudad de referencia (si no hay coordenadas)</label>
-            <select value={r.partida||""} onChange={e=>{setCfg("partida",e.target.value); setCfg("ordenManual",null);}}>
-              <option value="">Automático (norte → sur)</option>
-              {ciudadesRuta.sort((a,b)=>idxCiudad(a)-idxCiudad(b)).map(c=><option key={c} value={c}>{c}</option>)}
-            </select></div>
+          <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Ciudad de referencia (si no hay coordenadas)</div>
+            <FiltroBuscador items={[...ciudadesRuta].sort((a,b)=>idxCiudad(a)-idxCiudad(b))}
+              value={r.partida||""} onPick={v=>{setCfg("partida",v==="__"?"":v); setCfg("ordenManual",null);}}
+              todos="__" etiquetaTodos="Automático (norte → sur)"/></div>
         )}
         <div className="graf-t" style={{marginTop:12}}>Horario</div>
         <div style={{display:"flex",gap:8}}>
@@ -14007,10 +14003,10 @@ function NuevaEntrega({yo, destinatarios, reenviarDe, onCancel, onCrear}){
     </div>
     {envio==="courier" && (
       <div className="fcard" style={{marginBottom:12}}>
-        <div className="field"><label>Empresa de courier</label>
-          <select value={courier.empresa} onChange={e=>setCourier({...courier,empresa:e.target.value})}>
-            {COURIERS.map(c=><option key={c} value={c}>{c}</option>)}
-          </select></div>
+        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Empresa de courier</div>
+          <FiltroBuscador items={COURIERS} value={courier.empresa||""}
+            onPick={v=>setCourier({...courier,empresa:v==="__"?"":v})}
+            todos="__" etiquetaTodos="Elige courier…"/></div>
         <div className="field"><label>Número de guía</label>
           <input value={courier.guia} onChange={e=>setCourier({...courier,guia:e.target.value})} placeholder="Ej. SRV-558213"/></div>
         <div className="meta">El courier solo traslada. El destinatario final verifica el contenido y confirma al recibir.</div>
@@ -14020,27 +14016,29 @@ function NuevaEntrega({yo, destinatarios, reenviarDe, onCancel, onCrear}){
     {!esReenvio && (<>
       <div className="ficha-sec">Agregar documento</div>
       <div className="fcard" style={{marginBottom:12}}>
-        <div className="field"><label>Tipo</label>
-          <select value={d.tipo} onChange={e=>setD({...d,tipo:e.target.value})}>
-            {TIPOS_DOC.map(t=><option key={t} value={t}>{t}</option>)}
-          </select></div>
+        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Tipo</div>
+          <FiltroBuscador items={TIPOS_DOC} value={d.tipo||""}
+            onPick={v=>setD({...d,tipo:v==="__"?"":v})}
+            todos="__" etiquetaTodos="Elige tipo…"/></div>
         <div className="field"><label>Número de documento</label>
           <input value={d.numero} onChange={e=>setD({...d,numero:e.target.value})} placeholder="Ej. CHQ-004521"/></div>
-        <div className="field"><label>Cliente</label>
-          <input value={d.cliente} onChange={e=>setD({...d,cliente:e.target.value})} placeholder="Cliente del documento"/></div>
+        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Cliente</div>
+          <FiltroBuscador items={CLIENTES} value={d.cliente||""}
+            onPick={v=>setD({...d,cliente:v==="__"?"":v})}
+            todos="__" etiquetaTodos="Busca el cliente…"/></div>
         <div style={{display:"flex",gap:8}}>
           <div className="field" style={{flex:1}}><label>Monto</label>
             <input type="number" value={d.monto} onChange={e=>setD({...d,monto:e.target.value})} placeholder="0.00"/></div>
-          <div className="field" style={{flex:1}}><label>Estado</label>
-            <select value={d.estadoDoc} onChange={e=>setD({...d,estadoDoc:e.target.value})}>
-              {ESTADOS_DOC.map(s=><option key={s} value={s}>{s}</option>)}
-            </select></div>
+          <div style={{flex:1,minWidth:0}}><div className="ficha-sec" style={{marginBottom:6}}>Estado</div>
+            <FiltroBuscador items={ESTADOS_DOC} value={d.estadoDoc||""}
+              onPick={v=>setD({...d,estadoDoc:v==="__"?"":v})}
+              todos="__" etiquetaTodos="Estado…"/></div>
         </div>
         {d.tipo==="Cheque" && (
-          <div className="field"><label>Banco</label>
-            <select value={d.banco} onChange={e=>setD({...d,banco:e.target.value})}>
-              {bancosOrd.map(b=><option key={b} value={b}>{b}</option>)}
-            </select></div>
+          <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Banco</div>
+            <FiltroBuscador items={bancosOrd} value={d.banco||""}
+              onPick={v=>setD({...d,banco:v==="__"?"":v})}
+              todos="__" etiquetaTodos="Busca el banco…"/></div>
         )}
         <div style={{display:"flex",gap:8}}>
           <div className="field" style={{flex:1}}><label>Fecha</label>
