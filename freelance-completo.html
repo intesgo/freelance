@@ -4145,11 +4145,13 @@ function correrCorteAutomatico(){
 }
 /* Cheques posfechados en cartera (detalle demo; los totales cuadran con FICHA_CLIENTE) */
 const CHEQUES_POSF=[
-  {cli:"Distribuidora Ríos",  banco:"Banco Pichincha", numero:"CHQ-004530", valor:1500, fecha:"2026-06-20", dueno:"Marcela Ríos"},
-  {cli:"Distribuidora Ríos",  banco:"Produbanco",      numero:"CHQ-004531", valor:1000, fecha:"2026-07-05", dueno:"Marcela Ríos"},
-  {cli:"Comercial Mendoza",   banco:"Banco Guayaquil", numero:"CHQ-008830", valor:700,  fecha:"2026-06-18", dueno:"Juan Mendoza"},
-  {cli:"Comercial Mendoza",   banco:"Banco Pichincha", numero:"CHQ-008831", valor:500,  fecha:"2026-06-30", dueno:"Transportes JM (tercero)"},
-  {cli:"Tienda La Esquina",   banco:"Banco del Pacífico", numero:"CHQ-011204", valor:300, fecha:"2026-07-12", dueno:"Rosa Villamar"},
+  {cli:"Distribuidora Ríos",  banco:"Banco Pichincha", numero:"CHQ-004530", valor:1500, fecha:"2026-06-20", dueno:"Marcela Ríos", estado:"custodia"},
+  {cli:"Distribuidora Ríos",  banco:"Produbanco",      numero:"CHQ-004531", valor:1000, fecha:"2026-07-05", dueno:"Marcela Ríos", estado:"custodia"},
+  {cli:"Comercial Mendoza",   banco:"Banco Guayaquil", numero:"CHQ-008830", valor:700,  fecha:"2026-06-18", dueno:"Juan Mendoza", estado:"deposito"},
+  {cli:"Comercial Mendoza",   banco:"Banco Pichincha", numero:"CHQ-008831", valor:500,  fecha:"2026-06-30", dueno:"Transportes JM (tercero)", estado:"custodia"},
+  {cli:"Tienda La Esquina",   banco:"Banco del Pacífico", numero:"CHQ-011204", valor:300, fecha:"2026-07-12", dueno:"Rosa Villamar", estado:"recibido"},
+  {cli:"Bodega El Agricultor", banco:"Banco Bolivariano", numero:"CHQ-006611", valor:850, fecha:"2026-06-05", dueno:"Pedro Analuisa", estado:"efectivizado", fechaEfect:"2026-06-06"},
+  {cli:"Mayorista Santa Rosa", banco:"Banco Machala", numero:"CHQ-009120", valor:1200, fecha:"2026-05-28", dueno:"Ana Tenesaca", estado:"efectivizado", fechaEfect:"2026-05-29"},
 ];
 const META_DIA = 1500;   /* meta diaria de cobro (demo; en Fase 4 se configura por freelance) */
 const COBROS_SEMANA = [  /* últimos 7 días (el último se calcula en vivo con los cobros de hoy) */
@@ -6020,6 +6022,125 @@ function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura})
   </>);
 }
 
+function ChequeDetalle({cheque, volver, toast}){
+  const [verFoto,setVerFoto]=useState(false);
+  const [reprog,setReprog]=useState(false);
+  const [nuevaFecha,setNuevaFecha]=useState("");
+  const [motivo,setMotivo]=useState("");
+  const [coment,setComent]=useState("");
+  const [solEnviada,setSolEnviada]=useState(false);
+  const dm=f=>f?f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4):"—";
+  // cadena de custodia: pasos en orden
+  const PASOS=[
+    {k:"recibido",     t:"Cheque recibido",       d:"El cobrador recibió el cheque del cliente"},
+    {k:"custodia",     t:"En custodia",            d:"Guardado y registrado, ocupa cupo del cliente"},
+    {k:"deposito",     t:"Depósito solicitado",    d:"En proceso de depósito al banco"},
+    {k:"efectivizado", t:"Efectivizado",           d:"El proveedor confirmó el pago efectivo"},
+  ];
+  const idxActual=PASOS.findIndex(p=>p.k===cheque.estado);
+  const MOTIVOS=["El cliente pidió extensión","Falta de fondos temporal","Acuerdo comercial","Otro"];
+
+  return (<>
+    <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Volver a cheques</button>
+
+    {/* encabezado del cheque */}
+    <div className="card" style={{padding:"16px",marginBottom:12,borderLeft:"4px solid var(--field)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontWeight:800,fontSize:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cheque.cli}</div>
+          <div className="meta" style={{fontSize:11.5,marginTop:2}}>{cheque.numero} · {cheque.banco}</div>
+          <div className="meta" style={{fontSize:11.5}}>Dueño: {cheque.dueno}</div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div className="num" style={{fontSize:20,fontWeight:800,color:"var(--field)"}}>{money(cheque.valor)}</div>
+          <div className="meta" style={{fontSize:10.5}}>vence {dm(cheque.fecha)}</div>
+        </div>
+      </div>
+    </div>
+
+    {/* foto del cheque */}
+    <button className="card" onClick={()=>setVerFoto(true)}
+      style={{display:"flex",width:"100%",alignItems:"center",gap:12,padding:"14px 16px",marginBottom:12,cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit",textAlign:"left"}}>
+      <span style={{fontSize:26,flexShrink:0}}>🖼️</span>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"block",fontWeight:700,fontSize:13.5}}>Foto del cheque</span>
+        <span className="meta" style={{fontSize:11}}>Toca para ver la imagen</span>
+      </span>
+      <span style={{color:"var(--muted)",fontSize:15}}>›</span>
+    </button>
+
+    {verFoto && (
+      <div className="ov" onClick={()=>setVerFoto(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
+          <h3>Foto del cheque · {cheque.numero}</h3>
+          <div style={{background:"#EFEBE0",borderRadius:12,padding:"48px 16px",margin:"12px 0",color:"var(--muted)"}}>
+            <div style={{fontSize:40}}>🧾</div>
+            <div className="meta" style={{marginTop:10,fontSize:12}}>Imagen del cheque físico</div>
+            <div className="meta" style={{fontSize:10.5}}>(Se sube al recibir el cheque · Fase 4)</div>
+          </div>
+          <button className="back" style={{width:"100%"}} onClick={()=>setVerFoto(false)}>Cerrar</button>
+        </div>
+      </div>
+    )}
+
+    {/* cadena de custodia vertical */}
+    <div className="sec-h"><h2>Estado del cheque</h2><div className="grain"></div></div>
+    <div className="tl">
+      {PASOS.map((p,i)=>{
+        const st = i<idxActual?"ok" : i===idxActual?"now" : "wait";
+        return (
+          <div className={"item "+st} key={i}>
+            <div className="node">{st==="ok"?"✓":st==="now"?"●":i+1}</div>
+            <div className="c">
+              <div className="tt">{p.t}</div>
+              <div className="dd">{p.d}</div>
+              {p.k==="efectivizado" && cheque.fechaEfect && <div className="ff">{dm(cheque.fechaEfect)}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+
+    {/* reprogramar fecha (solo si no está efectivizado) */}
+    {cheque.estado!=="efectivizado" && !solEnviada && (
+      !reprog
+        ? <button className="back" style={{width:"100%",marginTop:14}} onClick={()=>setReprog(true)}>📅 Reprogramar fecha del cheque</button>
+        : (
+          <div className="card" style={{marginTop:14,padding:"14px 16px"}}>
+            <div style={{fontWeight:700,fontSize:13.5,marginBottom:4}}>Reprogramar fecha</div>
+            <div className="meta" style={{fontSize:11,marginBottom:12}}>Requiere aprobación del proveedor. Se envía a Solicitudes.</div>
+            <div className="field"><label>Nueva fecha (la que pide el cliente)</label>
+              <input type="date" value={nuevaFecha} onChange={e=>setNuevaFecha(e.target.value)}
+                style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit"}}/></div>
+            <div className="field" style={{marginTop:10}}><label>Motivo</label>
+              <select value={motivo} onChange={e=>setMotivo(e.target.value)}
+                style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit"}}>
+                <option value="">Elige un motivo…</option>
+                {MOTIVOS.map(m=><option key={m} value={m}>{m}</option>)}
+              </select></div>
+            <div className="field" style={{marginTop:10}}><label>Comentario</label>
+              <input type="text" value={coment} placeholder="Ej.: el cliente cobra el día 15" onChange={e=>setComent(e.target.value)}/></div>
+            <button className="cta" style={{marginTop:14}} disabled={!nuevaFecha || !motivo}
+              onClick={()=>{
+                setSolEnviada(true); setReprog(false);
+                toast("Solicitud de reprogramación enviada al proveedor. Queda pendiente de aprobación.");
+              }}>Enviar solicitud al proveedor</button>
+            <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setReprog(false)}>Cancelar</button>
+          </div>
+        )
+    )}
+
+    {solEnviada && (
+      <div className="card" style={{marginTop:14,padding:"13px 15px",borderLeft:"4px solid #7C5CBF",background:"#F5F1FB"}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#5A3FA0"}}>⏳ Reprogramación solicitada</div>
+        <div className="meta" style={{fontSize:11.5,marginTop:4}}>
+          Nueva fecha propuesta: <b>{dm(nuevaFecha)}</b> · {motivo}. Pendiente de aprobación del proveedor en Solicitudes. La fecha no cambia hasta que apruebe.
+        </div>
+      </div>
+    )}
+  </>);
+}
+
 function Cartera({toast, onCobrar}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
@@ -6035,6 +6156,9 @@ function Cartera({toast, onCobrar}){
   const [secAbierta,setSecAbierta]=useState("deudores"); // sección de análisis abierta (acordeón)
   const [verAging,setVerAging]=useState(null); // tramo abierto al tocar la dona
   const [pagFac,setPagFac]=useState(1); // paginación de facturas
+  const [subCheque,setSubCheque]=useState("resumen"); // resumen | historial
+  const [verChq,setVerChq]=useState(null); // cheque abierto
+  const [qChq,setQChq]=useState(""); // búsqueda en historial de cheques
   const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
@@ -6093,6 +6217,7 @@ function Cartera({toast, onCobrar}){
   const concentracion=totalCartera>0?Math.round((porCliente.slice(0,2).reduce((s,c)=>s+c.monto,0))/totalCartera*100):0;
   const proximos=base.filter(i=>i.dias<0&&i.dias>=-7).sort((a,b)=>b.dias-a.dias);
 
+  if(verChq) return <ChequeDetalle cheque={verChq} volver={()=>setVerChq(null)} toast={toast}/>;
   if(verFac) return <DetalleFactura it={verFac} volver={()=>setVerFac(null)} toast={toast} onCobrar={onCobrar}/>;
   if(verAging){
     return <AgingDetalle tramos={tramos} tramoIni={verAging} base={base} totalCartera={totalCartera}
@@ -6274,42 +6399,79 @@ function Cartera({toast, onCobrar}){
     })()}
 
     {pestana==="cheques" && (()=>{
-      /* Calendario de cheques posfechados: ocupan cupo del cliente hasta efectivizarse */
       const HOY="2026-06-12";
-      const chs=CHEQUES_POSF.slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
-      const tot=chs.reduce((s,c)=>s+c.valor,0);
-      const listos=chs.filter(c=>c.fecha<=HOY);
-      const dm=f=>f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4);
-      const FILA={borderTop:"1px solid var(--line)",padding:"11px 2px"};
+      const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      const pendientes=CHEQUES_POSF.filter(c=>c.estado!=="efectivizado").slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
+      const efectivos=CHEQUES_POSF.filter(c=>c.estado==="efectivizado")
+        .filter(c=>norm(c.cli).includes(norm(qChq)))
+        .sort((a,b)=>(b.fechaEfect||"")<(a.fechaEfect||"")?-1:1);
+      const totPend=pendientes.reduce((s,c)=>s+c.valor,0);
+      const listos=pendientes.filter(c=>c.fecha<=HOY);
+      const dm=f=>f?f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4):"—";
+      const ESTADO_LBL={recibido:"Recibido",custodia:"En custodia",deposito:"Depósito solicitado"};
       return (<>
-        <div className="montobox" style={{margin:"4px 0 6px",padding:"12px 16px"}}>
-          <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontWeight:800,fontSize:13}}>TOTAL EN CARTERA</span>
-            <b className="num" style={{fontSize:21,fontWeight:800}}>{money(tot)}</b>
-          </div>
-          <div className="meta" style={{marginTop:5}}>
-            {chs.length} cheque{chs.length!==1?"s":""} posfechado{chs.length!==1?"s":""}
-            {listos.length>0 && <span style={{color:"var(--ok)",fontWeight:700}}> · ✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</span>}
-          </div>
+        {/* sub-pestañas */}
+        <div className="eq-tabs" style={{marginBottom:12}}>
+          <button className={subCheque==="resumen"?"on":""} onClick={()=>setSubCheque("resumen")}>Resumen</button>
+          <button className={subCheque==="historial"?"on":""} onClick={()=>setSubCheque("historial")}>Historial</button>
         </div>
-        {chs.map((c,i)=>{
-          const listo=c.fecha<=HOY;
-          return (
-            <div key={i} style={FILA}>
-              <div style={{display:"flex",alignItems:"baseline",gap:10}}>
-                <span style={{fontWeight:800,fontSize:13.5,color:listo?"var(--ok)":"var(--field)",whiteSpace:"nowrap"}}>{dm(c.fecha)}</span>
-                <span style={{flex:1,minWidth:0,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
-                <b className="num" style={{whiteSpace:"nowrap"}}>{money(c.valor)}</b>
-              </div>
-              <div className="meta" style={{marginTop:2,fontSize:11.5}}>
-                {c.numero} · {c.banco} · dueño: {c.dueno}
-                {listo ? <span style={{color:"var(--ok)",fontWeight:700}}> · ✓ ya se puede depositar</span>
-                       : <span style={{color:"var(--muted)"}}> · aún no vence</span>}
-              </div>
+
+        {subCheque==="resumen" ? (<>
+          {/* tarjeta de total de pendientes */}
+          <div className="montobox" style={{margin:"0 0 12px",padding:"12px 16px"}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontWeight:800,fontSize:13}}>{pendientes.length} cheque{pendientes.length!==1?"s":""} en cartera</span>
+              <b className="num" style={{fontSize:21,fontWeight:800}}>{money(totPend)}</b>
             </div>
-          );
-        })}
-        <div className="meta" style={{margin:"12px 2px 0",fontSize:11.5}}>Los cheques ocupan cupo del cliente hasta que se efectivizan.</div>
+            {listos.length>0 && <div className="meta" style={{marginTop:5,color:"var(--ok)",fontWeight:700}}>✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</div>}
+          </div>
+
+          {/* encabezado de columnas */}
+          <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,padding:"0 12px 6px",
+            fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
+            <span style={{width:64}}>Fecha</span><span>Cliente</span><span style={{textAlign:"right"}}>Valor</span>
+          </div>
+          {pendientes.map((c,i)=>{
+            const listo=c.fecha<=HOY;
+            return (
+              <button className="card" key={i} onClick={()=>setVerChq(c)}
+                style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit"}}>
+                <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
+                  <span style={{width:64,fontWeight:800,fontSize:12.5,color:listo?"var(--ok)":"var(--field)",whiteSpace:"nowrap"}}>{dm(c.fecha)}</span>
+                  <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                  <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
+                </div>
+                <div className="meta" style={{fontSize:10.5,marginTop:3}}>{c.numero} · {ESTADO_LBL[c.estado]||c.estado}{listo?" · ✓ ya se puede depositar":""}</div>
+              </button>
+            );
+          })}
+          {pendientes.length===0 && <div className="ph">No hay cheques en cartera.</div>}
+          <div className="meta" style={{margin:"10px 2px 0",fontSize:11}}>Toca un cheque para ver su estado, la foto y reprogramar la fecha.</div>
+        </>) : (<>
+          {/* historial de efectivizados con búsqueda */}
+          <div className="ss" style={{marginBottom:12}}>
+            <div className="box"><span className="mag">⌕</span>
+              <input value={qChq} placeholder="Buscar por cliente…" onChange={e=>setQChq(e.target.value)}/>
+              <MicBtn onTexto={setQChq}/>
+              {qChq && <button className="clr" onClick={()=>setQChq("")}>×</button>}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,padding:"0 12px 6px",
+            fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
+            <span style={{width:64}}>Efectiv.</span><span>Cliente</span><span style={{textAlign:"right"}}>Valor</span>
+          </div>
+          {efectivos.map((c,i)=>(
+            <button className="card" key={i} onClick={()=>setVerChq(c)}
+              style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit"}}>
+              <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
+                <span style={{width:64,fontWeight:800,fontSize:12.5,color:"var(--ok)",whiteSpace:"nowrap"}}>{dm(c.fechaEfect)}</span>
+                <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
+              </div>
+              <div className="meta" style={{fontSize:10.5,marginTop:3}}>{c.numero} · {c.banco} · ✓ efectivizado</div>
+            </button>
+          ))}
+          {efectivos.length===0 && <div className="ph">{qChq?"Ningún cheque coincide.":"Aún no hay cheques efectivizados."}</div>}
+        </>)}
       </>);})()}
 
   </>);
@@ -12066,7 +12228,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b87</div>
+              Versión 16 jul 2026 b88</div>
           </div>
         </div>
       </div>
