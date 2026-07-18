@@ -8319,14 +8319,23 @@ function HistorialLineas({nombre, toast}){
   </>);
 }
 
-// ---------- LISTA DE PRECIOS (consulta rápida por línea/marca) ----------
+// ---------- LISTA DE PRECIOS (dashboard + consulta por línea/marca) ----------
 function ListaPrecios(){
   const [q,setQ]=useState("");
   const [lineaSel,setLineaSel]=useState("Todas");
+  const [vista,setVista]=useState("inicio"); // inicio | lista
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const lineas=["Todas",...Array.from(new Set(PRESENTACIONES.map(p=>p.linea)))];
 
-  const lista=PRESENTACIONES.filter(p=>{
+  /* utilidades por producto */
+  const conUtil=PRESENTACIONES.map(p=>{
+    const bruta=Math.round((p.baseCredito-(p.costo||0))*100)/100;
+    const neta=Math.round((bruta-(p.costosOper||0))*100)/100;
+    const pct=p.baseCredito>0?Math.round(neta/p.baseCredito*1000)/10:0;
+    return {...p, bruta, neta, pct};
+  });
+
+  const lista=conUtil.filter(p=>{
     if(lineaSel!=="Todas" && p.linea!==lineaSel) return false;
     return norm(`${p.marca} ${p.linea} ${p.unidad}`).includes(norm(q));
   });
@@ -8334,8 +8343,76 @@ function ListaPrecios(){
   lista.forEach(p=>{ (porLinea[p.linea]=porLinea[p.linea]||[]).push(p); });
   const lineasOrd=Object.keys(porLinea).sort();
 
+  /* datos del dashboard */
+  const utilPorLinea=Array.from(new Set(conUtil.map(p=>p.linea))).map(ln=>{
+    const ps=conUtil.filter(p=>p.linea===ln);
+    const prom=ps.reduce((s,p)=>s+p.neta,0)/(ps.length||1);
+    return {linea:ln, prom:Math.round(prom*100)/100, n:ps.length};
+  }).sort((a,b)=>b.prom-a.prom);
+  const maxProm=Math.max(...utilPorLinea.map(x=>x.prom),1);
+  const top3=[...conUtil].sort((a,b)=>b.neta-a.neta).slice(0,3);
+  const sinStock=conUtil.filter(p=>p.stock<=0);
+
+  if(vista==="inicio"){
+    return (<>
+      <div className="h1">Precios</div>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        <div className="card" style={{margin:0,padding:"13px 14px"}}>
+          <div className="meta" style={{fontSize:10.5}}>Productos activos</div>
+          <div className="num" style={{fontSize:22,fontWeight:800,color:"var(--field)"}}>{conUtil.length}</div>
+          <div className="meta" style={{fontSize:10}}>{utilPorLinea.length} líneas</div>
+        </div>
+        <div className="card" style={{margin:0,padding:"13px 14px"}}>
+          <div className="meta" style={{fontSize:10.5}}>Sin stock</div>
+          <div className="num" style={{fontSize:22,fontWeight:800,color:sinStock.length?"var(--clay)":"#2E7D52"}}>{sinStock.length}</div>
+          <div className="meta" style={{fontSize:10}}>{sinStock.length?"revisar con proveedor":"todo disponible"}</div>
+        </div>
+      </div>
+
+      {/* utilidad promedio por línea */}
+      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13.5,marginBottom:12}}>Utilidad neta promedio por línea</div>
+        {utilPorLinea.map((x,i)=>(
+          <div key={i} style={{marginBottom:i<utilPorLinea.length-1?11:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,marginBottom:4}}>
+              <span style={{fontWeight:600}}>{EMOJI_LINEA[x.linea]||""} {x.linea}</span>
+              <span className="num" style={{fontWeight:700,color:"var(--field)"}}>{money(x.prom)}</span>
+            </div>
+            <div style={{height:8,background:"#EFEBE0",borderRadius:99,overflow:"hidden"}}>
+              <div style={{height:"100%",width:Math.max(4,Math.round(x.prom/maxProm*100))+"%",
+                background:"linear-gradient(90deg,#2E7D52,#57A773)",borderRadius:99,transition:"width .6s ease"}}></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* top 3 mejor utilidad */}
+      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13.5,marginBottom:10}}>🏆 Mejor utilidad</div>
+        {top3.map((p,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",
+            borderTop:i>0?"1px solid #F4F1E9":"none"}}>
+            <span style={{fontSize:16,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</span>
+              <span className="meta" style={{fontSize:10.5}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</span>
+            </span>
+            <span style={{flexShrink:0,textAlign:"right"}}>
+              <span className="num" style={{display:"block",fontSize:14,fontWeight:800,color:"#2E7D52"}}>{money(p.neta)}</span>
+              <span className="meta" style={{fontSize:10}}>{p.pct}%</span>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <button className="cta" onClick={()=>setVista("lista")}>Ver lista de precios →</button>
+    </>);
+  }
+
   return (<>
-    <div className="h1">Precios</div>
+    <button className="ghost" onClick={()=>setVista("inicio")} style={{marginTop:0,marginBottom:12,textAlign:"left"}}>‹ Resumen de precios</button>
 
     {/* buscador + selector de línea */}
     <div className="ss" style={{marginBottom:10}}>
@@ -8355,40 +8432,24 @@ function ListaPrecios(){
         <div className="sec-h"><h2>{EMOJI_LINEA[ln]||""} {ln}</h2><div className="grain"></div></div>
 
         {porLinea[ln].map((p,i)=>{
-          const sinStock=p.stock<=0;
-          const bruta=Math.round((p.baseCredito-(p.costo||0))*100)/100;
-          const neta=Math.round((bruta-(p.costosOper||0))*100)/100;
+          const sin=p.stock<=0;
           return (
-            <div className="card" key={i} style={{padding:"12px 13px",marginBottom:8}}>
-              {/* fila 1: producto y stock */}
-              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+            <div className="card" key={i} style={{padding:"12px 13px",marginBottom:8,cursor:"pointer"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:20,flexShrink:0}}>{EMOJI_LINEA[p.linea]||"📦"}</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div className="cli" style={{fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.marca}</div>
-                  <div className="meta" style={{fontSize:11}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")} · {p.diasCredito} días créd.</div>
+                  <div className="meta" style={{fontSize:11}}>{(p.unidad||"").replace(/\s*\(100 lb\)/i,"")}{sin?" · sin stock":""}</div>
                 </div>
-                <div style={{flexShrink:0,textAlign:"right"}}>
-                  <div className="num" style={{fontSize:13,fontWeight:800,color:sinStock?"#c0392b":"#2E7D52"}}>{sinStock?"Sin stock":p.stock+" qq"}</div>
-                </div>
-              </div>
-
-              {/* fila 2: precios y utilidades en cuadrícula */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginTop:10,
-                borderTop:"1px solid #F0ECE2",paddingTop:9}}>
-                <div>
-                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Contado</div>
-                  <div className="num" style={{fontSize:14,fontWeight:700}}>{money(p.baseContado)}</div>
-                </div>
-                <div>
-                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Crédito</div>
-                  <div className="num" style={{fontSize:14,fontWeight:700}}>{money(p.baseCredito)}</div>
-                </div>
-                <div>
-                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. bruta</div>
-                  <div className="num" style={{fontSize:14,fontWeight:700,color:"var(--field)"}}>{money(bruta)}</div>
-                </div>
-                <div>
-                  <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. neta</div>
-                  <div className="num" style={{fontSize:14,fontWeight:800,color:neta>0?"#2E7D52":"#c0392b"}}>{money(neta)}</div>
+                <div style={{flexShrink:0,display:"flex",gap:14,alignItems:"center"}}>
+                  <div style={{textAlign:"right"}}>
+                    <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Compra</div>
+                    <div className="num" style={{fontSize:13.5,fontWeight:700,color:"var(--muted)"}}>{money(p.costo)}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Crédito</div>
+                    <div className="num" style={{fontSize:15,fontWeight:800,color:"var(--field)"}}>{money(p.baseCredito)}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -12268,7 +12329,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v111</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v112</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12457,7 +12518,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b111</div>
+              Versión 16 jul 2026 b112</div>
           </div>
         </div>
       </div>
