@@ -6204,6 +6204,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const [subCheque,setSubCheque]=useState("resumen"); // resumen | historial
   const [verChq,setVerChq]=useState(null); // cheque abierto
   const [qChq,setQChq]=useState(""); // búsqueda en historial de cheques
+  const [qCart,setQCart]=useState(""); // búsqueda en cheques en cartera
   /* si se abre desde la ficha de un cliente, filtra Facturas por ese cliente */
   React.useEffect(()=>{
     if(clienteIni){ setQ(clienteIni); setPestana("facturas"); if(onClienteConsumido) onClienteConsumido(); }
@@ -6457,12 +6458,15 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
     {pestana==="cheques" && (()=>{
       const HOY="2026-06-12";
       const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-      const pendientes=CHEQUES_POSF.filter(c=>c.estado!=="efectivizado").slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
+      const pendientes=CHEQUES_POSF.filter(c=>c.estado!=="efectivizado")
+        .filter(c=>norm(c.cli).includes(norm(qCart)))
+        .slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
       const efectivos=CHEQUES_POSF.filter(c=>c.estado==="efectivizado")
         .filter(c=>norm(c.cli).includes(norm(qChq)))
         .sort((a,b)=>(b.fechaEfect||"")<(a.fechaEfect||"")?-1:1);
-      const totPend=pendientes.reduce((s,c)=>s+c.valor,0);
-      const listos=pendientes.filter(c=>c.fecha<=HOY);
+      const pendTodos=CHEQUES_POSF.filter(c=>c.estado!=="efectivizado");
+      const totPend=pendTodos.reduce((s,c)=>s+c.valor,0);
+      const listos=pendTodos.filter(c=>c.fecha<=HOY);
       const dm=f=>{ if(!f) return "—"; const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
         return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
       const ESTADO_LBL={recibido:"Recibido",custodia:"En custodia",deposito:"Depósito solicitado"};
@@ -6479,10 +6483,18 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
           {/* tarjeta de total de pendientes */}
           <div className="montobox" style={{margin:"0 0 12px",padding:"12px 16px"}}>
             <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontWeight:800,fontSize:13}}>{pendientes.length} cheque{pendientes.length!==1?"s":""} en cartera</span>
+              <span style={{fontWeight:800,fontSize:13}}>{pendTodos.length} cheque{pendTodos.length!==1?"s":""} en cartera</span>
               <b className="num" style={{fontSize:21,fontWeight:800}}>{money(totPend)}</b>
             </div>
             {listos.length>0 && <div className="meta" style={{marginTop:5,color:"var(--ok)",fontWeight:700}}>✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</div>}
+          </div>
+
+          {/* buscador con voz */}
+          <div className="ss" style={{marginBottom:12}}>
+            <div className="box"><span className="mag">⌕</span>
+              <input value={qCart} placeholder="Buscar por cliente…" onChange={e=>setQCart(e.target.value)}/>
+              <MicBtn onTexto={setQCart}/>
+              {qCart && <button className="clr" onClick={()=>setQCart("")}>×</button>}</div>
           </div>
 
           {/* encabezado de columnas */}
@@ -6503,7 +6515,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
               </button>
             );
           })}
-          {pendientes.length===0 && <div className="ph">No hay cheques en cartera.</div>}
+          {pendientes.length===0 && <div className="ph">{qCart?"Ningún cheque coincide.":"No hay cheques en cartera."}</div>}
           <div className="meta" style={{margin:"10px 2px 0",fontSize:11}}>Toca un cheque para ver su estado, la foto y reprogramar la fecha.</div>
         </>) : (<>
           {/* historial de efectivizados con búsqueda */}
@@ -12100,7 +12112,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v104</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v105</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12289,7 +12301,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b104</div>
+              Versión 16 jul 2026 b105</div>
           </div>
         </div>
       </div>
