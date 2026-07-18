@@ -2017,21 +2017,20 @@ function VentasInicio(){
       {abierto && (<>
         
         <div className="cm-filtros" style={{margin:"10px 0 8px"}}>
-          <select value={anio} onChange={e=>setAnio(Number(e.target.value))}>
-            {anios.map(a=><option key={a} value={a}>{a}</option>)}
-          </select>
-          <select value={linea} onChange={e=>{setLinea(e.target.value); setUnidad("monto");}}>
-            <option value="Todas">Todas las líneas</option>
-            {lineas.map(l=><option key={l} value={l}>{l}</option>)}
-          </select>
+          <FiltroBuscador items={anios} value={anio}
+            onPick={v=>setAnio(v==="__"?anios[0]:Number(v))}
+            todos="__" etiquetaTodos="Año…"/>
+          <FiltroBuscador items={lineas} value={linea}
+            onPick={v=>{setLinea(v); setUnidad("monto");}}
+            todos="Todas" etiquetaTodos="Todas las líneas"/>
         </div>
 
         {linea==="Todas" && (
           <div className="cm-filtros" style={{marginBottom:8}}>
-            <select value={prov} onChange={e=>setProv(e.target.value)}>
-              <option value="Todos">Todos los proveedores</option>
-              {PROVEEDORES.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </select>
+            <FiltroBuscador estilo={{gridColumn:"1 / -1"}}
+              items={PROVEEDORES.map(p=>p.id)} value={prov} onPick={setProv}
+              todos="Todos" etiquetaTodos="Todos los proveedores"
+              render={id=>{const p=PROVEEDORES.find(x=>x.id===id);return p?p.nombre:id;}}/>
           </div>
         )}
 
@@ -3370,7 +3369,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"173", fecha:"18 jul 2026", desc:"Buscador predictivo: Documentos, Stock, Ruta, Catálogo"};
+const VERSION={n:"174", fecha:"18 jul 2026", desc:"Buscador predictivo en Inicio y Reportes"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10632,15 +10631,17 @@ function Cuenta({usuario, onSalir}){
             ["Cliente",fCliR,setFCliR,[["Todos","Todos"]].concat(uniq("cli").map(x=>[x,x]))],
             ["Provincia",fProvinR,setFProvinR,[["Todas","Todas"]].concat(uniq("provincia").map(x=>[x,x]))],
             ["Ciudad",fCiudadR,setFCiudadR,[["Todas","Todas"]].concat(uniq("ciudad").map(x=>[x,x]))]
-          ].map(([lbl,val,set,opts])=>(
-            <label key={lbl} style={{display:"flex",alignItems:"center",gap:8}}>
+          ].map(([lbl,val,set,opts])=>{
+            const todos=opts[0][0];
+            return (
+            <div key={lbl} style={{display:"flex",alignItems:"center",gap:8}}>
               <span style={{flex:"0 0 78px",fontSize:12,color:"var(--muted)",fontWeight:700}}>{lbl}</span>
-              <select value={val} onChange={e=>set(e.target.value)}
-                style={{flex:1,minWidth:0,padding:"9px 10px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit",fontSize:13}}>
-                {opts.map(([v,t])=><option key={v} value={v}>{t}</option>)}
-              </select>
-            </label>
-          ))}
+              <FiltroBuscador estilo={{flex:1,minWidth:0}}
+                items={opts.slice(1).map(o=>o[0])} value={val} onPick={set}
+                todos={todos} etiquetaTodos={`${lbl}: ${opts[0][1].toLowerCase()}`}
+                render={v=>{const o=opts.find(x=>x[0]===v);return o?o[1]:v;}}/>
+            </div>
+          );})}
         </div>
       )}
       {ctxR && <div className="meta" style={{margin:"0 2px 8px",fontWeight:700,color:"var(--field)"}}>Filtrado: {ctxR}</div>}
