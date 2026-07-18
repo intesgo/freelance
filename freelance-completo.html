@@ -6186,7 +6186,7 @@ function ChequeDetalle({cheque, volver, toast, subActual, irA}){
   </>);
 }
 
-function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
+function Cartera({toast, onCobrar, clienteIni, onClienteConsumido, backRef}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("resumen"); // resumen | facturas | analisis | cheques
@@ -6210,6 +6210,19 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
     if(clienteIni){ setQ(clienteIni); setPestana("facturas"); if(onClienteConsumido) onClienteConsumido(); }
   // eslint-disable-next-line
   },[clienteIni]);
+  /* botón atrás inteligente: cierra de adentro hacia afuera dentro del módulo */
+  React.useEffect(()=>{
+    if(!backRef) return;
+    backRef.current=()=>{
+      if(verChq){ setVerChq(null); return true; }        // cierra detalle de cheque
+      if(verFac){ setVerFac(null); return true; }        // cierra detalle de factura
+      if(verAging){ setVerAging(null); return true; }    // cierra ventana de antigüedad
+      if(verFiltros){ setVerFiltros(false); return true; } // cierra panel de filtros
+      if(pestana!=="resumen"){ setPestana("resumen"); return true; } // vuelve a Resumen
+      return false;  // ya en la raíz: deja salir del módulo
+    };
+    return ()=>{ if(backRef) backRef.current=null; };
+  });
   const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
@@ -12112,7 +12125,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v105</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v106</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12131,7 +12144,7 @@ function App({usuario, onSalir}){
         {tab==="ruta" && <Ruta toast={show}/>}
         {tab==="agenda" && <Agenda toast={show}/>}
         {tab==="stock" && <Stock toast={show}/>}
-        {tab==="cartera" && <Cartera toast={show} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
+        {tab==="cartera" && <Cartera toast={show} backRef={backHandlerRef} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
         {tab==="clientes" && <Clientes toast={show} backRef={backHandlerRef} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
         {tab==="potenciales" && <Potenciales toast={show}/>}
         {tab==="proveedores" && <Proveedores toast={show}/>}
@@ -12301,7 +12314,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b105</div>
+              Versión 16 jul 2026 b106</div>
           </div>
         </div>
       </div>
