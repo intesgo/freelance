@@ -5630,53 +5630,68 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
           option:c=>(<div className="o1">{c}</div>),
           picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente con cobros pendientes</div></>)
         }}/>
-      {!cli && (()=>{ /* mini-dashboard: cómo voy hoy y cómo vengo esta semana */
+      {!cli && (()=>{ /* mini-dashboard neumórfico: cómo voy hoy y cómo vengo esta semana */
         const activos=COBROS_DIA.filter(c=>!c.anulado);
         const hoyTot=activos.reduce((s,c)=>s+c.monto,0);
         const pct=Math.min(100, META_DIA>0?Math.round(hoyTot/META_DIA*100):0);
         const efe=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
-        /* anillo */
-        const R=42, C=2*Math.PI*R;
-        const dash=C*pct/100;
         const barras=[...COBROS_SEMANA.slice(0,-1), {d:"Hoy", v:hoyTot}];
-        const maxB=Math.max(...barras.map(b=>b.v),1);
-        return (
-          <div className="card" style={{padding:"16px 16px 13px",marginBottom:14}}>
-            <div style={{display:"flex",gap:16,alignItems:"center"}}>
-              {/* anillo: cobrado hoy vs. meta */}
-              <svg width="104" height="104" viewBox="0 0 104 104" style={{flexShrink:0}}>
-                <circle cx="52" cy="52" r={R} fill="none" stroke="#EFEBE0" strokeWidth="11"/>
-                <circle cx="52" cy="52" r={R} fill="none" stroke={pct>=100?"var(--ok)":"var(--maize-deep)"} strokeWidth="11"
-                  strokeLinecap="round" strokeDasharray={`${dash} ${C-dash}`} transform="rotate(-90 52 52)"/>
-                <text x="52" y="49" textAnchor="middle" style={{fontSize:15,fontWeight:800,fill:"var(--field)",fontFamily:"'Space Grotesk',sans-serif"}}>
-                  {money(hoyTot).replace(",00","")}</text>
-                <text x="52" y="64" textAnchor="middle" style={{fontSize:9.5,fill:"var(--muted)"}}>{pct}% de la meta</text>
-              </svg>
-              {/* barras: últimos 7 días */}
+        const serie=barras.map(b=>b.v);
+        const etiq=barras.map(b=>b.d);
+        const totSemana=serie.reduce((s,v)=>s+v,0);
+        const mejor=Math.max(...serie);
+        return (<>
+          {/* meta del día */}
+          <div className="neu">
+            <div className="neu-t">Cobrado hoy</div>
+            <div className="neu-s">Avance frente a la meta del día</div>
+            <div style={{display:"flex",alignItems:"center",gap:18}}>
+              <NeuAnillo pct={pct} valor={money(hoyTot).replace(",00","")} etiqueta={pct+"% de la meta"}
+                color={pct>=100?"#2E7D52":pct>=60?"#C9A227":"#C2603A"} tam={128}/>
               <div style={{flex:1,minWidth:0}}>
-                <div className="meta" style={{fontWeight:700,marginBottom:6,fontSize:11.5}}>Últimos 7 días</div>
-                <div style={{display:"flex",alignItems:"flex-end",gap:5,height:56}}>
-                  {barras.map((b,i)=>(
-                    <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                      <div style={{width:"100%",height:Math.max(3,Math.round(b.v/maxB*44)),borderRadius:4,
-                        background: i===barras.length-1 ? "var(--field)" : "#CFE0D4"}}/>
-                      <span style={{fontSize:9,color:"var(--muted)"}}>{b.d}</span>
-                    </div>
-                  ))}
+                <div className="neu-in" style={{marginBottom:9}}>
+                  <div className="meta" style={{fontSize:10}}>Meta del día</div>
+                  <div className="num" style={{fontSize:15,fontWeight:800}}>{money(META_DIA)}</div>
+                </div>
+                <div className="neu-in">
+                  <div className="meta" style={{fontSize:10}}>Recibos de hoy</div>
+                  <div className="num" style={{fontSize:15,fontWeight:800,color:"var(--field)"}}>{activos.length}</div>
                 </div>
               </div>
             </div>
-            {/* accesos de trabajo del cobrador */}
-            <div style={{display:"flex",gap:8,marginTop:13}}>
-              {efe>0 && (
-                <button className="nchip" style={{flex:1,borderColor:"var(--maize-deep)",color:"var(--maize-deep)",fontWeight:700}}
-                  onClick={()=>{ if(EFECTIVO_PENDIENTE.length===1) setDepEf(0); else setVerEfe(true); }}>
-                  ⏱️ Depositar {money(efe)}</button>
-              )}
-              <button className="nchip" style={{flex:1}} onClick={()=>setVerDia(true)}>📊 Cierre del día</button>
-            </div>
           </div>
-        );})()}
+
+          {/* evolución de la semana */}
+          <div className="neu">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div>
+                <div className="neu-t">Últimos 7 días</div>
+                <div className="neu-s" style={{marginBottom:0}}>Total {money(totSemana)} · mejor {money(mejor)}</div>
+              </div>
+            </div>
+            <NeuLinea datos={serie} etiquetas={etiq} color="#2E7D52" formato={v=>money(v)}/>
+          </div>
+
+          {/* accesos de trabajo del cobrador */}
+          <div style={{display:"flex",gap:9,marginBottom:14}}>
+            {efe>0 && (
+              <button className="neu" style={{flex:1,margin:0,padding:"13px 12px",cursor:"pointer",fontFamily:"inherit",
+                display:"flex",flexDirection:"column",alignItems:"center",gap:5,border:"none"}}
+                onClick={()=>{ if(EFECTIVO_PENDIENTE.length===1) setDepEf(0); else setVerEfe(true); }}>
+                <Ico n="reloj" c="#C77F00" s={20}/>
+                <span style={{fontSize:11.5,fontWeight:800,color:"var(--ink)"}}>Depositar</span>
+                <span className="num" style={{fontSize:13,fontWeight:800,color:"#C77F00"}}>{money(efe)}</span>
+              </button>
+            )}
+            <button className="neu" style={{flex:1,margin:0,padding:"13px 12px",cursor:"pointer",fontFamily:"inherit",
+              display:"flex",flexDirection:"column",alignItems:"center",gap:5,border:"none"}}
+              onClick={()=>setVerDia(true)}>
+              <Ico n="stats" c="#2E7D52" s={20}/>
+              <span style={{fontSize:11.5,fontWeight:800,color:"var(--ink)"}}>Cierre del día</span>
+              <span className="meta" style={{fontSize:10}}>cuadre de caja</span>
+            </button>
+          </div>
+        </>);})()}
       {cli && (
         <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setAplic({});setLineas([]);}} onClear={()=>{setProv(null);setAplic({});setLineas([]);}}
@@ -13530,7 +13545,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v157</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v158</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13723,7 +13738,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b157</div>
+              Versión 16 jul 2026 b158</div>
           </div>
         </div>
       </div>
