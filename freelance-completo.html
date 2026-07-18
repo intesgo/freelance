@@ -8332,6 +8332,7 @@ function ListaPrecios({backRef}){
   const [marcados,setMarcados]=useState([]); // ids seleccionados
   const [verHist,setVerHist]=useState(false); // historial de precios del producto
   const [tipoHist,setTipoHist]=useState("contado"); // tipo de precio en el historial
+  const [pagHist,setPagHist]=useState(1); // paginación del historial general
   /* botón atrás inteligente: producto → lista → inicio → sale */
   React.useEffect(()=>{
     if(!backRef) return;
@@ -8724,29 +8725,73 @@ function ListaPrecios({backRef}){
 
   if(vista==="historial"){
     /* cambios recientes de todos los productos (demo) */
-    const cambios=conUtil.slice(0,10).map((p,i)=>{
+    const FECHAS=["01/06","28/05","20/05","15/05","10/05","05/05","28/04","20/04","15/04","10/04","05/04","28/03"];
+    const todos=conUtil.map((p,i)=>{
       const nue=p.baseCredito, ant=Math.round(nue*(1-(0.008+(i%4)*0.006))*100)/100;
-      const fechas=["01/06","28/05","20/05","15/05","10/05","05/05","28/04","20/04","15/04","10/04"];
-      return {p, fecha:fechas[i%10], ant, nue, pct:Math.round((nue-ant)/ant*10000)/100};
+      return {p, fecha:FECHAS[i%FECHAS.length], ant, nue, pct:Math.round((nue-ant)/ant*10000)/100};
     });
+    const filtr=todos.filter(c=>{
+      if(lineaSel!=="Todas" && c.p.linea!==lineaSel) return false;
+      return norm(`${c.p.marca} ${c.p.linea} ${c.p.unidad}`).includes(norm(q));
+    });
+    const POR_PAG=8;
+    const totPag=Math.max(1,Math.ceil(filtr.length/POR_PAG));
+    const pag=Math.min(pagHist,totPag);
+    const visibles=filtr.slice((pag-1)*POR_PAG, pag*POR_PAG);
+    const porLnH={};
+    visibles.forEach(c=>{ (porLnH[c.p.linea]=porLnH[c.p.linea]||[]).push(c); });
     return (<>
       <div className="ficha-sec">Cambios de precio recientes</div>
-      {cambios.map((c,i)=>(
-        <div className="card" key={i} onClick={()=>setProdSel(c.p)} style={{padding:"11px 12px",marginBottom:7,cursor:"pointer"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:18,flexShrink:0}}>{EMOJI_LINEA[c.p.linea]||"📦"}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.p.marca}</div>
-              <div className="meta" style={{fontSize:10}}>{c.fecha} · {(c.p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</div>
-            </div>
-            <div style={{flexShrink:0,textAlign:"right"}}>
-              <div className="num" style={{fontSize:13.5,fontWeight:800}}>{money(c.nue)}</div>
-              <div className="num" style={{fontSize:10.5,fontWeight:700,color:c.pct>=0?"#2E7D52":"#C2603A"}}>
-                {c.pct>=0?"+":""}{c.pct}% {c.pct>=0?"▲":"▼"}</div>
-            </div>
+
+      <div className="ss" style={{marginBottom:10}}>
+        <div className="box"><span className="mag">⌕</span>
+          <input value={q} placeholder="Buscar producto…" onChange={e=>{setQ(e.target.value);setPagHist(1);}}/>
+          {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
+          <MicBtn onTexto={t=>{setQ(t);setPagHist(1);}}/></div>
+      </div>
+      <select value={lineaSel} onChange={e=>{setLineaSel(e.target.value);setPagHist(1);}}
+        style={{width:"100%",padding:"11px 12px",border:"1px solid var(--line)",borderRadius:12,
+          fontFamily:"inherit",fontSize:13.5,fontWeight:600,background:"#fff",color:"var(--field)",marginBottom:14}}>
+        {lineas.map(ln=><option key={ln} value={ln}>{ln==="Todas"?"Todas las líneas":`${EMOJI_LINEA[ln]||""} ${ln}`}</option>)}
+      </select>
+
+      {Object.keys(porLnH).sort().map(ln=>(
+        <div key={ln} style={{marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:9,margin:"0 2px 7px"}}>
+            <span style={{fontWeight:800,fontSize:11.5,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".04em"}}>
+              {EMOJI_LINEA[ln]||""} {ln}</span>
+            <span style={{flex:1,height:1,background:"#E6E1D4"}}></span>
           </div>
+          {porLnH[ln].map((c,i)=>(
+            <div className="card" key={i} onClick={()=>{setProdSel(c.p);setVerHist(true);}}
+              style={{padding:"11px 12px",marginBottom:7,cursor:"pointer"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:18,flexShrink:0}}>{EMOJI_LINEA[c.p.linea]||"📦"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.p.marca}</div>
+                  <div className="meta" style={{fontSize:10}}>{c.fecha} · {(c.p.unidad||"").replace(/\s*\(100 lb\)/i,"")}</div>
+                </div>
+                <div style={{flexShrink:0,textAlign:"right"}}>
+                  <div className="num" style={{fontSize:13.5,fontWeight:800}}>{money(c.nue)}</div>
+                  <div className="num" style={{fontSize:10.5,fontWeight:700,color:c.pct>=0?"#2E7D52":"#C2603A"}}>
+                    {c.pct>=0?"+":""}{c.pct}% {c.pct>=0?"▲":"▼"}</div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ))}
+      {filtr.length===0 && <div className="ph">Sin cambios que coincidan.</div>}
+
+      {totPag>1 && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,margin:"6px 0 4px"}}>
+          <button className="selmini" style={{width:"auto",opacity:pag<=1?.4:1}} disabled={pag<=1}
+            onClick={()=>setPagHist(x=>Math.max(1,x-1))}>‹ Anterior</button>
+          <span className="meta" style={{fontSize:12}}>Página {pag} de {totPag}</span>
+          <button className="selmini" style={{width:"auto",opacity:pag>=totPag?.4:1}} disabled={pag>=totPag}
+            onClick={()=>setPagHist(x=>Math.min(totPag,x+1))}>Siguiente ›</button>
+        </div>
+      )}
       <div className="meta" style={{fontSize:10,marginTop:8,textAlign:"center"}}>Datos de ejemplo · en producción se registra cada cambio real.</div>
     </>);
   }
@@ -12794,7 +12839,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v126</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v127</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -12983,7 +13028,7 @@ function App({usuario, onSalir}){
               <span>⏻</span> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b126</div>
+              Versión 16 jul 2026 b127</div>
           </div>
         </div>
       </div>
