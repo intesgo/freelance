@@ -822,17 +822,23 @@
   .lock{font-size:11.5px;color:var(--muted);background:#EDEAE0;border-radius:10px;padding:9px 12px;
     margin-top:14px;line-height:1.5;display:flex;gap:8px}
   /* search typeahead */
-  .ss{position:relative}
-  .ss .box{display:flex;align-items:center;gap:9px;width:100%;padding:13px 14px;border:1px solid var(--line);
-    border-radius:12px;background:#fff}
+  .ss{position:relative;min-width:0}
+  .ss .box{display:flex;align-items:center;gap:9px;width:100%;max-width:100%;padding:13px 14px;
+    border:1px solid var(--line);border-radius:12px;background:var(--card);min-width:0;overflow:hidden}
   .ss .box.dis{background:#F0EDE4;color:var(--muted)}
   .ss .box:focus-within{border-color:var(--field-700)}
   /* buscador de cliente destacado en Tomar pedido */
   .busc-cliente .box{border:2px solid var(--field);background:#F7FBF8}
   .busc-cliente .mag{color:var(--field);font-weight:800}
-  .ss .box input{flex:1;border:none;outline:none;padding:0;background:transparent;min-width:0}
-  .ss .box .mag{color:var(--muted);font-size:15px}
-  .ss .box .clr{color:var(--muted);font-size:18px;padding:0 2px}
+  .ss .box input{flex:1;border:none;outline:none;padding:0;background:transparent;min-width:0;width:100%}
+  .ss .box .mag{color:var(--muted);font-size:15px;flex-shrink:0}
+  .ss .box .clr{color:var(--muted);font-size:18px;padding:0 2px;flex-shrink:0}
+  /* botón de dictado: ancho fijo, nunca empuja el resto */
+  .ss .box .micb{flex-shrink:0;width:26px;height:26px;display:flex;align-items:center;justify-content:center;
+    background:none;border:none;padding:0;cursor:pointer}
+  /* filas de buscador + botón: el botón nunca se sale de la pantalla */
+  .row{min-width:0}
+  .filtrar-btn{flex:0 0 auto;white-space:nowrap}
   .ss .pop{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--line);
     border-radius:12px;box-shadow:0 12px 28px rgba(21,57,43,.14);z-index:20;max-height:230px;overflow-y:auto}
   .ss .opt{padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer}
@@ -6115,7 +6121,10 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
       <div className="ss" style={{flex:1,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Cliente o proveedor…" onChange={e=>{setQ(e.target.value);setPagina(1);}}/>
-          <button className="mic" onClick={dictar} title="Dictar por voz">🎤</button>
+          <button className="micb" onClick={dictar} title="Dictar por voz" aria-label="Dictar por voz">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0"/><path d="M12 17.5V21M9 21h6"/>
+            </svg></button>
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
     </div>
@@ -7551,7 +7560,15 @@ function MicBtn({onTexto, toast}){
     refRec.current=r; setRec(true);
     try{ r.start(); }catch(e){ setRec(false); }
   };
-  return <button type="button" className={"mic"+(rec?" rec":"")} onClick={dictar} aria-label="Buscar por voz">🎤</button>;
+  return (
+    <button type="button" className={"micb"+(rec?" rec":"")} onClick={dictar} aria-label="Buscar por voz">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+        stroke={rec?"#C2603A":"var(--muted)"} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"/>
+        <path d="M5.5 11a6.5 6.5 0 0013 0"/><path d="M12 17.5V21M9 21h6"/>
+      </svg>
+    </button>
+  );
 }
 
 /* Fila de cliente (compartida por búsqueda, lista y cartera) */
@@ -10053,8 +10070,8 @@ function Agenda({toast, verCliente}){
     </div>
 
     {/* buscador y filtros */}
-    <div className="row" style={{gap:9,marginBottom:12,alignItems:"stretch"}}>
-      <div className="ss" style={{flex:1,marginBottom:0}}>
+    <div className="row" style={{gap:9,marginBottom:12,alignItems:"stretch",minWidth:0}}>
+      <div className="ss" style={{flex:1,minWidth:0,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Buscar…" onChange={e=>setQ(e.target.value)}/>
           <MicBtn onTexto={setQ}/>
@@ -12238,8 +12255,8 @@ function Solicitudes({toast, verCliente}){
     </div>
 
     {/* buscador y filtros */}
-    <div className="row" style={{gap:9,marginBottom:12,alignItems:"stretch"}}>
-      <div className="ss" style={{flex:1,marginBottom:0}}>
+    <div className="row" style={{gap:9,marginBottom:12,alignItems:"stretch",minWidth:0}}>
+      <div className="ss" style={{flex:1,minWidth:0,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Buscar…" onChange={e=>setQ(e.target.value)}/>
           <MicBtn onTexto={setQ}/>
@@ -14285,7 +14302,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v163</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v164</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -14478,7 +14495,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 18 jul 2026 b163</div>
+              Versión 18 jul 2026 b164</div>
           </div>
         </div>
       </div>
