@@ -980,7 +980,8 @@
   .fb-box input::placeholder{color:var(--muted)}
   .fb-box.act{background:var(--card);border-color:var(--field)}
   .fb-box.act input{font-weight:700;color:var(--field)}
-  .fb-cara{font-size:11px;color:var(--muted);flex-shrink:0;opacity:.75}
+  .fb-cara{font-size:13px;color:var(--muted);flex-shrink:0;padding-left:3px;
+    margin-left:2px;border-left:1px solid var(--line)}
   .fb-clr{border:none;background:transparent;color:var(--muted);font-size:16px;
     line-height:1;padding:0 2px;cursor:pointer;flex-shrink:0}
   .fb-pop{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;
@@ -2451,7 +2452,7 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
   const elegido = value===todos ? "" : txt(value);
   return (
     <div className="fb" style={estilo}>
-      <div className={"fb-box"+(elegido&&!open?" act":"")}>
+      <div className={"fb-box"+(elegido&&!open&&!obligatorio?" act":"")}>
         <input value={open?q:elegido}
           placeholder={etiquetaTodos}
           onChange={e=>{setQ(e.target.value);setOpen(true);}}
@@ -3373,7 +3374,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"176", fecha:"18 jul 2026", desc:"Filtros: sin x en campos obligatorios"};
+const VERSION={n:"177", fecha:"18 jul 2026", desc:"Agenda: fecha y hora por defecto, filtros afinados"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -9887,9 +9888,13 @@ function Agenda({toast, verCliente}){
   const [fTipo,setFTipo]=useState("Todos");
   const [fEstado,setFEstado]=useState("Todos");
   const [fZona,setFZona]=useState("Todas");
-  /* formulario de nueva actividad */
-  const [fecha,setFecha]=useState("");
-  const [hora,setHora]=useState("");
+  /* formulario de nueva actividad: arranca con hoy y una hora redonda,
+     para que los campos nunca se vean vacíos ni rotos */
+  const [fecha,setFecha]=useState(()=>new Date().toISOString().slice(0,10));
+  const [hora,setHora]=useState(()=>{
+    const d=new Date(); d.setMinutes(0,0,0); d.setHours(d.getHours()+1);
+    return String(d.getHours()).padStart(2,"0")+":00";
+  });
   const [cli,setCli]=useState(null);
   const [tipo,setTipo]=useState("Visita");
   const [objetivo,setObjetivo]=useState("");
@@ -10014,7 +10019,12 @@ function Agenda({toast, verCliente}){
       ubic:ubicF||((FICHA_CLIENTE[cli]||{}).ciudad||""), estado:"pendiente", dur, recordatorio:recor,
       todoDia, recurrente, detalle:detalleTipo}]);
     setNueva(false);
-    setCli(null); setFecha(""); setHora(""); setObjetivo(""); setUbicF(""); setDetalleTipo("");
+    setCli(null); setObjetivo(""); setUbicF(""); setDetalleTipo("");
+    /* vuelve a los valores por defecto, no a vacío */
+    setFecha(new Date().toISOString().slice(0,10));
+    (()=>{ const d=new Date(); d.setMinutes(0,0,0); d.setHours(d.getHours()+1);
+      setHora(String(d.getHours()).padStart(2,"0")+":00"); })();
+    setDur(30); setRecor(15);
     setTodoDia(false); setRecurrente(false);
     toast("Actividad agregada a la agenda");
   };
