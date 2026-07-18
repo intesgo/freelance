@@ -13153,19 +13153,13 @@ function App({usuario, onSalir}){
   const salirRef=React.useRef(0);
   atrasRef.current=atras; tabRef.current=tab; histRef.current=hist;
   React.useEffect(()=>{
-    /* Blindaje del botón físico: mantenemos SIEMPRE 2 estados de colchón en la pila.
-       Así, aunque un popstate llegue antes de rearmar, nunca queda vacía y la app no se cierra sola. */
-    try{ history.pushState({app:1},""); history.pushState({app:2},""); }catch(e){}
-    let rearmando=false;
-    const rearmar=()=>{
-      if(rearmando) return;
-      rearmando=true;
-      try{ history.pushState({app:1},""); }catch(e){}
-      setTimeout(()=>{ rearmando=false; },0);
-    };
+    /* Blindaje del botón físico de Android.
+       Idea: mantener siempre estados "colchón" en la pila del navegador.
+       Cada vez que el sistema consume uno (popstate), reponemos DOS sin condiciones. */
+    const poner=(n)=>{ for(let i=0;i<n;i++){ try{ history.pushState({app:Date.now()+i},""); }catch(e){} } };
+    poner(3);                       // colchón inicial generoso
     const onPop=()=>{
-      /* SIEMPRE reponemos el colchón primero: pase lo que pase, la app no se sale */
-      rearmar();
+      poner(2);                     // repone SIEMPRE, sin bloqueos ni esperas
       /* 1) ¿el módulo actual tiene algo que cerrar por dentro? */
       let cerroAlgo=false;
       try{ cerroAlgo = backHandlerRef.current ? backHandlerRef.current() : false; }catch(e){ cerroAlgo=false; }
@@ -13177,16 +13171,14 @@ function App({usuario, onSalir}){
       }
       /* 3) ¿estamos en un módulo pero sin historial? vuelve al inicio */
       if(tabRef.current!=="inicio"){ setTab("inicio"); return; }
-      /* 4) raíz del inicio: solo aquí se sale, y con doble toque */
-      if(Date.now()-salirRef.current<2200){
-        try{ history.go(-3); }catch(e){}
-        return;
-      }
-      salirRef.current=Date.now();
-      show("Presiona atrás de nuevo para salir");
+      /* 4) raíz del inicio: aquí solo avisamos. La app NO se cierra sola;
+            el usuario sale con el botón Inicio del teléfono si quiere. */
+      show("Estás en el inicio de la aplicación");
     };
     window.addEventListener("popstate",onPop);
-    return ()=>window.removeEventListener("popstate",onPop);
+    /* red de seguridad: si por lo que sea la pila se queda corta, la rellenamos */
+    const vigilante=setInterval(()=>{ if(history.length<3) poner(2); },1500);
+    return ()=>{ window.removeEventListener("popstate",onPop); clearInterval(vigilante); };
   },[]);
   const irInicio=()=>{ setHist([]); setTab("inicio"); };
   const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos"};
@@ -13277,7 +13269,7 @@ function App({usuario, onSalir}){
         )}
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
-            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v141</span>
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v142</span>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -13470,7 +13462,7 @@ function App({usuario, onSalir}){
               <Ico n="salir" c="#B5613C" s={17}/> Cerrar sesión
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
-              Versión 16 jul 2026 b141</div>
+              Versión 16 jul 2026 b142</div>
           </div>
         </div>
       </div>
