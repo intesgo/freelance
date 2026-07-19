@@ -909,7 +909,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"24", fecha:"18 jul 2026", desc:"Piezas alineadas con el freelance"};
+const VERSION={n:"25", fecha:"18 jul 2026", desc:"Tomar pedido con panel de entrada"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2984,9 +2984,53 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
 
   return (<>
     <div className="h1">Tomar pedido</div>
-    <div className="sub">{paso===1?"Elige cliente, proveedor y producto.":"Define el precio y la cantidad."}</div>
+    {paso!==1 && <div className="sub">Define el precio y la cantidad.</div>}
 
     {paso===1 && <>
+    {/* mini-dashboard de entrada: qué hay pendiente antes de tomar el pedido.
+       Desaparece al escoger cliente, igual que en la app del freelance. */}
+    {!cli && carrito.length===0 && (()=>{
+      const visitas=clientesPorVisitar();
+      const urgentes=visitas.filter(x=>x.nivel==="rojo");
+      const nPed=PEDIDOS_INI.length;
+      const qqMes=PEDIDOS_INI.reduce((s,p)=>s+(p.cant||0),0);
+      const prom=nPed?Math.round(qqMes/nPed):0;
+      const porEntregar=PEDIDOS_INI.filter(p=>["Facturado","Despachado","Enviado al proveedor","En ruta"].includes(p.estado));
+      const qqEntregar=porEntregar.reduce((s,p)=>s+(p.cant||0),0);
+      const TARJETAS=[
+        {k:"entregar", ic:"🚚", num:String(porEntregar.length), lbl:"Por entregar", sub:qqEntregar+" qq", clay:porEntregar.length>0},
+        {k:"mes",      ic:"📋", num:String(nPed),               lbl:"Pedidos del mes", sub:qqMes+" qq"},
+        {k:"recompra", ic:"📍", num:String(visitas.length),     lbl:"Por recomprar", sub:urgentes.length>0?urgentes.length+" urgente"+(urgentes.length!==1?"s":""):"al día", clay:urgentes.length>0},
+        {k:"top",      ic:"⭐", num:prom+"", lblUnit:"qq", lbl:"Promedio/pedido", sub:"Lo más pedido"},
+      ];
+      return (
+        <div style={{marginBottom:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8}}>
+            {TARJETAS.map((t,i)=>(
+              <div key={t.k}
+                style={{textAlign:"left",background:"var(--card)",
+                  border:"1.5px solid "+(t.clay?"var(--clay)":"#EAE6DC"),
+                  borderRadius:12,padding:"9px 11px",boxShadow:"0 2px 8px rgba(21,57,43,.05)",
+                  minWidth:0,overflow:"hidden"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <span style={{fontSize:15}}>{t.ic}</span>
+                  <span className="num" style={{fontSize:19,fontWeight:800,lineHeight:1,
+                    color:t.clay?"var(--clay)":"var(--field)"}}>
+                    {t.num}{t.lblUnit?<span style={{fontSize:10,fontWeight:600}}> {t.lblUnit}</span>:null}
+                  </span>
+                </div>
+                <div style={{fontSize:11.5,fontWeight:700,marginTop:5,color:"var(--ink)",
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.lbl}</div>
+                <div className="meta" style={{fontSize:10,marginTop:1,
+                  color:t.clay?"var(--clay)":"var(--muted)",
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    })()}
+
     <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra placeholder="Cliente"
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
