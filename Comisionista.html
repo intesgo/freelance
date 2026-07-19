@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"45", fecha:"18 jul 2026", desc:"Ficha del cliente más compacta"};
+const VERSION={n:"46", fecha:"18 jul 2026", desc:"Ficha se retira al elegir proveedor"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3102,7 +3102,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
         option:c=>(<><div className="o1">{c}</div>
           {(REFERENCIALES[c]||[]).length>0 && <div className="o2">Factura a: {REFERENCIALES[c].join(" · ")}</div>}</>),
         picked:c=>(<><div className="p1">{c}</div>
-          <div className="p2">{(REFERENCIALES[c]||[]).length>0?`Factura a: ${REFERENCIALES[c].join(" · ")}`:"Cliente comprador"}</div></>)
+          <div className="p2">Cliente</div></>)
       }}/>
     </div>
 
@@ -3113,11 +3113,11 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
       render={{
         text:p=>p.nombre,
         option:p=>(<div className="o1">{p.nombre}</div>),
-        picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
+        picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor</div></>)
       }}/>}
 
     {/* Productos que el cliente ya compró antes (favoritos) */}
-    {prov && favoritos.length>0 && (
+    {prov && !bloqueado && !verFact && !prod && favoritos.length>0 && (
       <div className="fav-wrap">
         <button className={"fav-toggle"+(favAbierto?" abierto":"")} onClick={()=>setFavAbierto(v=>!v)}>
           <span>⭐ Recompra <span className="fav-n">{favoritos.length}</span></span>
@@ -3147,7 +3147,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
     )}
 
     {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
-    {prov && <SearchSelect label="Producto nuevo" sinLabel items={productosDelProv} value={prod} maxItems={5}
+    {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto autorizado" sinLabel items={productosDelProv} value={prod} maxItems={5}
       placeholder="Producto"
       onPick={p=>{origenProd.current="nuevo";setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
@@ -3242,7 +3242,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
 
     {/* Ficha del cliente al elegirlo: estado, comportamiento y crédito.
        Igual en las dos apps: el vendedor y el freelance ven lo mismo del cliente. */}
-    {cli && !prod && carrito.length===0 && (()=>{
+    {cli && !verFact && (bloqueado || (!prov && carrito.length===0)) && (()=>{
       const pf=PERFIL_CLIENTE[cli]||{};
       const pg=PAGADOR[pf.pagador]||{};
       const sem = bloqueado ? ["#B5613C","🔴","Bloqueado"] : ["#2E7D52","🟢","Al día"];
