@@ -904,7 +904,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"15", fecha:"18 jul 2026", desc:"Stock con alerta de agotamiento"};
+const VERSION={n:"16", fecha:"18 jul 2026", desc:"Pedidos con estado visible"};
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -3798,9 +3798,32 @@ function Pedidos({irInicio}){
 
   return (<>
     <div className="h1">Mis pedidos</div>
-    <div className="sub">Toca un pedido para ver su estado paso a paso.</div>
 
-    <div className="row" style={{gap:10,marginBottom:14,alignItems:"stretch"}}>
+    {/* indicadores del embudo: qué está esperando y cuánto vale */}
+    {(()=>{
+      const sinEnviar=PEDIDOS_INI.filter(p=>p.sync==="pend").length;
+      const esperando=PEDIDOS_INI.filter(p=>/aprobaci/i.test(p.estado||"")).length;
+      const enCamino=PEDIDOS_INI.filter(p=>/despach|facturad/i.test(p.estado||"")).length;
+      const comTotal=PEDIDOS_INI.reduce((s,p)=>s+(p.comision||0),0);
+      return (
+        <div className="mini-kpi">
+          <button onClick={()=>setEstado("Todos")}>
+            <span className="mk-v num">{PEDIDOS_INI.length}</span>
+            <span className="mk-k">Pedidos</span></button>
+          <button style={{cursor:"default"}}>
+            <span className="mk-v num" style={{color:sinEnviar>0?"#C9A227":"var(--field)"}}>{sinEnviar}</span>
+            <span className="mk-k">Sin enviar</span></button>
+          <button style={{cursor:"default"}}>
+            <span className="mk-v num">{esperando+enCamino}</span>
+            <span className="mk-k">En proceso</span></button>
+          <button style={{cursor:"default"}}>
+            <span className="mk-v num" style={{fontSize:14}}>{money(comTotal)}</span>
+            <span className="mk-k">Tu comisión</span></button>
+        </div>
+      );
+    })()}
+
+    <div className="row" style={{gap:10,marginBottom:12,alignItems:"stretch"}}>
       <div className="ss" style={{flex:"1 1 auto",minWidth:0,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Cliente o proveedor…" onChange={e=>setQ(e.target.value)}/>
@@ -3821,22 +3844,34 @@ function Pedidos({irInicio}){
 
     <div className="meta" style={{margin:"0 2px 10px"}}>{ordenada.length} pedido(s) · {ORDEN_LBL[orden]}</div>
 
-    {ordenada.map(p=>(
-      <div className="card" key={p.id} onClick={()=>setSel(p.id)} style={{cursor:"pointer"}}>
-        <div className="row">
-          <div><div className="cli">{p.cli}</div>
-            <div className="meta">{p.cant} × {p.prod} · {p.prov} · {p.cond} · {money(p.precio)}</div></div>
-          <div style={{textAlign:"right"}}><div className="amt num">{money(p.comision)}</div>
-            <div className="meta">tu comisión</div></div>
+    {ordenada.map(p=>{
+      /* el avance se lee de un vistazo por la barra lateral */
+      const sinEnviar = p.sync==="pend";
+      const cerrado = /cobrad|liberad/i.test(p.estado||"");
+      const barraP = sinEnviar ? "#C9A227" : cerrado ? "#2E7D52" : "#8A9A8E";
+      return (
+      <div className="card" key={p.id} onClick={()=>setSel(p.id)}
+        style={{cursor:"pointer",padding:"11px 13px",marginBottom:8,
+          borderLeft:`4px solid ${barraP}`,
+          background: sinEnviar?"#FDFAF0" : cerrado?"#F5F9F6" : "var(--card)"}}>
+        <div className="row" style={{alignItems:"flex-start"}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</div>
+            <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {p.cant} × {p.prod} · {p.prov}</div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+            <div className="amt num">{money(p.comision)}</div>
+            <div className="meta" style={{fontSize:10}}>tu comisión</div></div>
         </div>
-        <div className="row" style={{marginTop:10,alignItems:"center"}}>
-          <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
-            <span className="d"></span>{p.sync==="pend"?"Pendiente de enviar":"Sincronizado"}</span>
-          <span className="meta" style={{fontWeight:600,color:"var(--field)"}}>{p.estado} ›</span>
+        <div className="row" style={{marginTop:7,alignItems:"center",gap:8}}>
+          {sinEnviar && <span className="chip c-sync"><span className="d"></span>Sin enviar</span>}
+          <span className="meta" style={{fontWeight:700,color:"var(--field)",marginLeft:"auto",
+            fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.estado} ›</span>
         </div>
         <Pipe n={p.etapa}/>
       </div>
-    ))}
+    );})}
     {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
 
     {/* ventana de filtros */}
