@@ -919,7 +919,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"28", fecha:"18 jul 2026", desc:"Tomar pedido en cascada"};
+const VERSION={n:"29", fecha:"18 jul 2026", desc:"Panel desplegable y precio sugerido"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2833,6 +2833,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const origenProd = React.useRef(null);
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
   const [cant,setCant]=useState(0);
+  const [dashAbierto,setDashAbierto]=useState(null);  // tarjeta del panel desplegada
   const [histAbierto,setHistAbierto]=useState(false); // historial 3 meses colapsado por defecto
   const [favAbierto,setFavAbierto]=useState(false);   // panel de productos que ya compró el cliente
   const [precio,setPrecio]=useState("");
@@ -3027,11 +3028,11 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
         <div style={{marginBottom:16}}>
           <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8}}>
             {TARJETAS.map((t,i)=>(
-              <div key={t.k}
+              <button key={t.k} onClick={()=>setDashAbierto(dashAbierto===t.k?null:t.k)}
                 style={{textAlign:"left",background:"var(--card)",
-                  border:"1.5px solid "+(t.clay?"var(--clay)":"#EAE6DC"),
+                  border:"1.5px solid "+(dashAbierto===t.k?"var(--field)":(t.clay?"var(--clay)":"#EAE6DC")),
                   borderRadius:12,padding:"9px 11px",boxShadow:"0 2px 8px rgba(21,57,43,.05)",
-                  minWidth:0,overflow:"hidden"}}>
+                  minWidth:0,overflow:"hidden",cursor:"pointer",display:"block",fontFamily:"inherit"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <span style={{fontSize:15}}>{t.ic}</span>
                   <span className="num" style={{fontSize:19,fontWeight:800,lineHeight:1,
@@ -3044,9 +3045,85 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
                 <div className="meta" style={{fontSize:10,marginTop:1,
                   color:t.clay?"var(--clay)":"var(--muted)",
                   overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.sub}</div>
-              </div>
+              </button>
             ))}
           </div>
+
+          {/* detalle de la tarjeta abierta */}
+          {dashAbierto && (
+            <div className="card" style={{padding:"13px 14px",marginTop:10}}>
+              {dashAbierto==="entregar" && (<>
+                <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>🚚 Pedidos por entregar</div>
+                {porEntregar.length===0
+                  ? <div className="meta" style={{fontSize:12.5}}>No hay pedidos pendientes de entrega.</div>
+                  : porEntregar.map(p=>(
+                      <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:8,
+                        padding:"6px 0",borderTop:"1px solid #F0ECE2",fontSize:12.5}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</div>
+                          <div className="meta" style={{fontSize:11}}>{String(p.prod).split(" · ")[0]} · {p.estado}</div>
+                        </div>
+                        <div className="num" style={{fontWeight:700,whiteSpace:"nowrap"}}>{p.cant} qq</div>
+                      </div>
+                    ))}
+              </>)}
+
+              {dashAbierto==="recompra" && (<>
+                <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>📍 Clientes por recomprar</div>
+                {visitas.length===0
+                  ? <div className="meta" style={{fontSize:12.5}}>Ningún cliente necesita recompra ahora.</div>
+                  : visitas.slice(0,6).map(x=>(
+                      <button key={x.cli} onClick={()=>{setCli(x.cli);setDashAbierto(null);}}
+                        style={{width:"100%",textAlign:"left",background:"none",border:"none",cursor:"pointer",
+                          display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,
+                          padding:"7px 0",borderTop:"1px solid #F0ECE2",fontFamily:"inherit"}}>
+                        <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",
+                          textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.cli}</span>
+                        <span className="meta" style={{fontSize:11,fontWeight:700,whiteSpace:"nowrap",
+                          color:x.nivel==="rojo"?"var(--clay)":"var(--muted)"}}>
+                          {x.nivel==="rojo"?"● ":""}~{x.dias} días de stock
+                        </span>
+                      </button>
+                    ))}
+                <div className="meta" style={{fontSize:10.5,marginTop:6}}>Toca un cliente para tomarle el pedido.</div>
+              </>)}
+
+              {dashAbierto==="mes" && (<>
+                <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>📋 Tus pedidos del mes</div>
+                {PEDIDOS_INI.slice(0,6).map(p=>(
+                  <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:8,
+                    padding:"6px 0",borderTop:"1px solid #F0ECE2",fontSize:12.5}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</div>
+                      <div className="meta" style={{fontSize:11}}>{p.fecha} · {p.estado}</div>
+                    </div>
+                    <div className="num" style={{fontWeight:700,whiteSpace:"nowrap"}}>{p.cant} qq</div>
+                  </div>
+                ))}
+              </>)}
+
+              {dashAbierto==="top" && (<>
+                <div className="meta" style={{fontWeight:700,fontSize:12,marginBottom:8}}>⭐ Lo más pedido</div>
+                {(()=>{
+                  const porProd={};
+                  PEDIDOS_INI.forEach(p=>{ porProd[p.prod]=(porProd[p.prod]||0)+(p.cant||0); });
+                  const top=Object.entries(porProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
+                  const maxP=Math.max(...top.map(t=>t[1]),1);
+                  return top.map(([nom,qq],i)=>(
+                    <div key={i} style={{padding:"6px 0",borderTop:"1px solid #F0ECE2"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,marginBottom:4}}>
+                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{String(nom).split(" · ")[0]}</span>
+                        <span className="num" style={{fontWeight:700,whiteSpace:"nowrap"}}>{qq} qq</span>
+                      </div>
+                      <div style={{height:5,borderRadius:3,background:"#EFEDE5",overflow:"hidden"}}>
+                        <div style={{height:"100%",width:Math.round(qq/maxP*100)+"%",background:"var(--field)"}}></div>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </>)}
+            </div>
+          )}
         </div>
       );
     })()}
@@ -3166,6 +3243,33 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
         <div className="pe-sub">{prod?prod.unidad:""} · {cli}</div>
       </div>
     </div>
+
+    {/* precio sugerido según el canal del cliente (cuida la distribución de la zona) */}
+    {prod && cli && (()=>{
+      const fc=FICHA_CLIENTE[cli]||{};
+      const CANAL_F={"Distribuidor Mayor":1.000,"Distribuidor Menor":1.020,"Mayorista":1.040,"Supermercado":1.060,"Bodega":1.080};
+      const CANAL_IC={"Distribuidor Mayor":"🚛","Distribuidor Menor":"🚚","Mayorista":"🏭","Supermercado":"🏪","Bodega":"🏬"};
+      const canal=fc.canal;
+      if(!canal || CANAL_F[canal]==null) return null;
+      const sug=Math.round((prod.baseCredito||0)*CANAL_F[canal]*100)/100;
+      const puesto=parseFloat(String(precio).replace(",","."))||0;
+      const bajo = puesto>0 && puesto < sug-0.005;
+      return (
+        <div className="card" style={{margin:"0 0 14px",padding:"11px 13px",
+          background:bajo?"#FDF3EF":"#F4F9F5",borderLeft:`4px solid ${bajo?"#C2603A":"#2E7D52"}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:20,flexShrink:0}}>{CANAL_IC[canal]}</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span className="meta" style={{display:"block",fontSize:10.5}}>Canal del cliente · {canal}</span>
+              <span style={{display:"block",fontSize:12.5,fontWeight:700}}>Precio sugerido</span>
+            </span>
+            <span className="num" style={{flexShrink:0,fontSize:17,fontWeight:800,color:bajo?"#C2603A":"#2E7D52"}}>{money(sug)}</span>
+          </div>
+          {bajo && <div style={{fontSize:11,color:"#B5613C",fontWeight:600,marginTop:6}}>
+            ⚠️ Estás por debajo del sugerido para este canal · puede afectar la distribución de la zona</div>}
+        </div>
+      );
+    })()}
 
     <div className={"stepwrap"+(prod?"":" off")}>
       {/* Selector de tipo de precio */}
@@ -4393,25 +4497,25 @@ const REFERENCIALES = {
 const FICHA_CLIENTE = {
   "Comercial Mendoza": {ruc:"0912345678001", negocio:"Comercial / abarrotes", contacto:"Juan Mendoza", tel:"0991234567", correo:"mendoza@correo.ec",
     prov:"Guayas", ciudad:"Milagro", zona:"Sur", barrio:"Las Piñas", dir:"Av. 17 de Septiembre y García Moreno",
-    diasCredito:30, cupo:5000, facturasPend:860, nFacturas:1, chequesPosf:1200, nCheques:2, debe:860, ultimaCompra:"22 may 2026"},
+    canal:"Mayorista", diasCredito:30, cupo:5000, facturasPend:860, nFacturas:1, chequesPosf:1200, nCheques:2, debe:860, ultimaCompra:"22 may 2026"},
   "Distribuidora Ríos": {ruc:"0998765432001", negocio:"Distribuidora mayorista", contacto:"Marcela Ríos", tel:"0987654321", correo:"ventas@rios.ec",
     prov:"Guayas", ciudad:"Guayaquil", zona:"Norte", barrio:"Alborada", dir:"Av. Benjamín Rosales, bodega 14",
-    diasCredito:45, cupo:12000, facturasPend:3915, nFacturas:3, chequesPosf:2500, nCheques:2, debe:3915, ultimaCompra:"30 may 2026"},
+    canal:"Distribuidor Mayor", diasCredito:45, cupo:12000, facturasPend:3915, nFacturas:3, chequesPosf:2500, nCheques:2, debe:3915, ultimaCompra:"30 may 2026"},
   "Bodega El Agricultor": {ruc:"1203456789001", negocio:"Bodega agrícola", contacto:"Pedro Suárez", tel:"0961122334", correo:"",
     prov:"Los Ríos", ciudad:"Quevedo", zona:"Centro", barrio:"San Camilo", dir:"Calle 7ª y Bolívar",
-    diasCredito:30, cupo:4000, facturasPend:1290, nFacturas:1, chequesPosf:0, nCheques:0, debe:1290, ultimaCompra:"15 may 2026"},
+    canal:"Bodega", diasCredito:30, cupo:4000, facturasPend:1290, nFacturas:1, chequesPosf:0, nCheques:0, debe:1290, ultimaCompra:"15 may 2026"},
   "Tienda La Esquina": {ruc:"1234567890001", negocio:"Tienda de barrio", contacto:"Rosa Vera", tel:"0955667788", correo:"",
     prov:"Los Ríos", ciudad:"Babahoyo", zona:"Norte", barrio:"Barreiro", dir:"Calle Malecón 320",
-    diasCredito:15, cupo:1500, facturasPend:430, nFacturas:1, chequesPosf:300, nCheques:1, debe:430, ultimaCompra:"19 may 2026"},
+    canal:"Bodega", diasCredito:15, cupo:1500, facturasPend:430, nFacturas:1, chequesPosf:300, nCheques:1, debe:430, ultimaCompra:"19 may 2026"},
   "Mayorista Santa Rosa": {ruc:"0705566778001", negocio:"Mayorista", contacto:"Luis Carrión", tel:"0944556677", correo:"sgarosa@correo.ec",
     prov:"El Oro", ciudad:"Santa Rosa", zona:"Centro", barrio:"El Cambio", dir:"Vía Machala km 2",
-    diasCredito:45, cupo:9000, facturasPend:1740, nFacturas:1, chequesPosf:0, nCheques:0, debe:1740, ultimaCompra:"28 may 2026"},
+    canal:"Mayorista", diasCredito:45, cupo:9000, facturasPend:1740, nFacturas:1, chequesPosf:0, nCheques:0, debe:1740, ultimaCompra:"28 may 2026"},
   "Abarrotes Don Pepe": {ruc:"0911223344001", negocio:"Abarrotes", contacto:"José Pinto", tel:"0933445566", correo:"",
     prov:"Guayas", ciudad:"Guayaquil", zona:"Sur", barrio:"Floresta", dir:"Calle 25 y la C",
-    diasCredito:30, cupo:3000, facturasPend:0, nFacturas:0, chequesPosf:0, nCheques:0, debe:0, ultimaCompra:"—"},
+    canal:"Bodega", diasCredito:30, cupo:3000, facturasPend:0, nFacturas:0, chequesPosf:0, nCheques:0, debe:0, ultimaCompra:"—"},
   "Comisariato La Y": {ruc:"0922334455001", negocio:"Comisariato", contacto:"Ana Loor", tel:"0922334455", correo:"laye@correo.ec",
     prov:"Guayas", ciudad:"Durán", zona:"Centro", barrio:"Primavera", dir:"Av. Nicolás Lapenti",
-    diasCredito:30, cupo:6000, facturasPend:0, nFacturas:0, chequesPosf:0, nCheques:0, debe:0, ultimaCompra:"—"},
+    canal:"Supermercado", diasCredito:30, cupo:6000, facturasPend:0, nFacturas:0, chequesPosf:0, nCheques:0, debe:0, ultimaCompra:"—"},
 };
 
 // ---------- CLIENTES ----------
