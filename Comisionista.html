@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"42", fecha:"18 jul 2026", desc:"Proveedor debajo del cliente"};
+const VERSION={n:"43", fecha:"18 jul 2026", desc:"Orden de bloques idéntico al freelance"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3114,6 +3114,130 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
         picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Un pedido por proveedor</div></>)
       }}/>}
 
+    {/* Productos que el cliente ya compró antes (favoritos) */}
+    {prov && favoritos.length>0 && (
+      <div className="fav-wrap">
+        <button className={"fav-toggle"+(favAbierto?" abierto":"")} onClick={()=>setFavAbierto(v=>!v)}>
+          <span>⭐ Recompra <span className="fav-n">{favoritos.length}</span></span>
+          <span className="fav-ar">{favAbierto?"▲":"▼"}</span>
+        </button>
+        {favAbierto && (
+          <div className="fav-lista">
+            {favoritos.map(f=>(
+              <button key={f.prod.id} className="fav-item"
+                onClick={()=>{ origenProd.current="favorito"; setProd(f.prod); reset(); setFavAbierto(false); }}>
+                <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
+                <div className="fav-info">
+                  <div className="fav-nom">{f.prod.marca}</div>
+                  <div className="fav-pres">{f.prod.unidad}</div>
+                  <div className="fav-det">
+                    Últ. {f.ultima.fecha} · <b>{money(f.ultima.precio)}</b>
+                    {f.ultima.tipo && <span className="fav-tipo">{f.ultima.tipo}</span>}
+                  </div>
+                  <div className="fav-det2">{f.ultima.cant} {f.prod.unidad} · {f.nCompras} compra{f.nCompras>1?"s":""} en 3 meses</div>
+                </div>
+                <span className="fav-add">Agregar ›</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
+    {prov && <SearchSelect label="Producto nuevo" sinLabel items={productosDelProv} value={prod} maxItems={5}
+      placeholder="Producto"
+      onPick={p=>{origenProd.current="nuevo";setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
+      hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
+      render={{
+        text:p=>p.nombre,
+        option:p=>(
+          <div className="prod-ficha">
+            <div className="pf-img">{EMOJI_LINEA[p.linea]||"📦"}</div>
+            <div className="pf-info">
+              <div className="pf-nom">{p.marca}</div>
+              <div className="pf-pres">{p.unidad}</div>
+            </div>
+            <span className="pf-ar">›</span>
+          </div>),
+        picked:p=>(<><div className="p1">{p.nombre}</div>
+          <div className="p2">por {p.unidad}</div></>)
+      }}/>}
+
+    </>}
+
+    {/* ── PASO 2: precio y cantidad ── */}
+
+    {/* última compra del cliente: qué se llevó y botón para repetir el pedido completo */}
+    {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
+      const fs=(FACTURAS_DETALLE[cli]||[]);
+      if(!fs.length) return null;
+      const f=fs[0];
+      const sub=f.items.reduce((s,it)=>s+it.cant*it.precio,0);
+      const tot=sub-(f.retencion||0)-(f.descuento||0);
+      /* repetir: trae los mismos productos con el PRECIO VIGENTE de hoy;
+         si el precio de la factura quedó bajo la base actual, se marca para corregir */
+      const buscarPres=(nombre)=> PRESENTACIONES.find(p=>p.nombre===nombre)
+        || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
+        || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
+      const repetir=()=>{
+        const lineas=[], fuera=[]; let pv=null, nAjuste=0;
+        f.items.forEach((it,k)=>{
+          const pres=buscarPres(it.prod);
+          if(!pres){ fuera.push(it.prod); return; }
+          if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
+          const base=pres.baseCredito;
+          const precio=it.precio;
+          const com=Math.round((precio-base)*it.cant*100)/100;
+          const ajustar = precio < base-0.004;
+          if(ajustar) nAjuste++;
+          lineas.push({ id:Date.now()+k, prod:pres, prodNombre:pres.nombre, unidad:pres.unidad,
+            tipo:"P1", tipoNombre:"Crédito", cant:it.cant, precio, gratis:0, credito:true,
+            comisionTotal:com, requiere:false, motivoAuth:null,
+            baseVigente:base, ajustar, precioFactura:precio });
+        });
+        if(!lineas.length){ toast("Ninguno de esos productos está en el catálogo; búscalos manualmente."); return; }
+        setProv(pv); setProd(null); setCarrito(lineas); setVerCarrito(true);
+        toast(fuera.length ? `Pedido repetido · ${lineas.length} producto(s). Fuera de catálogo: ${fuera.join(", ")}`
+          : nAjuste>0 ? `Pedido repetido · ${nAjuste} precio(s) quedaron bajo la base de hoy: revísalos`
+          : `Pedido repetido · ${lineas.length} producto(s)`);
+      };
+      return (
+        <div className="card" style={{padding:"12px 13px",marginBottom:12}}>
+          <button onClick={()=>setVerFact(v=>!v)}
+            style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,
+              background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",
+              marginBottom:verFact?8:0}}>
+            <span style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+              <span style={{fontSize:15}}>📄</span>
+              <span style={{fontWeight:700,fontSize:13.5,color:"var(--ink)"}}>
+                {verFact?"Ocultar":"Ver"} última factura</span>
+            </span>
+            <span className="meta" style={{fontSize:11,flexShrink:0}}>{f.fecha}</span>
+            <span style={{color:"var(--muted)",fontSize:14,flexShrink:0}}>{verFact?"▲":"▼"}</span>
+          </button>
+          {verFact && (<>
+            {f.items.map((it,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,
+                padding:"5px 0",fontSize:12.5,borderTop:i?"1px solid #F0ECE2":"none"}}>
+                <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {it.prod}</span>
+                <span className="num" style={{whiteSpace:"nowrap",fontWeight:600}}>
+                  {it.cant} × {money(it.precio)}</span>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:7,paddingTop:7,
+              borderTop:"1px solid var(--line)",fontSize:12.5}}>
+              <span className="meta">Total factura {f.factura.replace(/^001-001-/,"")}</span>
+              <b className="num">{money(tot)}</b>
+            </div>
+          </>)}
+          <button className="mini-cta" style={{width:"100%",marginTop:10,textAlign:"center"}}
+            onClick={repetir}>🔁 Repetir último pedido</button>
+        </div>
+      );
+    })()}
+
     {/* Ficha del cliente al elegirlo: estado, comportamiento y crédito.
        Igual en las dos apps: el vendedor y el freelance ven lo mismo del cliente. */}
     {cli && !prod && carrito.length===0 && (()=>{
@@ -3192,75 +3316,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
       );
     })()}
 
-    {/* última compra del cliente: qué se llevó y botón para repetir el pedido completo */}
-    {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
-      const fs=(FACTURAS_DETALLE[cli]||[]);
-      if(!fs.length) return null;
-      const f=fs[0];
-      const sub=f.items.reduce((s,it)=>s+it.cant*it.precio,0);
-      const tot=sub-(f.retencion||0)-(f.descuento||0);
-      /* repetir: trae los mismos productos con el PRECIO VIGENTE de hoy;
-         si el precio de la factura quedó bajo la base actual, se marca para corregir */
-      const buscarPres=(nombre)=> PRESENTACIONES.find(p=>p.nombre===nombre)
-        || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
-        || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
-      const repetir=()=>{
-        const lineas=[], fuera=[]; let pv=null, nAjuste=0;
-        f.items.forEach((it,k)=>{
-          const pres=buscarPres(it.prod);
-          if(!pres){ fuera.push(it.prod); return; }
-          if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
-          const base=pres.baseCredito;
-          const precio=it.precio;
-          const com=Math.round((precio-base)*it.cant*100)/100;
-          const ajustar = precio < base-0.004;
-          if(ajustar) nAjuste++;
-          lineas.push({ id:Date.now()+k, prod:pres, prodNombre:pres.nombre, unidad:pres.unidad,
-            tipo:"P1", tipoNombre:"Crédito", cant:it.cant, precio, gratis:0, credito:true,
-            comisionTotal:com, requiere:false, motivoAuth:null,
-            baseVigente:base, ajustar, precioFactura:precio });
-        });
-        if(!lineas.length){ toast("Ninguno de esos productos está en el catálogo; búscalos manualmente."); return; }
-        setProv(pv); setProd(null); setCarrito(lineas); setVerCarrito(true);
-        toast(fuera.length ? `Pedido repetido · ${lineas.length} producto(s). Fuera de catálogo: ${fuera.join(", ")}`
-          : nAjuste>0 ? `Pedido repetido · ${nAjuste} precio(s) quedaron bajo la base de hoy: revísalos`
-          : `Pedido repetido · ${lineas.length} producto(s)`);
-      };
-      return (
-        <div className="card" style={{padding:"12px 13px",marginBottom:12}}>
-          <button onClick={()=>setVerFact(v=>!v)}
-            style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,
-              background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",
-              marginBottom:verFact?8:0}}>
-            <span style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-              <span style={{fontSize:15}}>📄</span>
-              <span style={{fontWeight:700,fontSize:13.5,color:"var(--ink)"}}>
-                {verFact?"Ocultar":"Ver"} última factura</span>
-            </span>
-            <span className="meta" style={{fontSize:11,flexShrink:0}}>{f.fecha}</span>
-            <span style={{color:"var(--muted)",fontSize:14,flexShrink:0}}>{verFact?"▲":"▼"}</span>
-          </button>
-          {verFact && (<>
-            {f.items.map((it,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,
-                padding:"5px 0",fontSize:12.5,borderTop:i?"1px solid #F0ECE2":"none"}}>
-                <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {it.prod}</span>
-                <span className="num" style={{whiteSpace:"nowrap",fontWeight:600}}>
-                  {it.cant} × {money(it.precio)}</span>
-              </div>
-            ))}
-            <div style={{display:"flex",justifyContent:"space-between",marginTop:7,paddingTop:7,
-              borderTop:"1px solid var(--line)",fontSize:12.5}}>
-              <span className="meta">Total factura {f.factura.replace(/^001-001-/,"")}</span>
-              <b className="num">{money(tot)}</b>
-            </div>
-          </>)}
-          <button className="mini-cta" style={{width:"100%",marginTop:10,textAlign:"center"}}
-            onClick={repetir}>🔁 Repetir último pedido</button>
-        </div>
-      );
-    })()}
 
     {/* mini-dashboard de entrada: qué hay pendiente antes de tomar el pedido.
        Desaparece al escoger cliente, igual que en la app del freelance. */}
@@ -3411,59 +3466,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
     )}
 
 
-    {/* Productos que el cliente ya compró antes (favoritos) */}
-    {prov && favoritos.length>0 && (
-      <div className="fav-wrap">
-        <button className={"fav-toggle"+(favAbierto?" abierto":"")} onClick={()=>setFavAbierto(v=>!v)}>
-          <span>⭐ Recompra <span className="fav-n">{favoritos.length}</span></span>
-          <span className="fav-ar">{favAbierto?"▲":"▼"}</span>
-        </button>
-        {favAbierto && (
-          <div className="fav-lista">
-            {favoritos.map(f=>(
-              <button key={f.prod.id} className="fav-item"
-                onClick={()=>{ origenProd.current="favorito"; setProd(f.prod); reset(); setFavAbierto(false); }}>
-                <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
-                <div className="fav-info">
-                  <div className="fav-nom">{f.prod.marca}</div>
-                  <div className="fav-pres">{f.prod.unidad}</div>
-                  <div className="fav-det">
-                    Últ. {f.ultima.fecha} · <b>{money(f.ultima.precio)}</b>
-                    {f.ultima.tipo && <span className="fav-tipo">{f.ultima.tipo}</span>}
-                  </div>
-                  <div className="fav-det2">{f.ultima.cant} {f.prod.unidad} · {f.nCompras} compra{f.nCompras>1?"s":""} en 3 meses</div>
-                </div>
-                <span className="fav-add">Agregar ›</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    )}
-
-    {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
-    {prov && <SearchSelect label="Producto nuevo" sinLabel items={productosDelProv} value={prod} maxItems={5}
-      placeholder="Producto"
-      onPick={p=>{origenProd.current="nuevo";setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
-      hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
-      render={{
-        text:p=>p.nombre,
-        option:p=>(
-          <div className="prod-ficha">
-            <div className="pf-img">{EMOJI_LINEA[p.linea]||"📦"}</div>
-            <div className="pf-info">
-              <div className="pf-nom">{p.marca}</div>
-              <div className="pf-pres">{p.unidad}</div>
-            </div>
-            <span className="pf-ar">›</span>
-          </div>),
-        picked:p=>(<><div className="p1">{p.nombre}</div>
-          <div className="p2">por {p.unidad}</div></>)
-      }}/>}
-
-    </>}
-
-    {/* ── PASO 2: precio y cantidad ── */}
     {/* al elegir producto aparece el precio, sin cambiar de pantalla */}
     {prod && <>
     <div className="prod-elegido">
@@ -3479,6 +3481,25 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
         <div className="pe-sub">{prod?prod.unidad:""} · {cli}</div>
       </div>
     </div>
+
+
+    <div className={"stepwrap"+(prod?"":" off")}>
+      {/* Selector de tipo de precio */}
+      <div className="field"><label>Tipo de precio</label>
+        <div className="tipochips">
+          {TIPOS_PRECIO.map(t=>{
+            const sinPromo = t.id==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0);
+            return (
+              <button key={t.id} className={"tchip"+(tipo===t.id?" on":"")} style={sinPromo?{opacity:.45}:null}
+                onClick={()=>{
+                  if(sinPromo){ toast("Este producto no tiene promociones vigentes"+(prov?" de "+prov.nombre:"")+"."); return; }
+                  setTipo(t.id);setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setComProp("");setMotivo("");}}>
+                <span className="tchip-cod">{t.id}</span>
+                <span className="tchip-nom">{t.nombre}</span>
+              </button>
+            );
+          })}
+        </div>
 
     {/* precio sugerido según el canal del cliente (cuida la distribución de la zona) */}
     {prod && cli && (()=>{
@@ -3506,24 +3527,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
         </div>
       );
     })()}
-
-    <div className={"stepwrap"+(prod?"":" off")}>
-      {/* Selector de tipo de precio */}
-      <div className="field"><label>Tipo de precio</label>
-        <div className="tipochips">
-          {TIPOS_PRECIO.map(t=>{
-            const sinPromo = t.id==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0);
-            return (
-              <button key={t.id} className={"tchip"+(tipo===t.id?" on":"")} style={sinPromo?{opacity:.45}:null}
-                onClick={()=>{
-                  if(sinPromo){ toast("Este producto no tiene promociones vigentes"+(prov?" de "+prov.nombre:"")+"."); return; }
-                  setTipo(t.id);setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setComProp("");setMotivo("");}}>
-                <span className="tchip-cod">{t.id}</span>
-                <span className="tchip-nom">{t.nombre}</span>
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* P4: elegir promoción de la lista del freelance */}
