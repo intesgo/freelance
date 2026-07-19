@@ -2195,10 +2195,18 @@ function Portafolio({ modo, miSector, miDistribuidor }){
     m.exclusiva.length===0 || m.exclusiva.some(e => e.sector===miSector && e.distribuidor===miDistribuidor)
   );
   const [fLinea, setFLinea] = useState("Todas");
+  const [q, setQ] = useState("");
   const lineas = ["Todas", ...Array.from(new Set(visibles.map(m=>m.linea)))];
+  const norm = s => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const tarjetas = visibles
     .filter(m => fLinea==="Todas" || m.linea===fLinea)
-    .flatMap(m => m.items.map(it => ({ ...it, key:m.id+"·"+it.pres, marca:m.marca, prov:m.prov, linea:m.linea, color:m.color, color2:m.color2, exclusiva:m.exclusiva })));
+    .flatMap(m => m.items.map(it => ({ ...it, key:m.id+"·"+it.pres, marca:m.marca, prov:m.prov, linea:m.linea, color:m.color, color2:m.color2, exclusiva:m.exclusiva })))
+    /* busca por marca, presentación, línea o proveedor; sin tildes y por varias palabras */
+    .filter(t => {
+      if(!q.trim()) return true;
+      const texto = norm(`${t.marca} ${t.pres} ${t.linea} ${t.prov||""}`);
+      return norm(q).split(/\s+/).filter(Boolean).every(w => texto.includes(w));
+    });
   const [cliente, setCliente] = useState(false);
   const [idx, setIdx] = useState(0);
   const [lado, setLado] = useState("frente");
@@ -2240,6 +2248,15 @@ function Portafolio({ modo, miSector, miDistribuidor }){
       </div>
       <p style={{ fontFamily:BODY, fontSize:12, color:CL.grisTexto, margin:"0 0 10px" }}>
         {modo==="freelance" ? "Todas las marcas del negocio, con su exclusividad por zona." : "Las marcas de tu zona · toca una para verla en grande y muéstrasela a tu cliente."}</p>
+      <div className="ss" style={{ marginBottom:10 }}>
+        <div className="box">
+          <span className="mag">⌕</span>
+          <input value={q} placeholder="Buscar marca, presentación o línea…"
+            onChange={e=>setQ(e.target.value)}/>
+          <MicBtn onTexto={setQ}/>
+          {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
+        </div>
+      </div>
       <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
         {lineas.map(l=>(
           <button key={l} onClick={()=>setFLinea(l)}
@@ -2263,7 +2280,16 @@ function Portafolio({ modo, miSector, miDistribuidor }){
           </div>
         ))}
       </div>
-      {tarjetas.length===0 && <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, textAlign:"center", padding:"30px 0" }}>No hay marcas en esta línea para tu zona.</p>}
+      {tarjetas.length===0 && (
+        <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, textAlign:"center", padding:"30px 0" }}>
+          {q.trim()
+            ? <>Sin resultados para “{q}”.{" "}
+                <button onClick={()=>setQ("")} style={{background:"none",border:"none",color:CL.principal,
+                  fontFamily:BODY,fontSize:13,fontWeight:700,textDecoration:"underline",cursor:"pointer",padding:0}}>
+                  Limpiar búsqueda</button></>
+            : "No hay marcas en esta línea para tu zona."}
+        </p>
+      )}
       {modoSel && (
         <div style={{ position:"fixed", left:0, right:0, bottom:0, background:"var(--card)", borderTop:`1px solid ${CL.linea}`, boxShadow:"0 -6px 20px rgba(0,0,0,.10)", padding:"12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px)", zIndex:1450 }}>
           <button onClick={enviarWhatsApp} disabled={sel.length===0}
@@ -3509,7 +3535,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"183", fecha:"18 jul 2026", desc:"Menú lateral con gesto de deslizar"};
+const VERSION={n:"184", fecha:"18 jul 2026", desc:"Buscador de productos en Portafolio"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
