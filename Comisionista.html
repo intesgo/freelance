@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"37", fecha:"18 jul 2026", desc:"Aviso al salir de la app"};
+const VERSION={n:"38", fecha:"18 jul 2026", desc:"Última compra y repetir pedido"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1445,6 +1445,39 @@ const EMOJI_LINEA={Arroz:"🍚", Azúcar:"🧂", Harina:"🌾", Maíz:"🌽"};
 // Lista plana de presentaciones VENDIBLES (excluye marcas y presentaciones inhabilitadas).
 // Cada ítem combina marca + presentación; es la unidad que se vende, se cuenta en stock y se historiza.
 const STOCK_DEMO = { "AG-QQ":120, "AG-25":80, "AC-QQ":95, "AC-25":60, "AE-QQ":40, "AZ-50":150, "AZ-02":300, "HY-QQ":70, "HY-10":110, "MA-QQ":55 };
+/* Última factura por cliente: permite repetir el pedido completo con precios vigentes */
+const FACTURAS_DETALLE = {
+  "Comercial Mendoza":[
+    {factura:"001-001-000103", fecha:"04 jun 2026", items:[
+      {prod:"Arroz Gustadina · Quintal", cant:15, precio:43.00},
+      {prod:"Azúcar Valdez · Saco 50 kg", cant:5, precio:49.00}],
+     retencion:12.00, descuento:0, ncs:[]},
+  ],
+  "Tienda La Esquina":[
+    {factura:"001-001-000118", fecha:"19 may 2026", items:[
+      {prod:"Arroz Conejo · Saco 25 kg", cant:8, precio:26.50},
+      {prod:"Harina Ya · Quintal", cant:6, precio:38.00}],
+     retencion:0, descuento:0, ncs:[]},
+  ],
+  "Distribuidora Ríos":[
+    {factura:"001-001-000127", fecha:"30 may 2026", items:[
+      {prod:"Arroz Gustadina · Quintal", cant:40, precio:45.00},
+      {prod:"Harina Ya · Quintal", cant:20, precio:38.50}],
+     retencion:22.00, descuento:0, ncs:[]},
+  ],
+  "Bodega El Agricultor":[
+    {factura:"001-001-000091", fecha:"02 jun 2026", items:[
+      {prod:"Maíz Agripac · Quintal", cant:12, precio:31.00}],
+     retencion:0, descuento:0, ncs:[]},
+  ],
+  "Mayorista Santa Rosa":[
+    {factura:"001-001-000134", fecha:"11 jun 2026", items:[
+      {prod:"Arroz Económico · Quintal", cant:30, precio:39.50},
+      {prod:"Azúcar San Carlos · Saco 50 kg", cant:10, precio:47.00}],
+     retencion:18.00, descuento:0, ncs:[]},
+  ],
+};
+
 const PRESENTACIONES = PRODUCTOS
   .filter(m => !m.inhabilitada)
   .flatMap(m =>
@@ -3079,6 +3112,67 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
         </div>
       </div>
     )}
+
+    {/* última compra del cliente: qué se llevó y botón para repetir el pedido completo */}
+    {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
+      const fs=(FACTURAS_DETALLE[cli]||[]);
+      if(!fs.length) return null;
+      const f=fs[0];
+      const sub=f.items.reduce((s,it)=>s+it.cant*it.precio,0);
+      const tot=sub-(f.retencion||0)-(f.descuento||0);
+      /* repetir: trae los mismos productos con el PRECIO VIGENTE de hoy;
+         si el precio de la factura quedó bajo la base actual, se marca para corregir */
+      const buscarPres=(nombre)=> PRESENTACIONES.find(p=>p.nombre===nombre)
+        || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
+        || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
+      const repetir=()=>{
+        const lineas=[], fuera=[]; let pv=null, nAjuste=0;
+        f.items.forEach((it,k)=>{
+          const pres=buscarPres(it.prod);
+          if(!pres){ fuera.push(it.prod); return; }
+          if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
+          const base=pres.baseCredito;
+          const precio=it.precio;
+          const com=Math.round((precio-base)*it.cant*100)/100;
+          const ajustar = precio < base-0.004;
+          if(ajustar) nAjuste++;
+          lineas.push({ id:Date.now()+k, prod:pres, prodNombre:pres.nombre, unidad:pres.unidad,
+            tipo:"P1", tipoNombre:"Crédito", cant:it.cant, precio, gratis:0, credito:true,
+            comisionTotal:com, requiere:false, motivoAuth:null,
+            baseVigente:base, ajustar, precioFactura:precio });
+        });
+        if(!lineas.length){ toast("Ninguno de esos productos está en el catálogo; búscalos manualmente."); return; }
+        setProv(pv); setProd(null); setCarrito(lineas); setVerCarrito(true);
+        toast(fuera.length ? `Pedido repetido · ${lineas.length} producto(s). Fuera de catálogo: ${fuera.join(", ")}`
+          : nAjuste>0 ? `Pedido repetido · ${nAjuste} precio(s) quedaron bajo la base de hoy: revísalos`
+          : `Pedido repetido · ${lineas.length} producto(s)`);
+      };
+      return (
+        <div className="card" style={{padding:"12px 13px",marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:8}}>
+            <span className="meta" style={{fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em"}}>
+              Última compra</span>
+            <span className="meta" style={{fontSize:11}}>{f.fecha}</span>
+          </div>
+          {f.items.map((it,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,
+              padding:"5px 0",fontSize:12.5,borderTop:i?"1px solid #F0ECE2":"none"}}>
+              <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {it.prod}</span>
+              <span className="num" style={{whiteSpace:"nowrap",fontWeight:600}}>
+                {it.cant} × {money(it.precio)}</span>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:7,paddingTop:7,
+            borderTop:"1px solid var(--line)",fontSize:12.5}}>
+            <span className="meta">Total factura {f.factura.replace(/^001-001-/,"")}</span>
+            <b className="num">{money(tot)}</b>
+          </div>
+          <button className="mini-cta" style={{width:"100%",marginTop:10,textAlign:"center"}}
+            onClick={repetir}>🔁 Repetir último pedido</button>
+        </div>
+      );
+    })()}
 
     {/* mini-dashboard de entrada: qué hay pendiente antes de tomar el pedido.
        Desaparece al escoger cliente, igual que en la app del freelance. */}
