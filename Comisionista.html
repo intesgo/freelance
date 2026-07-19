@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"43", fecha:"18 jul 2026", desc:"Orden de bloques idéntico al freelance"};
+const VERSION={n:"44", fecha:"18 jul 2026", desc:"Avisar al cliente por WhatsApp"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2906,7 +2906,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   const [cant,setCant]=useState(0);
   const [dashAbierto,setDashAbierto]=useState(null);  // tarjeta del panel desplegada
   const [histAbierto,setHistAbierto]=useState(false); // historial 3 meses colapsado por defecto
-  const [verFact,setVerFact]=useState(false);        // desplegar la última factura del cliente
+  const [verFact,setVerFact]=useState(false);
+  const [guardadoOk,setGuardadoOk]=useState(null);   // ventana tras guardar: avisar al cliente        // desplegar la última factura del cliente
   const [favAbierto,setFavAbierto]=useState(false);   // panel de productos que ya compró el cliente
   const [precio,setPrecio]=useState("");
   const [gratis,setGratis]=useState("");        // unidades gratis (P3)
@@ -2916,7 +2917,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   const [motivo,setMotivo]=useState("");
   const [carrito,setCarrito]=useState([]);        // productos del pedido (carrito)
   const [verCarrito,setVerCarrito]=useState(false); // ventana tras guardar
-  useModal(verCarrito, React.useCallback(()=>setVerCarrito(false),[]));  // el botón atrás la cierra
+  useModal(verCarrito, React.useCallback(()=>setVerCarrito(false),[]));
+  useModal(!!guardadoOk, React.useCallback(()=>setGuardadoOk(null),[]));  // el botón atrás la cierra
   /* el botón atrás cierra lo abierto dentro del módulo antes de salir.
      Va aquí, después de declarar los estados que consulta. */
   useRetroceso(()=>{
@@ -3846,8 +3848,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
               cli:(cli && cli.nombre) || cli || "—",
               detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
               cuando:"recién" }));
+            const resumen = carrito.map(it=>`• ${it.cant} × ${it.prodNombre||it.prod}`).join("\n");
+            setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
             toast(`Pedido guardado · ${carrito.length} producto(s) · protegido en la cola ✓`);
-            cerrarPedido();if(irGuardado)irGuardado();else if(go)go("pedidos");}}>
+            cerrarPedido();}}>
             Guardar pedido · {carrito.length} producto{carrito.length>1?"s":""}</button>
           <button onClick={()=>setVerCarrito(false)}
             style={{width:"100%",marginTop:10,padding:"15px",borderRadius:12,border:"2px dashed var(--field)",
@@ -3855,6 +3859,28 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
             ＋ Agregar otro producto</button>
         </>}
     </>}
+
+    {/* Tras guardar: avisar al cliente por WhatsApp o tomarle otro pedido */}
+    {guardadoOk && (
+      <div className="ov" onClick={()=>setGuardadoOk(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
+          <div style={{fontSize:36,marginTop:4}}>✅</div>
+          <h3 style={{marginTop:6}}>Pedido guardado</h3>
+          <div className="sh-sub">{guardadoOk.cli} · {guardadoOk.n} producto(s) · lo ves en Mis pedidos</div>
+          <button className="cta wa-cta" style={{marginTop:14}} onClick={()=>{
+            const txt = `Hola ${guardadoOk.cli} 👋 Registré tu pedido:\n${guardadoOk.resumen}\nGracias por tu compra 🙌`;
+            window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
+          }}><IcoWA s={16}/> Avisar al cliente por WhatsApp</button>
+          <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
+            const c = guardadoOk.cli; setGuardadoOk(null); setCli(c);
+            toast("Listo: mismo cliente, pedido nuevo.");
+          }}>➕ Otro pedido de {String(guardadoOk.cli).split(" ")[0]}</button>
+          <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>{
+            setGuardadoOk(null); if(irGuardado)irGuardado(); else if(go)go("pedidos");
+          }}>Ver mis pedidos</button>
+        </div>
+      </div>
+    )}
 
     {/* Barra fija abajo: abre la ventana del pedido en curso */}
     {carrito.length>0 && !verCarrito && (
