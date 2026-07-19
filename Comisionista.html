@@ -1044,7 +1044,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"73", fecha:"19 jul 2026", desc:"Cobros: meta del dia en la entrada"};
+const VERSION={n:"74", fecha:"19 jul 2026", desc:"Cobros: resumen de cobranza del cliente"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4328,6 +4328,34 @@ function Cobros({toast}){
           option:c=>(<div className="o1">{c}</div>),
           picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente con cobros pendientes</div></>)
         }}/>
+      {cli && (()=>{ /* resumen de cobranza del cliente: qué debe y qué está vencido */
+        const suyas = COBROS_INI.filter(c=>c.cli===cli);
+        if(suyas.length===0) return null;
+        const dv = t => { const m=String(t||"").match(/Vencida hace (\d+)/i); return m?+m[1]:0; };
+        const deuda = suyas.reduce((s,c)=>s+c.valor,0);
+        const venc = suyas.filter(c=>dv(c.vence)>0);
+        const montoVenc = venc.reduce((s,c)=>s+c.valor,0);
+        const masVieja = venc.length ? Math.max(...venc.map(c=>dv(c.vence))) : 0;
+        return (
+          <div className="card" style={{padding:"9px 11px",marginBottom:10,
+            borderLeft:`3px solid ${venc.length?"#C2603A":"#2E7D52"}`}}>
+            <div style={{display:"flex",gap:7}}>
+              <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:8,padding:"6px 8px"}}>
+                <div className="meta" style={{fontSize:9}}>Deuda total</div>
+                <div className="num" style={{fontSize:14,fontWeight:800,color:"var(--field)"}}>{money(deuda)}</div>
+                <div className="meta" style={{fontSize:9,marginTop:1}}>{suyas.length} factura(s)</div>
+              </div>
+              <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:8,padding:"6px 8px"}}>
+                <div className="meta" style={{fontSize:9}}>Vencido</div>
+                <div className="num" style={{fontSize:14,fontWeight:800,
+                  color:montoVenc>0?"#C2603A":"var(--field)"}}>{money(montoVenc)}</div>
+                <div className="meta" style={{fontSize:9,marginTop:1}}>
+                  {venc.length ? `${venc.length} · hasta ${masVieja}d` : "sin vencidas"}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {cli && (
         <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setAplic({});setLineas([]);}} onClear={()=>{setProv(null);setAplic({});setLineas([]);}}
