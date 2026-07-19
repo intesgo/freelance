@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"34", fecha:"18 jul 2026", desc:"Resumen del cliente al elegirlo"};
+const VERSION={n:"35", fecha:"18 jul 2026", desc:"Pedido en una sola pantalla"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2843,19 +2843,18 @@ function ArcCupo({ total, usado, excede, money }){
   );
 }
 
-function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso}){
+function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [prod,setProd]=useState(null);
   /* El paso vive en la App y sobrevive al salir del módulo, pero el producto no.
      Si volvemos al paso 2 sin producto, regresamos al 1 en vez de mostrar una ficha vacía. */
-  React.useEffect(()=>{ if(paso!==1 && !prod) setPaso(1); },[paso,prod]);
   /* el botón atrás cierra lo abierto dentro del módulo antes de salir */
   useRetroceso(()=>{
     if(favAbierto){ setFavAbierto(false); return true; }
     if(histAbierto){ setHistAbierto(false); return true; }
     if(dashAbierto){ setDashAbierto(null); return true; }
-    if(paso===2){ setPaso(1); return true; }
+    if(verCarrito){ setVerCarrito(false); return true; }
     return false;
   });
   // Origen del producto elegido: "favorito" (recompra) o "nuevo" (campo Producto nuevo → arranca limpio)
@@ -2895,7 +2894,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   // agregar el producto actual al carrito y limpiar para el siguiente
   const resetProducto=()=>{setProd(null);setCant(0);reset();};
   // cerrar pedido completo: vuelve de cero
-  const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();setPaso(1);};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   // Valor total de la factura del pedido (precio x cantidad de cada item)
   const totalFacturaCarrito = Math.round(carrito.reduce((s,it)=>s+(it.precio*it.cant),0)*100)/100;
@@ -3037,7 +3036,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     <div className="h1">Tomar pedido</div>
     {paso!==1 && <div className="sub">Define el precio y la cantidad.</div>}
 
-    {paso===1 && <>
+    {/* siempre visible: cliente, proveedor y producto */}
+    {true && <>
     {/* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */}
     <div className="busc-cliente">
     <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra sinLabel
@@ -3250,7 +3250,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
           <div className="fav-lista">
             {favoritos.map(f=>(
               <button key={f.prod.id} className="fav-item"
-                onClick={()=>{ origenProd.current="favorito"; setProd(f.prod); reset(); setFavAbierto(false); setPaso(2); }}>
+                onClick={()=>{ origenProd.current="favorito"; setProd(f.prod); reset(); setFavAbierto(false); }}>
                 <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
                 <div className="fav-info">
                   <div className="fav-nom">{f.prod.marca}</div>
@@ -3272,7 +3272,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
     {prov && <SearchSelect label="Producto nuevo" sinLabel items={productosDelProv} value={prod} maxItems={5}
       placeholder="Producto"
-      onPick={p=>{origenProd.current="nuevo";setProd(p);reset();setPaso(2);}} onClear={()=>{setProd(null);reset();}}
+      onPick={p=>{origenProd.current="nuevo";setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       hint={prov?`${productosDelProv.length} productos autorizados de ${prov.nombre}`:null}
       render={{
         text:p=>p.nombre,
@@ -3292,8 +3292,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     </>}
 
     {/* ── PASO 2: precio y cantidad ── */}
-    {paso===2 && <>
-    <button className="volver-paso" onClick={()=>setPaso(1)}>‹ Cambiar producto</button>
+    {/* al elegir producto aparece el precio, sin cambiar de pantalla */}
+    {prod && <>
     <div className="prod-elegido">
       <div className="pe-emoji">{prod?(EMOJI_LINEA[prod.linea]||"📦"):"📦"}</div>
       <div style={{flex:1}}>
@@ -3607,7 +3607,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
           ? "Producto agregado · espera autorización del freelance."
           : "Producto agregado al pedido ✓");
         resetProducto();
-        setPaso(1);
       }}>
       {requiereAutorizacion ? "Agregar producto (con autorización)" : "Agregar producto"}</button>
 
@@ -3629,8 +3628,9 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     </>}
 
     {/* ── PASO 3: resumen del pedido (pantalla completa) ── */}
-    {paso===3 && <>
-      <button className="volver-paso" onClick={()=>setPaso(1)}>‹ Volver</button>
+    {/* el pedido en curso se muestra como ventana */}
+    {verCarrito && <>
+      <button className="volver-paso" onClick={()=>setVerCarrito(false)}>‹ Seguir agregando</button>
       <div className="h1">Resumen del pedido</div>
       <div className="sub">{cli} · {prov?prov.nombre:""}</div>
 
@@ -3674,16 +3674,16 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             toast(`Pedido guardado · ${carrito.length} producto(s) · protegido en la cola ✓`);
             cerrarPedido();if(irGuardado)irGuardado();else if(go)go("pedidos");}}>
             Guardar pedido · {carrito.length} producto{carrito.length>1?"s":""}</button>
-          <button onClick={()=>setPaso(1)}
+          <button onClick={()=>setVerCarrito(false)}
             style={{width:"100%",marginTop:10,padding:"15px",borderRadius:12,border:"2px dashed var(--field)",
               background:"#fff",color:"var(--field)",fontSize:15,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>
             ＋ Agregar otro producto</button>
         </>}
     </>}
 
-    {/* Botón fijo abajo: mostrar pedido (visible en pasos 1 y 2 si hay productos) */}
-    {carrito.length>0 && paso!==3 && (
-      <button className="mostrar-pedido" onClick={()=>setPaso(3)}>
+    {/* Barra fija abajo: abre la ventana del pedido en curso */}
+    {carrito.length>0 && !verCarrito && (
+      <button className="mostrar-pedido" onClick={()=>setVerCarrito(true)}>
         🛒 Mostrar pedido · {carrito.length} producto{carrito.length>1?"s":""} · {money(totalComisionCarrito)}
       </button>
     )}
@@ -6019,17 +6019,14 @@ function App(){
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
   // historial de navegación para "Atrás" (pantalla real anterior)
   const navegar=(t)=>{ if(t===tab) return;
-    if(tab==="pedido") setPasoPedido(1);   /* al salir del pedido, el paso vuelve a 1 */
     setHist(h=>[...h,tab]); setTab(t); };
-  const [pasoPedido,setPasoPedido]=useState(1);   // paso interno del módulo Pedido (1 producto, 2 precio)
   const atras=()=>{
     if(cerrarUltimoModal()) return;       // 1) cierra la ventana abierta
     if(retrocederEnModulo()) return;      // 2) pregunta al módulo si tiene algo que cerrar
     // 3) dentro del pedido, vuelve al paso anterior antes de salir del módulo
-    if(tab==="pedido" && (pasoPedido===2 || pasoPedido===3)){ setPasoPedido(1); return; }
     setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
   };
-  const irInicio=()=>{ setHist([]); setPasoPedido(1); setTab("inicio"); };
+  const irInicio=()=>{ setHist([]); setTab("inicio"); };
   // Tras guardar un pedido: ir a Mis pedidos con Inicio como única ventana previa
   const irAPedidosGuardado=()=>{ setHist(["inicio"]); setPasoPedido(1); setTab("pedidos"); };
   // pantallas secundarias (se llega desde Inicio, no están en la barra)
@@ -6099,7 +6096,7 @@ function App(){
       </div>
       <div className="body">
         {tab==="inicio" && <Inicio go={navegar}/>}
-        {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado} paso={pasoPedido} setPaso={setPasoPedido}/>}
+        {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado}/>}
         {tab==="pedidos" && <Pedidos irInicio={irInicio}/>}
         {tab==="cobros" && <Cobros toast={show}/>}
         {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)}/>}
