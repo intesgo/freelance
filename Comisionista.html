@@ -1027,7 +1027,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"61", fecha:"19 jul 2026", desc:"Recompra debajo del buscador de producto"};
+const VERSION={n:"62", fecha:"19 jul 2026", desc:"Al guardar va a Mis pedidos con el pedido nuevo"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3051,7 +3051,7 @@ function ArcCupo({ total, usado, excede, money }){
   );
 }
 
-function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
+function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido}){
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [prod,setProd]=useState(null);
@@ -4012,6 +4012,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
               cli:(cli && cli.nombre) || cli || "—",
               detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
               cuando:"recién" }));
+            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito});
             const resumen = carrito.map(it=>`• ${it.cant} × ${it.prodNombre||it.prod}`).join("\n");
             setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
             toast(`Pedido guardado · ${carrito.length} producto(s) · protegido en la cola ✓`);
@@ -4037,11 +4038,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
           }}><IcoWA s={16}/> Avisar al cliente por WhatsApp</button>
           <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
             const c = guardadoOk.cli; setGuardadoOk(null); setCli(c);
+            if(go) go("pedido");                    /* vuelve a Tomar pedido con el cliente puesto */
             toast("Listo: mismo cliente, pedido nuevo.");
           }}>➕ Otro pedido de {String(guardadoOk.cli).split(" ")[0]}</button>
-          <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>{
-            setGuardadoOk(null); if(irGuardado)irGuardado(); else if(go)go("pedidos");
-          }}>Ver mis pedidos</button>
+          <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setGuardadoOk(null)}>Listo</button>
         </div>
       </div>
     )}
@@ -4409,7 +4409,7 @@ function LineaPago({modalidad, onSave, onCancel}){
 }
 
 // ---------- MIS PEDIDOS ----------
-function Pedidos({irInicio}){
+function Pedidos({irInicio, pedidos=PEDIDOS_INI}){
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("activos");  // activos | historial
@@ -4426,14 +4426,14 @@ function Pedidos({irInicio}){
   const [tHasta,setTHasta]=useState("");
   const [tOrden,setTOrden]=useState("recientes");
   if(sel){
-    const p=PEDIDOS_INI.find(x=>x.id===sel);
+    const p=pedidos.find(x=>x.id===sel);
     return <DetallePedido p={p} volver={()=>setSel(null)}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado","Entregado","Cobrado"];
   /* los pedidos con comisión ya liberada pasan al historial */
   const CERRADOS=["Comisión liberada","Cobrado y validado"];
-  const lista=PEDIDOS_INI.filter(p=>{
+  const lista=pedidos.filter(p=>{
     const cerrado = CERRADOS.includes(p.estado) || p.comisionLiberada;
     if(pestana==="activos" && cerrado) return false;
     if(pestana==="historial" && !cerrado) return false;
@@ -6674,6 +6674,44 @@ function App(){
   const irInicio=()=>{ setHist([]); setTab("inicio"); };
   // Tras guardar un pedido: ir a Mis pedidos con Inicio como única ventana previa
   const irAPedidosGuardado=()=>{ setHist(["inicio"]); setPasoPedido(1); setTab("pedidos"); };
+
+  /* Lista viva de pedidos: los recién tomados se suman arriba de los de ejemplo */
+  const [pedidos,setPedidos]=useState(PEDIDOS_INI);
+  const guardarPedido=({cli, prov, carrito})=>{
+    const ahora=new Date();
+    const dd=String(ahora.getDate()).padStart(2,"0");
+    const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const fechaCorta=`${dd} ${meses[ahora.getMonth()]} · ${String(ahora.getHours()).padStart(2,"0")}:${String(ahora.getMinutes()).padStart(2,"0")}`;
+    const fechaISO=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,"0")}-${dd}`;
+    const quien="Carlos Andrade";
+    const nomCli=(cli && cli.nombre) || cli || "—";
+    const nuevos=carrito.map((it,i)=>{
+      const credito = it.tipoNombre && /créd/i.test(it.tipoNombre);
+      return {
+        id:Date.now()+i,
+        cli:nomCli, prov: prov?prov.nombre:"—", fecha:fechaISO,
+        prod:it.prodNombre||it.prod, cant:it.cant, precio:it.precio,
+        cond: credito?"Crédito":"Contado",
+        comision: it.requiere?0:it.comisionTotal,
+        estado: it.requiere?"Esperando aprobación":"Enviado al proveedor",
+        etapa: it.requiere?1:2,
+        sync:"pend",
+        linea:[
+          {t:"Pedido ingresado", f:fechaCorta, st:"ok", d:`Tomado por ${quien}`},
+          {t:"Acuerdo de comisión", f:fechaCorta, st:"ok", d: it.requiere?"Comisión propuesta · por confirmar":"Comisión "+money(it.comisionTotal)},
+          {t:"Aprobación del freelance", f: it.requiere?"En espera":fechaCorta, st: it.requiere?"now":"ok", d: it.requiere?"Pendiente de aprobar el acuerdo":"Aprobado"},
+          {t:"Aprobación de crédito", f: credito?"En espera":"No aplica", st: credito?"wait":"ok", d: credito?"Cupo del cliente por validar":"Venta de contado"},
+          {t:"Enviado al proveedor", f: it.requiere?"—":fechaCorta, st: it.requiere?"wait":"now", d: it.requiere?"":"Esperando aceptación y fecha de despacho"},
+          {t:"Facturado", f:"—", st:"wait", d:""},
+          {t:"Despachado", f:"—", st:"wait", d:""},
+          {t:"Entregado", f:"—", st:"wait", d:""},
+          {t:"Cliente pagó", f:"—", st:"wait", d:""},
+          {t:"Comisión liberada", f:"—", st:"wait", d:""},
+        ],
+      };
+    });
+    setPedidos(prev=>[...nuevos, ...prev]);   // los nuevos arriba
+  };
   // pantallas secundarias (se llega desde Inicio, no están en la barra)
   const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",comisiones:"Mis comisiones"};
   const enSub = tab in subPantallas;
@@ -6741,8 +6779,9 @@ function App(){
       </div>
       <div className="body">
         {tab==="inicio" && <Inicio go={navegar}/>}
-        {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado}/>}
-        {tab==="pedidos" && <Pedidos irInicio={irInicio}/>}
+        {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado}
+          onGuardarPedido={(data)=>{ guardarPedido(data); irAPedidosGuardado(); }}/>}
+        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos}/>}
         {tab==="cobros" && <Cobros toast={show}/>}
         {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)}/>}
         {tab==="ajustes" && <Ajustes toast={show} tema={tema} setTema={setTema}
