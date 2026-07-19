@@ -2793,6 +2793,8 @@ function BotonCrear({onClick, titulo}){
 function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
+  /* avisa hacia afuera si la lista está abierta (para ocultar lo que quede debajo) */
+  React.useEffect(()=>{ if(onAbrir) onAbrir(open); },[open]);
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const txt=(it)=>render?render(it):String(it);
   const opciones=[{__todos:true}, ...items];
@@ -2828,7 +2830,7 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
   );
 }
 
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel, className}){
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel, className, onAbrir}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   if(value){
@@ -3728,7 +3730,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"249", fecha:"19 jul 2026", desc:"Cobros: buscador destacado y alerta discreta"};
+const VERSION={n:"250", fecha:"19 jul 2026", desc:"Cobros: el tablero se oculta al buscar cliente"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5489,6 +5491,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
   const [lineas,setLineas]=useState([]);
   const [modal,setModal]=useState(null);
   const [pagFac,setPagFac]=useState(1);       // paginación de facturas del paso 2
+  const [buscando,setBuscando]=useState(false); // buscador de cliente abierto: oculta el tablero de abajo
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
   const [resumen,setResumen]=useState(false); // pantalla de revisión antes de guardar
   const [facUnica,setFacUnica]=useState(null); // si viene de Cartera: solo esta factura
@@ -6251,14 +6254,14 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     </div>
 
     {paso===1 && (<>
-      <SearchSelect className="ss-hero" label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
+      <SearchSelect className="ss-hero" onAbrir={setBuscando} label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
           text:c=>c,
           option:c=>(<div className="o1">{c}</div>),
           picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente con cobros pendientes</div></>)
         }}/>
-      {!cli && (()=>{ /* mini-dashboard neumórfico: cómo voy hoy y cómo vengo esta semana */
+      {!cli && !buscando && (()=>{ /* mini-dashboard neumórfico: cómo voy hoy y cómo vengo esta semana */
         const activos=COBROS_DIA.filter(c=>!c.anulado);
         const hoyTot=activos.reduce((s,c)=>s+c.monto,0);
         const pct=Math.min(100, META_DIA>0?Math.round(hoyTot/META_DIA*100):0);
