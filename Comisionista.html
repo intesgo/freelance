@@ -78,6 +78,12 @@
   .eq-tabs button.on{background:var(--card);color:var(--field);box-shadow:0 1px 3px rgba(0,0,0,.08)}
   .eq-tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;
     border-radius:9px;background:#C2603A;color:#fff;font-size:10px;font-weight:800;margin-left:5px;padding:0 4px}
+  /* buscador de cliente destacado en Tomar pedido (igual que en la app del freelance) */
+  .busc-cliente .box{border:2px solid var(--field);background:#F7FBF8}
+  .busc-cliente .mag{color:var(--field);font-weight:800}
+  @keyframes buscHalo{0%,100%{box-shadow:0 0 0 0 rgba(46,107,67,.28)}50%{box-shadow:0 0 0 6px rgba(46,107,67,0)}}
+  .busc-cliente{animation:buscHalo 2.4s ease-in-out 3}
+  @media (prefers-reduced-motion:reduce){.busc-cliente{animation:none!important}}
   .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
   .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
     gap:1px;background:var(--card);border:1px solid var(--line);border-radius:11px;
@@ -919,7 +925,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"31", fecha:"18 jul 2026", desc:"Arreglo: paso del pedido sin producto"};
+const VERSION={n:"32", fecha:"18 jul 2026", desc:"Buscador de cliente arriba y destacado"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3012,6 +3018,20 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     {paso!==1 && <div className="sub">Define el precio y la cantidad.</div>}
 
     {paso===1 && <>
+    {/* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */}
+    <div className="busc-cliente">
+    <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra sinLabel
+      onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
+      hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
+      render={{
+        text:c=>c,
+        option:c=>(<><div className="o1">{c}</div>
+          {(REFERENCIALES[c]||[]).length>0 && <div className="o2">Factura a: {REFERENCIALES[c].join(" · ")}</div>}</>),
+        picked:c=>(<><div className="p1">{c}</div>
+          <div className="p2">{(REFERENCIALES[c]||[]).length>0?`Factura a: ${REFERENCIALES[c].join(" · ")}`:"Cliente comprador"}</div></>)
+      }}/>
+    </div>
+
     {/* mini-dashboard de entrada: qué hay pendiente antes de tomar el pedido.
        Desaparece al escoger cliente, igual que en la app del freelance. */}
     {!cli && carrito.length===0 && (()=>{
@@ -3132,16 +3152,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
       );
     })()}
 
-    <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra placeholder="Cliente"
-      onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
-      hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
-      render={{
-        text:c=>c,
-        option:c=>(<><div className="o1">{c}</div>
-          {(REFERENCIALES[c]||[]).length>0 && <div className="o2">Factura a: {REFERENCIALES[c].join(" · ")}</div>}</>),
-        picked:c=>(<><div className="p1">{c}</div>
-          <div className="p2">{(REFERENCIALES[c]||[]).length>0?`Factura a: ${REFERENCIALES[c].join(" · ")}`:"Cliente comprador"}</div></>)
-      }}/>
+
 
     {cli && motivos.length>0 && (
       <div className={"bloqueo"+(desbloqueado?" ok":"")}>
