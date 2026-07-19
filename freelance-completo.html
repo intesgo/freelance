@@ -912,6 +912,17 @@
   .lock{font-size:11.5px;color:var(--muted);background:#EDEAE0;border-radius:10px;padding:9px 12px;
     margin-top:14px;line-height:1.5;display:flex;gap:8px}
   /* search typeahead */
+  /* buscador principal de una pantalla de entrada: es la acción, debe verse */
+  .ss.ss-hero .box{border:2px solid var(--field);padding:15px 15px;border-radius:14px;
+    box-shadow:0 2px 10px rgba(21,57,43,.07)}
+  .ss.ss-hero .box .mag{color:var(--field);font-size:17px}
+  .ss.ss-hero .box input{font-size:15px;font-weight:600}
+  .ss.ss-hero .box input::placeholder{color:var(--muted);font-weight:500}
+  /* KPIs con el mismo lenguaje suave de las tarjetas neumórficas */
+  .mini-kpi.kpi-suave button{background:var(--card);border:none;border-radius:14px;padding:11px 5px;
+    box-shadow:3px 3px 9px rgba(23,43,32,.06), -3px -3px 9px rgba(255,255,255,.85)}
+  .mini-kpi.kpi-suave button:active{box-shadow:inset 2px 2px 6px rgba(23,43,32,.08), inset -2px -2px 6px rgba(255,255,255,.9)}
+  .mini-kpi.kpi-suave button.alerta .mk-v{color:#C2603A}
   .ss{position:relative;min-width:0}
   .ss .box{display:flex;align-items:center;gap:9px;width:100%;max-width:100%;padding:13px 14px;
     border:1px solid var(--line);border-radius:12px;background:var(--card);min-width:0;overflow:hidden}
@@ -2817,12 +2828,12 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
   );
 }
 
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel}){
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel, className}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   if(value){
     return (<div className="field">{!sinLabel && <label>{label}</label>}
-      <div className="ss"><div className={"pick"+(disabled?" dis":"")}>
+      <div className={"ss"+(className?" "+className:"")}><div className={"pick"+(disabled?" dis":"")}>
         <div>{render.picked(value)}</div>
         {!disabled && <button className="chg" onClick={()=>{onClear();setQ("");}}>Cambiar</button>}
       </div></div></div>);
@@ -2839,7 +2850,7 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
   let filtrados = q.trim()==="" ? items : items.filter(it=>coincide(render.text(it)));
   if(sortBy) filtrados = [...filtrados].sort(sortBy);
   return (<div className="field">{!sinLabel && <label>{label}</label>}
-    <div className="ss">
+    <div className={"ss"+(className?" "+className:"")}>
       <div className={"box"+(disabled?" dis":"")}>
         <span className="mag">⌕</span>
         <input value={q} disabled={disabled}
@@ -3717,7 +3728,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"248", fecha:"19 jul 2026", desc:"Cobros paso 3: ayuda y nota de retenciones"};
+const VERSION={n:"249", fecha:"19 jul 2026", desc:"Cobros: buscador destacado y alerta discreta"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6240,7 +6251,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     </div>
 
     {paso===1 && (<>
-      <SearchSelect label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
+      <SearchSelect className="ss-hero" label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
           text:c=>c,
@@ -6292,15 +6303,12 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
             const vencidas=COBROS_INI.filter(c=>diasVenc(c.vence)>0);
             if(vencidas.length===0) return null;
             return (
-              <div className="card" style={{marginBottom:10,padding:"10px 12px",
-                borderLeft:"3px solid #C2603A",background:"#FDF6F3"}}>
-                <div style={{fontSize:12,fontWeight:800,color:"#C2603A",marginBottom:5}}>
-                  ⚠️ Cobra primero estas</div>
+              <div style={{margin:"0 2px 12px"}}>
                 {vencidas.slice().sort((a,b)=>diasVenc(b.vence)-diasVenc(a.vence)).slice(0,3).map((c,i,arr)=>(
                   <button key={i} onClick={()=>{setCli(c.cli);setProv(null);setAplic({});setLineas([]);}}
                     style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
-                      gap:8,padding:"6px 0",background:"none",border:"none",
-                      borderBottom:i<arr.length-1?"1px solid #F4E5DE":"none",
+                      gap:8,padding:"7px 0",background:"none",border:"none",
+                      borderBottom:i<arr.length-1?"1px solid var(--line)":"none",
                       cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                     <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",
                       textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
