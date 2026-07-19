@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"48", fecha:"18 jul 2026", desc:"Pantalla de producto igual al freelance"};
+const VERSION={n:"49", fecha:"19 jul 2026", desc:"Botón atrás completo en Tomar pedido"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2903,7 +2903,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   // Origen del producto elegido: "favorito" (recompra) o "nuevo" (campo Producto nuevo → arranca limpio)
   const origenProd = React.useRef(null);
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
-  const [cant,setCant]=useState(0);
+  const [cant,setCant]=useState(50);
   const [dashAbierto,setDashAbierto]=useState(null);  // tarjeta del panel desplegada
   const [histAbierto,setHistAbierto]=useState(false); // historial 3 meses colapsado por defecto
   const [verFact,setVerFact]=useState(false);
@@ -2919,15 +2919,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   const [verCarrito,setVerCarrito]=useState(false); // ventana tras guardar
   useModal(verCarrito, React.useCallback(()=>setVerCarrito(false),[]));
   useModal(!!guardadoOk, React.useCallback(()=>setGuardadoOk(null),[]));  // el botón atrás la cierra
-  /* el botón atrás cierra lo abierto dentro del módulo antes de salir.
-     Va aquí, después de declarar los estados que consulta. */
-  useRetroceso(()=>{
-    if(favAbierto){ setFavAbierto(false); return true; }
-    if(histAbierto){ setHistAbierto(false); return true; }
-    if(dashAbierto){ setDashAbierto(null); return true; }
-    if(verCarrito){ setVerCarrito(false); return true; }
-    return false;
-  });
   const [codigo,setCodigo]=useState("");           // código de desbloqueo ingresado
   const [desbloqueado,setDesbloqueado]=useState(false);
 
@@ -2947,9 +2938,26 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
 
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setComProp("");setMotivo("");};
   // agregar el producto actual al carrito y limpiar para el siguiente
-  const resetProducto=()=>{setProd(null);setCant(0);reset();};
+  const resetProducto=()=>{setProd(null);setCant(50);reset();};
   // cerrar pedido completo: vuelve de cero
   const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
+
+  /* Botón atrás inteligente: retrocede paso a paso dentro del módulo antes de salir.
+     Va aquí, después de declarar los estados y funciones que consulta. */
+  useRetroceso(()=>{
+    if(favAbierto){ setFavAbierto(false); return true; }
+    if(histAbierto){ setHistAbierto(false); return true; }
+    if(dashAbierto){ setDashAbierto(null); return true; }
+    if(verCarrito){ setVerCarrito(false); return true; }   // cierra el "Pedido en curso"
+    if(verFact){ setVerFact(false); return true; }         // cierra el detalle de la última factura
+    if(prod){ resetProducto(); return true; }              // quita el producto, vuelve a elegir
+    /* con carrito en curso NO se pierde el pedido: se avisa y no se sale */
+    if(carrito.length>0){ toast("Tienes un pedido en curso. Ciérralo o vacíalo para salir."); return true; }
+    if(prov){ setProv(null); setProd(null); reset(); return true; }  // quita proveedor
+    if(cli){ cerrarPedido(); return true; }                          // quita cliente
+    return false;                                          // nada que retroceder: sale del módulo
+  });
+
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   // Valor total de la factura del pedido (precio x cantidad de cada item)
   const totalFacturaCarrito = Math.round(carrito.reduce((s,it)=>s+(it.precio*it.cant),0)*100)/100;
@@ -2967,7 +2975,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   // Se ocultan los que ya están en el pedido para no elegirlos dos veces.
   const enCarrito = new Set(carrito.map(it=>it.prod?it.prod.id:it.prodId));
   const favoritos = (cli && prov) ? productosDelProv
-    .map(p=>{ const h=HISTORIAL_3M[cli+"|"+p.id]; return h&&h.length>0 ? {prod:p, ultima:h[0], nCompras:h.length} : null; })
+    .map(p=>{ const h=HISTORIAL_3M[(cli.nombre||cli)+"|"+p.id]; return h&&h.length>0 ? {prod:p, ultima:h[0], nCompras:h.length} : null; })
     .filter(Boolean)
     .filter(f=>!enCarrito.has(f.prod.id))
     .sort((a,b)=>b.nCompras-a.nCompras) : [];
@@ -3027,7 +3035,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   });
   const histo = (cli && prod) ? HISTORIAL[cli+"|"+prod.id] : null;
   // Historial extendido 3 meses (igualado con app Freelance)
-  const histo3m = (cli && prod) ? (HISTORIAL_3M[cli+"|"+prod.id]||[]) : [];
+  const histo3m = (cli && prod) ? (HISTORIAL_3M[(cli.nombre||cli)+"|"+prod.id]||[]) : [];
   const ultimaCompra = histo3m.length>0 ? histo3m[0] : null;
   // Producto nuevo para este cliente: hay producto elegido pero sin compras previas
   const esProductoNuevo = !!(cli && prod && !ultimaCompra);
