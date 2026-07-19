@@ -2001,6 +2001,10 @@ const COMO_FUNCIONA = [
    d:"El cupo lo administra el freelance. Los cheques posfechados ocupan cupo hasta efectivizarse."},
   {mod:"Clientes", ic:"📊", t:"Historial de compras",
    d:"El historial completo de compras de cada cliente está en su pestaña de Estadísticas."},
+  {mod:"Autorizaciones", ic:"🔑", t:"Cómo funcionan",
+   d:"El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti."},
+  {mod:"Autorizaciones", ic:"📋", t:"Historial de códigos",
+   d:"Los códigos son de un solo uso: al usarse en el sistema quedan marcados. Nada se borra."},
   {mod:"Mi equipo", ic:"🔎", t:"Análisis por vendedor",
    d:"Busca o filtra un vendedor y entra a su análisis completo de ventas, cobros y cartera."},
   {mod:"Solicitudes", ic:"📨", t:"Quién aprueba qué",
@@ -3548,7 +3552,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"187", fecha:"18 jul 2026", desc:"Drawer sin accesos duplicados"};
+const VERSION={n:"188", fecha:"18 jul 2026", desc:"Autorizaciones compactas y código copiable"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14301,6 +14305,7 @@ function Autorizaciones({toast, usuario}){
   const [pestana,setPestana]=useState("pendientes"); // pendientes | historial
   const [denegar,setDenegar]=useState(null);         // {id, motivo}
   const [verCodigo,setVerCodigo]=useState(null);     // autorización recién aprobada (modal del código)
+  const [verHist,setVerHist]=useState(10);           // historial paginado: 10 en 10
 
   const ahora=()=>{const d=new Date();return {fecha:d.toISOString().slice(0,10), hora:d.toTimeString().slice(0,5)};};
   const genCodigo=()=>String(Math.floor(100000+Math.random()*900000)); // 6 dígitos, un solo uso
@@ -14339,25 +14344,34 @@ function Autorizaciones({toast, usuario}){
   const chipEst=(e)=>(<span style={{fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:20,background:EST[e].bg,color:EST[e].c,whiteSpace:"nowrap"}}>{EST[e].t}</span>);
 
   const tarjetaAut=(a, conAcciones)=>(
-    <div key={a.id} className="card" style={{marginBottom:10}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
-        <div>
-          <div style={{fontSize:13.5,fontWeight:800}}>{a.accion}</div>
-          <div className="meta">{a.quien} · {a.rol}</div>
+    <div key={a.id} className="card" style={{marginBottom:9,padding:"12px 13px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:5}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:800,lineHeight:1.25}}>{a.accion}</div>
+          <div className="meta" style={{fontSize:11}}>{a.quien} · {a.rol}</div>
         </div>
         {chipEst(a.estado)}
       </div>
-      <div style={{fontSize:12.5,marginBottom:2}}><b>{a.objeto}</b>{a.monto!=null && <> · {money(a.monto)}</>} <span className="meta">· {a.modulo}</span></div>
-      <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:6}}>Motivo: {a.motivo}</div>
-      <div className="meta">{a.fecha} · {a.hora}</div>
-      {a.resp && <div style={{fontSize:12,color:"var(--muted)",marginTop:6,paddingTop:6,borderTop:"1px solid var(--line)"}}>↳ {a.resp.nota} <span className="meta">· {a.resp.fecha} {a.resp.hora}</span></div>}
+      {/* datos de la operación en una sola línea */}
+      <div style={{fontSize:12,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        <b>{a.objeto}</b>{a.monto!=null && <> · {money(a.monto)}</>} <span className="meta">· {a.modulo}</span></div>
+      <div style={{fontSize:11.5,color:"var(--muted)",marginBottom:4}}>Motivo: {a.motivo}</div>
+      <div className="meta" style={{fontSize:10.5}}>
+        {a.fecha} · {a.hora}
+        {a.resp && <> <span style={{opacity:.5}}>│</span> ↳ {a.resp.nota}</>}
+      </div>
       {a.codigo && a.estado!=="denegado" && (
-        <button onClick={()=>copiarCodigo(a.codigo)} style={{marginTop:8,width:"100%",padding:"9px",border:"1px dashed var(--field)",borderRadius:10,background:"var(--card)",fontFamily:"'Space Grotesk',sans-serif",fontSize:15,fontWeight:700,letterSpacing:"4px",color:"var(--field)",cursor:"pointer"}}>
-          🔑 {a.codigo}
+        <button onClick={()=>copiarCodigo(a.codigo)}
+          style={{marginTop:8,width:"100%",padding:"9px 11px",border:"1px dashed var(--field)",borderRadius:10,
+            background:"var(--paper)",cursor:"pointer",display:"flex",alignItems:"center",
+            justifyContent:"space-between",gap:8}}>
+          <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700,
+            letterSpacing:"3px",color:"var(--field)"}}>{a.codigo}</span>
+          <span style={{fontSize:10.5,fontWeight:700,color:"var(--muted)",flexShrink:0}}>⧉ Copiar</span>
         </button>
       )}
       {conAcciones && (
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:9}}>
           <button onClick={()=>autorizar(a.id)} style={{padding:"11px",border:"none",borderRadius:10,background:"var(--field)",color:"#fff",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Autorizar 🔑</button>
           <button onClick={()=>setDenegar({id:a.id, motivo:""})} style={{padding:"11px",border:"1px solid #E3B7A8",borderRadius:10,background:"#FBE9E4",color:"#B5613C",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Denegar</button>
         </div>
@@ -14367,7 +14381,6 @@ function Autorizaciones({toast, usuario}){
 
   return (<>
     <div className="h1">Autorizaciones</div>
-    <div className="sub">El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti.</div>
 
     <div className="eq-tabs">
       <button className={pestana==="pendientes"?"on":""} onClick={()=>setPestana("pendientes")}>
@@ -14383,8 +14396,12 @@ function Autorizaciones({toast, usuario}){
 
     {pestana==="historial" && (<>
       {historial.length===0 && <div className="card" style={{textAlign:"center",color:"var(--muted)",fontSize:13}}>Aún no hay autorizaciones resueltas.</div>}
-      {historial.map(a=>tarjetaAut(a,false))}
-      <div className="meta" style={{marginTop:4}}>Los códigos son de un solo uso: al usarse en el sistema quedan marcados. Nada se borra.</div>
+      {historial.slice(0, verHist).map(a=>tarjetaAut(a,false))}
+      {historial.length>verHist && (
+        <button className="back" style={{width:"100%",marginTop:4}}
+          onClick={()=>setVerHist(v=>v+10)}>
+          Ver más ({historial.length-verHist} restantes)</button>
+      )}
     </>)}
 
     {/* Modal: código generado */}
@@ -14394,8 +14411,11 @@ function Autorizaciones({toast, usuario}){
           <div style={{fontSize:34,marginBottom:6}}>🔑</div>
           <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Autorización aprobada</div>
           <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:14}}>{verCodigo.accion} · {verCodigo.objeto}<br/>Solicitó: {verCodigo.quien}</div>
-          <button onClick={()=>copiarCodigo(verCodigo.codigo)} style={{width:"100%",padding:"14px",border:"2px dashed var(--field)",borderRadius:12,background:"var(--paper)",fontFamily:"'Space Grotesk',sans-serif",fontSize:26,fontWeight:700,letterSpacing:"6px",color:"var(--field)",cursor:"pointer",marginBottom:10}}>{verCodigo.codigo}</button>
-          <div style={{fontSize:11.5,color:"var(--muted)",marginBottom:14}}>Toca el código para copiarlo y pásaselo a {verCodigo.quien.split(" ")[0]}. Es de un solo uso, solo para esta operación. Con el sistema conectado, le llegará directo a su pantalla.</div>
+          <button onClick={()=>copiarCodigo(verCodigo.codigo)} style={{width:"100%",padding:"14px",border:"2px dashed var(--field)",borderRadius:12,background:"var(--paper)",cursor:"pointer",marginBottom:6}}>
+            <div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:26,fontWeight:700,letterSpacing:"6px",color:"var(--field)"}}>{verCodigo.codigo}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",marginTop:4}}>⧉ Tocar para copiar</div>
+          </button>
+          <div style={{fontSize:11.5,color:"var(--muted)",marginBottom:14}}>Pásaselo a {verCodigo.quien.split(" ")[0]}. Es de un solo uso, solo para esta operación.</div>
           <button onClick={()=>setVerCodigo(null)} style={{width:"100%",padding:"12px",border:"none",borderRadius:10,background:"var(--field)",color:"#fff",fontSize:13.5,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Listo</button>
         </div>
       </div>
