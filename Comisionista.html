@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Playfair+Display:wght@700;800&family=Lora:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <style>
   :root{
     --field:#15392B; --field-700:#1E4D3A; --maize:#F2A900; --maize-deep:#C77F00;
@@ -1044,7 +1045,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"76", fecha:"19 jul 2026", desc:"Cobros paso 3: caja de saldo y efectivo 24h"};
+const VERSION={n:"77", fecha:"19 jul 2026", desc:"OCR de comprobantes en Cobros"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1752,6 +1753,66 @@ const BANCOS = [
   "Cooperativa 29 de Octubre","Cooperativa Cooprogreso","BanEcuador","Banco del Litoral"];
 // Frecuencia de uso de bancos (en producción: cuántas veces los ha registrado este
 // subcomisionista). Los más usados se muestran primero en el buscador.
+/* observaciones automáticas del comprobante (quedan en el recibo) */
+const OBS_TXT = {
+  OCR_NO_LECTURA:"El comprobante no pudo leerse automáticamente",
+  OCR_LECTURA_PARCIAL:"Lectura parcial del comprobante",
+  VALOR_NO_COINCIDE:"El valor digitado no coincide con el comprobante",
+  BANCO_NO_IDENTIFICADO:"Banco no identificado por el lector",
+  CORRECCION_MANUAL:"Datos corregidos manualmente",
+  CHEQUE_TERCERO:"Cheque de un tercero",
+  EFECTIVO_24H:"Efectivo pendiente de depósito (máx. 24h)",
+};
+
+/* ── Lector de comprobantes (OCR): el usuario digita el valor, la foto llena el resto ── */
+let _OCRW=null;
+async function ocrComprobante(img){
+  try{
+    if(!window.Tesseract) return null;
+    if(!_OCRW) _OCRW = window.Tesseract.createWorker("spa");
+    const w = await _OCRW;
+    const r = await w.recognize(img);
+    return extraerComprobante((r && r.data && r.data.text) || "");
+  }catch(e){ _OCRW=null; return null; }
+}
+function parseMontoOCR(s){
+  s=String(s).trim();
+  const pc=s.lastIndexOf(","), pd=s.lastIndexOf(".");
+  if(pc>-1 && pd>-1){ s = pc>pd ? s.replace(/\./g,"").replace(",",".") : s.replace(/,/g,""); }
+  else if(pc>-1){ const dec=s.length-pc-1; s = dec===3 ? s.replace(/,/g,"") : s.replace(/,/g,"."); }
+  const n=parseFloat(s.replace(/[^\d.]/g,""));
+  return (isFinite(n) && n>0) ? Math.round(n*100)/100 : null;
+}
+function extraerComprobante(txt){
+  const T=String(txt).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  /* diccionario por banco: palabra clave → nombre del catálogo */
+  const CLAVES=[["PICHINCHA","Pichincha"],["PACIFICO","Pacífico"],["GUAYAQUIL","Guayaquil"],
+    ["PRODUBANCO","Produbanco"],["INTERNACIONAL","Internacional"],["BOLIVARIANO","Bolivariano"],
+    ["AUSTRO","Austro"],["MACHALA","Machala"],["JEP","JEP"],["BANECUADOR","BanEcuador"]];
+  let banco=null;
+  for(const [k,v] of CLAVES){ if(T.includes(k)){ banco=BANCOS.find(x=>x.toUpperCase().includes(k))||null; if(banco) break; } }
+  let valor=null;
+  const mv=T.match(/(?:VALOR|MONTO|TOTAL|DEBITADO|ACREDITADO|USD)[^\d\-]{0,12}([\d][\d.,]{2,14})/);
+  if(mv) valor=parseMontoOCR(mv[1]);
+  if(valor==null){
+    const todos=[...T.matchAll(/\$\s*([\d][\d.,]{2,14})/g)].map(m=>parseMontoOCR(m[1])).filter(x=>x!=null);
+    if(todos.length) valor=todos[0];
+  }
+  let numero=null;
+  const mn=T.match(/(?:COMPROBANTE|TRANSACCION|REFERENCIA|SECUENCIAL|DOCUMENTO|OPERACION|OP)\.?[^\d]{0,10}(\d{5,15})/);
+  if(mn) numero=mn[1];
+  let fecha=null;
+  const mf=T.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+  if(mf){ fecha=`${mf[3]}-${String(mf[2]).padStart(2,"0")}-${String(mf[1]).padStart(2,"0")}`; }
+  else{
+    const MES={ENE:1,FEB:2,MAR:3,ABR:4,MAY:5,JUN:6,JUL:7,AGO:8,SEP:9,OCT:10,NOV:11,DIC:12};
+    const mm=T.match(/(\d{1,2})\s+(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)[A-Z]*\s+(\d{4})/);
+    if(mm) fecha=`${mm[3]}-${String(MES[mm[2]]).padStart(2,"0")}-${String(mm[1]).padStart(2,"0")}`;
+  }
+  if(!banco && valor==null && !numero && !fecha) return null;
+  return {banco, numero, fecha, valor};
+}
+
 const USO_BANCOS = {
   "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
   "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3
@@ -4532,95 +4593,183 @@ function Cobros({toast}){
             Reportar y enviar recibo</button>}
     </div>
 
-    {modal && <LineaPago modalidad={modal}
+    {modal && <LineaPago modalidad={modal} restante={Math.max(0,restanteLineas)} cliente={cli}
       onCancel={()=>setModal(null)}
       onSave={l=>{setLineas([...lineas,l]);setModal(null);}}/>}
   </>);
 }
 
 // Modal para capturar una línea de pago según su modalidad
-function LineaPago({modalidad, onSave, onCancel}){
+function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
+  /* este componente ES un modal: al montarse se registra para que el botón atrás lo cierre */
+  useModal(true, React.useCallback(()=>{ onCancel && onCancel(); },[onCancel]));
   const esCheque = modalidad==="Cheque";
+  const HOY_ISO = new Date().toISOString().slice(0,10);   /* depósito y transferencia: el pago YA ocurrió → sin fechas futuras */
   const esEfectivo = modalidad==="Efectivo";
-  const [monto,setMonto]=useState("");
+  const [monto,setMonto]=useState(restante>0 ? String(Math.round(restante*100)/100) : "");
   const [numero,setNumero]=useState("");
   const [banco,setBanco]=useState("");
   const [fecha,setFecha]=useState("");
-  const [foto,setFoto]=useState(false);
-  /* Regla sellada: depósito y transferencia ya ocurrieron, no admiten fecha futura.
-     El cheque SÍ (posfechado). Y el cheque se recibe en mano: foto con cámara. */
-  const HOY_ISO = new Date().toISOString().slice(0,10);
-  const fechaFutura = !esCheque && !esEfectivo && !!fecha && fecha>HOY_ISO;
-  const valido = esEfectivo
-    ? (parseFloat(monto)||0)>0
-    : (parseFloat(monto)||0)>0 && numero && banco && fecha && foto && !fechaFutura;
+  const [foto,setFoto]=useState(null);
+  const [dueno,setDueno]=useState("");                      // dueño real del cheque (puede ser un tercero)
+  const [auto,setAuto]=useState({numero:false,banco:false,fecha:false}); // qué llenó el lector (no si el campo tiene texto)
+  const [ocr,setOcr]=useState({estado:"idle", valor:null}); // idle · leyendo · ok · fallo
+  const [editar,setEditar]=useState(false);
+  const leer=(e)=>{
+    const f=e.target.files && e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=async()=>{
+      const img=rd.result; setFoto(img); setEditar(false);
+      setAuto({numero:false,banco:false,fecha:false});
+      if(esCheque) return; /* manuscrito: el lector no es confiable, campos siempre visibles */
+      setOcr({estado:"leyendo", valor:null});
+      const d=await ocrComprobante(img);
+      if(!d){ setOcr({estado:"fallo", valor:null}); return; }  /* falla: los campos quedan visibles y editables */
+      /* el lector solo llena lo vacío (jamás pisa lo digitado) y anota qué campos llenó él */
+      const a={numero:false,banco:false,fecha:false};
+      if(d.banco  && !banco) { setBanco(d.banco);   a.banco=true; }
+      if(d.numero && !numero){ setNumero(d.numero); a.numero=true; }
+      if(d.fecha && !fecha && d.fecha<=HOY_ISO){ setFecha(d.fecha); a.fecha=true; }  /* fecha futura leída = dato dudoso: se pide a mano */
+      if(d.valor!=null && !(parseFloat(monto)>0)) setMonto(String(d.valor));
+      setAuto(a);
+      setOcr({estado:"ok", valor:(d.valor!=null?d.valor:null)});
+    };
+    rd.readAsDataURL(f);
+  };
+  const mv=parseFloat(monto)||0;
+  const difiere = ocr.valor!=null && mv>0 && Math.abs(mv-ocr.valor)>0.009;
+  const coincide = ocr.valor!=null && mv>0 && !difiere;
+  /* Un campo se oculta SOLO si lo llenó el lector. Si lo escribe el usuario, permanece visible
+     (antes se ocultaba al teclear el primer carácter y se perdía el foco). Cheque: siempre visibles. */
+  const vNum = esCheque || editar || !auto.numero;
+  const vBan = esCheque || editar || !auto.banco;
+  const vFec = esCheque || editar || !auto.fecha;
+  const hayAuto = auto.numero || auto.banco || auto.fecha;
+  const detectados=[auto.banco?banco:null, auto.numero?("Op. "+numero):null, auto.fecha?fecha:null].filter(Boolean).join(" · ");
+  const fechaFutura = !esCheque && !esEfectivo && !!fecha && fecha>HOY_ISO;   /* el cheque SÍ puede ser posfechado */
+  const valido = esEfectivo ? mv>0
+    : (mv>0 && numero && banco && fecha && !fechaFutura && !!foto && (!esCheque || !!dueno.trim()));
+  const obsAuto=()=>{ /* observaciones automáticas para la verificación del proveedor */
+    const o=[];
+    if(esEfectivo){ o.push("EFECTIVO_24H"); return o; }
+    if(esCheque){
+      if(cliente && dueno.trim() && dueno.trim().toLowerCase()!==String(cliente).toLowerCase()) o.push("CHEQUE_TERCERO");
+      return o;
+    }
+    if(ocr.estado==="fallo") o.push("OCR_NO_LECTURA");
+    else if(ocr.estado==="ok" && difiere) o.push("VALOR_NO_COINCIDE");
+    else if(ocr.estado==="ok" && !ocr.valor) o.push("OCR_LECTURA_PARCIAL");
+    if(editar) o.push("CORRECCION_MANUAL");
+    if(!banco) o.push("BANCO_NO_IDENTIFICADO");
+    return o;
+  };
+  if(esEfectivo){
+    return (
+      <div className="ov" onClick={onCancel}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Efectivo</h3>
+          <div className="sh-sub">Dinero recibido en mano</div>
+          {restante>0 && <div className="meta" style={{margin:"0 2px 10px",fontWeight:700,color:"var(--field)"}}>Restante por cubrir: {money(restante)}</div>}
+          <div className="field"><label>Valor recibido</label>
+            <input className="num" type="number" inputMode="decimal" placeholder="0.00"
+              value={monto} onChange={e=>setMonto(e.target.value)} autoFocus/></div>
+          <div className="meta" style={{margin:"0 2px 12px"}}>⏱️ Regla: el efectivo se deposita en máximo 24 horas. Al guardar el cobro quedará como <b>efectivo por depositar</b> y se cierra registrando el depósito con su comprobante.</div>
+          <button className="cta" disabled={!valido} onClick={()=>onSave({modalidad:"Efectivo",monto,obs:["EFECTIVO_24H"]})}>Agregar efectivo</button>
+          <button className="ghost" onClick={onCancel}>Cancelar</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="ov" onClick={onCancel}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
         <h3>{modalidad}</h3>
-        <div className="sh-sub">{esEfectivo?"Dinero recibido en mano":esCheque?"Datos del cheque recibido":"Datos del comprobante"}</div>
+        <div className="sh-sub">{esCheque?"Datos del cheque recibido":"Confirma el valor y toma la foto: el resto se llena solo"}</div>
+        {restante>0 && <div className="meta" style={{margin:"0 2px 10px",fontWeight:700,color:"var(--field)"}}>Restante por cubrir: {money(restante)}</div>}
 
-        <div className="field"><label>Monto</label>
+        <div className="field"><label>Valor del pago</label>
           <input className="num" type="number" inputMode="decimal" placeholder="0.00"
             value={monto} onChange={e=>setMonto(e.target.value)}/></div>
 
-        {esEfectivo && <div className="hint" style={{background:"#FBF0D8",border:"1px solid #EAD9A8",borderRadius:10,padding:"10px 12px",margin:"0 0 12px",color:"#7A5B00",fontWeight:600}}>
-          ⏱ Regla del canal: el efectivo cobrado se deposita en máximo 24 horas.</div>}
-        {esCheque && <div className="hint" style={{background:"#EAF0F6",border:"1px solid #C9D8E6",borderRadius:10,padding:"10px 12px",margin:"0 0 12px",color:"#3A6EA5",fontWeight:600}}>
-          🔒 El cheque entra a custodia de documentos; su depósito requiere autorización.</div>}
-
-        {!esEfectivo && (<>
-        <div className="field"><label>{esCheque?"Número de cheque":"Número de operación"}</label>
-          <input type="text" value={numero} onChange={e=>setNumero(e.target.value)}/></div>
-
-        <SearchSelect label="Banco" items={BANCOS} value={banco}
-          sortBy={(a,b)=>(USO_BANCOS[b]||0)-(USO_BANCOS[a]||0)}
-          onPick={b=>{setBanco(b);USO_BANCOS[b]=(USO_BANCOS[b]||0)+1;}} onClear={()=>setBanco("")}
-          render={{
-            text:b=>b,
-            option:b=>(<div className="o1">{b}{USO_BANCOS[b]?<span style={{color:"var(--muted)",fontWeight:500,fontSize:12}}>  · usado {USO_BANCOS[b]}×</span>:null}</div>),
-            picked:b=>(<><div className="p1">{b}</div></>)
-          }}/>
-
-        <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha del comprobante"}</label>
-          <input type="date" value={fecha} max={esCheque?undefined:HOY_ISO}
-            onChange={e=>setFecha(e.target.value)}/>
-          {fechaFutura && <div className="meta" style={{marginTop:5,color:"var(--clay)",fontWeight:700}}>
-            La fecha no puede ser futura: el {modalidad.toLowerCase()} ya se realizó.</div>}
-        </div>
-
-        <div className="field"><label>Foto del comprobante</label>
+        <div className="field"><label>Foto del comprobante (obligatoria)</label>
           {foto ? (
-            <label className="photo has">
-              <input type="file" accept="image/*" capture={esCheque?"environment":undefined} style={{display:"none"}} onChange={()=>setFoto(true)}/>
-              ✓ Comprobante cargado · toca para reemplazar
+            <label className="photo has" style={{display:"flex",alignItems:"center",gap:10}}>
+              <input type="file" accept="image/*" {...(esCheque?{capture:"environment"}:{})} style={{display:"none"}} onChange={leer}/>
+              <img src={foto} alt="comprobante" style={{width:46,height:34,objectFit:"cover",borderRadius:6,border:"1px solid var(--line)"}}/>
+              <span>✓ Cargada · toca para reemplazar</span>
             </label>
           ) : esCheque ? (
             <div className="fotopick">
-              <label style={{gridColumn:"1 / -1"}}>
-                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={()=>setFoto(true)}/>
+              <label>
+                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={leer}/>
                 <span className="fi">📷</span>Tomar foto del cheque
               </label>
             </div>
           ) : (
             <div className="fotopick">
               <label>
-                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={()=>setFoto(true)}/>
+                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={leer}/>
                 <span className="fi">📷</span>Tomar foto
               </label>
               <label>
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={()=>setFoto(true)}/>
-                <span className="fi">🖼️</span>Adjuntar archivo
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={leer}/>
+                <span className="fi">🖼️</span>Adjuntar imagen
               </label>
             </div>
           )}
+          {esCheque && !foto && <div className="meta" style={{marginTop:6,fontSize:11.5}}>El cheque se recibe físicamente: la foto se toma en el momento, con la cámara.</div>}
         </div>
-        </>)}
+
+        {ocr.estado==="leyendo" && <div className="meta" style={{margin:"2px 2px 10px"}}>🔎 Leyendo comprobante…</div>}
+        {ocr.estado==="fallo" && <div className="meta" style={{margin:"2px 2px 10px",color:"var(--maize-deep)"}}>No pude leer el comprobante; completa los datos.</div>}
+        {coincide && <div className="meta" style={{margin:"2px 2px 10px",color:"var(--ok)",fontWeight:700}}>✓ El comprobante coincide: {money(ocr.valor)}</div>}
+        {difiere && (
+          <div style={{margin:"2px 0 12px",background:"#FBF3DC",border:"1px solid var(--maize-deep)",borderRadius:12,padding:"10px 12px"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"var(--maize-deep)"}}>El comprobante dice {money(ocr.valor)}</div>
+            <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setMonto(String(ocr.valor))}>Usar el valor del comprobante</button>
+          </div>
+        )}
+        {!esCheque && !editar && hayAuto && detectados && (
+          <div className="meta" style={{margin:"2px 2px 12px",display:"flex",alignItems:"center",gap:6}}>
+            <span style={{color:"var(--ok)"}}>✓</span><span style={{flex:1}}>{detectados}</span>
+            <button className="ghost" style={{padding:"4px 10px"}} onClick={()=>setEditar(true)}>✎</button>
+          </div>
+        )}
+
+        {vNum && (
+          <div className="field"><label>{esCheque?"Número de cheque":"Número de operación"}</label>
+            <input type="text" value={numero} onChange={e=>setNumero(e.target.value)}/></div>
+        )}
+        {vBan && (
+          <SearchSelect label="Banco" items={BANCOS} value={banco}
+            sortBy={(a,b)=>(USO_BANCOS[b]||0)-(USO_BANCOS[a]||0)}
+            onPick={b=>{setBanco(b);USO_BANCOS[b]=(USO_BANCOS[b]||0)+1;}} onClear={()=>setBanco("")}
+            render={{
+              text:b=>b,
+              option:b=>(<div className="o1">{b}{USO_BANCOS[b]?<span style={{color:"var(--muted)",fontWeight:500,fontSize:12}}>  · usado {USO_BANCOS[b]}×</span>:null}</div>),
+              picked:b=>(<><div className="p1">{b}</div></>)
+            }}/>
+        )}
+        {vFec && (
+          <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha del comprobante"}</label>
+            <input type="date" value={fecha} max={esCheque?undefined:HOY_ISO}
+              onChange={e=>setFecha(e.target.value)}/>
+            {fechaFutura && <div className="meta" style={{marginTop:5,color:"var(--clay)",fontWeight:700}}>
+              La fecha no puede ser futura: el {modalidad.toLowerCase()} ya se realizó.</div>}
+          </div>
+        )}
+
+        {esCheque && (
+          <div className="field"><label>Dueño real del cheque (obligatorio)</label>
+            <input type="text" value={dueno} placeholder="Nombre de quien gira el cheque"
+              onChange={e=>setDueno(e.target.value)}/>
+            {cliente && dueno.trim() && dueno.trim().toLowerCase()!==String(cliente).toLowerCase() &&
+              <div className="meta" style={{marginTop:5,color:"var(--maize-deep)"}}>Cheque de un tercero: quedará observado para verificación.</div>}
+          </div>
+        )}
 
         <button className="cta" disabled={!valido}
-          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto:!esEfectivo,
-            /* el efectivo arrastra su reloj de 24 h y el cheque su custodia */
-            obs: esEfectivo?["EFECTIVO_24H"] : esCheque?["CHEQUE_CUSTODIA"] : []})}>
+          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto,dueno:dueno.trim()||null,valorOcr:ocr.valor,obs:obsAuto()})}>
           Agregar {modalidad.toLowerCase()}</button>
         <button className="ghost" onClick={onCancel}>Cancelar</button>
       </div>
