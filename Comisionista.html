@@ -667,6 +667,17 @@
   .lock{font-size:11.5px;color:var(--muted);background:#EDEAE0;border-radius:10px;padding:9px 12px;
     margin-top:14px;line-height:1.5;display:flex;gap:8px}
   /* search typeahead */
+  /* buscador principal de una pantalla de entrada: es la acción, debe verse */
+  .ss.ss-hero .box{border:2px solid var(--field);padding:15px 15px;border-radius:14px;
+    box-shadow:0 2px 10px rgba(21,57,43,.07)}
+  .ss.ss-hero .box .mag{color:var(--field);font-size:17px}
+  .ss.ss-hero .box input{font-size:15px;font-weight:600}
+  .ss.ss-hero .box input::placeholder{color:var(--muted);font-weight:500}
+  /* KPIs con el mismo lenguaje suave de las tarjetas neumórficas */
+  .mini-kpi.kpi-suave button{background:var(--card);border:none;border-radius:14px;padding:11px 5px;
+    box-shadow:3px 3px 9px rgba(23,43,32,.06), -3px -3px 9px rgba(255,255,255,.85)}
+  .mini-kpi.kpi-suave button:active{box-shadow:inset 2px 2px 6px rgba(23,43,32,.08), inset -2px -2px 6px rgba(255,255,255,.9)}
+  .mini-kpi.kpi-suave button.alerta .mk-v{color:#C2603A}
   .ss{position:relative}
   .ss .box{display:flex;align-items:center;gap:9px;width:100%;padding:13px 14px;border:1px solid var(--line);
     border-radius:12px;background:#fff}
@@ -1045,7 +1056,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"78", fecha:"19 jul 2026", desc:"Buscador de cliente arriba en Cobros"};
+const VERSION={n:"79", fecha:"19 jul 2026", desc:"Cobros: buscador destacado y KPIs tocables"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2530,13 +2541,13 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
 }
 
 // Buscador con autocompletar (cliente, proveedor, producto)
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel}){
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel, className}) {
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   const ocultarLabel = sinLabel || (label && placeholder && label.trim().toLowerCase()===placeholder.trim().toLowerCase());
   if(value){
     return (<div className="field">{!ocultarLabel && <label>{label}</label>}
-      <div className="ss"><div className={"pick"+(disabled?" dis":"")}>
+      <div className={"ss"+(className?" "+className:"")}><div className={"pick"+(disabled?" dis":"")}>
         <div>{render.picked(value)}</div>
         {!disabled && <button className="chg" onClick={()=>{onClear();setQ("");}}>Cambiar</button>}
       </div></div></div>);
@@ -2557,7 +2568,7 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
   const visibles = maxItems ? filtrados.slice(0, maxItems) : filtrados;
   const hayMas = maxItems ? (totalFiltrados > maxItems) : false;
   return (<div className="field">{!ocultarLabel && <label>{label}</label>}
-    <div className="ss">
+    <div className={"ss"+(className?" "+className:"")}>
       <div className={"box"+(disabled?" dis":"")}>
         <span className="mag">⌕</span>
         <input value={q} disabled={disabled}
@@ -4306,7 +4317,7 @@ function Cobros({toast}){
 
     {/* PASO 1 — cliente y proveedor */}
     {paso===1 && (<>
-      <SearchSelect label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
+      <SearchSelect className="ss-hero" label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
           text:c=>c,
@@ -4353,40 +4364,49 @@ function Cobros({toast}){
             )}
           </div>
 
-          <div className="mini-kpi">
-            <button style={{cursor:"default"}}>
-              <span className="mk-v num" style={{fontSize:14}}>{money(total)}</span>
-              <span className="mk-k">Por cobrar</span></button>
-            <button style={{cursor:"default"}}>
-              <span className="mk-v num" style={{color:vencidas.length>0?"#C2603A":"var(--field)"}}>{vencidas.length}</span>
-              <span className="mk-k">Vencidas</span></button>
-            <button style={{cursor:"default"}}>
-              <span className="mk-v num" style={{fontSize:14,color:montoVenc>0?"#C2603A":"var(--field)"}}>{money(montoVenc)}</span>
-              <span className="mk-k">Monto vencido</span></button>
-            <button style={{cursor:"default"}}>
-              <span className="mk-v num">{clientes}</span>
-              <span className="mk-k">Clientes</span></button>
-          </div>
+          {(()=>{
+            /* el cliente con la factura más atrasada: el KPI de vencidas lleva directo a cobrarle */
+            const masUrgente = vencidas.slice().sort((a,b)=>diasVenc(b.vence)-diasVenc(a.vence))[0] || null;
+            const irUrgente = ()=>{ if(masUrgente){ setCli(masUrgente.cli); setProv(null); setAplic({}); setLineas([]); } };
+            return (
+              <div className="mini-kpi kpi-suave">
+                <button style={{cursor:"default"}}>
+                  <span className="mk-v num" style={{fontSize:14}}>{money(total)}</span>
+                  <span className="mk-k">Por cobrar</span></button>
+                <button className={vencidas.length>0?"alerta":""} onClick={irUrgente}
+                  style={{cursor:masUrgente?"pointer":"default"}}>
+                  <span className="mk-v num">{vencidas.length}</span>
+                  <span className="mk-k">{masUrgente?"Vencidas ›":"Vencidas"}</span></button>
+                <button className={montoVenc>0?"alerta":""} onClick={irUrgente}
+                  style={{cursor:masUrgente?"pointer":"default"}}>
+                  <span className="mk-v num" style={{fontSize:14}}>{money(montoVenc)}</span>
+                  <span className="mk-k">Monto vencido</span></button>
+                <button style={{cursor:"default"}}>
+                  <span className="mk-v num">{clientes}</span>
+                  <span className="mk-k">Clientes</span></button>
+              </div>
+            );
+          })()}
 
-          {vencidas.length>0 && (
-            <div className="card" style={{marginBottom:12,padding:"11px 13px",
-              borderLeft:"4px solid #C2603A",background:"#FDF6F3"}}>
-              <div style={{fontSize:12.5,fontWeight:800,color:"#C2603A",marginBottom:6}}>
-                ⚠️ Cobra primero estas</div>
-              {vencidas.sort((a,b)=>diasVenc(b.vence)-diasVenc(a.vence)).slice(0,3).map((c,i)=>(
-                <button key={i} onClick={()=>{setCli(c.cli);setProv(null);setAplic({});setLineas([]);}}
-                  style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
-                    gap:8,padding:"6px 0",background:"none",border:"none",
-                    borderBottom:i<Math.min(2,vencidas.length-1)?"1px solid #F4E5DE":"none",
-                    cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-                  <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",
-                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
-                  <span style={{flexShrink:0,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>
-                    {diasVenc(c.vence)}d · {money(c.valor)}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {vencidas.length>0 && (()=>{
+            const top = vencidas.slice().sort((a,b)=>diasVenc(b.vence)-diasVenc(a.vence)).slice(0,3);
+            return (
+              <div style={{margin:"0 2px 12px"}}>
+                {top.map((c,i)=>(
+                  <button key={i} onClick={()=>{setCli(c.cli);setProv(null);setAplic({});setLineas([]);}}
+                    style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
+                      gap:8,padding:"7px 0",background:"none",border:"none",
+                      borderBottom:i<top.length-1?"1px solid var(--line)":"none",
+                      cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                    <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                    <span style={{flexShrink:0,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>
+                      {diasVenc(c.vence)}d · {money(c.valor)}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </>);
       })()}
 
