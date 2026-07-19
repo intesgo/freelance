@@ -3591,7 +3591,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"207", fecha:"18 jul 2026", desc:"Ajustes en 5 pestañas"};
+const VERSION={n:"208", fecha:"18 jul 2026", desc:"Conexión con impresora térmica"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11549,6 +11549,77 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   const [notif,setNotif]=useState({cobros:true, solicitudes:true, novedades:true});
   const [pestAj,setPestAj]=useState("apariencia");   // pestaña activa de Ajustes
 
+  /* ── Impresora térmica Bluetooth (ESC/POS, 58 mm) ──
+     Solo funciona en Chrome de Android con la app abierta en pantalla. */
+  const [impre,setImpre]=useState(null);        // dispositivo emparejado
+  const [carImp,setCarImp]=useState(null);      // canal por donde se envían los datos
+  const [buscandoImp,setBuscandoImp]=useState(false);
+  const hayBluetooth=()=>typeof navigator!=="undefined" && !!navigator.bluetooth;
+
+  /* servicios que usan las térmicas más comunes (GOOJPRT, Xprinter y similares) */
+  const SERVICIOS_IMP=[
+    "000018f0-0000-1000-8000-00805f9b34fb",
+    "0000ff00-0000-1000-8000-00805f9b34fb",
+    "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
+  ];
+
+  const conectarImpresora=async()=>{
+    if(!hayBluetooth()){ toast("Este navegador no permite conectar por Bluetooth"); return; }
+    setBuscandoImp(true);
+    try{
+      const disp=await navigator.bluetooth.requestDevice({
+        acceptAllDevices:true, optionalServices:SERVICIOS_IMP });
+      const gatt=await disp.gatt.connect();
+      /* busca el canal de escritura entre los servicios disponibles */
+      let canal=null;
+      const servicios=await gatt.getPrimaryServices();
+      for(const s of servicios){
+        const cars=await s.getCharacteristics();
+        const c=cars.find(x=>x.properties.write || x.properties.writeWithoutResponse);
+        if(c){ canal=c; break; }
+      }
+      if(!canal){ toast("No se encontró por dónde enviar la impresión"); setBuscandoImp(false); return; }
+      disp.addEventListener("gattserverdisconnected",()=>{ setImpre(null); setCarImp(null); });
+      setImpre(disp); setCarImp(canal);
+      toast(`Impresora conectada: ${disp.name||"equipo"}`);
+    }catch(e){
+      if(e && e.name!=="NotFoundError") toast("No se pudo conectar. Revisa que esté encendida y cerca");
+    }
+    setBuscandoImp(false);
+  };
+
+  /* envía texto a la impresora en bloques pequeños (las térmicas no aceptan envíos grandes) */
+  const enviarAImpresora=async(texto)=>{
+    if(!carImp){ toast("Conecta primero la impresora"); return false; }
+    try{
+      const bytes=new TextEncoder().encode(texto);
+      const TROZO=180;
+      for(let i=0;i<bytes.length;i+=TROZO){
+        await carImp.writeValue(bytes.slice(i,i+TROZO));
+        await new Promise(r=>setTimeout(r,30));
+      }
+      return true;
+    }catch(e){ toast("Se perdió la conexión con la impresora"); return false; }
+  };
+
+  const pruebaImpresion=async()=>{
+    const ESC="\x1B", GS="\x1D";
+    const centro=ESC+"a"+"\x01", izq=ESC+"a"+"\x00";
+    const grande=GS+"!"+"\x11", normal=GS+"!"+"\x00";
+    const corte=GS+"V"+"\x42"+"\x00";
+    const t = ESC+"@"                       /* reiniciar impresora */
+      + centro + grande + "FREELANCE\n" + normal
+      + "Prueba de impresion\n"
+      + "--------------------------------\n" + izq
+      + "Equipo: " + (impre&&impre.name ? impre.name : "termica") + "\n"
+      + "Fecha: " + new Date().toLocaleString("es-EC") + "\n"
+      + "Ancho: 58 mm - 32 caracteres\n"
+      + "--------------------------------\n"
+      + centro + "Si lees esto, la impresora\nquedo lista.\n\n\n" + corte;
+    const ok=await enviarAImpresora(t);
+    if(ok) toast("Prueba enviada a la impresora");
+  };
+
   const [destRec,setDestRec]=useState(DESTINATARIOS_RECIBO.map(d=>({...d})));
   const [horaCie,setHoraCie]=useState(CONFIG_CIERRE.hora);       /* hora del corte automático */
   const [acuerdoCie,setAcuerdoCie]=useState(CONFIG_CIERRE.acordadoCon);
@@ -11561,7 +11632,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
 
     <div className="pot-filtros" style={{margin:"10px 0 12px"}}>
       {[["apariencia","Apariencia"],["negocio","Negocio"],["avisos","Avisos"],
-        ["seguridad","Seguridad"],["datos","Datos"]].map(([k,t])=>(
+        ["seguridad","Seguridad"],["impresora","Impresora"],["datos","Datos"]].map(([k,t])=>(
         <button key={k} className={pestAj===k?"on":""} onClick={()=>setPestAj(k)}>{t}</button>
       ))}
     </div>
@@ -11763,6 +11834,44 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       <div className="meta" style={{marginTop:6}}>Los avisos push se activan al conectar el sistema.</div>
     </div>
 
+    </>)}
+
+    {pestAj==="impresora" && (<>
+    <div className="ficha-sec">Impresora térmica</div>
+    <div className="fcard" style={{marginBottom:12}}>
+      {!hayBluetooth() ? (
+        <div className="meta" style={{fontSize:12,lineHeight:1.5}}>
+          Este navegador no permite conectar impresoras Bluetooth.
+          Funciona en <b>Chrome de Android</b> con la app abierta.
+          Mientras tanto, comparte el PDF y elige la app de tu impresora.
+        </div>
+      ) : (<>
+        <div className="cu-line">
+          <span>Estado</span>
+          <b style={{fontSize:12.5,color:impre?"var(--ok)":"var(--muted)"}}>
+            {impre ? "● Conectada" : "○ Sin conectar"}</b>
+        </div>
+        {impre && <div className="cu-line"><span>Equipo</span><b style={{fontSize:12}}>{impre.name||"Impresora térmica"}</b></div>}
+        <div className="cu-line"><span>Ancho de papel</span><b style={{fontSize:12.5}}>58 mm · 32 caracteres</b></div>
+
+        {!impre ? (
+          <button className="cta" style={{width:"100%",marginTop:10}} disabled={buscandoImp}
+            onClick={conectarImpresora}>
+            {buscandoImp ? "Buscando…" : "🔗 Conectar impresora"}</button>
+        ) : (<>
+          <button className="ghost" style={{width:"100%",marginTop:10}} onClick={pruebaImpresion}>
+            🖨️ Imprimir prueba</button>
+          <button className="back" style={{width:"100%",marginTop:8,color:"var(--clay)",borderColor:"#E8C0B0"}}
+            onClick={()=>{ try{ impre.gatt && impre.gatt.disconnect(); }catch(e){}
+              setImpre(null); setCarImp(null); toast("Impresora desconectada"); }}>
+            Desconectar</button>
+        </>)}
+      </>)}
+    </div>
+    <div className="meta" style={{fontSize:11,lineHeight:1.5,margin:"0 2px"}}>
+      Enciende la impresora y ponla cerca antes de conectar. La conexión se mantiene
+      mientras la app esté abierta.
+    </div>
     </>)}
 
     {pestAj==="datos" && (<>
