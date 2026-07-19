@@ -29,6 +29,55 @@
   button{font-family:inherit;cursor:pointer;border:none;background:none}
   input,select{font-family:inherit;font-size:16px}
   /* phone shell */
+  /* ── piezas compartidas con el ecosistema ── */
+  /* micrófono de dictado */
+  .micb{background:none;border:none;padding:0 4px;cursor:pointer;display:flex;align-items:center;flex-shrink:0}
+  .micb.rec svg{animation:micPulso 1s ease-in-out infinite}
+  @keyframes micPulso{0%,100%{opacity:1}50%{opacity:.4}}
+  /* botón flotante de crear */
+  .fab-zona{position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);
+    width:100%;max-width:430px;pointer-events:none;z-index:55}
+  .fab{position:absolute;width:48px;height:48px;border-radius:50%;
+    background:var(--maize,#F2A900);color:#3A2E12;border:none;pointer-events:auto;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    box-shadow:0 4px 14px rgba(74,59,34,.28),0 2px 4px rgba(74,59,34,.18);
+    transform:translateY(-50%);touch-action:none;transition:box-shadow .15s,transform .12s}
+  .fab:active{transform:translateY(-50%) scale(.94)}
+  .fab.mov{box-shadow:0 8px 26px rgba(74,59,34,.38);opacity:.92}
+  .fab,.fab-mas{font-size:26px}
+  .fab-mas{font-weight:400;line-height:1;margin-top:-2px;font-family:Inter,system-ui,sans-serif}
+  /* buscador predictivo para filtros */
+  .fb{position:relative;min-width:0;width:100%}
+  .fb-box{display:flex;align-items:center;gap:5px;background:var(--paper);border:1px solid var(--line);
+    border-radius:10px;padding:9px 11px 9px 10px;width:100%;min-width:0}
+  .fb-box input{flex:1;min-width:0;border:none;outline:none;background:transparent;
+    font-family:inherit;font-size:12.5px;color:var(--field,#2E7D52);padding:0;
+    text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+  .fb-box input::placeholder{color:var(--muted)}
+  .fb-box.act{background:var(--card);border-color:var(--field,#2E7D52)}
+  .fb-box.act input{font-weight:700}
+  .fb-cara{font-size:13px;color:var(--muted);flex-shrink:0;padding-left:3px;
+    margin-left:2px;border-left:1px solid var(--line)}
+  .fb-clr{border:none;background:transparent;color:var(--muted);font-size:16px;
+    line-height:1;padding:0 2px;cursor:pointer;flex-shrink:0}
+  .fb-pop{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;
+    border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.13);
+    max-height:230px;overflow-y:auto;z-index:40}
+  .fb-opt{padding:10px 12px;font-size:12.5px;border-bottom:1px solid #F4F1E9;
+    cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fb-opt:last-child{border-bottom:none}
+  .fb-none{padding:12px;font-size:12px;color:var(--muted);text-align:center}
+  /* indicadores compactos */
+  .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
+  .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
+    gap:1px;background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:9px 5px;font-family:inherit;cursor:pointer}
+  .mk-v{font-size:17px;font-weight:800;color:var(--field,#2E7D52);line-height:1.15}
+  .mk-k{font-size:9.5px;color:var(--muted);font-weight:600;text-align:center;
+    line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  /* los diálogos nativos no crecen con la escala de texto */
+  input[type="date"],input[type="time"],input[type="datetime-local"],input[type="month"]{
+    font-size:16px;line-height:1.2}
   .shell{max-width:430px;margin:0 auto;min-height:100dvh;background:var(--paper);
     position:relative;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.4)}
   @media(min-width:480px){.shell{min-height:auto;height:100dvh;margin:0 auto;border-radius:0}}
@@ -1856,6 +1905,204 @@ function Inicio({go}){
       </div>
     )}
   </>);
+}
+
+/* ── VERSIÓN (único lugar donde se cambia) ── */
+const VERSION={n:"1", fecha:"18 jul 2026", desc:"Base compartida con el ecosistema"};
+
+/* ── Pila de ventanas abiertas: el botón atrás cierra la última ── */
+const MODALES=[];
+function useModal(abierto, cerrar){
+  React.useEffect(()=>{
+    if(!abierto) return;
+    const item={cerrar};
+    MODALES.push(item);
+    return ()=>{ const i=MODALES.indexOf(item); if(i>=0) MODALES.splice(i,1); };
+  },[abierto,cerrar]);
+}
+function cerrarUltimoModal(){
+  if(MODALES.length===0) return false;
+  const m=MODALES[MODALES.length-1];
+  try{ m.cerrar(); }catch(e){}
+  return true;
+}
+
+/* ── Pila de retrocesos por módulo ── */
+const RETROCESOS=[];
+function useRetroceso(fn){
+  const ref=React.useRef(fn);
+  ref.current=fn;
+  React.useEffect(()=>{
+    const item={ run:()=>ref.current() };
+    RETROCESOS.push(item);
+    return ()=>{ const i=RETROCESOS.indexOf(item); if(i>=0) RETROCESOS.splice(i,1); };
+  },[]);
+}
+function retrocederEnModulo(){
+  for(let i=RETROCESOS.length-1;i>=0;i--){
+    try{ if(RETROCESOS[i].run()) return true; }catch(e){}
+  }
+  return false;
+}
+
+/* ── Gesto: deslizar desde el borde izquierdo abre el menú lateral ── */
+function useGestoDrawer(abrir, activo){
+  React.useEffect(()=>{
+    if(!activo) return;
+    const BORDE=20, MINIMO=60;
+    let x0=0, y0=0, valido=false;
+    const inicio=(e)=>{
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const caja=document.querySelector(".shell");
+      const izq=caja ? caja.getBoundingClientRect().left : 0;
+      valido = (t.clientX - izq) <= BORDE && MODALES.length===0;
+      x0=t.clientX; y0=t.clientY;
+    };
+    const mover=(e)=>{
+      if(!valido) return;
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const dx=t.clientX-x0, dy=Math.abs(t.clientY-y0);
+      if(dx>MINIMO && dx>dy*2){ valido=false; abrir(); }
+      if(dy>28) valido=false;
+    };
+    const fin=()=>{ valido=false; };
+    document.addEventListener("touchstart", inicio, {passive:true});
+    document.addEventListener("touchmove", mover, {passive:true});
+    document.addEventListener("touchend", fin, {passive:true});
+    document.addEventListener("touchcancel", fin, {passive:true});
+    return ()=>{
+      document.removeEventListener("touchstart", inicio);
+      document.removeEventListener("touchmove", mover);
+      document.removeEventListener("touchend", fin);
+      document.removeEventListener("touchcancel", fin);
+    };
+  },[abrir,activo]);
+}
+
+/* ── Dictado por voz: botón de micrófono reutilizable ── */
+function MicBtn({onTexto, toast}){
+  const [rec,setRec]=useState(false);
+  const refRec=React.useRef(null);
+  const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!Reconocedor) return null;
+  const dictar=()=>{
+    if(rec){ try{ refRec.current && refRec.current.stop(); }catch(e){} setRec(false); return; }
+    const r=new Reconocedor();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    r.onresult=ev=>{ const t=ev.results[0][0].transcript.trim(); if(t) onTexto(t); };
+    r.onerror=ev=>{ setRec(false); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para dictar"); };
+    r.onend=()=>setRec(false);
+    refRec.current=r;
+    try{ r.start(); setRec(true); }catch(e){ setRec(false); }
+  };
+  return (
+    <button type="button" className={"micb"+(rec?" rec":"")} onClick={dictar} aria-label="Buscar por voz">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+        stroke={rec?"#C2603A":"var(--muted)"} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0"/><path d="M12 17.5V21M9 21h6"/>
+      </svg>
+    </button>
+  );
+}
+
+/* ── Botón flotante de crear (+): arrastrable, recuerda su posición ── */
+function BotonCrear({onClick, titulo}){
+  const LADO_INI="der", ALTO_INI=0.72;
+  const leer=()=>{
+    try{
+      const g=JSON.parse(localStorage.getItem("fabPos")||"null");
+      if(g && (g.lado==="izq"||g.lado==="der") && typeof g.y==="number") return g;
+    }catch(e){}
+    return {lado:LADO_INI, y:ALTO_INI};
+  };
+  const [pos,setPos]=useState(leer);
+  const [moviendo,setMoviendo]=useState(false);
+  const ref=React.useRef(null);
+  const drag=React.useRef({activo:false, movido:false, x:0, y:0});
+  const guardar=(p)=>{ setPos(p); try{ localStorage.setItem("fabPos",JSON.stringify(p)); }catch(e){} };
+  const el_zona=(btn)=>{ const z=btn&&btn.parentElement; return z ? z.getBoundingClientRect() : null; };
+  const inicio=(e)=>{
+    const t=e.touches?e.touches[0]:e;
+    drag.current={activo:true, movido:false, x:t.clientX, y:t.clientY};
+    setMoviendo(true);
+  };
+  const mover=(e)=>{
+    if(!drag.current.activo) return;
+    const t=e.touches?e.touches[0]:e;
+    const dx=Math.abs(t.clientX-drag.current.x), dy=Math.abs(t.clientY-drag.current.y);
+    if(dx>6||dy>6) drag.current.movido=true;
+    if(!drag.current.movido) return;
+    if(e.cancelable) e.preventDefault();
+    const alto=window.innerHeight;
+    let y=t.clientY/alto;
+    y=Math.min(0.88, Math.max(0.12, y));
+    const zona=el_zona(ref.current);
+    const medio = zona ? zona.left + zona.width/2 : window.innerWidth/2;
+    const lado = t.clientX < medio ? "izq" : "der";
+    setPos({lado, y});
+  };
+  const fin=()=>{
+    if(!drag.current.activo) return;
+    const eraMovimiento=drag.current.movido;
+    drag.current.activo=false; setMoviendo(false);
+    if(eraMovimiento) guardar(pos); else onClick();
+  };
+  React.useEffect(()=>{
+    const el=ref.current; if(!el) return;
+    el.addEventListener("touchmove", mover, {passive:false});
+    return ()=>el.removeEventListener("touchmove", mover);
+  });
+  return (
+    <div className="fab-zona">
+      <button ref={ref} className={"fab"+(moviendo?" mov":"")}
+        style={{top:`${pos.y*100}%`, [pos.lado==="izq"?"left":"right"]:"16px"}}
+        title={titulo||"Crear"} aria-label={titulo||"Crear"}
+        onTouchStart={inicio} onTouchEnd={fin} onTouchCancel={fin}
+        onMouseDown={inicio} onMouseMove={mover} onMouseUp={fin}
+        onMouseLeave={()=>{drag.current.activo=false;setMoviendo(false);}}>
+        <span className="fab-mas">+</span>
+      </button>
+    </div>
+  );
+}
+
+/* ── Buscador predictivo compacto para filtros (reemplaza al select nativo) ── */
+function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
+  const [q,setQ]=useState("");
+  const [open,setOpen]=useState(false);
+  const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const txt=(it)=>render?render(it):String(it);
+  const opciones=[{__todos:true}, ...items];
+  const filtrados = q.trim()==="" ? opciones
+    : opciones.filter(it=>it.__todos ? false
+        : norm(q).split(/\s+/).filter(Boolean).every(w=>norm(txt(it)).includes(w)));
+  const elegido = value===todos ? "" : txt(value);
+  return (
+    <div className="fb" style={estilo}>
+      <div className={"fb-box"+(elegido&&!open&&!obligatorio?" act":"")}>
+        <input value={open?q:elegido}
+          placeholder={etiquetaTodos}
+          onChange={e=>{setQ(e.target.value);setOpen(true);}}
+          onFocus={()=>{setQ("");setOpen(true);}}
+          onBlur={()=>setTimeout(()=>setOpen(false),160)}/>
+        {elegido && !open && !obligatorio && (
+          <button className="fb-clr" onMouseDown={e=>{e.preventDefault();onPick(todos);}}>×</button>
+        )}
+        <MicBtn onTexto={t=>{setQ(t);setOpen(true);}}/>
+        <span className="fb-cara">▾</span>
+      </div>
+      {open && (
+        <div className="fb-pop">
+          {filtrados.length===0
+            ? <div className="fb-none">Sin resultados para “{q}”</div>
+            : filtrados.map((it,i)=>(
+              <div className="fb-opt" key={i}
+                onMouseDown={e=>{e.preventDefault();onPick(it.__todos?todos:it);setOpen(false);setQ("");}}>
+                {it.__todos ? <span style={{fontWeight:700,color:"var(--muted)"}}>{etiquetaTodos}</span> : txt(it)}
+              </div>))}
+        </div>)}
+    </div>
+  );
 }
 
 // Buscador con autocompletar (cliente, proveedor, producto)
@@ -5097,6 +5344,41 @@ function App(){
   const [verSync,setVerSync]=useState(false);
   const [sincronizando,setSincronizando]=useState(false);
   const show=m=>{setToast(m);setTimeout(()=>setToast(null),2600);};
+
+  /* ── Botón físico de Android: cierra ventanas y navega hacia atrás dentro de la app ── */
+  const [hist,setHist]=useState([]);
+  const tabRef=React.useRef(tab); tabRef.current=tab;
+  const histRef=React.useRef([]); histRef.current=hist;
+  React.useEffect(()=>{
+    const MARCA={fl:1};
+    let colchones=0;
+    const poner=()=>{ try{ history.pushState(MARCA,""); colchones++; }catch(e){} };
+    try{ history.replaceState(MARCA,""); }catch(e){}
+    poner();
+    const sembrar=setInterval(()=>{ if(colchones>=12){ clearInterval(sembrar); return; } poner(); },120);
+    const onPop=()=>{
+      colchones=Math.max(0,colchones-1);
+      poner(); setTimeout(poner,60);
+      if(cerrarUltimoModal()) return;              /* 1) ventana abierta */
+      if(retrocederEnModulo()) return;             /* 2) el módulo tiene algo que cerrar */
+      if(histRef.current.length>0){                /* 3) hay módulo anterior */
+        setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; }
+          setTab(h[h.length-1]); return h.slice(0,-1); });
+        return;
+      }
+      if(tabRef.current!=="inicio"){ setTab("inicio"); setHist([]); return; }
+      show("Presiona atrás de nuevo para salir");
+    };
+    window.addEventListener("popstate",onPop);
+    const vigilante=setInterval(()=>{ if(colchones<8) poner(); },300);
+    const onVis=()=>{ if(document.visibilityState==="visible" && colchones<8) poner(); };
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>{
+      window.removeEventListener("popstate",onPop);
+      document.removeEventListener("visibilitychange",onVis);
+      clearInterval(vigilante); clearInterval(sembrar);
+    };
+  },[]);
   const sincronizar=()=>{
     if(pendientes.length===0){show("No hay nada pendiente. Estás al día.");return;}
     setSincronizando(true);
@@ -5123,7 +5405,6 @@ function App(){
   const tareasActivas=TAREAS_NOTIF.filter(t=>t.n>0);   // qué llega lo define el Freelance
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
   // historial de navegación para "Atrás" (pantalla real anterior)
-  const [hist,setHist]=useState([]);
   const navegar=(t)=>{ if(t===tab) return; setHist(h=>[...h,tab]); setTab(t); };
   const [pasoPedido,setPasoPedido]=useState(1);   // paso interno del módulo Pedido (1 producto, 2 precio)
   const atras=()=>{
@@ -5190,7 +5471,11 @@ function App(){
             <button className="topbtn" onClick={irInicio}><span style={{fontSize:15}}>⌂</span> Inicio</button>
           </div>
         )}
-        <Net n={pendientes.length} onClick={()=>setVerSync(true)}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
+          <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
+            background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v{VERSION.n}</span>
+          <Net n={pendientes.length} onClick={()=>setVerSync(true)}/>
+        </div>
       </div>
       <div className="body">
         {tab==="inicio" && <Inicio go={navegar}/>}
