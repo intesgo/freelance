@@ -2013,6 +2013,8 @@ const COMO_FUNCIONA = [
    d:"El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti."},
   {mod:"Autorizaciones", ic:"📋", t:"Historial de códigos",
    d:"Los códigos son de un solo uso: al usarse en el sistema quedan marcados. Nada se borra."},
+  {mod:"Mi equipo", ic:"⚠️", t:"Cheques devueltos del vendedor",
+   d:"El vendedor debe trabajar el reposicionamiento. El valor ya está reabierto en su cartera."},
   {mod:"Mi equipo", ic:"🔎", t:"Análisis por vendedor",
    d:"Busca o filtra un vendedor y entra a su análisis completo de ventas, cobros y cartera."},
   {mod:"Solicitudes", ic:"📨", t:"Quién aprueba qué",
@@ -3560,7 +3562,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"192", fecha:"18 jul 2026", desc:"Tarjetas con color por estado en toda la app"};
+const VERSION={n:"193", fecha:"18 jul 2026", desc:"Detalle de vendedor en 4 pestañas"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -12870,7 +12872,8 @@ function Equipo({toast}){
   const [verBloqueo,setVerBloqueo]=useState(null);
   useModal(verBloqueo, React.useCallback(()=>setVerBloqueo(null),[])); // subcomisionista a bloquear
   const [motivo,setMotivo]=useState("");
-  const [detalle,setDetalle]=useState(null);       // subcomisionista en pantalla de detalle
+  const [detalle,setDetalle]=useState(null);
+  const [pestDet,setPestDet]=useState("resumen");   // pestaña dentro del detalle del subcomisionista       // subcomisionista en pantalla de detalle
   const [q,setQ]=useState("");                     // búsqueda por nombre
   const [fZona,setFZona]=useState("Todas");        // filtro por zona
   const [fEstado,setFEstado]=useState("Todos");    // filtro por estado
@@ -12941,115 +12944,129 @@ function Equipo({toast}){
     const topDeudSc=[...carteraSc].filter(f=>f.dias>0).sort((a,b)=>b.saldo-a.saldo).slice(0,3);
     const chequesScDev=CHEQUES_DEVUELTOS.filter(c=>c.vendedor===detalle.nombre && c.estado==="pendiente");
     return (<>
-      <button className="ghost" onClick={()=>setDetalle(null)} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver al equipo</button>
-
       <div className="det-head">
         <div className="row">
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <span className="sync-ic" style={{width:44,height:44,fontSize:16,background:detalle.activo?"#E4F1E9":"#FBE9E4"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0,flex:1}}>
+            <span className="sync-ic" style={{width:44,height:44,fontSize:16,flexShrink:0,background:detalle.activo?"#E4F1E9":"#FBE9E4"}}>
               {detalle.nombre.split(" ").map(p=>p[0]).slice(0,2).join("")}</span>
-            <div><div className="cli" style={{fontSize:17}}>{detalle.nombre}</div>
+            <div style={{minWidth:0}}><div className="cli" style={{fontSize:17}}>{detalle.nombre}</div>
               <div className="meta">Zona {detalle.zona} · {detalle.clientes} clientes · {detalle.ultima}</div></div>
           </div>
           <span className={"chip "+(detalle.activo?"c-ok":"c-bad")}><span className="d"></span>{detalle.activo?"Activo":"Bloqueado"}</span>
         </div>
       </div>
 
-      <div className="cu-grid">
-        <div className="cu-card"><div className="cu-ic" style={{background:"#E4F1E9"}}><Ico n="factura" c="#8A6D12" s={19}/></div>
-          <div className="cu-v num">{money(detalle.ventasMes)}</div><div className="cu-k">Ventas del mes</div></div>
-        <div className="cu-card"><div className="cu-ic" style={{background:"#EAF0F6"}}><Ico n="billete" c="#8A6D12" s={19}/></div>
-          <div className="cu-v num">{money(detalle.cobradoMes)}</div><div className="cu-k">Cobrado</div></div>
-        <div className="cu-card"><div className="cu-ic" style={{background:"#FBF0D8"}}><Ico n="reloj" c="#2B6CB0" s={19}/></div>
-          <div className="cu-v num">{money(detalle.porCobrar)}</div><div className="cu-k">Por cobrar</div></div>
-        <div className="cu-card"><div className="cu-ic" style={{background:"#E9EEE9"}}><Ico n="diana" c="#7A5BA8" s={19}/></div>
-          <div className="cu-v num">{detalle.metaPct}%</div><div className="cu-k">Meta</div></div>
+      <div className="eq-tabs" style={{margin:"12px 0"}}>
+        <button className={pestDet==="resumen"?"on":""} onClick={()=>setPestDet("resumen")}>Resumen</button>
+        <button className={pestDet==="ventas"?"on":""} onClick={()=>setPestDet("ventas")}>Ventas</button>
+        <button className={pestDet==="cobros"?"on":""} onClick={()=>setPestDet("cobros")}>Cobros</button>
+        <button className={pestDet==="cartera"?"on":""} onClick={()=>setPestDet("cartera")}>Cartera</button>
       </div>
 
-      {chequesScDev.length>0 && (
-        <div className="card chq-card" style={{marginTop:14}}>
-          <div className="graf-t" style={{color:"#C2603A"}}>⚠️ Cheques devueltos por gestionar · {chequesScDev.length}</div>
-          {chequesScDev.map((c,i)=>(
-            <div className="cu-line" key={i}>
-              <span>{c.cli} · {c.numero}</span>
-              <b className="num" style={{color:"#C2603A"}}>{money(c.monto)}</b>
-            </div>
-          ))}
-          <div className="chq-nota">Debe trabajar el reposicionamiento. El valor ya está reabierto en cartera.</div>
+      {/* ── RESUMEN: los 4 números, alertas y rendimiento ── */}
+      {pestDet==="resumen" && (<>
+        <div className="cu-grid">
+          <div className="cu-card"><div className="cu-ic" style={{background:"#E4F1E9"}}><Ico n="factura" c="#8A6D12" s={19}/></div>
+            <div className="cu-v num">{money(detalle.ventasMes)}</div><div className="cu-k">Ventas del mes</div></div>
+          <div className="cu-card"><div className="cu-ic" style={{background:"#EAF0F6"}}><Ico n="billete" c="#8A6D12" s={19}/></div>
+            <div className="cu-v num">{money(detalle.cobradoMes)}</div><div className="cu-k">Cobrado</div></div>
+          <div className="cu-card"><div className="cu-ic" style={{background:"#FBF0D8"}}><Ico n="reloj" c="#2B6CB0" s={19}/></div>
+            <div className="cu-v num">{money(detalle.porCobrar)}</div><div className="cu-k">Por cobrar</div></div>
+          <div className="cu-card"><div className="cu-ic" style={{background:"#E9EEE9"}}><Ico n="diana" c="#7A5BA8" s={19}/></div>
+            <div className="cu-v num">{detalle.metaPct}%</div><div className="cu-k">Meta</div></div>
         </div>
-      )}
 
-      <div className="sec-h"><h2>Rendimiento</h2><div className="grain"></div></div>
-      <div className="card">
-        <div className="graf-t">📈 Tendencia de ventas · últimos meses</div>
-        <GraficoBarras datos={TENDENCIA_VENTAS[detalle.id] || []}/>
-      </div>
-      <div className="card">
-        <div className="graf-t">💵 Efectividad de cobranza</div>
-        <GraficoDona cobrado={detalle.cobradoMes} porCobrar={detalle.porCobrar}/>
-        <div className="meta" style={{marginTop:10,textAlign:"center"}}>
-          De {money(detalle.cobradoMes+detalle.porCobrar)} facturado, ha recuperado {money(detalle.cobradoMes)}.
-        </div>
-      </div>
-
-      <div className="sec-h"><h2>Ventas del mes · {money(totalVentas)}</h2><div className="grain"></div></div>
-      {t.ventas.length===0 ? <div className="ph">Sin ventas registradas este mes.</div>
-        : t.ventas.map((v,i)=>(
-          <div className="card" key={i}>
-            <div className="row">
-              <div><div className="cli" style={{fontSize:14}}>{v.cli}</div>
-                <div className="meta">{v.prod} · {v.cond} · {v.fecha}</div></div>
-              <div style={{textAlign:"right"}}><div className="amt num">{money(v.monto)}</div>
-                <span className="meta">{v.estado}</span></div>
-            </div>
-          </div>
-        ))}
-
-      <div className="sec-h"><h2>Cobros del mes · {money(totalCobros)}</h2><div className="grain"></div></div>
-      {t.cobros.length===0 ? <div className="ph">Sin cobros registrados este mes.</div>
-        : t.cobros.map((c,i)=>(
-          <div className="card" key={i}>
-            <div className="row">
-              <div><div className="cli" style={{fontSize:14}}>{c.cli}</div>
-                <div className="meta">{c.medio} · factura {c.fac} · {c.fecha}</div></div>
-              <div className="amt num" style={{color:"var(--ok)"}}>{money(c.monto)}</div>
-            </div>
-          </div>
-        ))}
-
-      <div className="sec-h"><h2>Cartera · {money(totalCartSc)}</h2><div className="grain"></div></div>
-      <div className="card">
-        <div className="cu-line"><span>Por cobrar total</span><b className="num">{money(totalCartSc)}</b></div>
-        <div className="cu-line"><span>Vencido</span><b className="num" style={{color:"#C2603A"}}>{money(vencidoSc)}</b></div>
-        <div className="cu-line"><span>Morosidad</span><b className="num" style={{color:morSc>=50?"#C2603A":"var(--field)"}}>{morSc}%</b></div>
-      </div>
-
-      {carteraSc.length>0 && (
-        <div className="card">
-          <div className="graf-t">Antigüedad de su cartera</div>
-          {tramosSc.map((tr,i)=>(
-            <div key={i} style={{marginBottom:i<tramosSc.length-1?10:0}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}>
-                <span style={{color:"var(--ink)"}}>{tr.k}</span>
-                <b className="num" style={{color:tr.color}}>{money(tr.monto)}</b>
+        {chequesScDev.length>0 && (
+          <div className="card chq-card" style={{marginTop:12}}>
+            <div className="graf-t" style={{color:"#C2603A"}}>⚠️ Cheques devueltos por gestionar · {chequesScDev.length}</div>
+            {chequesScDev.map((c,i)=>(
+              <div className="cu-line" key={i}>
+                <span>{c.cli} · {c.numero}</span>
+                <b className="num" style={{color:"#C2603A"}}>{money(c.monto)}</b>
               </div>
-              <div className="ag-bar"><div className="ag-fill" style={{width:Math.round(tr.monto/maxTrSc*100)+"%",background:tr.color}}></div></div>
+            ))}
+          </div>
+        )}
+
+        <div className="card" style={{marginTop:12}}>
+          <div className="graf-t">📈 Tendencia de ventas · últimos meses</div>
+          <GraficoBarras datos={TENDENCIA_VENTAS[detalle.id] || []}/>
+        </div>
+        <div className="card">
+          <div className="graf-t">💵 Efectividad de cobranza</div>
+          <GraficoDona cobrado={detalle.cobradoMes} porCobrar={detalle.porCobrar}/>
+          <div className="meta" style={{marginTop:10,textAlign:"center"}}>
+            De {money(detalle.cobradoMes+detalle.porCobrar)} facturado, ha recuperado {money(detalle.cobradoMes)}.
+          </div>
+        </div>
+      </>)}
+
+      {/* ── VENTAS ── */}
+      {pestDet==="ventas" && (<>
+        <div className="sec-h"><h2>Ventas del mes · {money(totalVentas)}</h2><div className="grain"></div></div>
+        {t.ventas.length===0 ? <div className="ph">Sin ventas registradas este mes.</div>
+          : t.ventas.map((v,i)=>(
+            <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8}}>
+              <div className="row">
+                <div style={{minWidth:0,flex:1}}><div className="cli" style={{fontSize:13.5}}>{v.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>{v.prod} · {v.cond} · {v.fecha}</div></div>
+                <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}><div className="amt num">{money(v.monto)}</div>
+                  <span className="meta" style={{fontSize:10.5}}>{v.estado}</span></div>
+              </div>
             </div>
           ))}
-        </div>
-      )}
+      </>)}
 
-      <div className="sec-h"><h2>Sus deudores vencidos</h2><div className="grain"></div></div>
-      {topDeudSc.length===0 ? <div className="ph">Sin deuda vencida. Cartera sana.</div>
-        : topDeudSc.map((d,i)=>(
-          <div className="card" key={i}>
-            <div className="row">
-              <div><div className="cli" style={{fontSize:14}}>{d.cli}</div>
-                <div className="meta">Fact. {d.fac} · {d.dias} días vencida</div></div>
-              <div className="amt num" style={{color:"#C2603A"}}>{money(d.saldo)}</div>
+      {/* ── COBROS ── */}
+      {pestDet==="cobros" && (<>
+        <div className="sec-h"><h2>Cobros del mes · {money(totalCobros)}</h2><div className="grain"></div></div>
+        {t.cobros.length===0 ? <div className="ph">Sin cobros registrados este mes.</div>
+          : t.cobros.map((c,i)=>(
+            <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,borderLeft:"4px solid #2E7D52"}}>
+              <div className="row">
+                <div style={{minWidth:0,flex:1}}><div className="cli" style={{fontSize:13.5}}>{c.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>{c.medio} · factura {c.fac} · {c.fecha}</div></div>
+                <div className="amt num" style={{color:"var(--ok)",flexShrink:0,marginLeft:8}}>{money(c.monto)}</div>
+              </div>
             </div>
+          ))}
+      </>)}
+
+      {/* ── CARTERA: totales, antigüedad y deudores ── */}
+      {pestDet==="cartera" && (<>
+        <div className="card" style={{marginTop:2}}>
+          <div className="cu-line"><span>Por cobrar total</span><b className="num">{money(totalCartSc)}</b></div>
+          <div className="cu-line"><span>Vencido</span><b className="num" style={{color:"#C2603A"}}>{money(vencidoSc)}</b></div>
+          <div className="cu-line"><span>Morosidad</span><b className="num" style={{color:morSc>=50?"#C2603A":"var(--field)"}}>{morSc}%</b></div>
+        </div>
+
+        {carteraSc.length>0 && (
+          <div className="card">
+            <div className="graf-t">Antigüedad de su cartera</div>
+            {tramosSc.map((tr,i)=>(
+              <div key={i} style={{marginBottom:i<tramosSc.length-1?10:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}>
+                  <span style={{color:"var(--ink)"}}>{tr.k}</span>
+                  <b className="num" style={{color:tr.color}}>{money(tr.monto)}</b>
+                </div>
+                <div className="ag-bar"><div className="ag-fill" style={{width:Math.round(tr.monto/maxTrSc*100)+"%",background:tr.color}}></div></div>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+
+        <div className="sec-h"><h2>Sus deudores vencidos</h2><div className="grain"></div></div>
+        {topDeudSc.length===0 ? <div className="ph">Sin deuda vencida. Cartera sana.</div>
+          : topDeudSc.map((d,i)=>(
+            <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,borderLeft:"4px solid #C2603A",background:"#FDF6F3"}}>
+              <div className="row">
+                <div style={{minWidth:0,flex:1}}><div className="cli" style={{fontSize:13.5}}>{d.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>Fact. {d.fac} · {d.dias} días vencida</div></div>
+                <div className="amt num" style={{color:"#C2603A",flexShrink:0,marginLeft:8}}>{money(d.saldo)}</div>
+              </div>
+            </div>
+          ))}
+      </>)}
 
       <button className="back" style={{width:"100%",marginTop:16,color:detalle.activo?"var(--clay)":"var(--ok)",borderColor:detalle.activo?"#E8C0B0":"#B9D9C5"}}
         onClick={()=>{ const sc=equipo.find(x=>x.id===detalle.id); toggleAcceso(sc); if(sc.activo) setDetalle(null); }}>
@@ -13166,7 +13183,7 @@ function Equipo({toast}){
           <div className="cu-bar" style={{marginTop:12}}><div className="cu-bar-fill" style={{width:sc.metaPct+"%"}}></div></div>
           <div className="cu-block-sub">{sc.metaPct}% de meta · {money(sc.ventasMes)} vendido · {money(sc.porCobrar)} por cobrar</div>
           <div style={{display:"flex",gap:8,marginTop:12}}>
-            <button className="back" style={{flex:1}} onClick={()=>setDetalle(sc)}>Ver detalle</button>
+            <button className="back" style={{flex:1}} onClick={()=>{setPestDet("resumen");setDetalle(sc);}}>Ver detalle</button>
             <button className="back" style={{flex:1,color:sc.activo?"var(--clay)":"var(--ok)",borderColor:sc.activo?"#E8C0B0":"#B9D9C5"}} onClick={()=>toggleAcceso(sc)}>
               {sc.activo?"Bloquear acceso":"Reactivar"}
             </button>
