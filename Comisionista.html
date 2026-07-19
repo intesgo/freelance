@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"85", fecha:"19 jul 2026", desc:"Puente WhatsApp al chat del cliente"};
+const VERSION={n:"86", fecha:"19 jul 2026", desc:"Acceso protegido a la ficha del cliente"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1547,12 +1547,13 @@ function telE164(tel){
 }
 function telDeCliente(nombre){
   const n=(nombre && nombre.nombre) || nombre;
-  const f=(typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[n]) || null;
+  if(!n) return null;
+  /* acceso protegido: estas tablas se declaran más abajo en el archivo (const = zona muerta) */
+  const leer = (fn)=>{ try{ return fn(); }catch(e){ return null; } };
+  const f = leer(()=>FICHA_CLIENTE[n]);
   if(f && f.tel) return telE164(f.tel);
-  if(typeof CLIENTES_MAESTRO!=="undefined"){
-    const c=CLIENTES_MAESTRO.find(x=>x.nombre===n);
-    if(c && c.tel) return telE164(c.tel);
-  }
+  const c = leer(()=>CLIENTES_MAESTRO.find(x=>x.nombre===n));
+  if(c && c.tel) return telE164(c.tel);
   return null;
 }
 /* Abre el chat del cliente si hay teléfono; si no, cae al menú de compartir de siempre */
