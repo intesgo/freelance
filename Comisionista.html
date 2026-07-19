@@ -78,6 +78,32 @@
   /* los diálogos nativos no crecen con la escala de texto */
   input[type="date"],input[type="time"],input[type="datetime-local"],input[type="month"]{
     font-size:16px;line-height:1.2}
+  /* ── menú lateral (drawer) ── */
+  .ham{background:rgba(255,255,255,.12);border:none;color:#fff;width:38px;height:38px;border-radius:10px;
+    font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+  .drawer-ov{position:fixed;inset:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
+    background:rgba(0,0,0,0);visibility:hidden;z-index:60;transition:background .25s}
+  .drawer-ov.on{background:rgba(0,0,0,.42);visibility:visible}
+  .drawer{position:absolute;top:0;bottom:0;left:0;width:82%;max-width:330px;background:var(--paper);
+    transform:translateX(-100%);transition:transform .25s ease;display:flex;flex-direction:column;
+    box-shadow:2px 0 20px rgba(0,0,0,.2)}
+  .drawer.on{transform:translateX(0)}
+  .drawer-head{background:var(--field,#15392B);padding:18px 16px 16px;display:flex;
+    align-items:flex-start;justify-content:space-between;gap:10}
+  .drawer-x{background:rgba(255,255,255,.15);border:none;color:#fff;width:30px;height:30px;
+    border-radius:8px;font-size:17px;cursor:pointer;flex-shrink:0}
+  .drawer-body{flex:1;overflow-y:auto;padding:14px 13px 20px}
+  .drawer-it{width:100%;display:flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--line);
+    border-radius:13px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-family:inherit;text-align:left}
+  .drawer-it:active{background:var(--paper)}
+  .di-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;
+    justify-content:center;font-size:16px;flex-shrink:0}
+  .di-t{font-size:13.5px;font-weight:700;color:var(--ink)}
+  .di-s{font-size:11px;color:var(--muted);margin-top:1px}
+  .di-a{color:var(--muted);font-size:15px;flex-shrink:0}
+  .drawer-salir{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;
+    background:#FBE9E4;color:#B5613C;border:1px solid #E8C0B0;border-radius:13px;padding:13px;
+    font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer}
   .shell{max-width:430px;margin:0 auto;min-height:100dvh;background:var(--paper);
     position:relative;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.4)}
   @media(min-width:480px){.shell{min-height:auto;height:100dvh;margin:0 auto;border-radius:0}}
@@ -1859,7 +1885,7 @@ function Inicio({go}){
       </button>
     </div>
 
-    <div className="sec-h"><h2>Catálogo</h2><div className="grain"></div></div>
+    <div className="sec-h"><h2>Clientes y catálogo</h2><div className="grain"></div></div>
     <div className="qa">
       <button onClick={()=>go("clientes")}>
         <div className="ico" style={{background:"#E9EEE9",color:"#15392B"}}>🏪</div>
@@ -1868,14 +1894,6 @@ function Inicio({go}){
       <button onClick={()=>go("portafolio")}>
         <div className="ico" style={{background:"#FBF0D8",color:"#C77F00"}}>📖</div>
         <div className="t">Portafolio</div><div className="s">Muéstralo a tu cliente</div>
-      </button>
-      <button onClick={()=>go("productos")}>
-        <div className="ico" style={{background:"#EDEAE0",color:"#7A6F50"}}>🌾</div>
-        <div className="t">Productos</div><div className="s">{PRODUCTOS.length} autorizados</div>
-      </button>
-      <button onClick={()=>go("precios")}>
-        <div className="ico" style={{background:"#E5F0EA",color:"#2E7D52"}}>🏷️</div>
-        <div className="t">Precios</div><div className="s">Consulta por línea</div>
       </button>
     </div>
 
@@ -1903,7 +1921,7 @@ function Inicio({go}){
 }
 
 /* ── VERSIÓN (único lugar donde se cambia) ── */
-const VERSION={n:"2", fecha:"18 jul 2026", desc:"Voz en buscadores y botón flotante"};
+const VERSION={n:"3", fecha:"18 jul 2026", desc:"Menú lateral con gesto"};
 
 /* ── Pila de ventanas abiertas: el botón atrás cierra la última ── */
 const MODALES=[];
@@ -5349,6 +5367,13 @@ function App(){
 
   /* ── Botón físico de Android: cierra ventanas y navega hacia atrás dentro de la app ── */
   const [hist,setHist]=useState([]);
+  const [menuAbierto,setMenuAbierto]=useState(false);   // menú lateral
+  const [confirmarSalir,setConfirmarSalir]=useState(false);
+  /* deslizar desde el borde izquierdo abre el menú */
+  useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto);
+  /* el botón atrás cierra el menú antes de salir de la pantalla */
+  useModal(menuAbierto, React.useCallback(()=>setMenuAbierto(false),[]));
+  useModal(confirmarSalir, React.useCallback(()=>setConfirmarSalir(false),[]));
   const tabRef=React.useRef(tab); tabRef.current=tab;
   const histRef=React.useRef([]); histRef.current=hist;
   React.useEffect(()=>{
@@ -5465,6 +5490,7 @@ function App(){
   return (
     <div className="shell">
       <div className="top">
+        <button className="ham" onClick={()=>setMenuAbierto(true)} aria-label="Abrir menú">☰</button>
         {tab==="inicio" ? (
           <div><div className="who">Subcomisionista</div><div className="name">Carlos Andrade</div></div>
         ) : (
@@ -5527,6 +5553,56 @@ function App(){
 
       </div>
       {toast && <div className="toast">{toast}</div>}
+
+      {/* ── Menú lateral: módulos que no están en el tablero ni en la barra ── */}
+      <div className={"drawer-ov"+(menuAbierto?" on":"")} onClick={()=>setMenuAbierto(false)}>
+        <div className={"drawer"+(menuAbierto?" on":"")} onClick={e=>e.stopPropagation()}
+          onTouchStart={e=>{ const t=e.touches[0]; e.currentTarget.dataset.x0=t.clientX; e.currentTarget.dataset.y0=t.clientY; }}
+          onTouchMove={e=>{
+            const t=e.touches[0], d=e.currentTarget.dataset;
+            if(d.x0===undefined) return;
+            const dx=t.clientX-Number(d.x0), dy=Math.abs(t.clientY-Number(d.y0));
+            if(dx < -60 && Math.abs(dx) > dy*2){ d.x0=undefined; setMenuAbierto(false); }
+          }}>
+          <div className="drawer-head">
+            <div><div style={{fontSize:11.5,color:"rgba(255,255,255,.7)",fontWeight:600}}>Subcomisionista</div>
+              <div style={{fontSize:16,color:"#fff",fontWeight:700,marginTop:1}}>Carlos Andrade</div></div>
+            <button className="drawer-x" onClick={()=>setMenuAbierto(false)}>×</button>
+          </div>
+          <div className="drawer-body">
+            {[
+              ["productos","🌾","#EDEAE0","Productos",`${PRODUCTOS.length} autorizados`],
+              ["precios","🏷️","#E5F0EA","Precios","Consulta por línea"],
+              ["comisiones","💰","#F3ECF9","Comisiones","Lo que has ganado"],
+              ["cuenta","👤","#E9EEE9","Mi cuenta","Perfil y ajustes"],
+            ].map(([k,ic,bg,t,s])=>(
+              <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar(k);}}>
+                <span className="di-ic" style={{background:bg}}>{ic}</span>
+                <div style={{flex:1,minWidth:0}}><div className="di-t">{t}</div>
+                  <div className="di-s">{s}</div></div>
+                <span className="di-a">›</span>
+              </button>
+            ))}
+
+            <button className="drawer-salir" onClick={()=>{setMenuAbierto(false);setConfirmarSalir(true);}}>
+              Cerrar sesión
+            </button>
+            <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"12px 0 2px",opacity:.8}}>
+              Versión {VERSION.fecha} v{VERSION.n}</div>
+          </div>
+        </div>
+      </div>
+
+      {confirmarSalir && (
+        <div className="ov" onClick={()=>setConfirmarSalir(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>¿Cerrar sesión?</h3>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 14px"}}>Saldrás de la app y volverás a la pantalla de ingreso.</p>
+            <button className="cta" style={{width:"100%"}} onClick={()=>{setConfirmarSalir(false);location.reload();}}>Sí, cerrar sesión</button>
+            <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setConfirmarSalir(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {verDetalle && (
         <div className="ov" onClick={()=>setVerDetalle(null)}>
