@@ -904,7 +904,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"11", fecha:"18 jul 2026", desc:"Detalle del mes compacto"};
+const VERSION={n:"12", fecha:"18 jul 2026", desc:"Reglas de cobro alineadas con el freelance"};
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -3677,9 +3677,13 @@ function LineaPago({modalidad, onSave, onCancel}){
   const [banco,setBanco]=useState("");
   const [fecha,setFecha]=useState("");
   const [foto,setFoto]=useState(false);
+  /* Regla sellada: depósito y transferencia ya ocurrieron, no admiten fecha futura.
+     El cheque SÍ (posfechado). Y el cheque se recibe en mano: foto con cámara. */
+  const HOY_ISO = new Date().toISOString().slice(0,10);
+  const fechaFutura = !esCheque && !esEfectivo && !!fecha && fecha>HOY_ISO;
   const valido = esEfectivo
     ? (parseFloat(monto)||0)>0
-    : (parseFloat(monto)||0)>0 && numero && banco && fecha && foto;
+    : (parseFloat(monto)||0)>0 && numero && banco && fecha && foto && !fechaFutura;
   return (
     <div className="ov" onClick={onCancel}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
@@ -3708,15 +3712,26 @@ function LineaPago({modalidad, onSave, onCancel}){
             picked:b=>(<><div className="p1">{b}</div></>)
           }}/>
 
-        <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha"}</label>
-          <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
+        <div className="field"><label>{esCheque?"Fecha posfechada (cuándo se puede depositar)":"Fecha del comprobante"}</label>
+          <input type="date" value={fecha} max={esCheque?undefined:HOY_ISO}
+            onChange={e=>setFecha(e.target.value)}/>
+          {fechaFutura && <div className="meta" style={{marginTop:5,color:"var(--clay)",fontWeight:700}}>
+            La fecha no puede ser futura: el {modalidad.toLowerCase()} ya se realizó.</div>}
+        </div>
 
         <div className="field"><label>Foto del comprobante</label>
           {foto ? (
             <label className="photo has">
-              <input type="file" accept="image/*" style={{display:"none"}} onChange={()=>setFoto(true)}/>
+              <input type="file" accept="image/*" capture={esCheque?"environment":undefined} style={{display:"none"}} onChange={()=>setFoto(true)}/>
               ✓ Comprobante cargado · toca para reemplazar
             </label>
+          ) : esCheque ? (
+            <div className="fotopick">
+              <label style={{gridColumn:"1 / -1"}}>
+                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={()=>setFoto(true)}/>
+                <span className="fi">📷</span>Tomar foto del cheque
+              </label>
+            </div>
           ) : (
             <div className="fotopick">
               <label>
@@ -3733,7 +3748,9 @@ function LineaPago({modalidad, onSave, onCancel}){
         </>)}
 
         <button className="cta" disabled={!valido}
-          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto:!esEfectivo})}>
+          onClick={()=>onSave({modalidad,monto,numero,banco,fecha,foto:!esEfectivo,
+            /* el efectivo arrastra su reloj de 24 h y el cheque su custodia */
+            obs: esEfectivo?["EFECTIVO_24H"] : esCheque?["CHEQUE_CUSTODIA"] : []})}>
           Agregar {modalidad.toLowerCase()}</button>
         <button className="ghost" onClick={onCancel}>Cancelar</button>
       </div>
