@@ -904,7 +904,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"17", fecha:"18 jul 2026", desc:"Agenda con indicadores del día"};
+const VERSION={n:"19", fecha:"18 jul 2026", desc:"Comisiones, Novedades y Portafolio"};
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -1686,10 +1686,18 @@ function Portafolio({ modo, miSector, miDistribuidor }){
     m.exclusiva.length===0 || m.exclusiva.some(e => e.sector===miSector && e.distribuidor===miDistribuidor)
   );
   const [fLinea, setFLinea] = useState("Todas");
+  const [qPort, setQPort] = useState("");
   const lineas = ["Todas", ...Array.from(new Set(visibles.map(m=>m.linea)))];
+  const normP = x => String(x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const tarjetas = visibles
     .filter(m => fLinea==="Todas" || m.linea===fLinea)
-    .flatMap(m => m.items.map(it => ({ ...it, key:m.id+"·"+it.pres, marca:m.marca, prov:m.prov, linea:m.linea, color:m.color, color2:m.color2, exclusiva:m.exclusiva })));
+    .flatMap(m => m.items.map(it => ({ ...it, key:m.id+"·"+it.pres, marca:m.marca, prov:m.prov, linea:m.linea, color:m.color, color2:m.color2, exclusiva:m.exclusiva })))
+    /* busca por marca, presentación, línea o proveedor */
+    .filter(t => {
+      if(!qPort.trim()) return true;
+      const texto = normP(`${t.marca} ${t.pres} ${t.linea} ${t.prov||""}`);
+      return normP(qPort).split(/\s+/).filter(Boolean).every(w => texto.includes(w));
+    });
   const [cliente, setCliente] = useState(false);
   const [idx, setIdx] = useState(0);
   const [lado, setLado] = useState("frente");
@@ -1731,6 +1739,14 @@ function Portafolio({ modo, miSector, miDistribuidor }){
       </div>
       <p style={{ fontFamily:BODY, fontSize:12, color:CL.grisTexto, margin:"0 0 10px" }}>
         {modo==="freelance" ? "Todas las marcas del negocio, con su exclusividad por zona." : "Las marcas de tu zona · toca una para verla en grande y muéstrasela a tu cliente."}</p>
+      <div className="ss" style={{ marginBottom:10 }}>
+        <div className="box"><span className="mag">⌕</span>
+          <input value={qPort} placeholder="Buscar marca, presentación o línea…"
+            onChange={e=>setQPort(e.target.value)}/>
+          <MicBtn onTexto={setQPort}/>
+          {qPort && <button className="clr" onClick={()=>setQPort("")}>×</button>}
+        </div>
+      </div>
       <div style={{ display:"flex", gap:7, marginBottom:12, flexWrap:"wrap" }}>
         {lineas.map(l=>(
           <button key={l} onClick={()=>setFLinea(l)}
@@ -5236,7 +5252,8 @@ function Novedades({toast, go}){
 
   return (<>
     <div className="h1">Novedades</div>
-    <div className="sub">Solicitudes al proveedor: cambios, devoluciones y notas de crédito.</div>
+    <div className="meta" style={{margin:"0 2px 12px",fontSize:11.5}}>
+      Post-venta: cambios, devoluciones y notas de crédito. Elige cliente y proveedor para empezar.</div>
 
     <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);resetDesdeCli();}} onClear={()=>{setCli(null);resetDesdeCli();}}
@@ -5517,39 +5534,20 @@ function Comisiones({toast}){
       );
     })()}
 
-    {/* Resumen: tu comisión por estado */}
-    <div className="cu-resumen">
-      <div className="cu-total">
-        <div className="cu-total-k">Comisión generada · junio</div>
-        <div className="cu-total-v num">{money(totalGeneral)}</div>
-      </div>
-      <div className="cu-split">
-        <div className="cu-part">
-          <div className="cu-part-ic" style={{background:"#E4F1E9",color:"#2E7D52"}}>✅</div>
-          <div style={{flex:1}}>
-            <div className="cu-part-k">Liberada</div>
-            <div className="cu-part-s">Ya disponible para ti</div>
-          </div>
-          <div className="cu-part-v num">{money(totalLiberada)}</div>
-        </div>
-        <div className="cu-part">
-          <div className="cu-part-ic" style={{background:"#FBF0D8",color:"#C77F00"}}>⏳</div>
-          <div style={{flex:1}}>
-            <div className="cu-part-k">Cliente pagó · en espera</div>
-            <div className="cu-part-s">Falta la confirmación del proveedor</div>
-          </div>
-          <div className="cu-part-v num">{money(totalPorLiberar)}</div>
-        </div>
-        <div className="cu-part">
-          <div className="cu-part-ic" style={{background:"#EDEAE0",color:"#7A6F50"}}>🔄</div>
-          <div style={{flex:1}}>
-            <div className="cu-part-k">Generada</div>
-            <div className="cu-part-s">Pedidos todavía en curso</div>
-          </div>
-          <div className="cu-part-v num">{money(totalProceso)}</div>
-        </div>
-      </div>
-      <div className="cu-nota">Tu comisión se libera cuando el proveedor confirma el pago de la factura.</div>
+    {/* Resumen compacto: tu comisión por estado */}
+    <div className="mini-kpi">
+      <button onClick={()=>setFiltro("Todas")}>
+        <span className="mk-v num" style={{fontSize:14}}>{money(totalGeneral)}</span>
+        <span className="mk-k">Total junio</span></button>
+      <button onClick={()=>setFiltro("Liberada")}>
+        <span className="mk-v num" style={{fontSize:14,color:"#2E7D52"}}>{money(totalLiberada)}</span>
+        <span className="mk-k">Liberada</span></button>
+      <button onClick={()=>setFiltro("Cliente pagó")}>
+        <span className="mk-v num" style={{fontSize:14,color:"#C9A227"}}>{money(totalPorLiberar)}</span>
+        <span className="mk-k">En espera</span></button>
+      <button onClick={()=>setFiltro("Generada")}>
+        <span className="mk-v num" style={{fontSize:14,color:"var(--muted)"}}>{money(totalProceso)}</span>
+        <span className="mk-k">En curso</span></button>
     </div>
 
     {/* Filtros por estado */}
@@ -5562,16 +5560,18 @@ function Comisiones({toast}){
     {/* Lista de comisiones por pedido */}
     <div className="cu-lista">
       {visibles.map(p=>(
-        <div className="cu-item" key={p.id}>
+        <div className="cu-item" key={p.id}
+          style={{borderLeft:`4px solid ${p.ec.col}`,
+            background: p.ec.k==="Liberada" ? "#F5F9F6" : "var(--card)"}}>
           <div className="cu-item-top">
-            <div style={{flex:1}}>
-              <div className="cu-item-cli">{p.cli}</div>
-              <div className="cu-item-prod">{p.prod} · {p.cant} qq</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="cu-item-cli" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</div>
+              <div className="cu-item-prod" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.prod} · {p.cant} qq</div>
             </div>
-            <span className="cu-badge" style={{background:p.ec.bg,color:p.ec.col}}>{p.ec.k}</span>
+            <span className="cu-badge" style={{background:p.ec.bg,color:p.ec.col,flexShrink:0}}>{p.ec.k}</span>
           </div>
           <div className="cu-item-bot">
-            <span className="cu-item-fecha">📅 {p.fecha}</span>
+            <span className="cu-item-fecha">{p.fecha}</span>
             <span className="cu-item-com num">{money(p.comision)}</span>
           </div>
         </div>
