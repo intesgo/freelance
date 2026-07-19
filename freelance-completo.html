@@ -3591,7 +3591,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"201", fecha:"18 jul 2026", desc:"Campanilla ya no tapa De y Para"};
+const VERSION={n:"202", fecha:"18 jul 2026", desc:"Acta de entrega en PDF"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14155,8 +14155,8 @@ function Documentos({toast, usuario}){
         {l.conNovedad && <div className="acta-novedad">Observación: {l.novedad}</div>}
       </div>
       <div className="addbar" style={{marginTop:14}}>
-        <button onClick={()=>toast("Preparando impresión / PDF…")}>🖨️ Imprimir / PDF</button>
-        <button className="wa-btn" onClick={()=>wa(textoActa(l))}>📲 Compartir acta</button>
+        <button onClick={()=>pdfActa(l, toast, false)}>🖨️ Descargar PDF</button>
+        <button className="wa-btn" onClick={()=>pdfActa(l, toast, true)}>📤 Compartir PDF</button>
       </div>
     </>);
   }
@@ -14374,6 +14374,84 @@ function Documentos({toast, usuario}){
 
     <BotonCrear titulo="Nueva entrega" onClick={()=>setCrear(true)}/>
   </>);
+}
+
+/* ── Acta de entrega-recepción en PDF (jsPDF + autotable) ── */
+function pdfActa(l, toast, compartir){
+  if(!window.jspdf){ toast && toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
+  const P=t=>String(t==null?"":t).replace(/―/g,"-").replace(/…/g,"...")
+    .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+  const doc=new window.jspdf.jsPDF();
+  const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
+  const total=l.docs.reduce((a,d)=>a+d.monto,0);
+
+  /* membrete */
+  doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(...VERDE);
+  doc.text("FREELANCE",14,18);
+  doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRIS);
+  doc.text("Distribucion de granos",14,23);
+  doc.text(P(l.fecha),196,18,{align:"right"});
+  doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
+  doc.text("ACTA DE ENTREGA-RECEPCION DE DOCUMENTOS",14,33);
+  doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,37,196,37);
+
+  /* partes */
+  doc.autoTable({ startY:42, margin:{left:14,right:14}, theme:"grid",
+    styles:{font:"helvetica",fontSize:8.6,cellPadding:2.2,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
+    body:[
+      ["Entrega", P(`${l.de} (${l.deRol})`)],
+      ["Recibe",  P(`${l.para} (${l.paraRol})`)],
+      ["N de documentos", String(l.docs.length)],
+      ["Monto total", money(total)],
+    ],
+    columnStyles:{0:{cellWidth:52,fontStyle:"bold",textColor:GRIS},1:{halign:"right",fontStyle:"bold"}} });
+
+  /* detalle de documentos */
+  doc.autoTable({ startY:doc.lastAutoTable.finalY+6, margin:{left:14,right:14}, theme:"grid",
+    styles:{font:"helvetica",fontSize:8.6,cellPadding:2.2,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
+    headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold"},
+    head:[["#","Tipo","Numero","Cliente","Vence","Monto"]],
+    body:l.docs.map((d,i)=>[String(i+1), P(d.tipo), P(d.numero), P(d.cliente), P(d.venc||"-"), money(d.monto)])
+      .concat([[{content:"TOTAL",colSpan:5,styles:{fillColor:CREMA,fontStyle:"bold"}},
+                {content:money(total),styles:{fillColor:CREMA,fontStyle:"bold",halign:"right"}}]]),
+    columnStyles:{0:{cellWidth:9,halign:"center"},5:{halign:"right"}} });
+
+  let y=doc.lastAutoTable.finalY+8;
+  if(l.conNovedad && l.novedad){
+    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(178,106,60);
+    doc.text(P("Observacion: "+l.novedad),14,y); y+=8;
+  }
+  if(l.estado==="recibido" && l.recibidoFecha){
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(...GRIS);
+    doc.text(P("Recibido el "+l.recibidoFecha),14,y); y+=8;
+  }
+
+  /* firmas */
+  y=Math.max(y+14, 200);
+  doc.setDrawColor(60,60,60); doc.setLineWidth(.4);
+  doc.line(20,y,90,y); doc.line(120,y,190,y);
+  doc.setFontSize(8.5); doc.setTextColor(...GRIS);
+  doc.text("Entregue conforme",55,y+5,{align:"center"});
+  doc.text("Recibi conforme",155,y+5,{align:"center"});
+  doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
+  doc.text(P(l.de),55,y+10,{align:"center"});
+  doc.text(P(l.para),155,y+10,{align:"center"});
+
+  /* pie legal */
+  doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
+  doc.text(P("Documento generado por FREELANCE - "+new Date().toLocaleString("es-EC")),105,285,{align:"center"});
+
+  const nombre=`Acta-${String(l.fecha).replace(/\s/g,"-")}-${P(l.para).replace(/\s/g,"-")}.pdf`;
+  if(compartir && navigator.share && navigator.canShare){
+    const blob=doc.output("blob");
+    const file=new File([blob],nombre,{type:"application/pdf"});
+    if(navigator.canShare({files:[file]})){
+      navigator.share({files:[file], title:"Acta de entrega-recepcion"})
+        .catch(()=>doc.save(nombre));
+      return;
+    }
+  }
+  doc.save(nombre);
 }
 
 function textoComprobante(l){
