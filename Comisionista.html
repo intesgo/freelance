@@ -594,6 +594,17 @@
   .stepwrap.off{opacity:.4;pointer-events:none}
   /* selector de tipo de precio */
   .tipogrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  /* chips horizontales de tipo de precio: una sola fila deslizable (norma de etiquetas) */
+  .tipochips{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tipochips::-webkit-scrollbar{display:none}
+  .tchip{display:flex;align-items:center;gap:6px;flex-shrink:0;padding:9px 13px;border:1.5px solid var(--line);
+    border-radius:11px;background:#fff;white-space:nowrap;cursor:pointer;font-family:inherit}
+  .tchip:active{background:var(--paper)}
+  .tchip.on{border-color:var(--field);background:var(--field)}
+  .tchip .tchip-cod{font-size:11px;font-weight:800;letter-spacing:.03em;font-family:'Space Grotesk',sans-serif;color:var(--maize-deep)}
+  .tchip.on .tchip-cod{color:var(--maize)}
+  .tchip .tchip-nom{font-size:12.5px;font-weight:600;color:#2C3A32}
+  .tchip.on .tchip-nom{color:#fff}
   .tipobtn{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px 13px;
     border:1px solid var(--line);border-radius:13px;background:#fff;text-align:left}
   .tipobtn:active{background:var(--paper)}
@@ -925,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"32", fecha:"18 jul 2026", desc:"Buscador de cliente arriba y destacado"};
+const VERSION={n:"33", fecha:"18 jul 2026", desc:"Chips de precio y retroceso en el pedido"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2839,6 +2850,14 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   /* El paso vive en la App y sobrevive al salir del módulo, pero el producto no.
      Si volvemos al paso 2 sin producto, regresamos al 1 en vez de mostrar una ficha vacía. */
   React.useEffect(()=>{ if(paso!==1 && !prod) setPaso(1); },[paso,prod]);
+  /* el botón atrás cierra lo abierto dentro del módulo antes de salir */
+  useRetroceso(()=>{
+    if(favAbierto){ setFavAbierto(false); return true; }
+    if(histAbierto){ setHistAbierto(false); return true; }
+    if(dashAbierto){ setDashAbierto(null); return true; }
+    if(paso===2){ setPaso(1); return true; }
+    return false;
+  });
   // Origen del producto elegido: "favorito" (recompra) o "nuevo" (campo Producto nuevo → arranca limpio)
   const origenProd = React.useRef(null);
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
@@ -2854,6 +2873,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const [motivo,setMotivo]=useState("");
   const [carrito,setCarrito]=useState([]);        // productos del pedido (carrito)
   const [verCarrito,setVerCarrito]=useState(false); // ventana tras guardar
+  useModal(verCarrito, React.useCallback(()=>setVerCarrito(false),[]));  // el botón atrás la cierra
   const [codigo,setCodigo]=useState("");           // código de desbloqueo ingresado
   const [desbloqueado,setDesbloqueado]=useState(false);
 
@@ -3289,14 +3309,19 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     <div className={"stepwrap"+(prod?"":" off")}>
       {/* Selector de tipo de precio */}
       <div className="field"><label>Tipo de precio</label>
-        <div className="tipogrid">
-          {TIPOS_PRECIO.map(t=>(
-            <button key={t.id} className={"tipobtn"+(tipo===t.id?" on":"")}
-              onClick={()=>{setTipo(t.id);setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setComProp("");setMotivo("");}}>
-              <span className="tcod">{t.id}</span>
-              <span className="tnom">{t.nombre}</span>
-            </button>
-          ))}
+        <div className="tipochips">
+          {TIPOS_PRECIO.map(t=>{
+            const sinPromo = t.id==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0);
+            return (
+              <button key={t.id} className={"tchip"+(tipo===t.id?" on":"")} style={sinPromo?{opacity:.45}:null}
+                onClick={()=>{
+                  if(sinPromo){ toast("Este producto no tiene promociones vigentes"+(prov?" de "+prov.nombre:"")+"."); return; }
+                  setTipo(t.id);setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setComProp("");setMotivo("");}}>
+                <span className="tchip-cod">{t.id}</span>
+                <span className="tchip-nom">{t.nombre}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
