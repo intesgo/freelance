@@ -3717,7 +3717,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"246", fecha:"19 jul 2026", desc:"Cobros: resumen de cobranza del cliente"};
+const VERSION={n:"247", fecha:"19 jul 2026", desc:"Cobros paso 2: vencidas, cobrar todo y paginado"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5477,6 +5477,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
   const [aplic,setAplic]=useState({});
   const [lineas,setLineas]=useState([]);
   const [modal,setModal]=useState(null);
+  const [pagFac,setPagFac]=useState(1);       // paginación de facturas del paso 2
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
   const [resumen,setResumen]=useState(false); // pantalla de revisión antes de guardar
   const [facUnica,setFacUnica]=useState(null); // si viene de Cartera: solo esta factura
@@ -6378,37 +6379,72 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
 
     {paso===2 && (<>
       <div className="sub" style={{marginTop:-6}}>Marca las facturas a cobrar y escribe cuánto cobras de cada una.</div>
-      {facturas.map(f=>{
-        const aplicado=aplic[f.id];
-        const activo=aplicado!==undefined && aplicado!=="";
-        const valAp=parseFloat(aplicado)||0;
-        const exceso=valAp>f.valor;
-        const estado = activo ? (valAp>=f.valor?"cancelada":"abono") : null;
-        return (
-          <div className={"fsel"+(activo?" on":"")} key={f.id}>
-            <div className="top" onClick={()=>{
-              if(activo){const n={...aplic};delete n[f.id];setAplic(n);}
-              else setAplicado(f.id, String(f.valor)); // por defecto, su saldo completo (cancela)
-            }} style={{cursor:"pointer"}}>
-              <span className="chk">{activo?"✓":""}</span>
-              <div style={{flex:1}}>
-                <div className="fi-nom">Factura {f.factura}</div>
-                <div className="fi-sal">Saldo {money(f.valor)} · {f.vence}</div>
+      {(()=>{
+        const dv = t => { const m=String(t||"").match(/Vencida hace (\d+)/i); return m?+m[1]:0; };
+        /* las vencidas primero, y entre ellas la más atrasada arriba */
+        const orden = facturas.slice().sort((a,b)=>dv(b.vence)-dv(a.vence));
+        const POR_PAG = 10;                                  /* regla de oro: listas largas paginadas */
+        const totPag = Math.ceil(orden.length/POR_PAG) || 1;
+        const pag = Math.min(pagFac, totPag);
+        const visibles = orden.slice((pag-1)*POR_PAG, pag*POR_PAG);
+        const todasPuestas = orden.length>0 && orden.every(f=>{
+          const v=aplic[f.id]; return v!==undefined && v!=="" && parseFloat(v)>=f.valor; });
+        return (<>
+          {orden.length>1 && (
+            <button className="ghost" style={{width:"100%",marginBottom:10,padding:"9px 12px"}}
+              onClick={()=>{
+                if(todasPuestas){ setAplic({}); toast("Selección limpiada."); return; }
+                const n={}; orden.forEach(f=>{ n[f.id]=String(f.valor); });
+                setAplic(n); toast(`${orden.length} factura(s) marcadas por su saldo completo.`);
+              }}>
+              {todasPuestas ? "✕ Quitar todas" : `✓ Cobrar todo · ${money(orden.reduce((s,f)=>s+f.valor,0))}`}
+            </button>
+          )}
+          {visibles.map(f=>{
+            const aplicado=aplic[f.id];
+            const activo=aplicado!==undefined && aplicado!=="";
+            const valAp=parseFloat(aplicado)||0;
+            const exceso=valAp>f.valor;
+            const estado = activo ? (valAp>=f.valor?"cancelada":"abono") : null;
+            const dias = dv(f.vence);
+            return (
+              <div className={"fsel"+(activo?" on":"")} key={f.id}
+                style={dias>0?{borderLeft:"3px solid #C2603A"}:null}>
+                <div className="top" onClick={()=>{
+                  if(activo){const n={...aplic};delete n[f.id];setAplic(n);}
+                  else setAplicado(f.id, String(f.valor)); // por defecto, su saldo completo (cancela)
+                }} style={{cursor:"pointer"}}>
+                  <span className="chk">{activo?"✓":""}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="fi-nom">Factura {f.factura}</div>
+                    <div className="fi-sal">Saldo {money(f.valor)} ·{" "}
+                      <span style={dias>0?{color:"#C2603A",fontWeight:700}:null}>{f.vence}</span></div>
+                  </div>
+                  {estado && <span className={"estado-f "+(estado==="cancelada"?"ef-canc":"ef-abon")}>
+                    {estado==="cancelada"?"Cancela":"Abono"}</span>}
+                </div>
+                {activo && (
+                  <div className="aplica">
+                    <label>Cobro</label>
+                    <input className={"num"+(exceso?" warn":"")} type="number" inputMode="decimal"
+                      value={aplicado} onChange={e=>setAplicado(f.id,e.target.value)}/>
+                  </div>
+                )}
+                {exceso && <div className="hint err" style={{marginTop:8}}>No puedes cobrar más que el saldo ({money(f.valor)}).</div>}
               </div>
-              {estado && <span className={"estado-f "+(estado==="cancelada"?"ef-canc":"ef-abon")}>
-                {estado==="cancelada"?"Cancela":"Abono"}</span>}
+            );
+          })}
+          {totPag>1 && (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,margin:"4px 0 10px"}}>
+              <button className="ghost" style={{padding:"6px 12px"}} disabled={pag<=1}
+                onClick={()=>setPagFac(pag-1)}>‹</button>
+              <span className="meta" style={{fontSize:11.5}}>{pag} de {totPag}</span>
+              <button className="ghost" style={{padding:"6px 12px"}} disabled={pag>=totPag}
+                onClick={()=>setPagFac(pag+1)}>›</button>
             </div>
-            {activo && (
-              <div className="aplica">
-                <label>Cobro</label>
-                <input className={"num"+(exceso?" warn":"")} type="number" inputMode="decimal"
-                  value={aplicado} onChange={e=>setAplicado(f.id,e.target.value)}/>
-              </div>
-            )}
-            {exceso && <div className="hint err" style={{marginTop:8}}>No puedes cobrar más que el saldo ({money(f.valor)}).</div>}
-          </div>
-        );
-      })}
+          )}
+        </>);
+      })()}
       {factSel.length>0 && (
         <div className="totbar">
           <div><div className="tk">Total a cobrar</div>
