@@ -936,7 +936,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"38", fecha:"18 jul 2026", desc:"Última compra y repetir pedido"};
+const VERSION={n:"39", fecha:"18 jul 2026", desc:"Ficha del cliente igual en ambas apps"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1445,6 +1445,25 @@ const EMOJI_LINEA={Arroz:"🍚", Azúcar:"🧂", Harina:"🌾", Maíz:"🌽"};
 // Lista plana de presentaciones VENDIBLES (excluye marcas y presentaciones inhabilitadas).
 // Cada ítem combina marca + presentación; es la unidad que se vende, se cuenta en stock y se historiza.
 const STOCK_DEMO = { "AG-QQ":120, "AG-25":80, "AC-QQ":95, "AC-25":60, "AE-QQ":40, "AZ-50":150, "AZ-02":300, "HY-QQ":70, "HY-10":110, "MA-QQ":55 };
+/* Perfil de comportamiento del cliente: frecuencia, pago, ranking y volumen */
+const PERFIL_CLIENTE = {
+  "Comercial Mendoza":   {frecuencia:18, ultima:"22 may 2026", premium:true,  top:7,  pagador:"regular",   diasPago:37, qqAnio:820},
+  "Distribuidora Ríos":  {frecuencia:12, ultima:"30 may 2026", premium:true,  top:2,  pagador:"bueno",     diasPago:44, qqAnio:2140},
+  "Bodega El Agricultor":{frecuencia:25, ultima:"15 may 2026", premium:false, top:14, pagador:"excelente", diasPago:21, qqAnio:610},
+  "Tienda La Esquina":   {frecuencia:30, ultima:"19 may 2026", premium:false, top:22, pagador:"bueno",     diasPago:29, qqAnio:280},
+  "Mayorista Santa Rosa":{frecuencia:15, ultima:"28 may 2026", premium:true,  top:4,  pagador:"excelente", diasPago:18, qqAnio:1480},
+  "Abarrotes Don Pepe":  {frecuencia:35, ultima:"02 may 2026", premium:false, top:27, pagador:"riesgoso",  diasPago:52, qqAnio:190},
+  "Comisariato La Y":    {frecuencia:20, ultima:"10 may 2026", premium:false, top:19, pagador:"bueno",     diasPago:31, qqAnio:340},
+};
+
+const PAGADOR = {
+  excelente:{t:"Excelente pagador", c:"#2E7D52", ic:"⭐"},
+  bueno:    {t:"Buen pagador",      c:"#2E7D52", ic:"👍"},
+  regular:  {t:"Pagador regular",   c:"#C98A2B", ic:"⏳"},
+  riesgoso: {t:"Pagador riesgoso",  c:"#B5613C", ic:"⚠️"},
+};
+
+
 /* Última factura por cliente: permite repetir el pedido completo con precios vigentes */
 const FACTURAS_DETALLE = {
   "Comercial Mendoza":[
@@ -3084,34 +3103,76 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
       }}/>
     </div>
 
-    {/* al elegir cliente, el panel se reemplaza por SU información: cupo, deuda y última compra */}
-    {cli && fichaCli && (
-      <div className="card" style={{padding:"12px 13px",marginBottom:12}}>
-        <div style={{display:"flex",gap:7}}>
-          <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:10,padding:"9px 10px"}}>
-            <div className="meta" style={{fontSize:9.5}}>Cupo disponible</div>
-            <div className="num" style={{fontSize:15,fontWeight:800,
-              color:(cupoTotal-deudaActual)>0?"var(--field)":"#C2603A"}}>
-              {money(Math.max(0,cupoTotal-deudaActual))}</div>
+    {/* Ficha del cliente al elegirlo: estado, comportamiento y crédito.
+       Igual en las dos apps: el vendedor y el freelance ven lo mismo del cliente. */}
+    {cli && !prod && carrito.length===0 && (()=>{
+      const pf=PERFIL_CLIENTE[cli]||{};
+      const pg=PAGADOR[pf.pagador]||{};
+      const sem = bloqueado ? ["#B5613C","🔴","Bloqueado"] : ["#2E7D52","🟢","Al día"];
+      const MES={ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11};
+      const par=(pf.ultima||"").split(" ");
+      const dUlt = par.length===3 ? Math.round((new Date(2026,5,12) - new Date(2026, MES[par[1]]||0, Number(par[0])))/86400000) : null;
+      const toca = (dUlt!=null && pf.frecuencia) ? pf.frecuencia-dUlt : null;
+      const CH={display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 9px",fontSize:10.5,fontWeight:700};
+      const mini=(ic,num,unidad,lbl,sub,color)=>(
+        <div style={{background:"var(--card)",border:"1px solid #EAE6DC",borderRadius:12,padding:"10px 11px",minWidth:0,overflow:"hidden"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+            <span style={{fontSize:15,flexShrink:0}}>{ic}</span>
+            <span className="num" style={{fontSize:17,fontWeight:800,lineHeight:1,color:color||"var(--field)",whiteSpace:"nowrap"}}>
+              {num}{unidad?<span style={{fontSize:10,fontWeight:600}}> {unidad}</span>:null}</span>
           </div>
-          <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:10,padding:"9px 10px"}}>
-            <div className="meta" style={{fontSize:9.5}}>Ya debe</div>
-            <div className="num" style={{fontSize:15,fontWeight:800,
-              color:deudaActual>0?"#C9A227":"var(--field)"}}>{money(deudaActual)}</div>
-          </div>
-          <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:10,padding:"9px 10px"}}>
-            <div className="meta" style={{fontSize:9.5}}>Crédito</div>
-            <div className="num" style={{fontSize:15,fontWeight:800}}>{fichaCli.diasCredito||0}d</div>
-          </div>
+          <div style={{fontSize:11,fontWeight:700,marginTop:6,color:"var(--ink)",
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lbl}</div>
+          {sub && <div className="meta" style={{fontSize:9.5,marginTop:1,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>}
         </div>
-        <div className="meta" style={{fontSize:10.5,marginTop:7,overflow:"hidden",
-          textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-          {fichaCli.ciudad}, {fichaCli.prov}
-          {fichaCli.canal?` · ${fichaCli.canal}`:""}
-          {fichaCli.ultimaCompra?` · última compra ${fichaCli.ultimaCompra}`:""}
+      );
+      return (
+        <div className="card" style={{padding:"11px 13px",marginBottom:12,borderLeft:`4px solid ${sem[0]}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10,flexWrap:"wrap"}}>
+            <span style={{...CH,background:sem[0]+"1A",color:sem[0],fontSize:11.5}}>
+              {sem[1]} {bloqueado?"Bloqueado para pedidos":"Sin facturas vencidas"}</span>
+            {pf.premium && <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Premium</span>}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8}}>
+            {mini("🛒", pf.frecuencia||"—", "días", "Suele comprar cada",
+              toca!=null ? (toca<=0?`atrasado ${-toca} d`:`le toca en ${toca} d`) : null,
+              toca!=null && toca<=0 ? "var(--clay)" : "var(--field)")}
+            {mini("💳", pf.diasPago||"—", "días", "Suele pagar en",
+              `${pg.ic||""} ${(pg.t||"").replace(" pagador","").toLowerCase()}`, pg.c)}
+            {mini("🏆", "#"+(pf.top||"—"), null, "Puesto en compras", "de 30 clientes")}
+            {mini("📦", pf.qqAnio||0, "qq", "Compró este año", "acumulado")}
+          </div>
+
+          {/* crédito del cliente: lo que define si se le puede vender a plazo */}
+          {fichaCli && (
+            <div style={{display:"flex",gap:7,marginTop:9}}>
+              <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:10,padding:"8px 10px"}}>
+                <div className="meta" style={{fontSize:9.5}}>Cupo disponible</div>
+                <div className="num" style={{fontSize:14,fontWeight:800,
+                  color:(cupoTotal-deudaActual)>0?"var(--field)":"#C2603A"}}>
+                  {money(Math.max(0,cupoTotal-deudaActual))}</div>
+              </div>
+              <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:10,padding:"8px 10px"}}>
+                <div className="meta" style={{fontSize:9.5}}>Ya debe</div>
+                <div className="num" style={{fontSize:14,fontWeight:800,
+                  color:deudaActual>0?"#C9A227":"var(--field)"}}>{money(deudaActual)}</div>
+              </div>
+              <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:10,padding:"8px 10px"}}>
+                <div className="meta" style={{fontSize:9.5}}>Crédito</div>
+                <div className="num" style={{fontSize:14,fontWeight:800}}>{fichaCli.diasCredito||0}d</div>
+              </div>
+            </div>
+          )}
+          {fichaCli && (
+            <div className="meta" style={{fontSize:10.5,marginTop:7,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {fichaCli.ciudad}, {fichaCli.prov}{fichaCli.canal?` · ${fichaCli.canal}`:""}</div>
+          )}
         </div>
-      </div>
-    )}
+      );
+    })()}
 
     {/* última compra del cliente: qué se llevó y botón para repetir el pedido completo */}
     {cli && !bloqueado && carrito.length===0 && !prod && (()=>{
