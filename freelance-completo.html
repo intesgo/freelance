@@ -2001,6 +2001,8 @@ const COMO_FUNCIONA = [
    d:"El cupo lo administra el freelance. Los cheques posfechados ocupan cupo hasta efectivizarse."},
   {mod:"Clientes", ic:"📊", t:"Historial de compras",
    d:"El historial completo de compras de cada cliente está en su pestaña de Estadísticas."},
+  {mod:"Proveedores", ic:"🔑", t:"Cuándo se libera tu comisión",
+   d:"Únicamente cuando el proveedor confirma el pago efectivo. Cobrar al cliente o depositar su cheque no la libera."},
   {mod:"Autorizaciones", ic:"🔑", t:"Cómo funcionan",
    d:"El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti."},
   {mod:"Autorizaciones", ic:"📋", t:"Historial de códigos",
@@ -3552,7 +3554,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"188", fecha:"18 jul 2026", desc:"Autorizaciones compactas y código copiable"};
+const VERSION={n:"189", fecha:"18 jul 2026", desc:"Buscadores con voz y limpieza en módulos del drawer"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -13748,6 +13750,14 @@ function Proveedores({toast}){
     });
   const [sel,setSel]=useState(null);
   const [pest,setPest]=useState("datos"); // datos | catalogo | promos | docs
+  const [qProv,setQProv]=useState("");
+  const normP=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const provFiltrados=PROVEEDORES.filter(p=>{
+    if(!qProv.trim()) return true;
+    const info=PROVEEDOR_INFO[p.id]||{};
+    const texto=normP(`${p.nombre} ${info.ruc||""} ${info.dir||""}`);
+    return normP(qProv).split(/\s+/).filter(Boolean).every(w=>texto.includes(w));
+  });
 
   if(sel){
     const info=PROVEEDOR_INFO[sel.id]||{};
@@ -13761,13 +13771,11 @@ function Proveedores({toast}){
     const textoUbic=()=>`Ubicación de ${sel.nombre}\n${info.dir||""}\n${mapsUrl}`;
 
     return (<>
-      <button className="ghost" onClick={()=>setSel(null)} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a proveedores</button>
       <div className="prov-cab">
         <span className="prov-logo" style={{background:info.color||"var(--field)"}}>{info.inicial||sel.nombre[0]}</span>
         <div><div className="h1" style={{marginBottom:2}}>{sel.nombre}</div>
           <div className="sub" style={{margin:0}}>RUC {info.ruc||"—"}</div>
-    <div className="hint" style={{background:"#FBF0D8",border:"1px solid #EAD9A8",borderRadius:10,padding:"10px 12px",margin:"0 0 14px",color:"#7A5B00",fontWeight:600}}>
-      🔑 Tu comisión se libera ÚNICAMENTE cuando el proveedor confirma el pago efectivo. Cobrar al cliente o depositar su cheque no la libera.</div></div>
+</div>
       </div>
 
       <div className="eq-tabs" style={{margin:"14px 0 16px"}}>
@@ -13884,8 +13892,14 @@ function Proveedores({toast}){
 
   return (<>
     <div className="h1">Proveedores</div>
-    <div className="sub">Tus proveedores. Toca uno para ver su información completa.</div>
-    {PROVEEDORES.map((p,i)=>{
+    <div className="ss" style={{marginTop:10,marginBottom:10}}>
+      <div className="box"><span className="mag">⌕</span>
+        <input value={qProv} placeholder="Buscar proveedor…" onChange={e=>setQProv(e.target.value)}/>
+        <MicBtn onTexto={setQProv}/>
+        {qProv && <button className="clr" onClick={()=>setQProv("")}>×</button>}</div>
+    </div>
+    {provFiltrados.length===0 && <div className="ph">Sin resultados para “{qProv}”.</div>}
+    {provFiltrados.map((p,i)=>{
       const info=PROVEEDOR_INFO[p.id]||{};
       const nProd=PRODUCTOS.filter(x=>x.provId===p.id && !x.inhabilitada).length;
       return (
@@ -14100,6 +14114,7 @@ function Documentos({toast, usuario}){
     <div className="ss" style={{marginBottom:10}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar por número, cliente, persona…" onChange={e=>setQ(e.target.value)}/>
+        <MicBtn onTexto={setQ}/>
         {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
     </div>
     <div className="pot-filtros" style={{marginBottom:14}}>
