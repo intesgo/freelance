@@ -1044,7 +1044,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"75", fecha:"19 jul 2026", desc:"Cobros paso 2: vencidas, cobrar todo y paginado"};
+const VERSION={n:"76", fecha:"19 jul 2026", desc:"Cobros paso 3: caja de saldo y efectivo 24h"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4449,9 +4449,39 @@ function Cobros({toast}){
     </>)}
     {/* PASO 3 — formas de pago */}
     {paso===3 && (<>
-      <div className="montobox" style={{marginBottom:14}}>
-        <label>Total a cubrir con formas de pago</label>
-        <div className="num" style={{fontSize:26,fontWeight:700,textAlign:"center"}}>{money(monto)}</div>
+      <div className="montobox" style={{marginBottom:14,padding:"14px 16px",
+        border: restanteLineas===0 && monto>0 ? "1.5px solid var(--ok)" : undefined}}>
+        <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+          <span className="meta" style={{fontSize:13.5}}>Total</span>
+          <b className="num" style={{fontSize:15}}>{money(monto)}</b>
+        </div>
+        <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+          <span className="meta" style={{fontSize:13.5}}>Abonado</span>
+          <b className="num" style={{fontSize:15}}>{money(monto-restanteLineas)}</b>
+        </div>
+        <div style={{borderTop:"1.5px solid var(--line)",margin:"9px 0 7px"}}></div>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:800,fontSize:14,letterSpacing:".02em"}}>SALDO</span>
+          <b className="num" style={{fontSize:24,fontWeight:800,
+            color: restanteLineas>0?"var(--maize-deep)":restanteLineas<0?"var(--clay)":"var(--ok)"}}>
+            {(restanteLineas<0?"-":"")+money(Math.abs(restanteLineas))}</b>
+        </div>
+        <div style={{marginTop:10,height:10,background:"#EFEBE0",borderRadius:6,overflow:"hidden",
+          boxShadow:"inset 1px 1px 3px rgba(21,57,43,.08)"}}>
+          <div style={{width:Math.min(100,monto>0?Math.round((monto-restanteLineas)/monto*100):0)+"%",height:"100%",borderRadius:6,
+            transition:"width .45s ease, background-color .45s ease",
+            background: restanteLineas<0?"var(--clay)":restanteLineas===0?"var(--ok)":"var(--maize-deep)"}}></div>
+        </div>
+        <div className="meta" style={{marginTop:4,textAlign:"right",fontSize:11}}>
+          {monto>0?Math.min(999,Math.round((monto-restanteLineas)/monto*100)):0}% cubierto</div>
+        {restanteLineas===0 && monto>0 && (
+          <div style={{marginTop:10,background:"var(--ok)",color:"#fff",borderRadius:12,padding:"11px 12px",
+            textAlign:"center",fontWeight:800,fontSize:14.5,letterSpacing:".03em",
+            boxShadow:"0 3px 10px rgba(46,125,82,.35)"}}>
+            ✓ PAGO COMPLETO — listo para reportar
+          </div>
+        )}
+        {restanteLineas<0 && <div className="meta" style={{color:"var(--clay)",marginTop:5,textAlign:"right"}}>Las formas de pago superan el total</div>}
       </div>
       {lineas.length===0 && <div className="ph">Agrega las formas de pago hasta sumar {money(monto)}. Puedes combinar cheques, depósitos y transferencias.</div>}
       {lineas.map((l,i)=>(
@@ -4462,20 +4492,17 @@ function Cobros({toast}){
             <button className="del" onClick={()=>setLineas(lineas.filter((_,j)=>j!==i))}>Quitar</button>
           </div>
           <div className="det">
-            {l.modalidad==="Cheque"
-              ? `Cheque ${l.numero||"—"} · ${l.banco||"—"} · posfechado ${l.fecha||"—"}`
-              : `Op. ${l.numero||"—"} · ${l.banco||"—"} · ${l.fecha||"—"}`}
-            {" · "}<span className="ok-foto">✓ foto</span>
+            {l.modalidad==="Efectivo"
+              ? <>Dinero en mano · <span style={{color:"var(--maize-deep)",fontWeight:700}}>⏱️ depositar en 24h</span></>
+              : <>{l.modalidad==="Cheque"
+                  ? `Cheque ${l.numero||"—"} · ${l.banco||"—"} · posfechado ${l.fecha||"—"}`
+                  : `Op. ${l.numero||"—"} · ${l.banco||"—"} · ${l.fecha||"—"}`}
+                {" · "}<span className="ok-foto">✓ foto</span></>}
           </div>
         </div>
       ))}
       <div className="addbar">
         {MODALIDADES.map(m=> <button key={m} onClick={()=>setModal(m)}>+ {m}</button>)}
-      </div>
-      <div className={"restante "+(restanteLineas===0?"ok":restanteLineas<0?"over":"pend")}>
-        {restanteLineas>0 ? `Falta cubrir ${money(restanteLineas)} en formas de pago`
-          : restanteLineas<0 ? `Las formas de pago superan en ${money(-restanteLineas)}`
-          : `✓ Las formas de pago suman ${money(monto)}`}
       </div>
       <div className="lock" style={{marginTop:14}}><span>ℹ️</span>
         <span>Solo el dinero recibido cuenta; las retenciones no. Cada factura libera su comisión cuando llega al 100% y el proveedor valida.</span></div>
