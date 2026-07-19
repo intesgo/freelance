@@ -123,9 +123,6 @@
     padding:7px 12px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer}
   .wa-btn:active{background:#DCEDE2}
   .wa-btn.full{width:100%;margin-top:10px}
-  .doc-alertas{background:#FBF0D8;border:1px solid #EBD9A8;border-radius:13px;padding:12px 14px;margin-bottom:12px}
-  .doc-al-row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12.5px;color:#7A5B12;padding:3px 0}
-  .doc-al-row b{font-size:14px;color:#C77F00}
   .doc-item .doc-estado{display:inline-block;color:#fff;font-size:10px;font-weight:700;border-radius:6px;padding:2px 8px;margin-top:6px}
   .doc-foto{display:inline-block;font-size:10.5px;color:var(--muted);margin-left:8px}
   .doc-chk{width:34px;height:34px;border-radius:10px;border:2px solid var(--line);background:var(--paper);
@@ -2025,6 +2022,10 @@ const COMO_FUNCIONA = [
    d:"El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti."},
   {mod:"Autorizaciones", ic:"📋", t:"Historial de códigos",
    d:"Los códigos son de un solo uso: al usarse en el sistema quedan marcados. Nada se borra."},
+  {mod:"Documentos", ic:"📄", t:"Para qué sirve",
+   d:"Registro de entrega y recepción de cheques, facturas, pagarés y más. Cada lote deja acta firmada por quien entrega y quien recibe."},
+  {mod:"Documentos", ic:"🚚", t:"Envío por courier",
+   d:"El courier solo traslada. El destinatario final verifica el contenido y confirma al recibir."},
   {mod:"Clientes potenciales", ic:"🎯", t:"Cómo se trabaja",
    d:"Prospectos en seguimiento. Toca uno para ver su ficha y avanzar la etapa: Por contactar → Contactado → Interesado → Negociando → Ganado."},
   {mod:"Stock", ic:"📦", t:"Para qué sirve",
@@ -3582,7 +3583,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"196", fecha:"18 jul 2026", desc:"Indicadores compactos y suma corregida"};
+const VERSION={n:"197", fecha:"18 jul 2026", desc:"Documentos con indicadores y paginación"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14104,6 +14105,7 @@ function Documentos({toast, usuario}){
   const [acta,setActa]=useState(null);        // lote en vista de acta
   const [q,setQ]=useState("");
   const [fEstado,setFEstado]=useState("Todos"); // Todos | pendiente | recibido
+  const [pagDoc,setPagDoc]=useState(1);         // lista paginada de 10 en 10
   const yo=usuario?.nombre||"Daniel Ríos";
 
   const destinatarios=[
@@ -14273,43 +14275,65 @@ function Documentos({toast, usuario}){
 
   return (<>
     <div className="h1">Entrega de documentos</div>
-    <div className="sub">Registro de entrega y recepción de cheques, facturas, pagarés y más.</div>
 
-    {(pendientes.length>0||chequesPorVencer>0) && (
-      <div className="doc-alertas">
-        {pendientes.length>0 && <div className="doc-al-row"><span>⏳ Pendientes de confirmar recepción</span><b>{pendientes.length}</b></div>}
-        {chequesPorVencer>0 && <div className="doc-al-row"><span>🔔 Cheques en tránsito (revisar vencimiento)</span><b>{chequesPorVencer}</b></div>}
-      </div>
-    )}
-
-    <BotonCrear titulo="Nueva entrega" onClick={()=>setCrear(true)}/>
+    {/* indicadores compactos: tocables para filtrar */}
+    <div className="mini-kpi">
+      <button onClick={()=>setFEstado("Todos")}>
+        <span className="mk-v num">{entregas.length}</span>
+        <span className="mk-k">Entregas</span></button>
+      <button onClick={()=>setFEstado("pendiente")}>
+        <span className="mk-v num" style={{color:pendientes.length>0?"#C9A227":"var(--field)"}}>{pendientes.length}</span>
+        <span className="mk-k">Por confirmar</span></button>
+      <button onClick={()=>setFEstado("recibido")}>
+        <span className="mk-v num">{entregas.filter(e=>e.estado==="recibido").length}</span>
+        <span className="mk-k">Recibidas</span></button>
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num" style={{color:chequesPorVencer>0?"#C2603A":"var(--field)"}}>{chequesPorVencer}</span>
+        <span className="mk-k">En tránsito</span></button>
+    </div>
 
     <div className="ss" style={{marginBottom:10}}>
       <div className="box"><span className="mag">⌕</span>
-        <input value={q} placeholder="Buscar por número, cliente, persona…" onChange={e=>setQ(e.target.value)}/>
-        <MicBtn onTexto={setQ}/>
+        <input value={q} placeholder="Buscar por número, cliente, persona…" onChange={e=>{setQ(e.target.value);setPagDoc(1);}}/>
+        <MicBtn onTexto={t=>{setQ(t);setPagDoc(1);}}/>
         {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
     </div>
     <div className="pot-filtros" style={{marginBottom:14}}>
-      <button className={fEstado==="Todos"?"on":""} onClick={()=>setFEstado("Todos")}>Todas <span className="sol-n">{entregas.length}</span></button>
-      <button className={fEstado==="pendiente"?"on":""} onClick={()=>setFEstado("pendiente")}>Pendientes <span className="sol-n">{entregas.filter(e=>e.estado==="pendiente").length}</span></button>
-      <button className={fEstado==="recibido"?"on":""} onClick={()=>setFEstado("recibido")}>Recibidas <span className="sol-n">{entregas.filter(e=>e.estado==="recibido").length}</span></button>
+      <button className={fEstado==="Todos"?"on":""} onClick={()=>{setFEstado("Todos");setPagDoc(1);}}>Todas <span className="sol-n">{entregas.length}</span></button>
+      <button className={fEstado==="pendiente"?"on":""} onClick={()=>{setFEstado("pendiente");setPagDoc(1);}}>Pendientes <span className="sol-n">{entregas.filter(e=>e.estado==="pendiente").length}</span></button>
+      <button className={fEstado==="recibido"?"on":""} onClick={()=>{setFEstado("recibido");setPagDoc(1);}}>Recibidas <span className="sol-n">{entregas.filter(e=>e.estado==="recibido").length}</span></button>
     </div>
 
     {lista.length===0 ? <div className="ph">Sin entregas que coincidan.</div>
-      : lista.map(e=>(
-        <div className="card" key={e.id} style={{cursor:"pointer"}} onClick={()=>setSel(e)}>
+      : lista.slice(0, pagDoc*10).map(e=>{
+        /* el estado se lee de un vistazo */
+        const barraD = e.estado==="recibido"?"#2E7D52" : e.estado==="courier"?"#2B6CB0" : "#C9A227";
+        return (
+        <div className="card" key={e.id} onClick={()=>setSel(e)}
+          style={{cursor:"pointer",padding:"11px 13px",marginBottom:8,
+            borderLeft:`4px solid ${barraD}`,
+            background: e.estado==="pendiente" ? "#FDFAF0" : "var(--card)"}}>
           <div className="row" style={{alignItems:"center"}}>
-            <div style={{flex:1}}>
-              <div className="cli" style={{fontSize:14}}>{e.de} → {e.para}</div>
-              <div className="meta">{e.fecha} · {e.docs.length} doc(s) · {money(totalLote(e))}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.de} → {e.para}</div>
+              <div className="meta" style={{fontSize:11}}>{e.fecha} · {e.docs.length} doc(s) · {money(totalLote(e))}</div>
             </div>
-            <span className={"chip "+(e.estado==="recibido"?"c-ok":e.estado==="courier"?"c-info":"c-warn")}><span className="d"></span>{e.estado==="recibido"?"Recibido":e.estado==="courier"?"En courier":"Pendiente"}</span>
+            <span className={"chip "+(e.estado==="recibido"?"c-ok":e.estado==="courier"?"c-info":"c-warn")}
+              style={{flexShrink:0,marginLeft:8}}><span className="d"></span>{e.estado==="recibido"?"Recibido":e.estado==="courier"?"En courier":"Pendiente"}</span>
           </div>
         </div>
-      ))}
+      );})}
 
-    <button className="ghost" style={{width:"100%",marginTop:14}} onClick={()=>toast("Exportando respaldo del registro…")}>⬇️ Exportar respaldo</button>
+    {lista.length > pagDoc*10 && (
+      <button className="back" style={{width:"100%",marginTop:4}}
+        onClick={()=>setPagDoc(p=>p+1)}>
+        Ver más ({lista.length - pagDoc*10} restantes)</button>
+    )}
+
+    <button className="mini-link" style={{width:"100%",marginTop:12,textAlign:"center"}}
+      onClick={()=>toast("Exportando respaldo del registro…")}>⬇️ Exportar respaldo</button>
+
+    <BotonCrear titulo="Nueva entrega" onClick={()=>setCrear(true)}/>
   </>);
 }
 
@@ -14390,7 +14414,6 @@ function NuevaEntrega({yo, destinatarios, reenviarDe, onCancel, onCrear}){
             todos="__" etiquetaTodos="Elige courier…"/></div>
         <div className="field"><label>Número de guía</label>
           <input value={courier.guia} onChange={e=>setCourier({...courier,guia:e.target.value})} placeholder="Ej. SRV-558213"/></div>
-        <div className="meta">El courier solo traslada. El destinatario final verifica el contenido y confirma al recibir.</div>
       </div>
     )}
 
