@@ -609,6 +609,13 @@
   .qty-input{width:100%;box-sizing:border-box;padding:15px 16px;font-size:22px;font-weight:700;text-align:center;
     color:var(--field);background:#fff;border:1px solid var(--line);border-radius:12px;outline:none}
   .qty-input:focus{border-color:var(--field)}
+  .primera-compra{background:#EAF4EF;border:1px solid #BFE0D0;border-radius:12px;padding:12px 14px;
+    font-size:13px;color:var(--field);font-weight:600;margin-bottom:16px}
+  .base-barra{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
+    background:#EEF2EE;border:1px solid var(--line);color:var(--field);border-radius:11px;
+    padding:11px 15px;font-size:13.5px;font-weight:700;margin-bottom:10px}
+  .base-barra.nueva{background:#EAF4EF;border-color:#BFE0D0}
+  .base-barra b{font-size:16px;font-family:'Space Grotesk',sans-serif}
   /* fila con botones − / + (cantidad y precio) */
   .precio-row{display:flex;align-items:stretch;gap:8px}
   .pm-btn{width:52px;flex-shrink:0;border:1px solid var(--line);background:#fff;border-radius:11px;
@@ -3689,7 +3696,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"230", fecha:"19 jul 2026", desc:"Atras cierra el aviso de pedido guardado"};
+const VERSION={n:"231", fecha:"19 jul 2026", desc:"Pantalla de precio igual al Comisionista"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -4456,7 +4463,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                       toast(r.msg);
                     }}>Desbloquear</button>
                   </div>
-                  <div className="meta" style={{fontSize:10.5,marginTop:5}}>El código sirve una sola vez, solo para {cli} y caduca en 30 minutos.</div>
+                  <div className="meta" style={{fontSize:10.5,marginTop:5}}>El código sirve una sola vez, solo para {(cli && cli.nombre) || cli} y caduca en 30 minutos.</div>
                 </div>
               )}
             </div>
@@ -4553,7 +4560,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             })}
           </div>
         ) : (
-          verHist && <div className="pc-empty">{cli} no ha comprado {prod.nombre} en los últimos 3 meses.</div>
+          verHist && <div className="pc-empty">{(cli && cli.nombre) || cli} no ha comprado {prod.nombre} en los últimos 3 meses.</div>
         )}
       </div>
     )}
@@ -4676,7 +4683,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         <div className="ov" onClick={()=>setPidiendo(false)}>
           <div className="sheet" onClick={e=>e.stopPropagation()}>
             <h3>Solicitar autorización</h3>
-            <div className="sh-sub">{cli} · el proveedor decide con el contexto completo</div>
+            <div className="sh-sub">{(cli && cli.nombre) || cli} · el proveedor decide con el contexto completo</div>
 
             {/* contexto automático: el proveedor nunca aprueba a ciegas */}
             <div className="card" style={{padding:"11px 13px",margin:"0 0 14px",background:"#F7F9F7"}}>
@@ -4813,13 +4820,37 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </>)}
 
       <div className="field">
-        <input className={"num"+(bajoBase?" warn":"")} type="number" inputMode="decimal"
-          placeholder={prod&&base>0?money(base)+" (base)":"Precio negociado"}
-          value={precio} onChange={e=>setPrecio(e.target.value)}/>
+        <label style={{marginBottom:6,display:"block"}}>Precio de venta</label>
+
+        {/* Barra informativa: precio base · o "Nueva compra" si es primera vez */}
+        {prod && !esP5 && (
+          <div className={"base-barra"+(histo3m.length===0?" nueva":"")}>
+            {histo3m.length>0
+              ? <><span>Precio base</span><b className="num">{money(base)}</b></>
+              : <><span>✨ Nueva compra</span><b className="num">base {money(base)}</b></>}
+          </div>
+        )}
+
+        {/* Precio con botones − / + de $0,50 */}
+        <div className="precio-row">
+          {!esP5 && <button type="button" className="pm-btn"
+            onClick={()=>{ const v=Math.max(0,(parseFloat(precio)|| (base||0))-0.5); setPrecio(v.toFixed(2)); }}>−</button>}
+          <input className={"num precio-in"+(bajoBase?" warn":"")} type="number" inputMode="decimal"
+            placeholder={prod&&base>0?"Precio base "+money(base):"Precio negociado"}
+            value={precio} onChange={e=>setPrecio(e.target.value)}/>
+          {!esP5 && <button type="button" className="pm-btn"
+            onClick={()=>{ const v=(parseFloat(precio)|| (base||0))+0.5; setPrecio(v.toFixed(2)); }}>+</button>}
+        </div>
+
         {bajoBase
           ? <div className="hint err">No puedes vender bajo tu base ({money(base)}). Para un precio menor, usa Precio especial (P5).</div>
           : null}
       </div>
+
+      {/* Cliente/producto nuevo: sin historial */}
+      {prod && histo3m.length===0 && (
+        <div className="primera-compra">✨ Primera compra de este producto para {(cli && cli.nombre) || cli}.</div>
+      )}
 
       {esP5 && (<>
         <div className="field"><label>Comisión que propones (por {prod?unidadCorta:"unidad"})</label>
