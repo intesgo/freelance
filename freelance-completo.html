@@ -3583,7 +3583,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"197", fecha:"18 jul 2026", desc:"Documentos con indicadores y paginación"};
+const VERSION={n:"198", fecha:"18 jul 2026", desc:"Detalle de lote: alerta de cheque vencido"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14166,16 +14166,30 @@ function Documentos({toast, usuario}){
     const solicitarDep=(idx)=>setEntregas(es=>es.map(e=>e.id===l.id?{...e,docs:e.docs.map((d,i)=>i===idx?{...d,estadoDoc:"Depósito solicitado",depSolicita:yo,bitacora:[...(d.bitacora||[]),{e:"Depósito solicitado",quien:yo,fecha:hoyTxt}]}:d)}:e));
     const registrarDep=(idx)=>setEntregas(es=>es.map(e=>e.id===l.id?{...e,docs:e.docs.map((d,i)=>i===idx?{...d,estadoDoc:"Depositado",depBanco:d.banco||BANCOS[0],depFecha:hoyTxt,depFoto:true,bitacora:[...(d.bitacora||[]),{e:"Depositado",quien:yo,fecha:hoyTxt}]}:d)}:e));
 
-    return (<>
-      <button className="ghost" onClick={()=>setSel(null)} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver</button>
-      <div className="h1" style={{marginBottom:4}}>Entrega · {l.fecha}</div>
-      <div className="sub">{l.de} → {l.para}</div>
+    /* ¿el cheque ya venció? convierte "10 jul 2026" a fecha comparable */
+    const MESES_C={ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11};
+    const aFecha=(txt)=>{
+      const m=String(txt||"").match(/(\d{1,2})\s+(\w{3})\w*\s+(\d{4})/i);
+      if(!m) return null;
+      const mes=MESES_C[m[2].toLowerCase().slice(0,3)];
+      return mes==null?null:new Date(+m[3],mes,+m[1]);
+    };
+    const hoyD=new Date(); hoyD.setHours(0,0,0,0);
+    const diasVencido=(venc)=>{
+      const f=aFecha(venc); if(!f) return null;
+      return Math.round((hoyD-f)/86400000);
+    };
 
-      <div className="fcard" style={{margin:"12px 0 14px"}}>
+    return (<>
+      <div className="h1" style={{marginBottom:4}}>Entrega · {l.fecha}</div>
+
+      <div className="fcard" style={{margin:"10px 0 12px"}}>
         <div className="cu-line"><span>De</span><b>{l.de} · {l.deRol}</b></div>
         <div className="cu-line"><span>Para</span><b>{l.para} · {l.paraRol}</b></div>
         <div className="cu-line"><span>Documentos</span><b>{l.docs.length}</b></div>
-        <div className="cu-line"><span>Monto total</span><b className="num">{money(totalLote(l))}</b></div>
+        {/* el monto lleva margen a la derecha para que la campanilla no lo tape */}
+        <div className="cu-line"><span>Monto total</span>
+          <b className="num" style={{marginRight:46}}>{money(totalLote(l))}</b></div>
         <div className="cu-line"><span>Estado</span>
           <b><span className={"chip "+(l.estado==="recibido"?"c-ok":l.estado==="courier"?"c-info":"c-warn")}><span className="d"></span>{l.estado==="recibido"?"Recibido":l.estado==="courier"?"En courier":"Pendiente"}</span></b></div>
         {l.estado==="recibido" && <div className="meta" style={{marginTop:4}}>✓ {l.recibidoFecha}{l.conNovedad?` · ⚠️ ${l.novedad}`:""}</div>}
@@ -14183,20 +14197,37 @@ function Documentos({toast, usuario}){
       </div>
 
       <div className="ficha-sec">Documentos {l.estado==="pendiente"?"· verifica uno por uno":""}</div>
-      {l.docs.map((d,i)=>(
-        <div className="card doc-item" key={i}>
+      {l.docs.map((d,i)=>{
+        const dv = d.tipo==="Cheque" && d.estadoDoc!=="Depositado" && d.estadoDoc!=="Cobrado"
+          ? diasVencido(d.venc) : null;
+        const vencido = dv!=null && dv>0;
+        return (
+        <div className="card doc-item" key={i}
+          style={{padding:"11px 13px",marginBottom:8,
+            borderLeft:`4px solid ${vencido?"#C2603A":ESTADO_DOC_COLOR[d.estadoDoc]||"#8A9A8E"}`,
+            background: vencido?"#FDF6F3":"var(--card)"}}>
           <div className="row" style={{alignItems:"flex-start"}}>
-            <div style={{flex:1}}>
-              <div className="cli" style={{fontSize:13.5}}>{d.tipo} · {d.numero}</div>
-              <div className="meta">{d.cliente}{d.banco?` · ${d.banco}`:""}</div>
-              <div className="meta">📅 {d.fecha}{d.venc?` · vence ${d.venc}`:""}</div>
-              <span className="doc-estado" style={{background:ESTADO_DOC_COLOR[d.estadoDoc]||"#888"}}>{d.estadoDoc}</span>
-              {d.foto && <span className="doc-foto">📷 con foto</span>}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:1}}>
+                <span className="cli" style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.tipo} · {d.numero}</span>
+                <span className="doc-estado" style={{background:ESTADO_DOC_COLOR[d.estadoDoc]||"#888",flexShrink:0,margin:0}}>{d.estadoDoc}</span>
+              </div>
+              <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {d.cliente}{d.banco?` · ${d.banco}`:""}</div>
+              <div className="meta" style={{fontSize:11}}>
+                {d.fecha}{d.venc?` · vence ${d.venc}`:""}
+                {d.foto && <span style={{marginLeft:6}}>📷</span>}
+              </div>
+              {vencido && (
+                <div style={{marginTop:5,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>
+                  ⚠️ Vencido hace {dv} día{dv!==1?"s":""} · gestionar depósito</div>
+              )}
               {d.estadoDoc==="Depósito solicitado" && d.depSolicita && <div className="doc-dep-aviso">🔔 {d.depSolicita} solicitó depositar este cheque</div>}
-              {d.estadoDoc==="Depositado" && d.depFecha && <div className="meta" style={{marginTop:4,color:"#3A6EA5"}}>✓ Depositado en {d.depBanco} · {d.depFecha}{d.depFoto?" · 📷 evidencia":""}</div>}
+              {d.estadoDoc==="Depositado" && d.depFecha && <div className="meta" style={{marginTop:4,color:"#3A6EA5",fontSize:11}}>✓ Depositado en {d.depBanco} · {d.depFecha}{d.depFoto?" · 📷":""}</div>}
             </div>
-            <div style={{textAlign:"right"}}>
-              <div className="amt num">{money(d.monto)}</div>
+            <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+              <div className="amt num" style={{fontSize:15}}>{money(d.monto)}</div>
               {l.estado==="pendiente" && (
                 <button className={"doc-chk"+(d.verificado?" on":"")} onClick={()=>toggleVerif(i)}>{d.verificado?"✓":"○"}</button>
               )}
@@ -14229,7 +14260,7 @@ function Documentos({toast, usuario}){
             </div>
           )}
         </div>
-      ))}
+      );})}
 
       {l.estado==="pendiente" ? (
         <div style={{marginTop:14}}>
