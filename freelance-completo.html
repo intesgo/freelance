@@ -3717,7 +3717,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"241", fecha:"19 jul 2026", desc:"Cupo dice Deuda y Venta actual"};
+const VERSION={n:"242", fecha:"19 jul 2026", desc:"Guardado de pedido corregido"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -4011,7 +4011,7 @@ function BannerArroz(){
   );
 }
 
-function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar}){
+function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar, go}){
   const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
   const [verHist,setVerHist]=useState(false);     // desplegar el historial de compras del producto
   const [solAut,setSolAut]=useState(null);        // solicitud de autorización de este pedido
@@ -5055,15 +5055,17 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
           <div style={{fontSize:36,marginTop:4}}>✅</div>
           <h3 style={{marginTop:6}}>Pedido guardado</h3>
-          <div className="sh-sub">{guardadoOk.cli} · {guardadoOk.n} producto(s) · lo ves en Mis pedidos</div>
+          <div className="sh-sub">{(guardadoOk.cli && guardadoOk.cli.nombre) || guardadoOk.cli} · {guardadoOk.n} producto(s) · lo ves en Mis pedidos</div>
           <button className="cta" style={{marginTop:14}} onClick={()=>{
-            const txt = `Hola ${guardadoOk.cli} 👋 Registré tu pedido:\n${guardadoOk.resumen}\nGracias por tu compra 🙌`;
+            const nom = (guardadoOk.cli && guardadoOk.cli.nombre) || guardadoOk.cli;
+            const txt = `Hola ${nom} 👋 Registré tu pedido:\n${guardadoOk.resumen}\nGracias por tu compra 🙌`;
             window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
           }}>📲 Avisar al cliente por WhatsApp</button>
           <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
             const c = guardadoOk.cli; setGuardadoOk(null); setCli(c);
+            if(go) go("pedido");                    /* vuelve a Tomar pedido con el cliente puesto */
             toast("Listo: mismo cliente, pedido nuevo.");
-          }}>➕ Otro pedido de {guardadoOk.cli.split(" ")[0]}</button>
+          }}>➕ Otro pedido de {String((guardadoOk.cli && guardadoOk.cli.nombre) || guardadoOk.cli).split(" ")[0]}</button>
           <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setGuardadoOk(null)}>Listo</button>
         </div>
       </div>
@@ -15448,7 +15450,7 @@ function App({usuario, onSalir}){
       const credito = it.tipoNombre && /créd/i.test(it.tipoNombre);
       return {
         id:Date.now()+i,
-        cli, prov: prov?prov.nombre:"—", fecha:fechaISO,
+        cli:(cli && cli.nombre)||cli||"—", prov: prov?prov.nombre:"—", fecha:fechaISO,
         prod:it.prodNombre, cant:it.cant, precio:it.precio,
         cond: credito?"Crédito":"Contado",
         comision: it.requiere?0:it.comisionTotal,
@@ -15504,6 +15506,7 @@ function App({usuario, onSalir}){
         {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
+          go={navegar}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
         {tab==="pedidos" && <Pedidos pedidos={pedidos} toast={show}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
