@@ -1056,7 +1056,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"79", fecha:"19 jul 2026", desc:"Cobros: buscador destacado y KPIs tocables"};
+const VERSION={n:"80", fecha:"19 jul 2026", desc:"Cobros: el tablero se oculta al buscar cliente"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2505,6 +2505,8 @@ function BotonCrear({onClick, titulo}){
 function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
+  /* avisa hacia afuera si la lista está abierta (para ocultar lo que quede debajo) */
+  React.useEffect(()=>{ if(onAbrir) onAbrir(open); },[open]);
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const txt=(it)=>render?render(it):String(it);
   const opciones=[{__todos:true}, ...items];
@@ -2541,7 +2543,7 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
 }
 
 // Buscador con autocompletar (cliente, proveedor, producto)
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel, className}) {
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel, className, onAbrir}) {
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   const ocultarLabel = sinLabel || (label && placeholder && label.trim().toLowerCase()===placeholder.trim().toLowerCase());
@@ -4238,6 +4240,7 @@ function Cobros({toast}){
   const [lineas,setLineas]=useState([]);
   const [modal,setModal]=useState(null);
   const [pagFac,setPagFac]=useState(1);       // paginación de facturas del paso 2
+  const [buscando,setBuscando]=useState(false); // buscador de cliente abierto: oculta el tablero de abajo
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
 
   const reset=()=>{setPaso(1);setCli(null);setProv(null);setAplic({});setLineas([]);setPagFac(1);};
@@ -4317,7 +4320,7 @@ function Cobros({toast}){
 
     {/* PASO 1 — cliente y proveedor */}
     {paso===1 && (<>
-      <SearchSelect className="ss-hero" label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
+      <SearchSelect className="ss-hero" onAbrir={setBuscando} label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
           text:c=>c,
@@ -4325,7 +4328,7 @@ function Cobros({toast}){
           picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente con cobros pendientes</div></>)
         }}/>
       {/* antes de elegir: qué tiene por cobrar hoy */}
-      {!cli && (()=>{
+      {!cli && !buscando && (()=>{
         const pend=COBROS_INI;
         const total=pend.reduce((s,c)=>s+c.valor,0);
         /* el vencimiento viene como texto: "Vencida hace 6 días" o "En 11 días" */
