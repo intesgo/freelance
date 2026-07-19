@@ -635,6 +635,15 @@
   .pc-zonas{display:flex;flex-direction:column;gap:2px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
   .pc-zonas-v{font-size:13px;font-weight:600;color:var(--field);line-height:1.4}
   .pot-badge{display:inline-block;font-size:10px;font-weight:700;color:#fff;border-radius:6px;padding:3px 9px;margin-top:6px}
+  /* indicadores compactos: una sola fila, sin íconos, para no comerse la pantalla */
+  .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
+  .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
+    gap:1px;background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:9px 5px;font-family:inherit;cursor:pointer}
+  .mini-kpi button:active{background:var(--paper)}
+  .mk-v{font-size:17px;font-weight:800;color:var(--field);line-height:1.15}
+  .mk-k{font-size:9.5px;color:var(--muted);font-weight:600;text-align:center;
+    line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
   /* una sola línea deslizable, según norma de etiquetas */
   .pot-filtros{display:flex;flex-wrap:nowrap;gap:7px;margin-bottom:14px;
     overflow-x:auto;padding-right:14px;scrollbar-width:none}
@@ -3573,7 +3582,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"195", fecha:"18 jul 2026", desc:"Potenciales con embudo y tarjetas compactas"};
+const VERSION={n:"196", fecha:"18 jul 2026", desc:"Indicadores compactos y suma corregida"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -7859,31 +7868,33 @@ function Potenciales({toast}){
     </>);
   }
 
-  /* ── panel de entrada: en qué está el embudo ── */
-  const valorTotal = pots.reduce((s,p)=>s+(parseFloat(String(p.potencial).replace(/[^\d.]/g,""))||0),0);
+  /* ── panel de entrada: en qué está el embudo ──
+     Ojo: el potencial viene como texto "$2.500/mes" (punto = separador de miles). */
+  const aNumero = (txt)=>{
+    const m = String(txt||"").replace(/[^\d.,]/g,"").replace(/\./g,"").replace(",",".");
+    return parseFloat(m)||0;
+  };
+  const valorTotal = pots.reduce((s,p)=>s+aNumero(p.potencial),0);
   const enCierre = pots.filter(p=>p.etapa==="Negociando"||p.etapa==="Interesado").length;
   const sinTocar = pots.filter(p=>p.etapa==="Por contactar").length;
-  const ganados = pots.filter(p=>p.etapa==="Ganado").length;
 
   return (<>
     <div className="h1">Clientes potenciales</div>
 
-    {/* mini-dashboard del embudo */}
-    <div className="cu-grid" style={{margin:"10px 0 12px"}}>
-      <div className="cu-card" onClick={()=>setFEtapa("Todas")} style={{cursor:"pointer"}}>
-        <div className="cu-ic" style={{background:"#F3ECF9"}}><Ico n="clientes" c="#7C5CBF" s={19}/></div>
-        <div className="cu-v num">{pots.length}</div><div className="cu-k">Prospectos</div></div>
-      <div className="cu-card">
-        <div className="cu-ic" style={{background:"#E4F1E9"}}><Ico n="billete" c="#2E7D52" s={19}/></div>
-        <div className="cu-v num">{money(valorTotal)}</div><div className="cu-k">Potencial/mes</div></div>
-      <div className="cu-card" onClick={()=>setFEtapa("Negociando")} style={{cursor:"pointer"}}>
-        <div className="cu-ic" style={{background:"#FBF0D8"}}><Ico n="diana" c="#C9A227" s={19}/></div>
-        <div className="cu-v num" style={{color:enCierre>0?"#C9A227":"var(--field)"}}>{enCierre}</div>
-        <div className="cu-k">Cerca de cerrar</div></div>
-      <div className="cu-card" onClick={()=>setFEtapa("Por contactar")} style={{cursor:"pointer"}}>
-        <div className="cu-ic" style={{background:"#FBE9E4"}}><Ico n="reloj" c="#C2603A" s={19}/></div>
-        <div className="cu-v num" style={{color:sinTocar>0?"#C2603A":"var(--field)"}}>{sinTocar}</div>
-        <div className="cu-k">Sin contactar</div></div>
+    {/* indicadores compactos: cuatro en una sola fila */}
+    <div className="mini-kpi">
+      <button onClick={()=>setFEtapa("Todas")}>
+        <span className="mk-v num">{pots.length}</span>
+        <span className="mk-k">Prospectos</span></button>
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num" style={{fontSize:14}}>{money(valorTotal)}</span>
+        <span className="mk-k">Potencial/mes</span></button>
+      <button onClick={()=>setFEtapa("Negociando")}>
+        <span className="mk-v num" style={{color:enCierre>0?"#C9A227":"var(--field)"}}>{enCierre}</span>
+        <span className="mk-k">Por cerrar</span></button>
+      <button onClick={()=>setFEtapa("Por contactar")}>
+        <span className="mk-v num" style={{color:sinTocar>0?"#C2603A":"var(--field)"}}>{sinTocar}</span>
+        <span className="mk-k">Sin contactar</span></button>
     </div>
 
     <div className="ss" style={{marginBottom:10}}>
