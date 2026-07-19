@@ -1475,6 +1475,19 @@
 const {useState} = React;
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
+/* Unidad abreviada para mostrar comisiones: "Quintal"→qq, "Saco 25 kg"→saco, "Funda 2 kg"→funda */
+const uniCorta = (u)=>{
+  const t=(u||"").trim();
+  if(!t) return "unidad";
+  if(/quintal/i.test(t)) return "qq";
+  if(/arroba/i.test(t)) return "@";
+  if(/saco/i.test(t)) return "saco";
+  if(/funda/i.test(t)) return "funda";
+  if(/caja/i.test(t)) return "caja";
+  if(/unidad/i.test(t)) return "u";
+  return t.split(" ")[0].toLowerCase();
+};
+
 const PALETAS = {
   campo:   {nombre:"Campo",   desc:"Verde institucional",        muestra:["#15392B","#F2A900"]},
   sol:     {nombre:"Sol",     desc:"Alto contraste bajo el sol", muestra:["#0B2A1E","#FFFFFF"]},
@@ -3704,7 +3717,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"236", fecha:"19 jul 2026", desc:"P4 sin promocion no muestra base cero"};
+const VERSION={n:"237", fecha:"19 jul 2026", desc:"Barra con comision por unidad y precio base"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -4535,7 +4548,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         <div className="pc-head">
           <div className="pc-img">{imgProd}</div>
           <div style={{flex:1,minWidth:0}}>
-            <div className="pc-nom">{prod.nombre} · {unidadCorta}</div>
+            <div className="pc-nom">{prod.nombre}</div>
           </div>
         </div>
 
@@ -4878,9 +4891,15 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             ? <div className="base-barra" style={{background:"#FBEDE7",borderColor:"var(--clay)",color:"var(--clay)"}}>
                 <span>Sin promoción elegida</span><b>—</b></div>
             : <div className={"base-barra"+(histo3m.length===0?" nueva":"")}>
-                {histo3m.length>0
-                  ? <><span>Precio base</span><b className="num">{money(base)}</b></>
-                  : <><span>✨ Nueva compra</span><b className="num">base {money(base)}</b></>}
+                {/* izquierda: lo que ganas por unidad · derecha: la base del tipo elegido */}
+                <span style={{display:"flex",alignItems:"baseline",gap:5,minWidth:0}}>
+                  <b className="num" style={{color: dif>0?"var(--ok)":dif<0?"var(--clay)":"var(--muted)"}}>{money(dif)}</b>
+                  <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",whiteSpace:"nowrap"}}>/ {uniCorta(prod.unidad)}</span>
+                </span>
+                <span style={{display:"flex",alignItems:"baseline",gap:5,flexShrink:0}}>
+                  <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)"}}>base</span>
+                  <b className="num">{money(base)}</b>
+                </span>
               </div>
         )}
 
