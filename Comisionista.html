@@ -944,6 +944,8 @@
   .pm-btn{width:52px;flex-shrink:0;border:1px solid var(--line);background:#fff;border-radius:11px;
     font-size:24px;font-weight:700;color:var(--field);cursor:pointer;font-family:inherit}
   .pm-btn:active{background:var(--paper)}
+  /* al mantener aplastado no debe seleccionar texto ni abrir el menú del sistema */
+  .pm-btn{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
   .precio-in{flex:1;text-align:center}
   .precio-ult{background:#FBF3DD;border:1px solid var(--maize);color:var(--maize-deep);
     border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;cursor:pointer;
@@ -1019,7 +1021,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"55", fecha:"19 jul 2026", desc:"Botones mas y menos en cantidad"};
+const VERSION={n:"56", fecha:"19 jul 2026", desc:"Mantener aplastado acelera la cantidad"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2224,6 +2226,36 @@ function retrocederEnModulo(){
 }
 
 /* ── Gesto: deslizar desde el borde izquierdo abre el menú lateral ── */
+/* Mantener aplastado un botón para repetir la acción (usado en − / + de cantidad).
+   Un toque corto hace un solo paso; al sostener, arranca tras 400 ms y va acelerando. */
+function usarRepetir(accion){
+  const ref = React.useRef({t:null, i:null, fn:null});
+  ref.current.fn = accion;
+  const parar = React.useCallback(()=>{
+    const r=ref.current;
+    if(r.t){ clearTimeout(r.t); r.t=null; }
+    if(r.i){ clearInterval(r.i); r.i=null; }
+  },[]);
+  const arrancar = React.useCallback(()=>{
+    const r=ref.current;
+    parar();
+    r.fn();                                   /* el primer paso es inmediato */
+    r.t = setTimeout(()=>{
+      let ms = 140, pasos = 0;
+      const tic = ()=>{
+        r.fn(); pasos++;
+        if(pasos===6 && ms>60){ ms=60; clearInterval(r.i); r.i=setInterval(tic,ms); }
+      };
+      r.i = setInterval(tic, ms);
+    }, 400);
+  },[parar]);
+  React.useEffect(()=>parar,[parar]);         /* limpia si la pantalla se cierra */
+  return {
+    onPointerDown:(e)=>{ e.preventDefault(); arrancar(); },
+    onPointerUp:parar, onPointerLeave:parar, onPointerCancel:parar,
+  };
+}
+
 function useGestoDrawer(abrir, activo){
   React.useEffect(()=>{
     if(!activo) return;
@@ -3055,6 +3087,9 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
   // cerrar pedido completo: vuelve de cero
   const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
+  /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
+  const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
+  const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
 
   /* Botón atrás inteligente: retrocede paso a paso dentro del módulo antes de salir.
      Va aquí, después de declarar los estados y funciones que consulta. */
@@ -3753,14 +3788,12 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
       <div className="field"><label>Cantidad ({prod?prod.unidad:"unidad"})</label>
         {/* Cantidad con botones − / + de 50 en 50 */}
         <div className="precio-row">
-          <button type="button" className="pm-btn"
-            onClick={()=>{ const v=Math.max(1,(parseInt(cant)||0)-50); setCant(v); }}>−</button>
+          <button type="button" className="pm-btn" {...menosCant}>−</button>
           <input className="num qty-input precio-in" type="number" inputMode="numeric" min="1" value={cant}
             placeholder="Escribe la cantidad"
             onChange={e=>setCant(e.target.value)}
             onBlur={e=>{ const n=parseInt(e.target.value); setCant(!n||n<1?1:n); }}/>
-          <button type="button" className="pm-btn"
-            onClick={()=>{ const v=(parseInt(cant)||0)+50; setCant(v); }}>+</button>
+          <button type="button" className="pm-btn" {...masCant}>+</button>
         </div></div>
 
       {/* P3: condición (define el piso) + unidades gratis que arma el vendedor */}
