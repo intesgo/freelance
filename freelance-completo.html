@@ -2034,6 +2034,8 @@ const COMO_FUNCIONA = [
    d:"Registro de entrega y recepción de cheques, facturas, pagarés y más. Cada lote deja acta firmada por quien entrega y quien recibe."},
   {mod:"Documentos", ic:"🚚", t:"Envío por courier",
    d:"El courier solo traslada. El destinatario final verifica el contenido y confirma al recibir."},
+  {mod:"Novedades", ic:"📢", t:"Qué encuentras aquí",
+   d:"Lo que el proveedor te comunica (respuestas y cheques devueltos) y las solicitudes que tú le envías: cambios, devoluciones y notas de crédito."},
   {mod:"Clientes potenciales", ic:"🎯", t:"Cómo se trabaja",
    d:"Prospectos en seguimiento. Toca uno para ver su ficha y avanzar la etapa: Por contactar → Contactado → Interesado → Negociando → Ganado."},
   {mod:"Stock", ic:"📦", t:"Para qué sirve",
@@ -3591,7 +3593,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"210", fecha:"18 jul 2026", desc:"Pedidos con panel de entrada"};
+const VERSION={n:"211", fecha:"18 jul 2026", desc:"Novedades con color por estado"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11264,7 +11266,6 @@ function Novedades({toast, go}){
 
   return (<>
     <div className="h1">Novedades</div>
-    <div className="sub">Lo que el proveedor te comunica y las solicitudes que tú le envías.</div>
 
     <div className="eq-tabs">
       <button className={pestana==="recibidas"?"on":""} onClick={()=>setPestana("recibidas")}>
@@ -11278,8 +11279,8 @@ function Novedades({toast, go}){
       {cheques.filter(c=>c.estado==="pendiente").length>0 && (
         <div style={{marginBottom:18}}>
           <div className="sec-h"><h2>⚠️ Cheques devueltos · {cheques.filter(c=>c.estado==="pendiente").length}</h2><div className="grain"></div></div>
-          {cheques.filter(c=>c.estado==="pendiente").map((c,i)=>(
-            <div className="card chq-card" key={i}>
+          {cheques.filter(c=>c.estado==="pendiente").sort((a,b)=>b.monto-a.monto).map((c,i)=>(
+            <div className="card chq-card" key={i} style={{borderLeft:"4px solid #C2603A"}}>
               <div className="row" style={{marginBottom:8}}>
                 <div><div className="cli" style={{fontSize:14}}>{c.cli}</div>
                   <div className="meta">👤 {c.vendedor} · reportado {c.fecha}</div></div>
@@ -11305,11 +11306,14 @@ function Novedades({toast, go}){
       {lista.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length===0
         ? <div className="card"><div className="ph" style={{padding:"8px 0"}}>Sin respuestas nuevas del proveedor.</div></div>
         : lista.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").map((n,i)=>(
-          <div className="card" key={i} style={{padding:"14px 16px"}}>
-            <div className="row">
-              <div><div className="cli" style={{fontSize:14}}>{n.cli||n.tipo}</div>
-                <div className="meta">{n.detalle||n.t}</div></div>
-              <span className={"chip "+(n.estado==="aprobada"?"c-ok":"c-bad")}><span className="d"></span>{n.estado==="aprobada"?"Aprobada":"Rechazada"}</span>
+          <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,
+            borderLeft:`4px solid ${n.estado==="aprobada"?"#2E7D52":"#C2603A"}`,
+            background:n.estado==="aprobada"?"var(--card)":"#FDF6F3"}}>
+            <div className="row" style={{alignItems:"center"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.cli||n.tipo}</div>
+                <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.detalle||n.t}</div></div>
+              <span className={"chip "+(n.estado==="aprobada"?"c-ok":"c-bad")} style={{flexShrink:0,marginLeft:8}}><span className="d"></span>{n.estado==="aprobada"?"Aprobada":"Rechazada"}</span>
             </div>
           </div>
         ))}
@@ -11320,7 +11324,6 @@ function Novedades({toast, go}){
     </>)}
 
     {pestana==="enviadas" && (<>
-    <div className="sub" style={{margin:"0 2px 14px",fontSize:12.5}}>Solicita al proveedor: cambios, devoluciones y notas de crédito.</div>
 
     <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);resetDesdeCli();}} onClear={()=>{setCli(null);resetDesdeCli();}}
