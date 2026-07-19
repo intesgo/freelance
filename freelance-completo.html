@@ -3601,7 +3601,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"214", fecha:"18 jul 2026", desc:"Compartir lote en PDF"};
+const VERSION={n:"215", fecha:"18 jul 2026", desc:"Acta con número identificador"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14359,7 +14359,8 @@ function Documentos({toast, usuario}){
     };
 
     return (<>
-      <div className="h1" style={{marginBottom:4}}>Entrega · {l.fecha}</div>
+      <div className="h1" style={{marginBottom:2}}>Entrega · {l.fecha}</div>
+      <div className="meta" style={{fontSize:11,marginBottom:8}}>Acta ACT-{String(l.id||0).padStart(6,"0")}</div>
 
       {/* cabecera compacta: dos filas de datos + estado, en vez de cinco líneas */}
       <div className="fcard" style={{margin:"10px 0 12px",padding:"11px 13px"}}>
@@ -14562,13 +14563,16 @@ function pdfActa(l, toast, compartir){
   const doc=new window.jspdf.jsPDF();
   const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
   const total=l.docs.reduce((a,d)=>a+d.monto,0);
+  /* número de acta: estable, derivado del lote (mismo lote = mismo número) */
+  const nActa = "ACT-" + String(l.id||0).padStart(6,"0");
 
   /* membrete */
   doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(...VERDE);
   doc.text("FREELANCE",14,18);
   doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRIS);
   doc.text("Distribucion de granos",14,23);
-  doc.text(P(l.fecha),196,18,{align:"right"});
+  doc.text(P(nActa),196,18,{align:"right"});
+  doc.text(P(l.fecha),196,23,{align:"right"});
   doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
   doc.text("ACTA DE ENTREGA-RECEPCION DE DOCUMENTOS",14,33);
   doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,37,196,37);
@@ -14619,7 +14623,7 @@ function pdfActa(l, toast, compartir){
   doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
   doc.text(P("Documento generado por FREELANCE - "+new Date().toLocaleString("es-EC")),105,285,{align:"center"});
 
-  const nombre=`Acta-${String(l.fecha).replace(/\s/g,"-")}-${P(l.para).replace(/\s/g,"-")}.pdf`;
+  const nombre=`${nActa}-${P(l.para).replace(/\s/g,"-")}.pdf`;
   if(compartir && navigator.share && navigator.canShare){
     const blob=doc.output("blob");
     const file=new File([blob],nombre,{type:"application/pdf"});
