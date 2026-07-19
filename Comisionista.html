@@ -1021,7 +1021,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"56", fecha:"19 jul 2026", desc:"Mantener aplastado acelera la cantidad"};
+const VERSION={n:"57", fecha:"19 jul 2026", desc:"Canal en una linea, textos a la campanilla"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1041,6 +1041,10 @@ const COMO_FUNCIONA = [
    d:"Post-venta: cambios de producto, devoluciones y notas de crédito. Se elige la factura y los ítems exactos."},
   {mod:"Pedidos", ic:"📡", t:"Pedidos sin enviar",
    d:"Los que tomaste sin señal quedan en tu teléfono. Al recuperar internet se suben solos."},
+  {mod:"Pedidos", ic:"🔒", t:"Qué precios ves",
+   d:"Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil."},
+  {mod:"Pedidos", ic:"🏬", t:"Precio sugerido por canal",
+   d:"Cada canal (bodega, mayorista, supermercado…) tiene un precio sugerido que cuida la distribución de la zona. Si vendes por debajo, la línea se pone naranja y avisa que el precio no corresponde al canal."},
 ];
 
 const S = {
@@ -3738,9 +3742,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
             );
           })}
         </div>
-        {(()=>{ const t=TIPOS_PRECIO.find(x=>x.id===tipo); return t ? (
-          <div className="meta" style={{marginTop:7,fontSize:12}}>{t.desc}</div>
-        ) : null; })()}
 
     {/* precio sugerido según el canal del cliente (cuida la distribución de la zona) */}
     {prod && cli && (()=>{
@@ -3752,19 +3753,15 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
       const sug=Math.round((prod.baseCredito||0)*CANAL_F[canal]*100)/100;
       const puesto=parseFloat(String(precio).replace(",","."))||0;
       const bajo = puesto>0 && puesto < sug-0.005;
+      const col = bajo ? "#C2603A" : "#2E7D52";
       return (
-        <div className="card" style={{margin:"0 0 14px",padding:"11px 13px",
-          background:bajo?"#FDF3EF":"#F4F9F5",borderLeft:`4px solid ${bajo?"#C2603A":"#2E7D52"}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:20,flexShrink:0}}>{CANAL_IC[canal]}</span>
-            <span style={{flex:1,minWidth:0}}>
-              <span className="meta" style={{display:"block",fontSize:10.5}}>Canal del cliente · {canal}</span>
-              <span style={{display:"block",fontSize:12.5,fontWeight:700}}>Precio sugerido</span>
-            </span>
-            <span className="num" style={{flexShrink:0,fontSize:17,fontWeight:800,color:bajo?"#C2603A":"#2E7D52"}}>{money(sug)}</span>
-          </div>
-          {bajo && <div style={{fontSize:11,color:"#B5613C",fontWeight:600,marginTop:6}}>
-            ⚠️ Estás por debajo del sugerido para este canal · puede afectar la distribución de la zona</div>}
+        <div style={{display:"flex",alignItems:"center",gap:8,margin:"0 0 10px",padding:"8px 11px",
+          borderRadius:10,background:bajo?"#FDF3EF":"#F4F9F5",borderLeft:`3px solid ${col}`}}>
+          <span style={{fontSize:15,flexShrink:0}}>{CANAL_IC[canal]}</span>
+          <span style={{flex:1,minWidth:0,fontSize:11.5,fontWeight:600,color:col,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {bajo ? "Precio no corresponde al canal" : canal}</span>
+          <span className="num" style={{flexShrink:0,fontSize:13,fontWeight:800,color:col}}>{money(sug)}</span>
         </div>
       );
     })()}
@@ -3962,8 +3959,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado}){
         Guardar pedido{valido ? " · "+(carrito.length+1)+" producto"+((carrito.length+1)>1?"s":"") : " · "+carrito.length+" producto"+(carrito.length>1?"s":"")}</button>
     )}
 
-    <div className="lock"><span>🔒</span>
-      <span>Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil.</span></div>
     </>}
 
     {/* ── PASO 3: resumen del pedido (pantalla completa) ── */}
