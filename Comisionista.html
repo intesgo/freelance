@@ -1027,7 +1027,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"62", fecha:"19 jul 2026", desc:"Al guardar va a Mis pedidos con el pedido nuevo"};
+const VERSION={n:"63", fecha:"19 jul 2026", desc:"Pedido en curso igual al freelance"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3968,62 +3968,82 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 
     </>}
 
-    {/* ── PASO 3: resumen del pedido (pantalla completa) ── */}
-    {/* el pedido en curso se muestra como ventana */}
-    {verCarrito && <>
-      <button className="volver-paso" onClick={()=>setVerCarrito(false)}>‹ Seguir agregando</button>
-      <div className="h1">Resumen del pedido</div>
-      <div className="sub">{cli} · {prov?prov.nombre:""}</div>
+    {/* ── PASO 3: pedido en curso (ventana, igual que el freelance) ── */}
+    {verCarrito && (
+      <div className="ov" onClick={()=>setVerCarrito(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Pedido en curso</h3>
+          <div className="sh-sub">{(cli && cli.nombre)||cli} · {prov?prov.nombre:""}</div>
 
-      {carrito.length===0
-        ? <div className="ph">Aún no agregas productos.</div>
-        : <>
-          <div style={{display:"flex",gap:10,margin:"6px 0 14px"}}>
-            <div style={{flex:1.4,background:"var(--field-soft)",color:"var(--field-soft-txt)",borderRadius:14,padding:"14px 16px",
-              border:"2px solid var(--maize)",boxShadow:"0 4px 14px rgba(21,57,43,.10)"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"var(--maize-deep)",letterSpacing:".02em",marginBottom:3}}>VALOR FACTURA</div>
-              <div className="num" style={{fontSize:28,fontWeight:700,lineHeight:1.1}}>{money(totalFacturaCarrito)}</div>
-            </div>
-            <div style={{flex:1,background:"var(--maize)",color:"var(--field)",borderRadius:14,padding:"14px 16px"}}>
-              <div style={{fontSize:12,opacity:.9,marginBottom:3}}>Cantidad</div>
-              <div className="num" style={{fontSize:22,fontWeight:700}}>{totalQuintalesCarrito} qq</div>
-            </div>
-          </div>
-          {carrito.map(it=>(
-            <div className="ped-item" key={it.id}>
-              <div className="ped-emoji">{it.prod?(EMOJI_LINEA[it.prod.linea]||"📦"):"📦"}</div>
-              <div className="ped-info">
-                <div className="ped-nom">{it.prod?it.prod.marca:it.prodNombre}</div>
-                <div className="ped-det">{it.unidad} · {it.cant} × {money(it.precio)}
-                  {" · "}<span className="tag">{it.tipo}</span></div>
-                <div className="ped-com">{it.requiere?"comisión a confirmar":"comisión "+money(it.comisionTotal)}</div>
+          {carrito.length===0
+            ? <div className="ph">Aún no agregas productos.</div>
+            : carrito.map(it=>(
+              <div className="pline" key={it.id}>
+                <div className="ph-row" style={{alignItems:"center",gap:8}}>
+                  <span className="mod" style={{minWidth:0,flex:1,display:"flex",alignItems:"center",gap:7}}>
+                    <span className="tag" style={{flexShrink:0}}>{it.tipo}</span>
+                    <span style={{fontWeight:700,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(it.prodNombre||"").split(" · ")[0]}</span></span>
+                  <span style={{display:"flex",gap:4,flexShrink:0}}>
+                    <button className="del" style={{background:"#EAF0F6",color:"#3A6EA5",borderColor:"#C9D8E6",padding:"5px 10px"}} onClick={()=>{
+                      const pres = PRESENTACIONES.find(p=>p.nombre===it.prodNombre);
+                      if(pres){ const pv=PROVEEDORES.find(x=>x.id===pres.provId); if(pv) setProv(pv); setProd(pres); }
+                      setCant(it.cant); setTipo(it.tipo||"P1"); setPrecio(String(it.precio));
+                      if(it.tipo==="P3") setGratis(String(it.gratis||0));
+                      setCarrito(carrito.filter(x=>x.id!==it.id));
+                      setVerCarrito(false);
+                      toast("Línea cargada al formulario: corrígela y vuelve a agregar.");
+                    }}>Editar</button>
+                    <button className="del" style={{padding:"5px 10px"}} onClick={()=>setCarrito(carrito.filter(x=>x.id!==it.id))}>Quitar</button>
+                  </span>
+                </div>
+                <div className="det" style={{marginTop:6}}>
+                  {it.cant} {it.unidad||"qq"}{it.gratis>0?` + ${it.gratis} gratis`:""} · {it.tipoNombre} · {money(it.precio)}
+                  {" · "}<span className="ok-foto" style={it.comisionTotal<0?{color:"var(--clay)"}:undefined}>
+                    {it.requiere?"comisión a confirmar":"comisión "+money(it.comisionTotal)}</span>
+                </div>
+                {it.ajustar && (
+                  <div style={{marginTop:5,background:"#FBEDE7",border:"1px solid var(--clay)",borderRadius:9,padding:"7px 9px"}}>
+                    <div style={{fontSize:11.5,color:"var(--clay)",fontWeight:700}}>
+                      ⚠️ El precio de la factura ({money(it.precioFactura)}) quedó bajo la base vigente ({money(it.baseVigente)})</div>
+                    <div className="meta" style={{fontSize:11,marginTop:2}}>Ajústalo con “Editar” antes de enviar el pedido.</div>
+                  </div>
+                )}
               </div>
-              <button className="ped-del" onClick={()=>setCarrito(carrito.filter(x=>x.id!==it.id))}>Quitar</button>
+            ))}
+
+          {carrito.length>0 && (
+            <div className="totbar">
+              <div><div className="tk">Comisión total del pedido</div>
+                <div className="saldo">{carrito.length} producto(s)</div></div>
+              <div className="tv num">{money(totalComisionCarrito)}</div>
             </div>
-          ))}
-          <div className="ped-tot">
-            <span>Comisión total del pedido</span>
-            <b className="num">{money(totalComisionCarrito)}</b>
-          </div>
-          <button className="cta" onClick={()=>{
-            /* 4.4: ANTES de cualquier otra cosa, cada producto entra a la cola persistente con su op_id.
-               Si el teléfono muere aquí mismo, el pedido ya está a salvo en el almacenamiento. */
-            carrito.forEach(it=>colaAgregar({ op_id:opId(), tipo:"Pedido", ic:"📋",
-              cli:(cli && cli.nombre) || cli || "—",
-              detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
-              cuando:"recién" }));
-            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito});
-            const resumen = carrito.map(it=>`• ${it.cant} × ${it.prodNombre||it.prod}`).join("\n");
-            setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
-            toast(`Pedido guardado · ${carrito.length} producto(s) · protegido en la cola ✓`);
-            cerrarPedido();}}>
-            Guardar pedido · {carrito.length} producto{carrito.length>1?"s":""}</button>
-          <button onClick={()=>setVerCarrito(false)}
-            style={{width:"100%",marginTop:10,padding:"15px",borderRadius:12,border:"2px dashed var(--field)",
-              background:"#fff",color:"var(--field)",fontSize:15,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>
-            ＋ Agregar otro producto</button>
-        </>}
-    </>}
+          )}
+
+          {carrito.some(x=>x.ajustar) && (
+            <div style={{background:"#FBEDE7",border:"1px solid var(--clay)",borderRadius:10,padding:"9px 11px",margin:"8px 0"}}>
+              <span style={{fontSize:12,color:"var(--clay)",fontWeight:700}}>
+                Hay {carrito.filter(x=>x.ajustar).length} precio(s) bajo la base vigente. Corrígelos para poder enviar.</span>
+            </div>
+          )}
+          <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado}
+            onClick={()=>{
+              if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
+              /* cada producto entra primero a la cola persistente: si el teléfono muere, el pedido está a salvo */
+              carrito.forEach(it=>colaAgregar({ op_id:opId(), tipo:"Pedido", ic:"📋",
+                cli:(cli && cli.nombre) || cli || "—",
+                detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
+                cuando:"recién" }));
+              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito});
+              const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre||it.prod} · ${money(it.precio)}`).join("\n");
+              setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
+              cerrarPedido();
+            }}>
+            Cerrar y guardar pedido</button>
+          <button className="back" style={{width:"100%",marginTop:10}}
+            onClick={()=>setVerCarrito(false)}>+ Agregar otro producto</button>
+        </div>
+      </div>
+    )}
 
     {/* Tras guardar: avisar al cliente por WhatsApp o tomarle otro pedido */}
     {guardadoOk && (
