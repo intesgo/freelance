@@ -904,7 +904,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"14", fecha:"18 jul 2026", desc:"Clientes con estado visible"};
+const VERSION={n:"15", fecha:"18 jul 2026", desc:"Stock con alerta de agotamiento"};
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -3930,9 +3930,58 @@ function Stock({toast}){
   const productosProv = (cli && prov)
     ? PRESENTACIONES.filter(p=>p.provId===prov.id && compradosIds.includes(p.id)) : [];
 
+  /* ── panel de entrada: a quién se le acaba pronto ── */
+  const registros = Object.keys(STOCK_ANTERIOR).map(k=>{
+    const [nom,pid]=k.split("|");
+    const d=STOCK_ANTERIOR[k];
+    const pres=PRESENTACIONES.find(p=>p.id===pid);
+    const consumo=CONSUMO_DIARIO[k]||0;
+    const dias = consumo>0 ? Math.round(d.cant/consumo) : null;
+    return {cli:nom, pid, pres, cant:d.cant, fecha:d.fecha, dias};
+  });
+  const porAgotarse = registros.filter(r=>r.dias!=null && r.dias<=5).sort((a,b)=>a.dias-b.dias);
+  const clientesConRegistro = Array.from(new Set(registros.map(r=>r.cli)));
+  const sinRegistro = CLIENTES.filter(c=>!clientesConRegistro.includes(c));
+
   return (<>
     <div className="h1">Registrar stock</div>
-    <div className="sub">Anota lo que le queda al cliente en bodega. Sube para que el proveedor sepa cuándo reabastecer.</div>
+
+    {!cli && (<>
+      <div className="mini-kpi">
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num" style={{color:porAgotarse.length>0?"#C2603A":"var(--field)"}}>{porAgotarse.length}</span>
+          <span className="mk-k">Por agotarse</span></button>
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num">{clientesConRegistro.length}</span>
+          <span className="mk-k">Con registro</span></button>
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num" style={{color:sinRegistro.length>0?"#C9A227":"var(--field)"}}>{sinRegistro.length}</span>
+          <span className="mk-k">Sin registrar</span></button>
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num">{registros.length}</span>
+          <span className="mk-k">Productos</span></button>
+      </div>
+
+      {porAgotarse.length>0 && (
+        <div className="card" style={{marginBottom:12,padding:"11px 13px",
+          borderLeft:"4px solid #C2603A",background:"#FDF6F3"}}>
+          <div style={{fontSize:12.5,fontWeight:800,color:"#C2603A",marginBottom:6}}>
+            ⚠️ Se le acaba pronto al cliente</div>
+          {porAgotarse.slice(0,3).map((r,i)=>(
+            <button key={i} onClick={()=>{setCli(r.cli);setProv(null);setCant({});}}
+              style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
+                gap:8,padding:"6px 0",background:"none",border:"none",
+                borderBottom:i<Math.min(2,porAgotarse.length-1)?"1px solid #F4E5DE":"none",
+                cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+              <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {r.cli} · {r.pres?r.pres.nombre:r.pid}</span>
+              <span style={{flexShrink:0,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>~{r.dias}d</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>)}
 
     <SearchSelect label="Cliente visitado" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);setProv(null);setCant({});}} onClear={()=>{setCli(null);setProv(null);setCant({});}}
