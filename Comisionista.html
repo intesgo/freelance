@@ -146,6 +146,23 @@
   /* los diálogos nativos no crecen con la escala de texto */
   input[type="date"],input[type="time"],input[type="datetime-local"],input[type="month"]{
     font-size:16px;line-height:1.2}
+  /* ── estilo neumórfico (tarjetas suaves) ── */
+  .neu{background:var(--card);border-radius:22px;padding:18px;margin-bottom:14px;
+    box-shadow:6px 6px 16px rgba(23,43,32,.07), -6px -6px 16px rgba(255,255,255,.85);
+    border:none}
+  .neu-in{background:var(--paper);border-radius:16px;padding:14px;
+    box-shadow:inset 3px 3px 8px rgba(23,43,32,.06), inset -3px -3px 8px rgba(255,255,255,.9)}
+  .neu-t{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:2px}
+  .neu-s{font-size:10.5px;color:var(--muted);margin-bottom:14px}
+  .neu-chips{display:inline-flex;gap:4px;background:var(--paper);border-radius:99px;padding:3px;
+    box-shadow:inset 2px 2px 6px rgba(23,43,32,.07), inset -2px -2px 6px rgba(255,255,255,.9)}
+  .neu-chip{border:none;background:transparent;border-radius:99px;padding:6px 14px;font-family:inherit;
+    font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .18s ease}
+  .neu-chip.on{background:var(--card);color:var(--field);
+    box-shadow:2px 2px 6px rgba(23,43,32,.09), -2px -2px 6px rgba(255,255,255,.9)}
+  /* en Sol el relieve se atenúa para no perder contraste bajo el sol */
+  [data-tema="sol"] .neu{box-shadow:0 1px 3px rgba(0,0,0,.10),0 6px 16px rgba(0,0,0,.07);border:1px solid #E3E0D4}
+  [data-tema="sol"] .neu-in{box-shadow:none;border:1px solid #E3E0D4}
   /* ── Ajustes ── */
   .aj-paletas{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
   .aj-pal{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:8px;
@@ -1027,7 +1044,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"72", fecha:"19 jul 2026", desc:"Ficha del cliente compacta"};
+const VERSION={n:"73", fecha:"19 jul 2026", desc:"Cobros: meta del dia en la entrada"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1787,6 +1804,19 @@ const PEDIDOS_INI = [
      {t:"Comisión liberada", f:"—", st:"wait", d:""},
    ]},
 ];
+/* ══ Cobros del día del vendedor: alimentan la meta y la evolución semanal ══ */
+const META_DIA = 900;    /* meta diaria del comisionista (demo; en Fase 4 la fija el freelance) */
+const COBROS_DIA = [     /* recibos emitidos hoy */
+  {nRecibo:"REC-260719-0431", cli:"Tienda La Esquina", monto:430, hora:"09:12", modalidad:"Efectivo", anulado:false},
+  {nRecibo:"REC-260719-0432", cli:"Comercial Nilo",    monto:280, hora:"11:40", modalidad:"Transferencia", anulado:false},
+];
+const COBROS_SEMANA = [  /* últimos 7 días (el último se calcula en vivo con lo cobrado hoy) */
+  {d:"J", v:640}, {d:"V", v:910}, {d:"S", v:380}, {d:"D", v:0}, {d:"L", v:820}, {d:"M", v:520}, {d:"Hoy", v:0},
+];
+const EFECTIVO_PENDIENTE=[ /* efectivo cobrado aún sin depositar (regla de 24 h) */
+  {nRecibo:"REC-260719-0431", cli:"Tienda La Esquina", monto:430, limite:"hoy 09:12 + 24h"},
+];
+
 const COBROS_INI = [
   // ── Historia canon compartida ──
   {id:101, cli:"Comercial Nilo", provId:"PROV-A", factura:"F-4521", valor:6450.00, vence:"En 11 días"},
@@ -4109,6 +4139,25 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 // ---------- COBROS ----------
 const MODALIDADES=["Efectivo","Depósito","Transferencia","Cheque"];
 
+function NeuAnillo({pct=0, valor, etiqueta, sub, color="#2E7D52", tam=150}){
+  const R=tam*0.38, C=2*Math.PI*R, cx=tam/2, cy=tam/2;
+  const largo=C*Math.min(100,Math.max(0,pct))/100;
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <svg viewBox={`0 0 ${tam} ${tam}`} style={{width:tam,height:tam}}>
+        <circle cx={cx} cy={cy} r={R} fill="none" stroke="rgba(23,43,32,.07)" strokeWidth={tam*0.085}/>
+        <circle cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeWidth={tam*0.085} strokeLinecap="round"
+          strokeDasharray={`${largo} ${C-largo}`} transform={`rotate(-90 ${cx} ${cy})`}
+          style={{transition:"stroke-dasharray .9s cubic-bezier(.4,0,.2,1)"}}/>
+        <text x={cx} y={cy-2} textAnchor="middle" fontSize={tam*0.155} fontWeight="800"
+          fill="var(--ink)" fontFamily="'Space Grotesk',sans-serif">{valor}</text>
+        <text x={cx} y={cy+tam*0.115} textAnchor="middle" fontSize={tam*0.075} fill="var(--muted)" fontFamily="inherit">{etiqueta}</text>
+      </svg>
+      {sub && <div className="meta" style={{fontSize:11,marginTop:4,textAlign:"center"}}>{sub}</div>}
+    </div>
+  );
+}
+
 function Cobros({toast}){
   const [paso,setPaso]=useState(1);
   const [cli,setCli]=useState(null);
@@ -4204,7 +4253,37 @@ function Cobros({toast}){
         const vencidas=pend.filter(c=>diasVenc(c.vence)>0);
         const montoVenc=vencidas.reduce((s,c)=>s+c.valor,0);
         const clientes=new Set(pend.map(c=>c.cli)).size;
+        /* meta del día: cómo voy hoy */
+        const activosHoy=COBROS_DIA.filter(c=>!c.anulado);
+        const hoyTot=activosHoy.reduce((s,c)=>s+c.monto,0);
+        const pctMeta=Math.min(100, META_DIA>0?Math.round(hoyTot/META_DIA*100):0);
+        const efePend=EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
         return (<>
+          <div className="neu" style={{padding:13,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:13}}>
+              <NeuAnillo pct={pctMeta} valor={money(hoyTot).replace(",00","")} etiqueta={pctMeta+"% de la meta"}
+                color={pctMeta>=100?"#2E7D52":pctMeta>=60?"#C9A227":"#C2603A"} tam={98}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="neu-t" style={{marginBottom:7}}>Cobrado hoy</div>
+                <div className="neu-in" style={{marginBottom:6,padding:9}}>
+                  <div className="meta" style={{fontSize:9.5}}>Meta del día</div>
+                  <div className="num" style={{fontSize:14,fontWeight:800}}>{money(META_DIA)}</div>
+                </div>
+                <div className="neu-in" style={{padding:9}}>
+                  <div className="meta" style={{fontSize:9.5}}>Recibos de hoy</div>
+                  <div className="num" style={{fontSize:14,fontWeight:800,color:"var(--field)"}}>{activosHoy.length}</div>
+                </div>
+              </div>
+            </div>
+            {efePend>0 && (
+              <div className="neu-in" style={{marginTop:9,padding:"9px 11px",display:"flex",
+                justifyContent:"space-between",alignItems:"center",gap:8}}>
+                <span style={{minWidth:0,fontSize:11.5,fontWeight:700,color:"var(--ink)"}}>⏱ Efectivo por depositar</span>
+                <span className="num" style={{flexShrink:0,fontSize:13.5,fontWeight:800,color:"#C77F00"}}>{money(efePend)}</span>
+              </div>
+            )}
+          </div>
+
           <div className="mini-kpi">
             <button style={{cursor:"default"}}>
               <span className="mk-v num" style={{fontSize:14}}>{money(total)}</span>
