@@ -2013,6 +2013,12 @@ const COMO_FUNCIONA = [
    d:"El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti."},
   {mod:"Autorizaciones", ic:"📋", t:"Historial de códigos",
    d:"Los códigos son de un solo uso: al usarse en el sistema quedan marcados. Nada se borra."},
+  {mod:"Stock", ic:"📦", t:"Para qué sirve",
+   d:"Anota lo que le queda al cliente en bodega. El proveedor lo ve y sabe cuándo reabastecer."},
+  {mod:"Stock", ic:"📡", t:"Quién ve el registro",
+   d:"El proveedor ve el stock de sus productos en la bodega del cliente, para planificar despachos y promociones."},
+  {mod:"Stock", ic:"⏳", t:"Cuánto le dura",
+   d:"El cálculo de días usa el consumo diario del cliente. Cinco días o menos aparece en rojo: toca reponer."},
   {mod:"Mi equipo", ic:"⚠️", t:"Cheques devueltos del vendedor",
    d:"El vendedor debe trabajar el reposicionamiento. El valor ya está reabierto en su cartera."},
   {mod:"Mi equipo", ic:"🔎", t:"Análisis por vendedor",
@@ -3562,7 +3568,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"193", fecha:"18 jul 2026", desc:"Detalle de vendedor en 4 pestañas"};
+const VERSION={n:"194", fecha:"18 jul 2026", desc:"Stock con panel de entrada e historial"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6549,10 +6555,12 @@ function Stock({toast}){
   useRetroceso(()=>{
       if(prov){ setProv(null); return true; }
       if(cli){ setCli(null); return true; }
+      if(pest!=="registrar"){ setPest("registrar"); return true; }
       return false;
     });
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
+  const [pest,setPest]=useState("registrar");   // registrar | historial
   const [cant,setCant]=useState({}); // productoId -> unidades en bodega del cliente
   const set=(id,v)=>setCant({...cant,[id]:v});
   const conDato = Object.values(cant).filter(v=>v!=="" && v!==undefined).length;
@@ -6564,72 +6572,155 @@ function Stock({toast}){
   const productosProv = (cli && prov)
     ? PRESENTACIONES.filter(p=>p.provId===prov.id && compradosIds.includes(p.id)) : [];
 
+  /* ── panel de entrada: qué clientes tienen registro y cuáles urgen ── */
+  const registros = Object.keys(STOCK_ANTERIOR).map(k=>{
+    const [nom,pid]=k.split("|");
+    const d=STOCK_ANTERIOR[k];
+    const pres=PRESENTACIONES.find(p=>p.id===pid);
+    const consumo=CONSUMO_DIARIO[k]||0;
+    /* días que le duraría lo que tenía, según su consumo diario */
+    const dias = consumo>0 ? Math.round(d.cant/consumo) : null;
+    return {cli:nom, pid, pres, cant:d.cant, fecha:d.fecha, dias};
+  });
+  const porAgotarse = registros.filter(r=>r.dias!=null && r.dias<=5)
+    .sort((a,b)=>a.dias-b.dias);
+  const clientesConRegistro = Array.from(new Set(registros.map(r=>r.cli)));
+  const sinRegistro = CLIENTES.filter(c=>!clientesConRegistro.includes(c));
+
   return (<>
     <div className="h1">Registrar stock</div>
-    <div className="sub">Anota lo que le queda al cliente en bodega. Sube para que el proveedor sepa cuándo reabastecer.</div>
 
-    <SearchSelect label="Cliente visitado" items={CLIENTES} value={cli} multiPalabra
-      onPick={c=>{setCli(c);setProv(null);setCant({});}} onClear={()=>{setCli(null);setProv(null);setCant({});}}
-      render={{
-        text:c=>c,
-        option:c=>(<div className="o1">{c}</div>),
-        picked:c=>(<><div className="p1">{c}</div><div className="p2">Bodega del cliente</div></>)
-      }}/>
+    <div className="eq-tabs" style={{margin:"10px 0 12px"}}>
+      <button className={pest==="registrar"?"on":""} onClick={()=>setPest("registrar")}>Registrar</button>
+      <button className={pest==="historial"?"on":""} onClick={()=>setPest("historial")}>Historial</button>
+    </div>
 
-    {cli && (
-      provsDelCliente.length>0 ? (
-        <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
-          onPick={p=>{setProv(p);setCant({});}} onClear={()=>{setProv(null);setCant({});}}
-          hint={`${provsDelCliente.length} proveedor(es) con productos que ${cli} ya ha comprado`}
-          render={{
-            text:p=>p.nombre,
-            option:p=>(<div className="o1">{p.nombre}</div>),
-            picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Productos que el cliente ya compra</div></>)
-          }}/>
-      ) : (
-        <div className="ph">{cli} no tiene compras registradas todavía. El stock se registra sobre productos que el cliente ya ha comprado.</div>
-      )
-    )}
+    {pest==="registrar" && (<>
+      {/* mini-dashboard: qué urge antes de elegir cliente */}
+      {!cli && (<>
+        <div className="cu-grid" style={{marginBottom:12}}>
+          <div className="cu-card" onClick={()=>setPest("historial")} style={{cursor:"pointer"}}>
+            <div className="cu-ic" style={{background:"#FBE9E4"}}><Ico n="stock" c="#C2603A" s={19}/></div>
+            <div className="cu-v num" style={{color:porAgotarse.length>0?"#C2603A":"var(--field)"}}>{porAgotarse.length}</div>
+            <div className="cu-k">Por agotarse</div></div>
+          <div className="cu-card">
+            <div className="cu-ic" style={{background:"#E4F1E9"}}><Ico n="clientes" c="#2E7D52" s={19}/></div>
+            <div className="cu-v num">{clientesConRegistro.length}</div>
+            <div className="cu-k">Con registro</div></div>
+          <div className="cu-card">
+            <div className="cu-ic" style={{background:"#FBF0D8"}}><Ico n="reloj" c="#C9A227" s={19}/></div>
+            <div className="cu-v num">{sinRegistro.length}</div>
+            <div className="cu-k">Sin registrar</div></div>
+          <div className="cu-card">
+            <div className="cu-ic" style={{background:"#EAF0F6"}}><Ico n="docs" c="#2B6CB0" s={19}/></div>
+            <div className="cu-v num">{registros.length}</div>
+            <div className="cu-k">Productos</div></div>
+        </div>
 
-    {cli && prov && (<>
-      <div className="sec-h"><h2>Unidades en bodega</h2><div className="grain"></div></div>
-      {productosProv.length===0 && <div className="ph">{cli} no ha comprado productos de {prov.nombre}.</div>}
-      {productosProv.map(p=>{
-        const ant = STOCK_ANTERIOR[cli+"|"+p.id];
-        const actual = cant[p.id]!==""&&cant[p.id]!==undefined ? parseInt(cant[p.id])||0 : null;
-        const dif = (ant && actual!==null) ? actual-ant.cant : null;
-        return (
-          <div className="card" key={p.id} style={{padding:"12px 14px"}}>
-            <div className="row" style={{alignItems:"center"}}>
-              <div style={{flex:1}}>
-                <div className="cli" style={{fontSize:14}}>{p.nombre}</div>
-                <div className="meta">
-                  {ant ? `Última vez: ${ant.cant} ${p.unidad} · ${ant.fecha}` : `Sin registro anterior · por ${p.unidad}`}
+        {porAgotarse.length>0 && (
+          <div className="card" style={{marginBottom:12,borderLeft:"4px solid #C2603A",background:"#FDF6F3"}}>
+            <div className="graf-t" style={{color:"#C2603A"}}>⚠️ Se le acaba pronto al cliente</div>
+            {porAgotarse.slice(0,3).map((r,i)=>(
+              <button key={i} onClick={()=>{setCli(r.cli);setProv(null);setCant({});}}
+                style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
+                  gap:8,padding:"7px 0",background:"none",border:"none",borderBottom:i<Math.min(2,porAgotarse.length-1)?"1px solid #F4E5DE":"none",
+                  cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {r.cli} · {r.pres?r.pres.nombre:r.pid}</span>
+                <span style={{flexShrink:0,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>~{r.dias}d</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </>)}
+
+      <SearchSelect label="Cliente visitado" items={CLIENTES} value={cli} multiPalabra
+        onPick={c=>{setCli(c);setProv(null);setCant({});}} onClear={()=>{setCli(null);setProv(null);setCant({});}}
+        render={{
+          text:c=>c,
+          option:c=>(<div className="o1">{c}</div>),
+          picked:c=>(<><div className="p1">{c}</div><div className="p2">Bodega del cliente</div></>)
+        }}/>
+
+      {cli && (
+        provsDelCliente.length>0 ? (
+          <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
+            onPick={p=>{setProv(p);setCant({});}} onClear={()=>{setProv(null);setCant({});}}
+            hint={`${provsDelCliente.length} proveedor(es) con productos que ${cli} ya ha comprado`}
+            render={{
+              text:p=>p.nombre,
+              option:p=>(<div className="o1">{p.nombre}</div>),
+              picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Productos que el cliente ya compra</div></>)
+            }}/>
+        ) : (
+          <div className="ph">{cli} no tiene compras registradas todavía. El stock se registra sobre productos que el cliente ya ha comprado.</div>
+        )
+      )}
+
+      {cli && prov && (<>
+        <div className="sec-h"><h2>Unidades en bodega</h2><div className="grain"></div></div>
+        {productosProv.length===0 && <div className="ph">{cli} no ha comprado productos de {prov.nombre}.</div>}
+        {productosProv.map(p=>{
+          const ant = STOCK_ANTERIOR[cli+"|"+p.id];
+          const actual = cant[p.id]!==""&&cant[p.id]!==undefined ? parseInt(cant[p.id])||0 : null;
+          const dif = (ant && actual!==null) ? actual-ant.cant : null;
+          return (
+            <div className="card" key={p.id} style={{padding:"12px 14px"}}>
+              <div className="row" style={{alignItems:"center"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div className="cli" style={{fontSize:14}}>{p.nombre}</div>
+                  <div className="meta">
+                    {ant ? `Última vez: ${ant.cant} ${p.unidad} · ${ant.fecha}` : `Sin registro anterior · por ${p.unidad}`}
+                  </div>
+                </div>
+                <div className="stepper" style={{width:150,flexShrink:0}}>
+                  <button onClick={()=>set(p.id,Math.max(0,(parseInt(cant[p.id])||0)-1))}>−</button>
+                  <input className="num" type="number" placeholder="0" value={cant[p.id]??""}
+                    onChange={e=>set(p.id,e.target.value)}/>
+                  <button onClick={()=>set(p.id,(parseInt(cant[p.id])||0)+1)}>+</button>
                 </div>
               </div>
-              <div className="stepper" style={{width:150}}>
-                <button onClick={()=>set(p.id,Math.max(0,(parseInt(cant[p.id])||0)-1))}>−</button>
-                <input className="num" type="number" placeholder="0" value={cant[p.id]??""}
-                  onChange={e=>set(p.id,e.target.value)}/>
-                <button onClick={()=>set(p.id,(parseInt(cant[p.id])||0)+1)}>+</button>
-              </div>
+              {dif!==null && (
+                <div className="meta" style={{marginTop:8,fontWeight:600,
+                  color: dif<0?"var(--field)":dif>0?"var(--maize-deep)":"var(--muted)"}}>
+                  {dif<0 ? `▼ Bajó ${Math.abs(dif)} desde la última visita (rota bien)`
+                    : dif>0 ? `▲ Subió ${dif} (acumuló stock)`
+                    : "= Igual que la última visita"}
+                </div>
+              )}
             </div>
-            {dif!==null && (
-              <div className="meta" style={{marginTop:8,fontWeight:600,
-                color: dif<0?"var(--field)":dif>0?"var(--maize-deep)":"var(--muted)"}}>
-                {dif<0 ? `▼ Bajó ${Math.abs(dif)} desde la última visita (rota bien)`
-                  : dif>0 ? `▲ Subió ${dif} (acumuló stock)`
-                  : "= Igual que la última visita"}
-              </div>
-            )}
+          );
+        })}
+        <button className="cta" disabled={conDato===0}
+          onClick={()=>{toast("Stock registrado. Se enviará al proveedor al recuperar señal.");setCli(null);setProv(null);setCant({});}}>
+          Guardar stock del cliente</button>
+      </>)}
+    </>)}
+
+    {/* ── HISTORIAL de lo registrado ── */}
+    {pest==="historial" && (<>
+      {registros.length===0 && <div className="ph">Todavía no hay stock registrado.</div>}
+      {registros.sort((a,b)=>(a.dias??999)-(b.dias??999)).map((r,i)=>{
+        const urge = r.dias!=null && r.dias<=5;
+        return (
+        <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,
+          borderLeft:`4px solid ${urge?"#C2603A":"#2E7D52"}`, background:urge?"#FDF6F3":"var(--card)"}}>
+          <div className="row" style={{alignItems:"center"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="cli" style={{fontSize:13.5}}>{r.cli}</div>
+              <div className="meta" style={{fontSize:11}}>
+                {r.pres?r.pres.nombre:r.pid} · {r.fecha}</div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+              <div className="num" style={{fontSize:15,fontWeight:800}}>{r.cant}</div>
+              {r.dias!=null && (
+                <div style={{fontSize:10.5,fontWeight:700,color:urge?"#C2603A":"var(--muted)"}}>
+                  le dura ~{r.dias}d</div>
+              )}
+            </div>
           </div>
-        );
-      })}
-      <button className="cta" disabled={conDato===0}
-        onClick={()=>{toast("Stock registrado. Se enviará al proveedor al recuperar señal.");setCli(null);setProv(null);setCant({});}}>
-        Guardar stock del cliente</button>
-      <div className="lock"><span>📡</span>
-        <span>{prov.nombre} verá el stock de sus productos en la bodega de {cli} para planificar despachos y promociones.</span></div>
+        </div>
+      );})}
     </>)}
   </>);
 }
