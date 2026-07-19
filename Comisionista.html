@@ -904,7 +904,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"12", fecha:"18 jul 2026", desc:"Reglas de cobro alineadas con el freelance"};
+const VERSION={n:"13", fecha:"18 jul 2026", desc:"Cartera con color por vencimiento"};
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -4031,23 +4031,24 @@ function Cartera({toast}){
   const montoVenc=lista.filter(i=>i.v==="bad").reduce((s,i)=>s+i.saldo,0);
   return (<>
     <div className="h1">Cartera</div>
-    <div className="sub">Lo que tus clientes deben en las ventas que registraste.</div>
-    <div className="hero">
-      <div className="lbl">{q?`Por cobrar · ${q}`:"Total por cobrar"}</div>
-      <div className="big num">{money(total)}</div>
-      <div className="split">
-        <div>
-          <div className="k">Pendientes · {lista.length}</div>
-          <div className="v num">{money(total)}</div>
-        </div>
-        <div>
-          <div className="k" style={{color:nVenc>0?"#F2C9B8":undefined}}>Vencidas · {nVenc}</div>
-          <div className="v num" style={{color:nVenc>0?"#F2C9B8":undefined}}>{money(montoVenc)}</div>
-        </div>
-      </div>
+
+    {/* indicadores compactos: qué debe cobrar y qué urge */}
+    <div className="mini-kpi">
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num" style={{fontSize:14}}>{money(total)}</span>
+        <span className="mk-k">Por cobrar</span></button>
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num">{lista.length}</span>
+        <span className="mk-k">Facturas</span></button>
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num" style={{color:nVenc>0?"#C2603A":"var(--field)"}}>{nVenc}</span>
+        <span className="mk-k">Vencidas</span></button>
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num" style={{fontSize:14,color:montoVenc>0?"#C2603A":"var(--field)"}}>{money(montoVenc)}</span>
+        <span className="mk-k">Monto vencido</span></button>
     </div>
 
-    <div className="ss" style={{marginBottom:16}}>
+    <div className="ss" style={{marginBottom:12}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar por provincia, ciudad, zona, barrio o cliente…" onChange={e=>setQ(e.target.value)}/>
         <MicBtn onTexto={setQ}/>
@@ -4055,22 +4056,34 @@ function Cartera({toast}){
     </div>
 
     <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
-    {listaOrd.map((it,i)=>(
-      <div className="card" key={i}>
-        <div className="row">
-          <div><div className="cli">{it.cli}</div>
-            <div className="meta">📍 {it.barrio}, {it.zona} · {it.ciudad}, {it.prov} · Fact. {it.fac}</div></div>
-          <div style={{textAlign:"right"}}><div className="amt num">{money(it.saldo)}</div>
-            <div className="meta">{it.venc}</div></div>
+    {listaOrd.map((it,i)=>{
+      /* el estado se lee de un vistazo: barra lateral y fondo */
+      const barra = it.v==="bad"?"#C2603A" : it.v==="warn"?"#C9A227" : "#2E7D52";
+      const fondo = it.v==="bad"?"#FDF6F3" : it.v==="warn"?"#FDFAF0" : "var(--card)";
+      return (
+      <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,
+        borderLeft:`4px solid ${barra}`, background:fondo}}>
+        <div className="row" style={{alignItems:"flex-start"}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.cli}</div>
+            <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {it.ciudad}, {it.prov} · Fact. {it.fac}</div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+            <div className="amt num">{money(it.saldo)}</div>
+            <div className="meta" style={{fontSize:10.5,fontWeight:700,
+              color:it.v==="bad"?"#C2603A":"var(--muted)"}}>{it.venc}</div>
+          </div>
         </div>
-        <div className="row" style={{marginTop:10,alignItems:"center"}}>
+        <div className="row" style={{marginTop:8,alignItems:"center",gap:8}}>
           <span className={"chip "+(it.v==="bad"?"c-bad":it.v==="warn"?"c-sync":"c-wait")}>
             <span className="d"></span>{it.estado}</span>
-          <button className="mini-cta" onClick={()=>toast(`Cobrar ${it.cli} · ${money(it.saldo)}. Te lleva a reportar el cobro.`)}>
+          <button className="mini-cta" style={{marginLeft:"auto"}}
+            onClick={()=>toast(`Cobrar ${it.cli} · ${money(it.saldo)}. Te lleva a reportar el cobro.`)}>
             Cobrar →</button>
         </div>
       </div>
-    ))}
+    );})}
     {listaOrd.length===0 && <div className="ph">Sin facturas que coincidan con “{q}”.</div>}
   </>);
 }
