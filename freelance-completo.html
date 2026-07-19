@@ -3560,7 +3560,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"191", fecha:"18 jul 2026", desc:"Mi equipo: tarjetas diferenciadas por estado"};
+const VERSION={n:"192", fecha:"18 jul 2026", desc:"Tarjetas con color por estado en toda la app"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6416,8 +6416,14 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
       const fechaCorta=(()=>{ const d=new Date(p.fecha+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
         return isNaN(d)?p.fecha:`${d.getDate()} ${ms[d.getMonth()]}`; })();
       const abrir=(comoVer)=>{ setVerComo(comoVer); setSel(p.id); };
+      /* el estado se lee de un vistazo por la barra lateral */
+      const cerrado = LIBERADOS.includes(p.estado) || p.comisionLiberada;
+      const porCobrar = /por cobrar|entregado/i.test(p.estado||"");
+      const barraP = cerrado ? "#2E7D52" : porCobrar ? "#C9A227" : "#8A9A8E";
       return (
-      <div className="card" key={p.id} style={{padding:0,overflow:"hidden"}}>
+      <div className="card" key={p.id}
+        style={{padding:0,overflow:"hidden",borderLeft:`4px solid ${barraP}`,
+          background: cerrado ? "#F5F9F6" : "var(--card)"}}>
         <div style={{display:"flex",alignItems:"stretch",minWidth:0}}>
           {/* mitad izquierda → factura */}
           <button onClick={()=>abrir("factura")}
@@ -7272,8 +7278,12 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
       {visiblesF.map((it,i)=>{
         const colVenc = it.v==="bad"?"var(--clay)":it.v==="warn"?"#B8860B":"var(--muted)";
+        /* el estado se lee de un vistazo: barra lateral + fondo suave */
+        const barra = it.v==="bad"?"#C2603A":it.v==="warn"?"#C9A227":"#2E7D52";
+        const fondo = it.v==="bad"?"#FDF6F3":it.v==="warn"?"#FDFAF0":"var(--card)";
         return (
-        <div className="card" key={i} onClick={()=>setVerFac(it)} style={{cursor:"pointer"}}>
+        <div className="card" key={i} onClick={()=>setVerFac(it)}
+          style={{cursor:"pointer",borderLeft:`4px solid ${barra}`,background:fondo}}>
           <div className="row" style={{alignItems:"flex-start"}}>
             <div style={{minWidth:0,flex:1}}>
               <div className="cli" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.cli}{it.chequeDevuelto && <span className="chq-badge">⚠️ Cheque devuelto</span>}</div>
@@ -12342,7 +12352,9 @@ function Solicitudes({toast, verCliente}){
     const alerta = s.prioridad==="urgente"||s.prioridad==="vencida";
     return (
       <div className="card" style={{padding:"11px 12px",marginBottom:8,
-        borderLeft:`3px solid ${alerta?"#C2603A":tp.col}`}}>
+        borderLeft:`3px solid ${alerta?"#C2603A":tp.col}`,
+        /* fondo según el estado: urgente rosado, borrador gris, resto normal */
+        background: alerta?"#FDF6F3" : s.estado==="borrador"?"#F7F7F5" : "var(--card)"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
           <span style={{width:30,height:30,borderRadius:9,background:tp.bg,flexShrink:0,
             display:"flex",alignItems:"center",justifyContent:"center"}}>
