@@ -3704,7 +3704,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"233", fecha:"19 jul 2026", desc:"Recompra debajo del buscador de producto"};
+const VERSION={n:"234", fecha:"19 jul 2026", desc:"Precio se autollena al elegir producto"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -4123,12 +4123,50 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
   const tInfo=TIPOS_PRECIO.find(t=>t.id===tipo);
   const histo = (cli && prod) ? HISTORIAL[cli+"|"+prod.id] : null;
-  const histo3m = (cli && prod) ? (HISTORIAL_3M[cli+"|"+prod.id]||[]) : [];
+  const histo3m = (cli && prod) ? (HISTORIAL_3M[(cli.nombre||cli)+"|"+prod.id]||[]) : [];
   const imgProd = prod ? (EMOJI_LINEA[prod.linea]||"📦") : null;
   const TIPO_CORTO={P1:"Contado", P2:"Crédito", P3:"Promo vend.", P4:"Promo freel.", P5:"Especial"};
   const ultimaPorTipo={};
   histo3m.forEach(h=>{ if(!ultimaPorTipo[h.tipo]) ultimaPorTipo[h.tipo]=h; });
   const ultimaVenta = histo3m.length>0 ? histo3m[0] : null;
+
+  /* Al ELEGIR producto: precio y cantidad de la última compra; si es nuevo, base y 50 */
+  const prodPrevio = React.useRef(null);
+  const tipoPrevio = React.useRef(tipo);
+  React.useEffect(()=>{
+    if(prod && prod.id !== prodPrevio.current){
+      prodPrevio.current = prod.id;
+      if(ultimaVenta){
+        const t = (ultimaVenta.tipo && TIPOS_PRECIO.some(x=>x.id===ultimaVenta.tipo)) ? ultimaVenta.tipo : tipo;
+        setTipo(t);
+        tipoPrevio.current = t;
+        setPrecio(String(ultimaVenta.precio));
+        if(ultimaVenta.cant) setCant(ultimaVenta.cant);
+      } else {
+        setTipo("P1");
+        tipoPrevio.current = "P1";
+        setCant(50);
+        if(prod.baseCredito>0) setPrecio(prod.baseCredito.toFixed(2));
+      }
+    }
+    if(!prod) prodPrevio.current = null;
+  }, [prod]);
+
+  /* Al CAMBIAR el tipo: vuelve al precio de esa venta, o a la base del tipo elegido */
+  React.useEffect(()=>{
+    if(prod && tipo !== tipoPrevio.current){
+      tipoPrevio.current = tipo;
+      if(esP5){ setCant(0); setPrecio(""); return; }
+      if(ultimaVenta && tipo === ultimaVenta.tipo){
+        setPrecio(String(ultimaVenta.precio));
+        setCant(ultimaVenta.cant || 50);
+      } else {
+        setCant(50);
+        if(base>0) setPrecio(base.toFixed(2));
+      }
+    }
+  }, [tipo]);
+
   const netoDe = h => Math.round((h.precio-(h.nc||0))*100)/100;
   let resumen=null;
   if(histo3m.length>0){
@@ -4755,11 +4793,12 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             );
           })}
         </div>
-        <div className="hint" style={{marginTop:7}}>
-          {tInfo.desc}
-          {ultimaVenta && ultimaVenta.tipo===tipo && <span style={{color:"var(--field)",fontWeight:600}}> · Últ. venta {money(netoDe(ultimaVenta))}</span>}
-          {tipo==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0) && <span style={{color:"#B5613C",fontWeight:600}}> · Sin promos</span>}
-        </div>
+        {(ultimaVenta && ultimaVenta.tipo===tipo) || (tipo==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0)) ? (
+          <div className="hint" style={{marginTop:7}}>
+            {ultimaVenta && ultimaVenta.tipo===tipo && <span style={{color:"var(--field)",fontWeight:600}}>Últ. venta {money(netoDe(ultimaVenta))}</span>}
+            {tipo==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0) && <span style={{color:"#B5613C",fontWeight:600}}> · Sin promos</span>}
+          </div>
+        ) : null}
       </div>
 
       {/* precio sugerido según el canal del cliente (cuida la distribución de la zona) */}
