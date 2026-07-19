@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"84", fecha:"19 jul 2026", desc:"Buscadores: un toque abre la lista"};
+const VERSION={n:"85", fecha:"19 jul 2026", desc:"Puente WhatsApp al chat del cliente"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1530,6 +1530,40 @@ function PantallaLogin({ onAutenticado }) {
 /* ===== FIN LOGIN UNIFICADO ===== */
 
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* ══ PUENTE WHATSAPP (Fase 4) ══
+   Abre WhatsApp directo en el chat del cliente usando el teléfono de su ficha.
+   Hoy: el mensaje va al chat correcto; el PDF sigue yendo por el menú de compartir
+   (el navegador no puede adjuntar un archivo a un número específico).
+   En Fase 4: el PDF se sube a Supabase Storage y aquí se agrega su enlace.
+   Destino final: WhatsApp Cloud API despacha todo desde el servidor, sin tocar nada. */
+function telE164(tel){
+  const d=String(tel||"").replace(/\D/g,"");
+  if(!d) return null;
+  if(d.startsWith("593")) return d;              /* ya viene con país */
+  if(d.startsWith("0")) return "593"+d.slice(1); /* 09xxxxxxxx → 5939xxxxxxxx */
+  if(d.length===9) return "593"+d;               /* 9xxxxxxxx */
+  return d;
+}
+function telDeCliente(nombre){
+  const n=(nombre && nombre.nombre) || nombre;
+  const f=(typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[n]) || null;
+  if(f && f.tel) return telE164(f.tel);
+  if(typeof CLIENTES_MAESTRO!=="undefined"){
+    const c=CLIENTES_MAESTRO.find(x=>x.nombre===n);
+    if(c && c.tel) return telE164(c.tel);
+  }
+  return null;
+}
+/* Abre el chat del cliente si hay teléfono; si no, cae al menú de compartir de siempre */
+function waCliente(nombre, texto){
+  const t=telDeCliente(nombre);
+  const url = t ? `https://wa.me/${t}?text=${encodeURIComponent(texto)}`
+                : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  window.open(url, "_blank");
+  return !!t;   /* true = fue directo al chat del cliente */
+}
+
 
 /* Unidad abreviada para mostrar comisiones: "Quintal"→qq, "Saco 25 kg"→saco, "Funda 2 kg"→funda */
 const uniCorta = (u)=>{
@@ -4211,7 +4245,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
           <div className="sh-sub">{guardadoOk.cli} · {guardadoOk.n} producto(s) · lo ves en Mis pedidos</div>
           <button className="cta wa-cta" style={{marginTop:14}} onClick={()=>{
             const txt = `Hola ${guardadoOk.cli} 👋 Registré tu pedido:\n${guardadoOk.resumen}\nGracias por tu compra 🙌`;
-            window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
+            waCliente(guardadoOk.cli, txt);   /* abre el chat del cliente si tiene teléfono en su ficha */
           }}><IcoWA s={16}/> Avisar al cliente por WhatsApp</button>
           <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
             const c = guardadoOk.cli; setGuardadoOk(null); setCli(c);
@@ -4321,10 +4355,16 @@ function Cobros({toast}){
           </div>
         ))}
       </div>
-      <div className="lock"><span>ℹ️</span>
-        <span>El recibo se envió como comprobante del cobro reportado. El proveedor lo conciliará desde su portal.</span></div>
+      {/* PUENTE: abre el chat del cliente con el detalle del cobro */}
+      <button className="cta wa-cta" style={{marginTop:6}} onClick={()=>{
+        const facs=(enviado.facturas||[]).map(f=>`• ${f.factura} · ${money(f.aplicado)} (${f.estado==="cancelada"?"cancela":"abono"})`).join("\n");
+        const txt=`🌾 *FREELANCE* · Comprobante de cobro\nHola ${enviado.cli} 👋\n\nRegistré su pago de *${money(enviado.monto)}*\nProveedor: ${enviado.prov}\n\n${facs}\n\n¡Gracias por su pago! 🙌`;
+        const directo = waCliente(enviado.cli, txt);
+        toast(directo ? "Abriendo el chat del cliente…" : "Elige el contacto en el menú de WhatsApp.");
+      }}><IcoWA s={16}/> Enviar recibo al cliente</button>
 
-      <button className="cta" onClick={()=>{setEnviado(null);reset();}} style={{marginTop:6}}>Reportar otro cobro</button>
+      <button className="ghost" style={{width:"100%",marginTop:10}}
+        onClick={()=>{setEnviado(null);reset();}}>Reportar otro cobro</button>
     </>);
   }
 
