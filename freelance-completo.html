@@ -675,6 +675,29 @@
   .fl-emoji{font-size:54px;opacity:.7}
   .fl-cambiar{position:absolute;right:10px;bottom:10px;background:rgba(15,42,28,.85);color:#EAF0EA;
     font-size:12px;font-weight:700;border-radius:9px;padding:7px 12px}
+  /* Recompra: productos que el cliente ya compra */
+  .fav-wrap{margin-bottom:16px}
+  .fav-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+    background:#FBF3DD;border:1px solid var(--maize);border-radius:12px;padding:13px 15px;
+    font-size:13.5px;font-weight:700;color:var(--maize-deep);cursor:pointer;text-align:left}
+  .fav-n{background:var(--maize);color:#fff;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px}
+  .fav-ar{font-size:11px}
+  .fav-lista{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  .fav-item{display:flex;align-items:center;gap:13px;width:100%;background:#fff;border:1px solid var(--line);
+    border-radius:13px;padding:12px 14px;cursor:pointer;text-align:left;transition:border .15s;min-width:0}
+  .fav-item:active{border-color:var(--field);background:#F7FBF9}
+  .fav-emoji{width:46px;height:46px;border-radius:11px;background:var(--paper);border:1px solid var(--line);display:flex;
+    align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+  .fav-info{flex:1;min-width:0}
+  .fav-nom{font-size:14px;font-weight:700;color:var(--field);line-height:1.25;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fav-pres{font-size:11.5px;color:var(--muted);margin-top:1px}
+  .fav-det{font-size:11px;color:var(--muted);margin-top:3px;font-family:'Space Grotesk',sans-serif;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fav-det b{color:var(--field)}
+  .fav-tipo{display:inline-block;background:#E9EEE9;color:var(--field);border-radius:5px;padding:1px 6px;
+    font-size:9.5px;font-weight:700;margin-left:6px;font-family:'Space Grotesk',sans-serif;vertical-align:middle}
+  .fav-add{font-size:13px;font-weight:700;color:var(--field);white-space:nowrap;flex-shrink:0}
   /* tarjeta ampliada de producto */
   .prod-linea{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
     background:#E4F1E9;color:var(--ok);border-radius:999px;padding:2px 9px}
@@ -3601,7 +3624,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"220", fecha:"18 jul 2026", desc:"Aviso al salir de la app"};
+const VERSION={n:"221", fecha:"18 jul 2026", desc:"Panel de Recompra en Tomar pedido"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -3908,6 +3931,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [prod,setProd]=useState(null);
+  const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
   const [cant,setCant]=useState(50);
   const [precio,setPrecio]=useState("");
@@ -3949,6 +3973,14 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   const productosDelProv = prov ? PRESENTACIONES.filter(p=>p.provId===prov.id) : [];
+  /* Recompra: productos que este cliente ya compra de este proveedor, con su última vez.
+     Se ordena por frecuencia y se ocultan los que ya están en el carrito. */
+  const enCarrito = new Set(carrito.map(x=>x.prod && x.prod.id));
+  const favoritos = (cli && prov) ? productosDelProv
+    .map(p=>{ const h=HISTORIAL_3M[(cli.nombre||cli)+"|"+p.id]; return h&&h.length>0 ? {prod:p, ultima:h[0], nCompras:h.length} : null; })
+    .filter(Boolean)
+    .filter(f=>!enCarrito.has(f.prod.id))
+    .sort((a,b)=>b.nCompras-a.nCompras) : [];
   /* unidad tal como viene del catálogo */
   const sinLb = u => (u||"").trim();
   const unidadCorta = prod ? sinLb(prod.unidad) : "";
@@ -4049,6 +4081,35 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         option:p=>(<div className="o1">{p.nombre}</div>),
         picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor</div></>)
       }}/>}
+
+    {/* Recompra: lo que este cliente ya compra de este proveedor, a un toque */}
+    {prov && !bloqueado && !verFact && !prod && favoritos.length>0 && (
+      <div className="fav-wrap">
+        <button className={"fav-toggle"+(favAbierto?" abierto":"")} onClick={()=>setFavAbierto(v=>!v)}>
+          <span>⭐ Recompra <span className="fav-n">{favoritos.length}</span></span>
+          <span className="fav-ar">{favAbierto?"▲":"▼"}</span>
+        </button>
+        {favAbierto && (
+          <div className="fav-lista">
+            {favoritos.map(f=>(
+              <button key={f.prod.id} className="fav-item"
+                onClick={()=>{ setProd(f.prod); reset(); setFavAbierto(false); }}>
+                <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
+                <div className="fav-info">
+                  <div className="fav-nom">{f.prod.marca}</div>
+                  <div className="fav-pres">{f.prod.unidad}</div>
+                  <div className="fav-det">
+                    Últ. {f.ultima.fecha} · <b>{money(f.ultima.precio)}</b>
+                    {f.ultima.tipo && <span className="fav-tipo">{f.ultima.tipo}</span>}
+                  </div>
+                </div>
+                <span className="fav-add">+</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
 
     {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto autorizado" items={productosDelProv} sinLabel value={prod}
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
