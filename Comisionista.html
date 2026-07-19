@@ -68,6 +68,16 @@
   .fb-opt:last-child{border-bottom:none}
   .fb-none{padding:12px;font-size:12px;color:var(--muted);text-align:center}
   /* indicadores compactos */
+  /* pestañas: no estaban definidas y salían como texto plano */
+  .eq-tabs{display:flex;gap:6px;background:var(--paper);border:1px solid var(--line);
+    border-radius:12px;padding:4px;margin-bottom:12px}
+  .eq-tabs button{flex:1;min-width:0;background:none;border:none;border-radius:9px;
+    padding:9px 8px;font-family:inherit;font-size:13px;font-weight:700;color:var(--muted);
+    cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    display:flex;align-items:center;justify-content:center}
+  .eq-tabs button.on{background:var(--card);color:var(--field);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .eq-tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;
+    border-radius:9px;background:#C2603A;color:#fff;font-size:10px;font-weight:800;margin-left:5px;padding:0 4px}
   .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
   .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
     gap:1px;background:var(--card);border:1px solid var(--line);border-radius:11px;
@@ -909,7 +919,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"26", fecha:"18 jul 2026", desc:"Pedidos con pestañas y paginación"};
+const VERSION={n:"27", fecha:"18 jul 2026", desc:"Cartera con cheques devueltos"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1437,6 +1447,16 @@ const PRESENTACIONES = PRODUCTOS
         promosFreelance: pr.promosFreelance,
       }))
   );
+/* Cheques devueltos de MIS clientes: el vendedor debe gestionar el reposicionamiento */
+const CHEQUES_DEVUELTOS = [
+  {cli:"Comercial Mendoza", proveedor:"Molinos del Litoral", ciudad:"Milagro", zona:"Sur",
+   numero:"CHQ-008812", banco:"Banco Guayaquil", monto:300.00, fac:"001-001-000103",
+   motivo:"Cuenta cerrada", fecha:"ayer 16:10", estado:"pendiente"},
+  {cli:"Tienda La Esquina", proveedor:"Agrícola del Valle", ciudad:"Babahoyo", zona:"Centro",
+   numero:"CHQ-004521", banco:"Banco Pichincha", monto:620.00, fac:"001-001-000131",
+   motivo:"Fondos insuficientes", fecha:"hoy 08:30", estado:"pendiente"},
+];
+
 const CLIENTES = ["Comercial Mendoza","Tienda La Esquina","Distribuidora Ríos",
   "Bodega El Agricultor","Mayorista Santa Rosa","Abarrotes Don Pepe","Comisariato La Y",
   "Comercial Nilo","Almacenes Fernando","Distribuidora Los Andes"];
@@ -4205,6 +4225,9 @@ function Stock({toast}){
 // ---------- CARTERA ----------
 function Cartera({toast}){
   const [q,setQ]=useState("");
+  const [pestCart,setPestCart]=useState("facturas");   // facturas | cheques
+  const [chDev,setChDev]=useState(CHEQUES_DEVUELTOS);
+  const chPend=chDev.filter(c=>c.estado==="pendiente");
   const items=[
     // ── Historia canon compartida con el sistema web ──
     {cli:"Comercial Nilo", prov:"Chimborazo", ciudad:"Riobamba", zona:"Centro", barrio:"La Estación", fac:"F-4521", saldo:6450.00, estado:"Por cobrar", venc:"En 11 días", v:"ok"},
@@ -4234,6 +4257,61 @@ function Cartera({toast}){
   return (<>
     <div className="h1">Cartera</div>
 
+    <div className="eq-tabs" style={{margin:"10px 0 12px"}}>
+      <button className={pestCart==="facturas"?"on":""} onClick={()=>setPestCart("facturas")}>Facturas</button>
+      <button className={pestCart==="cheques"?"on":""} onClick={()=>setPestCart("cheques")}>
+        Cheques{chPend.length>0 && <span className="eq-tab-badge">{chPend.length}</span>}
+      </button>
+    </div>
+
+    {/* ── CHEQUES DEVUELTOS: plata reabierta que hay que recuperar ── */}
+    {pestCart==="cheques" && (<>
+      <div className="mini-kpi">
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num" style={{color:chPend.length>0?"#C2603A":"var(--field)"}}>{chPend.length}</span>
+          <span className="mk-k">Por gestionar</span></button>
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num" style={{fontSize:14,color:chPend.length>0?"#C2603A":"var(--field)"}}>
+            {money(chPend.reduce((a,c)=>a+c.monto,0))}</span>
+          <span className="mk-k">Monto</span></button>
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num">{chDev.filter(c=>c.estado!=="pendiente").length}</span>
+          <span className="mk-k">En gestión</span></button>
+        <button style={{cursor:"default"}}>
+          <span className="mk-v num">{chDev.length}</span>
+          <span className="mk-k">Total</span></button>
+      </div>
+
+      {chDev.length===0 && <div className="ph">Sin cheques devueltos. Cartera sana.</div>}
+      {chDev.map((c,i)=>{
+        const pend=c.estado==="pendiente";
+        return (
+        <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,
+          borderLeft:`4px solid ${pend?"#C2603A":"#C9A227"}`, background:pend?"#FDF6F3":"#FDFAF0"}}>
+          <div className="row" style={{alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
+              <div className="meta" style={{fontSize:11}}>{c.numero} · {c.banco}</div>
+              <div className="meta" style={{fontSize:11,color:"#C2603A",fontWeight:700}}>{c.motivo}</div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+              <div className="amt num" style={{color:"#C2603A"}}>{money(c.monto)}</div>
+              <div className="meta" style={{fontSize:10}}>{c.fecha}</div></div>
+          </div>
+          <div className="meta" style={{fontSize:11,marginTop:6,paddingTop:6,borderTop:"1px solid rgba(0,0,0,.06)"}}>
+            Reabierto en la cartera de {c.cli}. Factura {(c.fac||"").replace(/^001-001-/,"")}.</div>
+          {pend && (
+            <button className="mini-cta" style={{width:"100%",marginTop:8,textAlign:"center"}}
+              onClick={()=>{ setChDev(cc=>cc.map(x=>x.numero===c.numero?{...x,estado:"gestion"}:x));
+                toast(`Cheque ${c.numero} marcado en gestión`); }}>
+              Marcar en gestión</button>
+          )}
+        </div>
+      );})}
+    </>)}
+
+    {/* ── FACTURAS ── */}
+    {pestCart==="facturas" && (<>
     {/* indicadores compactos: qué debe cobrar y qué urge */}
     <div className="mini-kpi">
       <button style={{cursor:"default"}}>
@@ -4287,6 +4365,7 @@ function Cartera({toast}){
       </div>
     );})}
     {listaOrd.length===0 && <div className="ph">Sin facturas que coincidan con “{q}”.</div>}
+    </>)}
   </>);
 }
 
