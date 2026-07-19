@@ -904,7 +904,27 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"19", fecha:"18 jul 2026", desc:"Comisiones, Novedades y Portafolio"};
+const VERSION={n:"20", fecha:"18 jul 2026", desc:"Campanilla con ayudas"};
+
+/* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
+const COMO_FUNCIONA = [
+  {mod:"Cobros", ic:"⏱️", t:"Efectivo: regla de 24 horas",
+   d:"El efectivo cobrado se deposita en máximo 24 horas. El pendiente arrastra al día siguiente con su reloj."},
+  {mod:"Cobros", ic:"📅", t:"Fechas del comprobante",
+   d:"Depósito y transferencia ya ocurrieron: no admiten fecha futura. El cheque sí, porque es posfechado."},
+  {mod:"Cobros", ic:"📷", t:"Foto del cheque",
+   d:"El cheque se recibe físicamente: la foto se toma en el momento, con la cámara. No se adjunta archivo."},
+  {mod:"Comisiones", ic:"🔓", t:"Cuándo se libera tu comisión",
+   d:"Cuando el proveedor confirma el pago efectivo de la factura. Cobrar al cliente o depositar su cheque no la libera."},
+  {mod:"Cartera", ic:"📅", t:"Cheques posfechados",
+   d:"Ocupan cupo del cliente hasta que se efectivizan."},
+  {mod:"Stock", ic:"⏳", t:"Cuánto le dura al cliente",
+   d:"El cálculo usa su consumo diario. Cinco días o menos aparece en rojo: toca reponer."},
+  {mod:"Novedades", ic:"📦", t:"Qué se pide aquí",
+   d:"Post-venta: cambios de producto, devoluciones y notas de crédito. Se elige la factura y los ítems exactos."},
+  {mod:"Pedidos", ic:"📡", t:"Pedidos sin enviar",
+   d:"Los que tomaste sin señal quedan en tu teléfono. Al recuperar internet se suben solos."},
+];
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -4694,7 +4714,6 @@ function ListaPrecios(){
 
   return (<>
     <div className="h1">Precios</div>
-    <div className="sub">Tu precio base por producto. Toca una línea para filtrar.</div>
 
     <div className="ss" style={{marginBottom:12}}>
       <div className="box"><span className="mag">⌕</span>
@@ -4776,7 +4795,6 @@ function Productos({vender}){
 
   return (<>
     <div className="h1">Productos</div>
-    <div className="sub">Marcas por línea de grano. Toca una marca para ver sus presentaciones.</div>
     <div className="ss" style={{marginBottom:16}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar por marca, línea o proveedor…" onChange={e=>setQ(e.target.value)}/>
@@ -5653,6 +5671,7 @@ function App(){
 
   // ═══ NOTIFICACIONES · tareas del rol Subcomisionista ═══
   const [verNotifs,setVerNotifs]=useState(false);
+  const [verAyuda,setVerAyuda]=useState(false);   // sección "Cómo funciona" de la campanilla
   const TAREAS_NOTIF=[
     {tipo:"vencidas", icono:"⏰", titulo:"Facturas vencidas por cobrar", detalle:"Ya pasaron su fecha · gestiona hoy", destino:"cobros", n:COBROS_INI.filter(c=>/vencida/i.test(c.vence)).length},
     {tipo:"porvencer", icono:"📅", titulo:"Facturas por vencer esta semana", detalle:"Adelántate antes de la fecha", destino:"cobros", n:COBROS_INI.filter(c=>{const m=String(c.vence).match(/En (\d+)/i); return m && +m[1]<=7;}).length},
@@ -5760,9 +5779,28 @@ function App(){
           <div onClick={()=>setVerNotifs(false)} style={{position:"fixed", inset:0, background:"rgba(10,20,15,.45)", zIndex:1300, display:"flex", alignItems:"flex-start", justifyContent:"flex-end", padding:"calc(env(safe-area-inset-top,0px) + 104px) 12px 0"}}>
             <div onClick={e=>e.stopPropagation()} style={{width:"min(340px,92vw)", maxHeight:"70vh", overflowY:"auto", background:"#fff", borderRadius:16, boxShadow:"0 18px 50px rgba(0,0,0,.3)"}}>
               <div style={{padding:"14px 16px 10px", borderBottom:"1px solid #EEF2EE", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-                <strong style={{fontFamily:SERIF, fontSize:16, color:CL.tinta}}>🔔 Tus tareas de hoy</strong>
+                <strong style={{fontFamily:SERIF, fontSize:16, color:CL.tinta}}>{verAyuda?"📖 Cómo funciona":"🔔 Tus tareas de hoy"}</strong>
+                <button onClick={()=>setVerAyuda(v=>!v)}
+                  style={{background:"none",border:"none",fontFamily:BODY,fontSize:12,fontWeight:700,
+                    color:CL.principal,cursor:"pointer",textDecoration:"underline",padding:0}}>
+                  {verAyuda?"Ver tareas":"Cómo funciona"}</button>
               </div>
-              {(<>
+
+              {verAyuda && (<>
+                {COMO_FUNCIONA.map((a,i)=>(
+                  <div key={i} style={{display:"flex",gap:11,alignItems:"flex-start",
+                    padding:"11px 16px",borderBottom:"1px solid #F2F5F2"}}>
+                    <span style={{fontSize:17,flexShrink:0}}>{a.ic}</span>
+                    <span style={{flex:1,minWidth:0}}>
+                      <span style={{display:"block",fontFamily:BODY,fontSize:10,fontWeight:700,
+                        color:CL.grisTenue,textTransform:"uppercase",letterSpacing:".04em"}}>{a.mod}</span>
+                      <span style={{display:"block",fontFamily:BODY,fontSize:13,fontWeight:700,color:CL.tinta,marginTop:1}}>{a.t}</span>
+                      <span style={{display:"block",fontFamily:BODY,fontSize:11.5,color:CL.grisTexto,marginTop:2,lineHeight:1.45}}>{a.d}</span>
+                    </span>
+                  </div>
+                ))}
+              </>)}
+              {!verAyuda && (<>
               {tareasActivas.length===0 && <p style={{fontFamily:BODY, fontSize:13, color:CL.grisTexto, padding:"18px 16px", margin:0}}>Todo al día ✨ Nada espera tu acción.</p>}
               {tareasActivas.map(t=>(
                 <button key={t.tipo} onClick={()=>{setVerNotifs(false); navegar(t.destino);}}
