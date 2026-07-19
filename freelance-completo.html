@@ -3591,7 +3591,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"202", fecha:"18 jul 2026", desc:"Acta de entrega en PDF"};
+const VERSION={n:"203", fecha:"18 jul 2026", desc:"Detalle de lote compactado"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14191,17 +14191,28 @@ function Documentos({toast, usuario}){
     return (<>
       <div className="h1" style={{marginBottom:4}}>Entrega · {l.fecha}</div>
 
-      <div className="fcard" style={{margin:"10px 0 12px"}}>
-        {/* las tres primeras filas llevan margen: la campanilla flota sobre esa esquina */}
-        <div className="cu-line"><span>De</span><b style={{marginRight:46,textAlign:"right"}}>{l.de} · {l.deRol}</b></div>
-        <div className="cu-line"><span>Para</span><b style={{marginRight:46,textAlign:"right"}}>{l.para} · {l.paraRol}</b></div>
-        <div className="cu-line"><span>Documentos</span><b style={{marginRight:46}}>{l.docs.length}</b></div>
-        <div className="cu-line"><span>Monto total</span>
-          <b className="num">{money(totalLote(l))}</b></div>
-        <div className="cu-line"><span>Estado</span>
-          <b><span className={"chip "+(l.estado==="recibido"?"c-ok":l.estado==="courier"?"c-info":"c-warn")}><span className="d"></span>{l.estado==="recibido"?"Recibido":l.estado==="courier"?"En courier":"Pendiente"}</span></b></div>
-        {l.estado==="recibido" && <div className="meta" style={{marginTop:4}}>✓ {l.recibidoFecha}{l.conNovedad?` · ⚠️ ${l.novedad}`:""}</div>}
-        {l.estado==="courier" && <div className="meta" style={{marginTop:4}}>🚚 {l.courierEmpresa} · guía {l.courierGuia} · enviado {l.courierFecha}</div>}
+      {/* cabecera compacta: dos filas de datos + estado, en vez de cinco líneas */}
+      <div className="fcard" style={{margin:"10px 0 12px",padding:"11px 13px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,paddingRight:46}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="meta" style={{fontSize:10.5}}>De</div>
+            <div style={{fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.de}</div>
+          </div>
+          <span style={{color:"var(--muted)",flexShrink:0,fontSize:14}}>→</span>
+          <div style={{flex:1,minWidth:0,textAlign:"right"}}>
+            <div className="meta" style={{fontSize:10.5}}>Para</div>
+            <div style={{fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.para}</div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:7,
+          borderTop:"1px solid var(--line)"}}>
+          <span className="meta" style={{fontSize:11.5,flexShrink:0}}>{l.docs.length} doc(s)</span>
+          <span className="num" style={{flex:1,fontSize:15,fontWeight:800}}>{money(totalLote(l))}</span>
+          <span className={"chip "+(l.estado==="recibido"?"c-ok":l.estado==="courier"?"c-info":"c-warn")}
+            style={{flexShrink:0}}><span className="d"></span>{l.estado==="recibido"?"Recibido":l.estado==="courier"?"En courier":"Pendiente"}</span>
+        </div>
+        {l.estado==="recibido" && <div className="meta" style={{marginTop:6,fontSize:10.5}}>✓ {l.recibidoFecha}{l.conNovedad?` · ⚠️ ${l.novedad}`:""}</div>}
+        {l.estado==="courier" && <div className="meta" style={{marginTop:6,fontSize:10.5}}>🚚 {l.courierEmpresa} · guía {l.courierGuia} · {l.courierFecha}</div>}
       </div>
 
       <div className="ficha-sec">Documentos {l.estado==="pendiente"?"· verifica uno por uno":""}</div>
@@ -14223,14 +14234,11 @@ function Documentos({toast, usuario}){
               </div>
               <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {d.cliente}{d.banco?` · ${d.banco}`:""}</div>
-              <div className="meta" style={{fontSize:11}}>
+              <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {d.fecha}{d.venc?` · vence ${d.venc}`:""}
                 {d.foto && <span style={{marginLeft:6}}>📷</span>}
+                {vencido && <span style={{marginLeft:6,fontWeight:700,color:"#C2603A"}}>⚠️ vencido {dv}d</span>}
               </div>
-              {vencido && (
-                <div style={{marginTop:5,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>
-                  ⚠️ Vencido hace {dv} día{dv!==1?"s":""} · gestionar depósito</div>
-              )}
               {d.estadoDoc==="Depósito solicitado" && d.depSolicita && <div className="doc-dep-aviso">🔔 {d.depSolicita} solicitó depositar este cheque</div>}
               {d.estadoDoc==="Depositado" && d.depFecha && <div className="meta" style={{marginTop:4,color:"#3A6EA5",fontSize:11}}>✓ Depositado en {d.depBanco} · {d.depFecha}{d.depFoto?" 📷":""}</div>}
             </div>
