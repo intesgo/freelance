@@ -904,7 +904,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"13", fecha:"18 jul 2026", desc:"Cartera con color por vencimiento"};
+const VERSION={n:"14", fecha:"18 jul 2026", desc:"Clientes con estado visible"};
 
 const S = {
   phone:  { width:390, minHeight:844, background:CL.fondo, fontFamily:BODY, position:"relative", overflow:"hidden", borderRadius:40, boxShadow:"0 32px 80px rgba(0,0,0,0.35)", margin:"0 auto" },
@@ -4151,14 +4151,28 @@ function Clientes({toast}){
   const enTramite=SOLICITUDES_CREDITO.filter(s=>s.etapa<3||s.devuelta).length;
   const nBloq=CLIENTES.filter(c=>motivosBloqueo(c).length>0).length;
 
+  const conCredito=CLIENTES.filter(c=>{const f=FICHA_CLIENTE[c];return f&&f.diasCredito>0;}).length;
+
   return (<>
     <div className="h1">Clientes</div>
-    <div className="sub">Tus clientes asignados. Toca uno para ver su ficha.</div>
-    <button className="ghost" style={{width:"100%",margin:"0 0 10px"}} onClick={()=>setVerSolic(true)}>
-      Solicitudes de crédito{enTramite>0?` · ${enTramite} en trámite`:""}</button>
-    <button className="ghost" style={{width:"100%",margin:"0 0 14px"}} onClick={()=>setVerBloq(true)}>
-      Clientes bloqueados{nBloq>0?` · ${nBloq}`:""}</button>
-    <div className="ss" style={{marginBottom:16}}>
+
+    {/* indicadores accionables: reemplazan los botones apilados */}
+    <div className="mini-kpi">
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num">{CLIENTES.length}</span>
+        <span className="mk-k">Asignados</span></button>
+      <button style={{cursor:"default"}}>
+        <span className="mk-v num">{conCredito}</span>
+        <span className="mk-k">Con crédito</span></button>
+      <button onClick={()=>setVerSolic(true)}>
+        <span className="mk-v num" style={{color:enTramite>0?"#C9A227":"var(--field)"}}>{enTramite}</span>
+        <span className="mk-k">En trámite</span></button>
+      <button onClick={()=>setVerBloq(true)}>
+        <span className="mk-v num" style={{color:nBloq>0?"#C2603A":"var(--field)"}}>{nBloq}</span>
+        <span className="mk-k">Bloqueados</span></button>
+    </div>
+
+    <div className="ss" style={{marginBottom:12}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar cliente…" onChange={e=>setQ(e.target.value)}/>
         <MicBtn onTexto={setQ}/>
@@ -4167,13 +4181,26 @@ function Clientes({toast}){
     {lista.map((c,i)=>{
       const f=FICHA_CLIENTE[c];
       const refs=REFERENCIALES[c]||[];
+      /* bloqueado se ve de un vistazo, igual que en la app del freelance */
+      const bloq=motivosBloqueo(c).length>0;
       return (
-        <div className="card" key={i} style={{padding:"13px 15px",cursor:"pointer"}} onClick={()=>setSel(c)}>
+        <div className="card" key={i} onClick={()=>setSel(c)}
+          style={{padding:"11px 13px",marginBottom:8,cursor:"pointer",
+            borderLeft:`4px solid ${bloq?"#C2603A":"#2E7D52"}`,
+            background: bloq?"#FDF6F3":"var(--card)"}}>
           <div className="row" style={{alignItems:"center"}}>
-            <div><div className="cli" style={{fontSize:14}}>{c}</div>
-              <div className="meta">{f?`${f.ciudad}, ${f.prov} · ${f.diasCredito} días crédito`:"Sin ficha"}</div>
-              {refs.length>0 && <div className="meta" style={{color:"var(--maize-deep)",marginTop:2}}>Factura a: {refs.join(" · ")}</div>}</div>
-            <span className="meta" style={{fontSize:18,color:"var(--muted)"}}>›</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <span className="cli" style={{fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c}</span>
+                {bloq && <span className="chip c-bad" style={{flexShrink:0}}><span className="d"></span>Bloqueado</span>}
+              </div>
+              <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {f?`${f.ciudad}, ${f.prov} · ${f.diasCredito} días crédito`:"Sin ficha"}</div>
+              {refs.length>0 && <div className="meta" style={{fontSize:10.5,color:"var(--maize-deep)",marginTop:1,
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Factura a: {refs.join(" · ")}</div>}
+            </div>
+            <span className="meta" style={{fontSize:18,color:"var(--muted)",flexShrink:0,marginLeft:8}}>›</span>
           </div>
         </div>
       );
