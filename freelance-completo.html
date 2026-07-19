@@ -1619,6 +1619,47 @@ const Ico=({n,c="#2E7D52",s=22})=>{
    Cualquier ventana emergente se apunta aquí al abrirse. El botón atrás (app o Android)
    cierra SIEMPRE el último modal abierto antes de retroceder de pantalla. */
 const MODALES=[];
+/* ── Gesto: deslizar desde el borde izquierdo abre el menú lateral ──
+   Solo se activa si el arrastre empieza en el borde (20 px), es claramente
+   horizontal y recorre más de 60 px. No abre si hay una ventana encima. */
+function useGestoDrawer(abrir, activo){
+  React.useEffect(()=>{
+    if(!activo) return;
+    const BORDE=20, MINIMO=60;
+    let x0=0, y0=0, valido=false;
+
+    const inicio=(e)=>{
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      /* debe empezar pegado al borde izquierdo de la app, no de la ventana */
+      const caja=document.querySelector(".shell");
+      const izq=caja ? caja.getBoundingClientRect().left : 0;
+      valido = (t.clientX - izq) <= BORDE && MODALES.length===0;
+      x0=t.clientX; y0=t.clientY;
+    };
+    const mover=(e)=>{
+      if(!valido) return;
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const dx=t.clientX-x0, dy=Math.abs(t.clientY-y0);
+      /* horizontal de verdad: avanza al menos el doble de lo que sube o baja */
+      if(dx>MINIMO && dx>dy*2){ valido=false; abrir(); }
+      /* si se va en vertical, era un desplazamiento normal: se descarta */
+      if(dy>28) valido=false;
+    };
+    const fin=()=>{ valido=false; };
+
+    document.addEventListener("touchstart", inicio, {passive:true});
+    document.addEventListener("touchmove", mover, {passive:true});
+    document.addEventListener("touchend", fin, {passive:true});
+    document.addEventListener("touchcancel", fin, {passive:true});
+    return ()=>{
+      document.removeEventListener("touchstart", inicio);
+      document.removeEventListener("touchmove", mover);
+      document.removeEventListener("touchend", fin);
+      document.removeEventListener("touchcancel", fin);
+    };
+  },[abrir,activo]);
+}
+
 function useModal(abierto, cerrar){
   React.useEffect(()=>{
     if(!abierto) return;
@@ -3468,7 +3509,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"182", fecha:"18 jul 2026", desc:"Notas informativas a la campanilla"};
+const VERSION={n:"183", fecha:"18 jul 2026", desc:"Menú lateral con gesto de deslizar"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14343,6 +14384,10 @@ function Autorizaciones({toast, usuario}){
 function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
+  /* deslizar desde el borde izquierdo abre el menú (no cuando ya está abierto) */
+  useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto);
+  /* el botón atrás del teléfono cierra el menú antes de salir de la pantalla */
+  useModal(menuAbierto, React.useCallback(()=>setMenuAbierto(false),[]));
   const [secMenu,setSecMenu]=useState("gestion"); // sección abierta del menú (acordeón, una a la vez)
   const [confirmarSalir,setConfirmarSalir]=useState(false);
   useModal(confirmarSalir, React.useCallback(()=>setConfirmarSalir(false),[])); // confirmación de cierre de sesión
@@ -14685,7 +14730,15 @@ function App({usuario, onSalir}){
       {toast && <div className="toast">{toast}</div>}
 
       <div className={"drawer-ov"+(menuAbierto?" on":"")} onClick={()=>setMenuAbierto(false)}>
-        <div className={"drawer"+(menuAbierto?" on":"")} onClick={e=>e.stopPropagation()}>
+        <div className={"drawer"+(menuAbierto?" on":"")} onClick={e=>e.stopPropagation()}
+          onTouchStart={e=>{ const t=e.touches[0]; e.currentTarget.dataset.x0=t.clientX; e.currentTarget.dataset.y0=t.clientY; }}
+          onTouchMove={e=>{
+            const t=e.touches[0], d=e.currentTarget.dataset;
+            if(d.x0===undefined) return;
+            const dx=t.clientX-Number(d.x0), dy=Math.abs(t.clientY-Number(d.y0));
+            /* arrastre claro hacia la izquierda: se cierra */
+            if(dx < -60 && Math.abs(dx) > dy*2){ d.x0=undefined; setMenuAbierto(false); }
+          }}>
           <div className="drawer-head">
             <div><div className="who" style={{color:"rgba(255,255,255,.7)"}}>Supervisión</div>
               <div className="name" style={{color:"#fff"}}>{usuario?.nombre || "Daniel Ríos"}</div></div>
