@@ -1921,7 +1921,7 @@ function Inicio({go}){
 }
 
 /* ── VERSIÓN (único lugar donde se cambia) ── */
-const VERSION={n:"3", fecha:"18 jul 2026", desc:"Menú lateral con gesto"};
+const VERSION={n:"4", fecha:"18 jul 2026", desc:"Cobros con panel de entrada"};
 
 /* ── Pila de ventanas abiertas: el botón atrás cierra la última ── */
 const MODALES=[];
@@ -3478,6 +3478,53 @@ function Cobros({toast}){
 
     {/* PASO 1 — cliente y proveedor */}
     {paso===1 && (<>
+      {/* antes de elegir: qué tiene por cobrar hoy */}
+      {!cli && (()=>{
+        const pend=COBROS_INI;
+        const total=pend.reduce((s,c)=>s+c.valor,0);
+        /* el vencimiento viene como texto: "Vencida hace 6 días" o "En 11 días" */
+        const diasVenc=(t)=>{ const m=String(t||"").match(/Vencida hace (\d+)/i); return m?+m[1]:0; };
+        const vencidas=pend.filter(c=>diasVenc(c.vence)>0);
+        const montoVenc=vencidas.reduce((s,c)=>s+c.valor,0);
+        const clientes=new Set(pend.map(c=>c.cli)).size;
+        return (<>
+          <div className="mini-kpi">
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num" style={{fontSize:14}}>{money(total)}</span>
+              <span className="mk-k">Por cobrar</span></button>
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num" style={{color:vencidas.length>0?"#C2603A":"var(--field)"}}>{vencidas.length}</span>
+              <span className="mk-k">Vencidas</span></button>
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num" style={{fontSize:14,color:montoVenc>0?"#C2603A":"var(--field)"}}>{money(montoVenc)}</span>
+              <span className="mk-k">Monto vencido</span></button>
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num">{clientes}</span>
+              <span className="mk-k">Clientes</span></button>
+          </div>
+
+          {vencidas.length>0 && (
+            <div className="card" style={{marginBottom:12,padding:"11px 13px",
+              borderLeft:"4px solid #C2603A",background:"#FDF6F3"}}>
+              <div style={{fontSize:12.5,fontWeight:800,color:"#C2603A",marginBottom:6}}>
+                ⚠️ Cobra primero estas</div>
+              {vencidas.sort((a,b)=>diasVenc(b.vence)-diasVenc(a.vence)).slice(0,3).map((c,i)=>(
+                <button key={i} onClick={()=>{setCli(c.cli);setProv(null);setAplic({});setLineas([]);}}
+                  style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
+                    gap:8,padding:"6px 0",background:"none",border:"none",
+                    borderBottom:i<Math.min(2,vencidas.length-1)?"1px solid #F4E5DE":"none",
+                    cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                  <span style={{flexShrink:0,fontSize:11.5,fontWeight:700,color:"#C2603A"}}>
+                    {diasVenc(c.vence)}d · {money(c.valor)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>);
+      })()}
+
       <SearchSelect label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
