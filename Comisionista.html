@@ -5952,12 +5952,14 @@ function App(){
   const [hist,setHist]=useState([]);
   const [menuAbierto,setMenuAbierto]=useState(false);   // menú lateral
   const [confirmarSalir,setConfirmarSalir]=useState(false);
+  const [confirmarCerrarApp,setConfirmarCerrarApp]=useState(false);  // aviso al querer salir de la app
   /* deslizar desde el borde izquierdo abre el menú */
   /* el gesto acompaña al botón ☰: solo desde el inicio */
   useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto && tab==="inicio");
   /* el botón atrás cierra el menú antes de salir de la pantalla */
   useModal(menuAbierto, React.useCallback(()=>setMenuAbierto(false),[]));
   useModal(confirmarSalir, React.useCallback(()=>setConfirmarSalir(false),[]));
+  useModal(confirmarCerrarApp, React.useCallback(()=>setConfirmarCerrarApp(false),[]));
   const tabRef=React.useRef(tab); tabRef.current=tab;
   const histRef=React.useRef([]); histRef.current=hist;
   React.useEffect(()=>{
@@ -5978,7 +5980,7 @@ function App(){
         return;
       }
       if(tabRef.current!=="inicio"){ setTab("inicio"); setHist([]); return; }
-      show("Presiona atrás de nuevo para salir");
+      setConfirmarCerrarApp(true);   /* raíz del inicio: preguntamos antes de cerrar */
     };
     window.addEventListener("popstate",onPop);
     const vigilante=setInterval(()=>{ if(colchones<8) poner(); },300);
@@ -6199,6 +6201,34 @@ function App(){
           </div>
         </div>
       </div>
+
+      {/* ── Salir de la app: se pregunta antes de cerrar ── */}
+      {confirmarCerrarApp && (
+        <div className="ov" onClick={()=>setConfirmarCerrarApp(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>¿Salir de la app?</h3>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 4px",lineHeight:1.5}}>
+              Estás en el inicio. Si sales, se cierra FREELANCE.</p>
+            {pendientes.length>0 && (
+              <div className="card" style={{padding:"10px 12px",margin:"10px 0 4px",
+                borderLeft:"4px solid #C9A227",background:"#FDFAF0"}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:"#8A6D12"}}>
+                  ⚠️ Tienes {pendientes.length} registro(s) sin enviar</div>
+                <div className="meta" style={{fontSize:11,marginTop:2}}>
+                  Se guardan en el teléfono y se suben al recuperar señal.</div>
+              </div>
+            )}
+            <button className="cta" style={{width:"100%",marginTop:12}}
+              onClick={()=>{ setConfirmarCerrarApp(false);
+                /* cerrar de verdad: si no se puede (pestaña normal), volvemos atrás en el historial */
+                try{ window.close(); }catch(e){}
+                setTimeout(()=>{ history.go(-(history.length)); },120); }}>
+              Sí, salir</button>
+            <button className="back" style={{width:"100%",marginTop:10}}
+              onClick={()=>setConfirmarCerrarApp(false)}>Seguir trabajando</button>
+          </div>
+        </div>
+      )}
 
       {confirmarSalir && (
         <div className="ov" onClick={()=>setConfirmarSalir(false)}>
