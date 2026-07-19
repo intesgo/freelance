@@ -1491,6 +1491,117 @@
 const {useState} = React;
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
+/* ══ COMPROBANTE EN IMAGEN (PNG) ══
+   Arma una tarjeta cuadrada, legible en el chat sin abrir nada.
+   Se dibuja con canvas: sin librerías extra y sin depender del PDF. */
+function imgComprobante(d){
+  const W=1080, P=64;                      /* ancho fijo y margen: se ve bien en cualquier teléfono */
+  const facs=(d.facturas||[]);
+  const H = 900 + facs.length*78;
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const x=c.getContext("2d");
+  const VERDE="#15392B", VERDE2="#1E4D3A", MAIZ="#C77F00", TINTA="#18211C", GRIS="#6F7A6F", LINEA="#E7E1D3";
+  const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
+
+  /* fondo */
+  x.fillStyle="#F7F5EF"; x.fillRect(0,0,W,H);
+
+  /* cabecera verde */
+  const g=x.createLinearGradient(0,0,W,300); g.addColorStop(0,VERDE); g.addColorStop(1,VERDE2);
+  x.fillStyle=g; x.fillRect(0,0,W,300);
+  x.fillStyle="#EAF0EA"; x.font=F(30,700); x.fillText("FREELANCE", P, 88);
+  x.fillStyle="#9DB6A6"; x.font=F(24,500); x.fillText("Comprobante de cobro", P, 132);
+  x.fillStyle="#fff"; x.font=F(76,800); x.fillText(money2(d.monto), P, 236);
+
+  /* recuadro blanco del detalle */
+  const CY=340, CH=H-CY-120;
+  x.fillStyle="#fff"; redonda(x,P,CY,W-P*2,CH,28); x.fill();
+
+  let y=CY+78;
+  x.fillStyle=GRIS; x.font=F(24,600); x.fillText("CLIENTE", P+44, y);
+  y+=44; x.fillStyle=TINTA; x.font=F(34,700);
+  x.fillText(recorta(x, String(d.cli||"—"), W-P*2-88), P+44, y);
+
+  y+=60; x.fillStyle=GRIS; x.font=F(24,600); x.fillText("PROVEEDOR", P+44, y);
+  y+=42; x.fillStyle=TINTA; x.font=F(30,600);
+  x.fillText(recorta(x, String(d.prov||"—"), W-P*2-88), P+44, y);
+
+  /* facturas aplicadas */
+  y+=70; x.fillStyle=GRIS; x.font=F(24,600); x.fillText("FACTURAS PAGADAS", P+44, y);
+  y+=20;
+  facs.forEach(f=>{
+    y+=64;
+    x.strokeStyle=LINEA; x.lineWidth=1;
+    x.beginPath(); x.moveTo(P+44,y-38); x.lineTo(W-P-44,y-38); x.stroke();
+    x.fillStyle=TINTA; x.font=F(28,600);
+    x.fillText(recorta(x, "Factura "+f.factura, 520), P+44, y);
+    x.fillStyle = f.estado==="cancelada" ? "#2E7D52" : MAIZ;
+    x.font=F(22,700);
+    x.fillText(f.estado==="cancelada"?"CANCELA":"ABONO", P+44, y+28);
+    x.fillStyle=TINTA; x.font=F(30,700); x.textAlign="right";
+    x.fillText(money2(f.aplicado), W-P-44, y);
+    x.textAlign="left";
+    y+=16;
+  });
+
+  /* saldo del cliente tras el pago */
+  y+=66;
+  x.fillStyle="#F0EEE4"; redonda(x,P+44,y-44,W-P*2-88,96,18); x.fill();
+  x.fillStyle=GRIS; x.font=F(24,600); x.fillText("SALDO PENDIENTE DEL CLIENTE", P+72, y-6);
+  x.fillStyle = (d.saldoCli||0)>0 ? MAIZ : "#2E7D52";
+  x.font=F(38,800); x.textAlign="right";
+  x.fillText(money2(d.saldoCli||0), W-P-72, y+2);
+  x.textAlign="left";
+
+  /* pie */
+  x.fillStyle=GRIS; x.font=F(22,500);
+  x.fillText((d.nRecibo?d.nRecibo+"  ·  ":"")+fechaHoy(), P, H-56);
+  x.textAlign="right";
+  x.fillText("Gracias por su pago", W-P, H-56);
+  x.textAlign="left";
+
+  return c;
+
+  function redonda(ctx,a,b,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(a+r,b); ctx.lineTo(a+w-r,b); ctx.quadraticCurveTo(a+w,b,a+w,b+r);
+    ctx.lineTo(a+w,b+h-r); ctx.quadraticCurveTo(a+w,b+h,a+w-r,b+h);
+    ctx.lineTo(a+r,b+h); ctx.quadraticCurveTo(a,b+h,a,b+h-r);
+    ctx.lineTo(a,b+r); ctx.quadraticCurveTo(a,b,a+r,b); ctx.closePath();
+  }
+  function recorta(ctx,t,max){
+    if(ctx.measureText(t).width<=max) return t;
+    let s=t;
+    while(s.length>3 && ctx.measureText(s+"…").width>max) s=s.slice(0,-1);
+    return s+"…";
+  }
+  function fechaHoy(){
+    const n=new Date(), M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return `${String(n.getDate()).padStart(2,"0")} ${M[n.getMonth()]} ${n.getFullYear()}`;
+  }
+}
+
+/* Comparte el comprobante como imagen; si el equipo no lo permite, la descarga */
+async function compartirImgComprobante(d, toast){
+  try{
+    const lienzo = imgComprobante(d);
+    const blob = await new Promise(r=>lienzo.toBlob(r, "image/png", 0.95));
+    if(!blob){ toast && toast("No se pudo generar la imagen."); return false; }
+    const nombre = `Cobro_${String(d.cli||"cliente").replace(/[^\wáéíóúñÁÉÍÓÚÑ]+/g,"_")}.png`;
+    const archivo = new File([blob], nombre, {type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      await navigator.share({files:[archivo], title:"Comprobante de cobro"});
+      return true;
+    }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    toast && toast("Imagen descargada. Adjúntala con el clip 📎 en el chat.");
+    return true;
+  }catch(e){ return false; }
+}
+
 /* ══ PUENTE WHATSAPP (Fase 4) ══
    Abre WhatsApp directo en el chat del cliente usando el teléfono de su ficha.
    Hoy: el mensaje va al chat correcto; el PDF sigue yendo por el menú de compartir
@@ -3787,7 +3898,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"256", fecha:"19 jul 2026", desc:"Corregida pantalla en blanco al elegir cliente"};
+const VERSION={n:"257", fecha:"19 jul 2026", desc:"Comprobante de cobro en imagen PNG"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5755,6 +5866,13 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     const fc=FICHA_CLIENTE[e.cli]||{};
     /* ENVÍO ASISTIDO: mensaje + PDF único (comprobante + estado de cuenta ★ del cliente) */
     const enWhats=()=>enviarComprobante(e, textoCobroWA(e), fc.tel, toast, setEnvio);
+    /* comprobante en imagen: se lee en el chat sin abrir nada */
+    const enImagen=()=>{
+      const suyas=COBROS_INI.filter(c=>c.cli===e.cli);
+      const deuda=suyas.reduce((s,c)=>s+c.valor,0);
+      const saldoCli=Math.max(0, Math.round((deuda-(e.monto||0))*100)/100);
+      compartirImgComprobante({...e, saldoCli}, toast);
+    };
     const FMT_TXT={simple:"Simple",resumen:"Resumen",factura:"Por factura",calendario:"Calendario",cuenta:"Cta. corriente",liq:"Liquidación"};
 
     if(previa){ /* vista previa: el mismo comprobante que recibe el cliente */
@@ -5802,7 +5920,8 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
             {obs.map(o=>(<div className="rrow" key={o}><span className="rk" style={{fontSize:12.5}}>{OBS_TXT[o]||o}</span></div>))}
           </>)}
         </div>
-        <button className="cta wa-cta" style={{marginTop:12}} onClick={enWhats}><IcoWA s={16}/> Compartir por WhatsApp (comprobante + estado de cuenta)</button>
+        <button className="cta wa-cta" style={{marginTop:12}} onClick={enImagen}><IcoWA s={16}/> Enviar comprobante (imagen)</button>
+        <button className="ghost" style={{width:"100%",marginTop:8}} onClick={enWhats}>📄 Enviar PDF con estado de cuenta</button>
         <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setPrevia(false)}>‹ Volver</button>
       </>);
     }
@@ -5837,7 +5956,8 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
         </>)}
       </div>
 
-      <button className="cta wa-cta" style={{marginTop:12}} onClick={enWhats}><IcoWA s={16}/> Compartir por WhatsApp</button>
+      <button className="cta wa-cta" style={{marginTop:12}} onClick={enImagen}><IcoWA s={16}/> Enviar comprobante (imagen)</button>
+      <button className="ghost" style={{width:"100%",marginTop:8}} onClick={enWhats}>📄 Enviar PDF con estado de cuenta</button>
       <div className="meta" style={{textAlign:"center",margin:"7px 0 2px",fontSize:11.5}}>
         Un solo PDF: comprobante + estado de cuenta ({FMT_TXT[FORMATO_EC[e.cli]||"resumen"]}), con el mensaje al cliente</div>
 
