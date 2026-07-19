@@ -2034,6 +2034,8 @@ const COMO_FUNCIONA = [
    d:"Registro de entrega y recepción de cheques, facturas, pagarés y más. Cada lote deja acta firmada por quien entrega y quien recibe."},
   {mod:"Documentos", ic:"🚚", t:"Envío por courier",
    d:"El courier solo traslada. El destinatario final verifica el contenido y confirma al recibir."},
+  {mod:"Rutas", ic:"🗺️", t:"Cómo se arma una ruta",
+   d:"Elige fecha y provincias, y marca los clientes a visitar. La app ordena las paradas de norte a sur y muestra cobros, pedidos y prospectos de cada una."},
   {mod:"Novedades", ic:"📢", t:"Qué encuentras aquí",
    d:"Lo que el proveedor te comunica (respuestas y cheques devueltos) y las solicitudes que tú le envías: cambios, devoluciones y notas de crédito."},
   {mod:"Clientes potenciales", ic:"🎯", t:"Cómo se trabaja",
@@ -3599,7 +3601,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"212", fecha:"18 jul 2026", desc:"Solicitudes: permisos; Novedades: post-venta"};
+const VERSION={n:"213", fecha:"18 jul 2026", desc:"Rutas con avance visual"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11922,6 +11924,7 @@ function Ruta({toast}){
       if(verVisitados){ setVerVisitados(false); return true; }
       if(verConfig){ setVerConfig(false); return true; }
       if(expandida){ setExpandida(null); return true; }
+      if(vista!=="lista"){ setVista("lista"); return true; }   // vuelve a Mis rutas
       return false;
     });
   const [vista,setVista]=useState("lista");    // lista | armar | ver
@@ -12105,30 +12108,67 @@ function Ruta({toast}){
   if(vista==="lista"){
     return (<>
       <div className="h1">Rutas de visita</div>
-      <div className="sub">Arma tu recorrido por provincia: cobros, pedidos y prospectos.</div>
-      <BotonCrear titulo="Crear nueva ruta" onClick={nuevaRuta}/>
+
+      {/* indicadores de entrada */}
+      {(()=>{
+        const hoyISO=new Date().toISOString().slice(0,10);
+        const pend=rutas.filter(r=>r.clientes.filter(c=>r.hechas[c.cli]).length < r.clientes.length);
+        const deHoy=rutas.filter(r=>r.fecha===hoyISO).length;
+        const paradas=rutas.reduce((s,r)=>s+r.clientes.length,0);
+        const porCobrar=rutas.reduce((s,r)=>s+r.clientes.reduce((a,c)=>a+c.cobro,0),0);
+        return (
+          <div className="mini-kpi">
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num">{rutas.length}</span>
+              <span className="mk-k">Rutas</span></button>
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num" style={{color:deHoy>0?"#2E7D52":"var(--muted)"}}>{deHoy}</span>
+              <span className="mk-k">Para hoy</span></button>
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num" style={{color:pend.length>0?"#C9A227":"var(--field)"}}>{pend.length}</span>
+              <span className="mk-k">Sin terminar</span></button>
+            <button style={{cursor:"default"}}>
+              <span className="mk-v num" style={{fontSize:14}}>{money(porCobrar)}</span>
+              <span className="mk-k">Por cobrar</span></button>
+          </div>
+        );
+      })()}
 
       {rutas.length===0 ? <div className="ph">No tienes rutas guardadas. Crea tu primera ruta.</div>
         : rutas.map(r=>{
           const done=r.clientes.filter(c=>r.hechas[c.cli]).length;
           const cobro=r.clientes.reduce((s,c)=>s+c.cobro,0);
           const ft=r.fecha?new Date(r.fecha+"T00:00").toLocaleDateString("es-EC",{weekday:"short",day:"numeric",month:"short"}):"";
+          /* el avance se lee de un vistazo: verde terminada, ámbar en curso, gris sin empezar */
+          const total=r.clientes.length;
+          const pct=total>0?Math.round(done/total*100):0;
+          const barraR = done===0 ? "#8A9A8E" : done>=total ? "#2E7D52" : "#C9A227";
           return (
-            <div className="card" key={r.id} style={{padding:"14px 16px"}}>
-              <div className="row" style={{marginBottom:8}}>
-                <div><div className="cli" style={{fontSize:15}}>{r.nombre}</div>
-                  <div className="meta" style={{textTransform:"capitalize"}}>📅 {ft} · {r.clientes.length} paradas</div>
-                  <div className="meta">📍 {r.provs.join(", ")}</div></div>
-                <div style={{textAlign:"right"}}><div className="amt num">{money(cobro)}</div>
-                  <div className="meta">{done}/{r.clientes.length} hechas</div></div>
+            <div className="card" key={r.id} style={{padding:"12px 14px",marginBottom:9,
+              borderLeft:`4px solid ${barraR}`,
+              background: done>=total && total>0 ? "#F5F9F6" : "var(--card)"}}>
+              <div className="row" style={{marginBottom:7}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div className="cli" style={{fontSize:14.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.nombre}</div>
+                  <div className="meta" style={{fontSize:11,textTransform:"capitalize"}}>{ft} · {total} paradas</div>
+                  <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {r.provs.join(", ")}</div></div>
+                <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+                  <div className="amt num">{money(cobro)}</div>
+                  <div className="meta" style={{fontSize:10.5,fontWeight:700,
+                    color: done>=total && total>0 ? "#2E7D52" : "var(--muted)"}}>{done}/{total} hechas</div></div>
               </div>
+              {/* barra de avance */}
+              <div className="cu-bar" style={{marginBottom:9}}>
+                <div className="cu-bar-fill" style={{width:pct+"%",background:barraR}}></div></div>
               <div style={{display:"flex",gap:8}}>
-                <button className="back" style={{flex:1}} onClick={()=>editarRuta(r)}>Editar / agregar</button>
+                <button className="back" style={{flex:1}} onClick={()=>editarRuta(r)}>Editar</button>
                 <button className="cta" style={{flex:1,margin:0}} onClick={()=>{setRutaActiva(r);setVista("ver");}}>Ver ruta</button>
               </div>
             </div>
           );
         })}
+
+      <BotonCrear titulo="Crear nueva ruta" onClick={nuevaRuta}/>
     </>);
   }
 
@@ -12137,9 +12177,7 @@ function Ruta({toast}){
     ordenar(candidatos).forEach(c=>{(porProv[c.prov]=porProv[c.prov]||[]).push(c);});
     const provsConClientes=Array.from(new Set(CLIENTES_RUTA.map(c=>c.prov)));
     return (<>
-      <button className="ghost" onClick={()=>setVista("lista")} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Mis rutas</button>
       <div className="h1">{editandoId?"Editar ruta":"Nueva ruta"}</div>
-      <div className="sub">Elige fecha, provincias y marca los clientes a visitar.</div>
 
       <div className="field"><label>📅 Fecha de la ruta</label>
         <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
@@ -12242,7 +12280,6 @@ function Ruta({toast}){
   const ciudadesRuta=Array.from(new Set(lista.map(c=>c.ciudad)));
 
   return (<>
-    <button className="ghost" onClick={()=>setVista("lista")} style={{marginTop:0,marginBottom:14,textAlign:"left"}}>‹ Mis rutas</button>
     <div className="h1">{r.nombre}</div>
     <div className="sub" style={{textTransform:"capitalize"}}>{fechaTxt} · {r.provs.join(", ")}</div>
 
