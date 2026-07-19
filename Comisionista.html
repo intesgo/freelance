@@ -909,7 +909,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"25", fecha:"18 jul 2026", desc:"Tomar pedido con panel de entrada"};
+const VERSION={n:"26", fecha:"18 jul 2026", desc:"Pedidos con pestañas y paginación"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3852,6 +3852,9 @@ function LineaPago({modalidad, onSave, onCancel}){
 function Pedidos({irInicio}){
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
+  const [pestana,setPestana]=useState("activos");  // activos | historial
+  const [pagina,setPagina]=useState(1);
+  const POR_PAGINA=15;
   const [estado,setEstado]=useState("Todos");
   const [desde,setDesde]=useState("");
   const [hasta,setHasta]=useState("");
@@ -3868,10 +3871,15 @@ function Pedidos({irInicio}){
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado","Entregado","Cobrado"];
+  /* los pedidos con comisión ya liberada pasan al historial */
+  const CERRADOS=["Comisión liberada","Cobrado y validado"];
   const lista=PEDIDOS_INI.filter(p=>{
+    const cerrado = CERRADOS.includes(p.estado) || p.comisionLiberada;
+    if(pestana==="activos" && cerrado) return false;
+    if(pestana==="historial" && !cerrado) return false;
     const t=norm(q);
     const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
-    const estOk = estado==="Todos" || p.estado===estado;
+    const estOk = pestana==="historial" || estado==="Todos" || p.estado===estado;
     const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
     return txtOk && estOk && fechaOk;
   });
@@ -3881,6 +3889,11 @@ function Pedidos({irInicio}){
     return a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0; // recientes (por defecto)
   });
   const ORDEN_LBL={recientes:"Más recientes",antiguos:"Más antiguos",comision:"Mayor comisión"};
+  /* regla de oro: nunca renderizar cientos de filas de una */
+  const totalPag=Math.max(1,Math.ceil(ordenada.length/POR_PAGINA));
+  const pagActual=Math.min(pagina,totalPag);
+  const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
+  const cambiarPestana=p=>{setPestana(p);setPagina(1);setEstado("Todos");};
   const nFiltros = (estado!=="Todos"?1:0) + (desde||hasta?1:0);
   const abrirFiltros=()=>{setTEstado(estado);setTDesde(desde);setTHasta(hasta);setTOrden(orden);setVerFiltros(true);};
   const aplicar=()=>{setEstado(tEstado);setDesde(tDesde);setHasta(tHasta);setOrden(tOrden);setVerFiltros(false);};
@@ -3913,10 +3926,15 @@ function Pedidos({irInicio}){
       );
     })()}
 
+    <div className="eq-tabs" style={{marginBottom:12}}>
+      <button className={pestana==="activos"?"on":""} onClick={()=>cambiarPestana("activos")}>En proceso</button>
+      <button className={pestana==="historial"?"on":""} onClick={()=>cambiarPestana("historial")}>Historial</button>
+    </div>
+
     <div className="row" style={{gap:10,marginBottom:12,alignItems:"stretch"}}>
       <div className="ss" style={{flex:"1 1 auto",minWidth:0,marginBottom:0}}>
         <div className="box"><span className="mag">⌕</span>
-          <input value={q} placeholder="Cliente o proveedor…" onChange={e=>setQ(e.target.value)}/>
+          <input value={q} placeholder="Cliente o proveedor…" onChange={e=>{setQ(e.target.value);setPagina(1);}}/>
           <MicBtn onTexto={setQ}/>
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
@@ -3934,7 +3952,7 @@ function Pedidos({irInicio}){
 
     <div className="meta" style={{margin:"0 2px 10px"}}>{ordenada.length} pedido(s) · {ORDEN_LBL[orden]}</div>
 
-    {ordenada.map(p=>{
+    {visibles.map(p=>{
       /* el avance se lee de un vistazo por la barra lateral */
       const sinEnviar = p.sync==="pend";
       const cerrado = /cobrad|liberad/i.test(p.estado||"");
@@ -3963,6 +3981,16 @@ function Pedidos({irInicio}){
       </div>
     );})}
     {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
+
+    {totalPag>1 && (
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,margin:"12px 0 4px"}}>
+        <button className="back" style={{width:"auto",opacity:pagActual<=1?.4:1}} disabled={pagActual<=1}
+          onClick={()=>setPagina(p=>Math.max(1,p-1))}>‹ Anterior</button>
+        <span className="meta" style={{fontSize:12}}>Página {pagActual} de {totalPag}</span>
+        <button className="back" style={{width:"auto",opacity:pagActual>=totalPag?.4:1}} disabled={pagActual>=totalPag}
+          onClick={()=>setPagina(p=>Math.min(totalPag,p+1))}>Siguiente ›</button>
+      </div>
+    )}
 
     {/* ventana de filtros */}
     {verFiltros && (
