@@ -2802,8 +2802,6 @@ function BotonCrear({onClick, titulo}){
 function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
-  /* avisa hacia afuera si la lista está abierta (para ocultar lo que quede debajo) */
-  React.useEffect(()=>{ if(onAbrir) onAbrir(open); },[open]);
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const txt=(it)=>render?render(it):String(it);
   const opciones=[{__todos:true}, ...items];
@@ -2842,17 +2840,35 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
 function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel, className, onAbrir}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
+  const [reabrir,setReabrir]=useState(false);   // al tocar la tarjeta: limpiar y desplegar la lista de una
+  const inpRef=React.useRef(null);
+  /* avisa hacia afuera si la lista está abierta (para ocultar lo que quede debajo) */
+  React.useEffect(()=>{ if(onAbrir) onAbrir(open); },[open]);
+  /* venimos de tocar la tarjeta: abre la lista y pone el cursor, sin pasos extra */
+  React.useEffect(()=>{
+    if(!reabrir) return;
+    setReabrir(false); setOpen(true);
+    const t=setTimeout(()=>{ if(inpRef.current) inpRef.current.focus(); },0);
+    return ()=>clearTimeout(t);
+  },[reabrir]);
   if(value){
     return (<div className="field">{!sinLabel && <label>{label}</label>}
       <div className={"ss"+(className?" "+className:"")}>
         {/* norma: sin botón "Cambiar"; se toca la tarjeta y vuelve al buscador */}
         <div className={"pick"+(disabled?" dis":"")} role={disabled?undefined:"button"}
-          onClick={disabled?undefined:()=>{onClear();setQ("");}}
+          onClick={disabled?undefined:()=>{onClear();setQ("");setReabrir(true);}}
           style={disabled?undefined:{cursor:"pointer"}}>
           <div style={{flex:1,minWidth:0}}>{render.picked(value)}</div>
           {!disabled && <span className="chg-ar" aria-hidden="true">✎</span>}
         </div></div></div>);
   }
+  /* venimos de tocar la tarjeta: abre la lista y pone el cursor, sin pasos extra */
+  React.useEffect(()=>{
+    if(!reabrir) return;
+    setReabrir(false); setOpen(true);
+    const t=setTimeout(()=>{ if(inpRef.current) inpRef.current.focus(); },0);
+    return ()=>clearTimeout(t);
+  },[reabrir]);
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const coincide=(texto)=>{
     if(multiPalabra){
@@ -2868,7 +2884,7 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
     <div className={"ss"+(className?" "+className:"")}>
       <div className={"box"+(disabled?" dis":"")}>
         <span className="mag">⌕</span>
-        <input value={q} disabled={disabled}
+        <input value={q} disabled={disabled} ref={inpRef}
           placeholder={disabled ? placeholder : (placeholder || (label ? `Buscar ${label.toLowerCase()}…` : "Escribe para buscar…"))}
           onChange={e=>{setQ(e.target.value);setOpen(true);}}
           onFocus={()=>setOpen(true)}
@@ -3743,7 +3759,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"253", fecha:"19 jul 2026", desc:"Buscadores sin boton Cambiar"};
+const VERSION={n:"254", fecha:"19 jul 2026", desc:"Buscadores: un toque abre la lista"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
