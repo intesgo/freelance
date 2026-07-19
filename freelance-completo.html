@@ -635,8 +635,11 @@
   .pc-zonas{display:flex;flex-direction:column;gap:2px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
   .pc-zonas-v{font-size:13px;font-weight:600;color:var(--field);line-height:1.4}
   .pot-badge{display:inline-block;font-size:10px;font-weight:700;color:#fff;border-radius:6px;padding:3px 9px;margin-top:6px}
-  .pot-filtros{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
-  .pot-filtros button{background:#fff;border:1px solid var(--line);border-radius:20px;padding:7px 12px;
+  /* una sola línea deslizable, según norma de etiquetas */
+  .pot-filtros{display:flex;flex-wrap:nowrap;gap:7px;margin-bottom:14px;
+    overflow-x:auto;padding-right:14px;scrollbar-width:none}
+  .pot-filtros::-webkit-scrollbar{display:none}
+  .pot-filtros button{flex-shrink:0;white-space:nowrap;background:#fff;border:1px solid var(--line);border-radius:20px;padding:7px 12px;
     font-size:12px;font-weight:600;font-family:inherit;color:var(--field);cursor:pointer}
   .pot-filtros button.on{background:var(--field);color:#fff;border-color:var(--field)}
   .pot-etapas{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 8px}
@@ -2013,6 +2016,8 @@ const COMO_FUNCIONA = [
    d:"El equipo pide, tú decides: cada autorización genera un código único de un solo uso para esa operación. Nada se anula sin pasar por ti."},
   {mod:"Autorizaciones", ic:"📋", t:"Historial de códigos",
    d:"Los códigos son de un solo uso: al usarse en el sistema quedan marcados. Nada se borra."},
+  {mod:"Clientes potenciales", ic:"🎯", t:"Cómo se trabaja",
+   d:"Prospectos en seguimiento. Toca uno para ver su ficha y avanzar la etapa: Por contactar → Contactado → Interesado → Negociando → Ganado."},
   {mod:"Stock", ic:"📦", t:"Para qué sirve",
    d:"Anota lo que le queda al cliente en bodega. El proveedor lo ve y sabe cuándo reabastecer."},
   {mod:"Stock", ic:"📡", t:"Quién ve el registro",
@@ -3568,7 +3573,7 @@ const TIPO_SOL={
 };
 const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"194", fecha:"18 jul 2026", desc:"Stock con panel de entrada e historial"};
+const VERSION={n:"195", fecha:"18 jul 2026", desc:"Potenciales con embudo y tarjetas compactas"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -7854,9 +7859,32 @@ function Potenciales({toast}){
     </>);
   }
 
+  /* ── panel de entrada: en qué está el embudo ── */
+  const valorTotal = pots.reduce((s,p)=>s+(parseFloat(String(p.potencial).replace(/[^\d.]/g,""))||0),0);
+  const enCierre = pots.filter(p=>p.etapa==="Negociando"||p.etapa==="Interesado").length;
+  const sinTocar = pots.filter(p=>p.etapa==="Por contactar").length;
+  const ganados = pots.filter(p=>p.etapa==="Ganado").length;
+
   return (<>
     <div className="h1">Clientes potenciales</div>
-    <div className="sub">Prospectos en seguimiento. Toca uno para ver su ficha y avanzar la etapa.</div>
+
+    {/* mini-dashboard del embudo */}
+    <div className="cu-grid" style={{margin:"10px 0 12px"}}>
+      <div className="cu-card" onClick={()=>setFEtapa("Todas")} style={{cursor:"pointer"}}>
+        <div className="cu-ic" style={{background:"#F3ECF9"}}><Ico n="clientes" c="#7C5CBF" s={19}/></div>
+        <div className="cu-v num">{pots.length}</div><div className="cu-k">Prospectos</div></div>
+      <div className="cu-card">
+        <div className="cu-ic" style={{background:"#E4F1E9"}}><Ico n="billete" c="#2E7D52" s={19}/></div>
+        <div className="cu-v num">{money(valorTotal)}</div><div className="cu-k">Potencial/mes</div></div>
+      <div className="cu-card" onClick={()=>setFEtapa("Negociando")} style={{cursor:"pointer"}}>
+        <div className="cu-ic" style={{background:"#FBF0D8"}}><Ico n="diana" c="#C9A227" s={19}/></div>
+        <div className="cu-v num" style={{color:enCierre>0?"#C9A227":"var(--field)"}}>{enCierre}</div>
+        <div className="cu-k">Cerca de cerrar</div></div>
+      <div className="cu-card" onClick={()=>setFEtapa("Por contactar")} style={{cursor:"pointer"}}>
+        <div className="cu-ic" style={{background:"#FBE9E4"}}><Ico n="reloj" c="#C2603A" s={19}/></div>
+        <div className="cu-v num" style={{color:sinTocar>0?"#C2603A":"var(--field)"}}>{sinTocar}</div>
+        <div className="cu-k">Sin contactar</div></div>
+    </div>
 
     <div className="ss" style={{marginBottom:10}}>
       <div className="box"><span className="mag">⌕</span>
@@ -7865,6 +7893,7 @@ function Potenciales({toast}){
         <MicBtn onTexto={setQ}/></div>
     </div>
 
+    {/* chips en una sola línea deslizable, según norma */}
     <div className="pot-filtros">
       <button className={fEtapa==="Todas"?"on":""} onClick={()=>setFEtapa("Todas")}>Todas <span className="sol-n">{pots.length}</span></button>
       {ETAPAS_POT.map(e=>cuentaEtapa(e)>0 && (
@@ -7874,14 +7903,20 @@ function Potenciales({toast}){
 
     {lista.length===0 ? <div className="ph">Sin prospectos que coincidan.</div>
       : lista.map(p=>(
-        <div className="card" key={p.id} style={{padding:"13px 15px",cursor:"pointer"}} onClick={()=>setSel(p)}>
+        <div className="card" key={p.id} onClick={()=>setSel(p)}
+          style={{padding:"11px 13px",marginBottom:8,cursor:"pointer",
+            borderLeft:`4px solid ${ETAPA_COLOR[p.etapa]||"#8A9A8E"}`}}>
           <div className="row" style={{alignItems:"center"}}>
-            <div style={{flex:1}}>
-              <div className="cli" style={{fontSize:14}}>{p.nombre}</div>
-              <div className="meta">{p.ciudad}, {p.prov} · {p.potencial}</div>
-              <span className="pot-badge" style={{background:ETAPA_COLOR[p.etapa]}}>{p.etapa}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
+                <span className="cli" style={{fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre}</span>
+                <span className="pot-badge" style={{background:ETAPA_COLOR[p.etapa],flexShrink:0,margin:0}}>{p.etapa}</span>
+              </div>
+              <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {p.ciudad}, {p.prov} · {p.potencial}</div>
             </div>
-            <span className="meta" style={{fontSize:18,color:"var(--muted)"}}>›</span>
+            <span className="meta" style={{fontSize:18,color:"var(--muted)",flexShrink:0,marginLeft:8}}>›</span>
           </div>
         </div>
       ))}
