@@ -570,6 +570,21 @@ function PantallaLogin({ onAutenticado }) {
 const f  = n => "$"+Math.round(n).toLocaleString("es-CO")
 /* Monto con centavos: lo usan los módulos de dinero (conciliación, retenciones,
    notas de crédito, cuentas y carga de facturas). f() redondea, money() no. */
+/* Versiones GLOBALES: los componentes viejos declaran las suyas localmente, pero los
+   modulos nuevos necesitan estas. Una funcion fuera de ambito compila igual y solo
+   revienta al ejecutar (pantalla blanca), asi que van aqui arriba. */
+function fCortaG(d){
+  if(!d) return "hoy";
+  const M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  const x=String(d).slice(0,10).split("-");
+  if(x.length<3) return String(d);
+  return parseInt(x[2])+" "+M[parseInt(x[1])-1];
+}
+function nuevoAuG(){
+  const d=new Date(), p=(n)=>String(n).padStart(2,"0");
+  return "AU-"+String(d.getFullYear()).slice(2)+p(d.getMonth()+1)+p(d.getDate())
+    +"-"+Math.floor(1000+Math.random()*9000);
+}
 const money = n => "$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fk = n => n>=1e6 ? "$"+(n/1e6).toFixed(1).replace(".0","")+"M" : n>=1e3 ? "$"+Math.round(n/1e3)+"k" : "$"+n;
 const pct= (a,b)=> b? Math.round(a/b*100):0;
@@ -609,6 +624,25 @@ const XML_EJEMPLO = {
    · NUMERO (estab-ptoEmi-secuencial): respaldo para archivos sin clave de acceso.
    En Fase 4 esta lista vive en Supabase con restriccion UNIQUE, y el control deja de
    depender del telefono. */
+/* El mismo control sirve para NC, retenciones y guias: ninguna se registra dos veces. */
+const COMPROB_KEY = "freelance_comprobantes_v1";
+function comprobantesRegistrados(){
+  try { return JSON.parse(localStorage.getItem(COMPROB_KEY) || "[]"); } catch(e){ return []; }
+}
+function registrarComprobante(c){
+  const l = comprobantesRegistrados();
+  l.unshift({ tipo:c.tipo||"", clave:c.clave||"", numero:c.numero||"",
+    cliente:c.cliente||"", total:c.total||0,
+    cuando:new Date().toISOString().slice(0,10), au:c.au||"" });
+  try { localStorage.setItem(COMPROB_KEY, JSON.stringify(l.slice(0,300))); } catch(e){}
+}
+function comprobanteRepetido(c){
+  const l = comprobantesRegistrados();
+  if(c.clave)  { const p=l.find(x=>x.clave && x.clave===c.clave);                      if(p) return p; }
+  if(c.numero) { const p=l.find(x=>x.tipo===c.tipo && x.numero && x.numero===c.numero); if(p) return p; }
+  return null;
+}
+
 const FACTURAS_KEY = "freelance_facturas_cargadas_v1";
 function facturasCargadas(){
   try { return JSON.parse(localStorage.getItem(FACTURAS_KEY) || "[]"); } catch(e){ return []; }
@@ -638,27 +672,153 @@ function textoDe(nodo, etiqueta){
   const e = nodo.getElementsByTagName(etiqueta)[0];
   return e ? (e.textContent||"").trim() : "";
 }
-function leerFacturaSRI(texto){
+/* Desenvuelve cualquier comprobante del SRI y devuelve su nodo raiz.
+   Los 4 tipos son hermanos: <factura>, <notaCredito>, <comprobanteRetencion>,
+   <guiaRemision>. Todos llegan escapados dentro de <comprobante> (o en CDATA). */
+const TIPOS_SRI = {
+  factura:              { etiqueta:"factura",              nombre:"Factura" },
+  notaCredito:          { etiqueta:"notaCredito",           nombre:"Nota de crédito" },
+  comprobanteRetencion: { etiqueta:"comprobanteRetencion",  nombre:"Retención" },
+  guiaRemision:         { etiqueta:"guiaRemision",          nombre:"Guía de remisión" },
+};
+function desenvolverSRI(texto){
   const par = new DOMParser();
   let doc;
   try { doc = par.parseFromString(texto, "text/xml"); }
   catch(e){ return { error:"El archivo no es un XML válido." }; }
   if(!doc || doc.getElementsByTagName("parsererror").length)
     return { error:"El archivo no es un XML válido." };
-
-  /* 1) desenvolver: <autorizacion><comprobante> factura escapada </comprobante> */
-  let fac = doc.getElementsByTagName("factura")[0];
-  if(!fac){
+  const buscar = (d)=>{
+    for(const k in TIPOS_SRI){
+      const n = d.getElementsByTagName(TIPOS_SRI[k].etiqueta)[0];
+      if(n) return { tipo:k, nodo:n };
+    }
+    return null;
+  };
+  let hallado = buscar(doc);
+  if(!hallado){
     const comp = doc.getElementsByTagName("comprobante")[0];
     if(comp){
       try{
         const dentro = par.parseFromString((comp.textContent||"").trim(), "text/xml");
-        if(!dentro.getElementsByTagName("parsererror").length)
-          fac = dentro.getElementsByTagName("factura")[0];
+        if(!dentro.getElementsByTagName("parsererror").length) hallado = buscar(dentro);
       }catch(e){}
     }
   }
-  if(!fac) return { error:"No se encontró una factura dentro del archivo." };
+  if(!hallado) return { error:"No se reconoce el tipo de comprobante del archivo." };
+  return hallado;
+}
+/* Datos que todos los comprobantes comparten (cabecera tributaria). */
+function cabeceraSRI(nodo){
+  const trib = nodo.getElementsByTagName("infoTributaria")[0];
+  const est = textoDe(trib,"estab"), pto = textoDe(trib,"ptoEmi"), sec = textoDe(trib,"secuencial");
+  return {
+    numero: (est && pto && sec) ? (est+"-"+pto+"-"+sec) : "s/n",
+    clave: textoDe(trib,"claveAcceso"),
+    ruc: textoDe(trib,"ruc"),
+    emisor: textoDe(trib,"razonSocial"),
+  };
+}
+function fechaSRI(txt){
+  const p = String(txt||"").split("/");
+  return p.length===3 ? (p[2]+"-"+p[1]+"-"+p[0]) : String(txt||"");
+}
+
+/* ── NOTA DE CRÉDITO: qué factura corrige y por cuánto ── */
+function leerNotaCreditoSRI(nodo){
+  const c = cabeceraSRI(nodo);
+  const info = nodo.getElementsByTagName("infoNotaCredito")[0];
+  const lineas = [];
+  const dets = nodo.getElementsByTagName("detalle");
+  for(let i=0;i<dets.length;i++){
+    const d = dets[i];
+    const cod = textoDe(d,"codigoInterno") || textoDe(d,"codigoPrincipal") || textoDe(d,"codigoAdicional");
+    const desc = textoDe(d,"descripcion");
+    if(!cod && !desc) continue;
+    lineas.push({ codProv: cod || "SIN-CODIGO", desc,
+      cant: parseFloat(textoDe(d,"cantidad"))||0,
+      precio: parseFloat(textoDe(d,"precioUnitario"))||0 });
+  }
+  return { tipo:"notaCredito", ...c,
+    fecha: fechaSRI(textoDe(info,"fechaEmision")),
+    cliente: textoDe(info,"razonSocialComprador") || "Cliente sin nombre",
+    clienteRuc: textoDe(info,"identificacionComprador"),
+    docModificado: textoDe(info,"numDocModificado"),   /* la factura que corrige */
+    fechaModificado: fechaSRI(textoDe(info,"fechaEmisionDocSustento")),
+    motivo: textoDe(info,"motivo"),
+    total: parseFloat(textoDe(info,"valorModificacion"))||0,
+    lineas };
+}
+
+/* ── RETENCIÓN: cuánto le retuvo el cliente y sobre qué factura ── */
+function leerRetencionSRI(nodo){
+  const c = cabeceraSRI(nodo);
+  const info = nodo.getElementsByTagName("infoCompRetencion")[0];
+  const items = [];
+  const rets = nodo.getElementsByTagName("impuesto");
+  for(let i=0;i<rets.length;i++){
+    const r = rets[i];
+    const cod = textoDe(r,"codigo");                      /* 1=renta, 2=IVA */
+    const base = parseFloat(textoDe(r,"baseImponible"))||0;
+    const pct  = parseFloat(textoDe(r,"porcentajeRetener"))||0;
+    const val  = parseFloat(textoDe(r,"valorRetenido"))||0;
+    const doc  = textoDe(r,"numDocSustento");
+    if(!val && !pct) continue;
+    items.push({ codigo:cod, clase: cod==="2" ? "IVA" : "Renta", base, pct, valor:val, docSustento:doc });
+  }
+  const total = items.reduce((a,x)=>a+x.valor,0);
+  const docs = items.map(x=>x.docSustento).filter(Boolean);
+  return { tipo:"comprobanteRetencion", ...c,
+    fecha: fechaSRI(textoDe(info,"fechaEmision")),
+    cliente: textoDe(info,"razonSocialSujetoRetenido") || "Cliente sin nombre",
+    clienteRuc: textoDe(info,"identificacionSujetoRetenido"),
+    docSustento: docs.length ? docs[0] : "",
+    items, total };
+}
+
+/* ── GUÍA DE REMISIÓN: quién transporta, en qué placa y hacia dónde ── */
+function leerGuiaSRI(nodo){
+  const c = cabeceraSRI(nodo);
+  const info = nodo.getElementsByTagName("infoGuiaRemision")[0];
+  const destinos = [];
+  const ds = nodo.getElementsByTagName("destinatario");
+  for(let i=0;i<ds.length;i++){
+    const d = ds[i];
+    const lineas = [];
+    const dets = d.getElementsByTagName("detalle");
+    for(let k=0;k<dets.length;k++){
+      const x = dets[k];
+      const cod = textoDe(x,"codigoInterno") || textoDe(x,"codigoAdicional");
+      const desc = textoDe(x,"descripcion");
+      if(!cod && !desc) continue;
+      lineas.push({ codProv: cod || "SIN-CODIGO", desc, cant: parseFloat(textoDe(x,"cantidad"))||0 });
+    }
+    destinos.push({
+      cliente: textoDe(d,"razonSocialDestinatario") || "Destinatario sin nombre",
+      clienteRuc: textoDe(d,"identificacionDestinatario"),
+      direccion: textoDe(d,"dirDestinatario"),
+      motivo: textoDe(d,"motivoTraslado"),
+      docSustento: textoDe(d,"numDocSustento"),   /* la factura que ampara */
+      lineas });
+  }
+  return { tipo:"guiaRemision", ...c,
+    fecha: fechaSRI(textoDe(info,"fechaIniTransporte")),
+    fechaFin: fechaSRI(textoDe(info,"fechaFinTransporte")),
+    partida: textoDe(info,"dirPartida"),
+    transportista: textoDe(info,"razonSocialTransportista"),
+    transportistaRuc: textoDe(info,"rucTransportista"),
+    placa: (textoDe(info,"placa")||"").toUpperCase(),
+    destinos,
+    cliente: destinos.length ? destinos[0].cliente : "Sin destinatario",
+    total: 0 };
+}
+
+function leerFacturaSRI(texto){
+  const env = desenvolverSRI(texto);
+  if(env.error) return env;
+  if(env.tipo !== "factura")
+    return { error:"Este archivo es "+TIPOS_SRI[env.tipo].nombre+", no una factura." };
+  const fac = env.nodo;
 
   const info = fac.getElementsByTagName("infoFactura")[0];
   const trib = fac.getElementsByTagName("infoTributaria")[0];
@@ -695,6 +855,23 @@ function leerFacturaSRI(texto){
     total: parseFloat(textoDe(info,"importeTotal")) || 0,
     lineas,
   };
+}
+
+/* Lee cualquier comprobante del SRI. Si se espera un tipo concreto y llega otro,
+   se avisa claro en vez de intentar leerlo mal. */
+function leerComprobanteSRI(texto, tipoEsperado){
+  const env = desenvolverSRI(texto);
+  if(env.error) return env;
+  if(tipoEsperado && env.tipo !== tipoEsperado)
+    return { error:"Subiste "+TIPOS_SRI[env.tipo].nombre+" y aquí va "+TIPOS_SRI[tipoEsperado].nombre+"." };
+  let r;
+  if(env.tipo==="notaCredito")               r = leerNotaCreditoSRI(env.nodo);
+  else if(env.tipo==="comprobanteRetencion") r = leerRetencionSRI(env.nodo);
+  else if(env.tipo==="guiaRemision")         r = leerGuiaSRI(env.nodo);
+  else                                       return leerFacturaSRI(texto);
+  if(env.tipo!=="guiaRemision" && !r.total && !(r.lineas||[]).length && !(r.items||[]).length)
+    return { error:"El comprobante no trae valores para registrar." };
+  return r;
 }
 
 /* Qué tan parecidas son dos descripciones: sirve para proponer, nunca para decidir solo. */
@@ -791,7 +968,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"14", fecha:"20 jul 2026", desc:"Una factura no se carga dos veces" };
+const VERSION = { n:"15", fecha:"20 jul 2026", desc:"XML del SRI en NC, retenciones y guias" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1320,7 +1497,7 @@ const TAREAS_NOTIF=[
   },[online,cola]);
 
   if(!logueado) return <Login onEntrar={()=>setLogueado(true)} />;
-  const TITULOS={inicio:"Inicio",decidir:"Por decidir",conciliacion:"Conciliación",carga:"Cargar factura",notas:"Notas de crédito",retenciones:"Retenciones",bancos:"Mis cuentas",creditos:"Créditos",precios:"Precios",prop:"Propuestas",catalogo:"Catálogo",reportes:"Reportes",cuenta:"Acuerdos"};
+  const TITULOS={inicio:"Inicio",decidir:"Por decidir",conciliacion:"Conciliación",carga:"Cargar factura",notas:"Notas de crédito",retenciones:"Retenciones",guias:"Guías de remisión",bancos:"Mis cuentas",creditos:"Créditos",precios:"Precios",prop:"Propuestas",catalogo:"Catálogo",reportes:"Reportes",cuenta:"Acuerdos"};
   const ctx={prop,setProp,cat,setCat,cred,setCred,contado,accion,pendientes,online};
   return (
     <div className="phone">
@@ -1408,6 +1585,7 @@ const TAREAS_NOTIF=[
         : tab==="precios" ? <Precios ctx={ctx} irTab={irTab} />
         : tab==="prop"    ? <Propuestas ctx={ctx} />
         : tab==="catalogo"? <Catalogo ctx={ctx} irTab={irTab} />
+        : tab==="guias"? <GuiasRemision />
         : tab==="reportes"? <Reportes ctx={ctx} irTab={irTab} />
         : <Cuenta ctx={ctx} setLogueado={setLogueado} onSalir={onSalir} setOnline={setOnline} online={online} cola={cola} />}
       </div>
@@ -1438,6 +1616,7 @@ const TAREAS_NOTIF=[
               ["notas","↩","#F7EFE6","Notas de crédito","Devoluciones y descuentos",notasPend],
               ["retenciones","🧾","#EDEAE0","Retenciones","Bajan la deuda del cliente",retenPend],
               ["bancos","🏦","#E9EEE9","Mis cuentas","Dónde te pueden depositar",cuentasAct===0?"!":0],
+              ["guias","🚚","#E8F0F7","Guías de remisión","Amparan la carga en ruta",0],
               ["catalogo","▤","#EFEAF7","Catálogo","Productos de tu línea",0],
               ["cuenta","📒","#EEF1F5","Acuerdos","Tu cuenta y ajustes",0],
             ].map(([k,ic,bg,t,sub,b])=>(
@@ -2591,6 +2770,31 @@ function NotasCredito({irTab}){
   const [numero,setNumero]=useState("");
   const [autoriz,setAutoriz]=useState("");
   const [aviso,setAviso]=useState("");
+  /* Carga por XML: la NC tambien es comprobante electronico del SRI.
+     Digitar a mano queda de respaldo. */
+  const xmlRef=React.useRef(null);
+  const alSubirNC=(e)=>{
+    const f=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!f) return;
+    const lec=new FileReader();
+    lec.onerror=()=>setAviso("No se pudo leer el archivo.");
+    lec.onload=()=>{
+      const r=leerComprobanteSRI(String(lec.result||""),"notaCredito");
+      if(r.error){ setAviso(r.error); return; }
+      if(comprobanteRepetido(r)){ setAviso("Esta nota de crédito ya fue registrada."); return; }
+      const esDev=/DEVOL/i.test(r.motivo||"");
+      setTipo(esDev?"devolucion":"descuento");
+      setFac({num:r.docModificado||"", cli:r.cliente, ruc:r.clienteRuc, total:r.total});
+      setMotivo(r.motivo||"");
+      setMonto(String(r.total||""));
+      setNumero(r.numero||"");
+      setAutoriz(r.clave||"");
+      setItems(esDev ? (r.lineas||[]).map(l=>({prod:l.desc, qq:String(l.cant||"")})) : []);
+      setPaso(4);
+      setAviso("Nota de crédito leída · revisa antes de guardar");
+    };
+    lec.readAsText(f);
+  };
   const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3600); };
 
   const r2=(n)=>Math.round(n*100)/100;
@@ -2633,6 +2837,8 @@ function NotasCredito({irTab}){
       items: tipo==="devolucion" ? items.filter(i=>i.prod && i.qq) : [],
       total: totalNC, comisionRevertida: comisionRev,
       autorizacion:autoriz.trim(), confirmada:!!autoriz.trim(), au };
+    registrarComprobante({tipo:"notaCredito", clave:autoriz.trim(), numero:n.numero,
+      cliente:n.cli, total:n.total, au});
     setNcs(p=>[n,...p]);
     reset();
     toast(`Nota de crédito registrada · la deuda de ${n.cli} baja ${money(n.total)} · ${au}`);
@@ -2800,6 +3006,12 @@ function NotasCredito({irTab}){
             </button>
             <button className="btn btn-maiz" style={{width:"100%",marginTop:8}}
               disabled={!tipo} onClick={()=>setPaso(2)}>Continuar</button>
+            <div className="sec-gap" style={{height:14}} />
+            <input ref={xmlRef} type="file" accept=".xml,text/xml,application/xml"
+              style={{display:"none"}} onChange={alSubirNC} />
+            <button className="btn btn-ghost" style={{width:"100%"}}
+              onClick={()=>xmlRef.current&&xmlRef.current.click()}>
+              📄 Subir el XML y evitar digitar</button>
             <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
               onClick={reset}>Cancelar</button>
           </>)}
@@ -2957,6 +3169,31 @@ function Retenciones({irTab}){
   const [numero,setNumero]=useState("");
   const [autoriz,setAutoriz]=useState("");
   const [aviso,setAviso]=useState("");
+  /* La retencion tambien es comprobante del SRI: se puede subir en vez de digitar. */
+  const xmlRef=React.useRef(null);
+  const alSubirRet=(e)=>{
+    const f=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!f) return;
+    const lec=new FileReader();
+    lec.onerror=()=>setAviso("No se pudo leer el archivo.");
+    lec.onload=()=>{
+      const r=leerComprobanteSRI(String(lec.result||""),"comprobanteRetencion");
+      if(r.error){ setAviso(r.error); return; }
+      if(comprobanteRepetido(r)){ setAviso("Esta retención ya fue registrada."); return; }
+      const halla=FACTURAS_PROV.find(x=>x.num===r.docSustento);
+      if(halla) setFac(halla);
+      else if(r.docSustento) setFac({num:r.docSustento, cli:r.cliente, ruc:r.clienteRuc, total:0});
+      const renta=(r.items||[]).find(x=>x.codigo==="1");
+      const iva  =(r.items||[]).find(x=>x.codigo==="2");
+      setPRenta(renta?renta.pct:0);
+      setPIva(iva?iva.pct:0);
+      setNumero(r.numero||"");
+      setAutoriz(r.clave||"");
+      setPaso(3);
+      setAviso(`Retención leída · ${money(r.total)} retenido`);
+    };
+    lec.readAsText(f);
+  };
   const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3400); };
 
   const r2=(n)=>Math.round(n*100)/100;
@@ -2988,6 +3225,8 @@ function Retenciones({irTab}){
       factura:fac.num, cli:fac.cli, ruc:fac.ruc, fecha:"2026-07-20",
       pctRenta:pRenta, pctIva:pIva, montoRenta:mRenta, montoIva:mIva, total:mTotal,
       autorizacion:autoriz.trim(), confirmada:!!autoriz.trim(), au };
+    registrarComprobante({tipo:"comprobanteRetencion", clave:autoriz.trim(), numero:r.numero,
+      cliente:r.cli, total:r.total, au});
     setRets(p=>[r,...p]);
     reset();
     toast(`Retención registrada · la cartera de ${r.cli} baja ${money(r.total)} · ${au}`);
@@ -3131,8 +3370,13 @@ function Retenciones({irTab}){
 
           {paso===1 && (<>
             <h3>¿De qué factura?</h3>
-            <div className="sub tiny" style={{margin:"6px 0 14px"}}>
+            <div className="sub tiny" style={{margin:"6px 0 10px"}}>
               Elige la factura a la que el cliente le hizo la retención.</div>
+            <input ref={xmlRef} type="file" accept=".xml,text/xml,application/xml"
+              style={{display:"none"}} onChange={alSubirRet} />
+            <button className="btn btn-ghost" style={{width:"100%",marginBottom:14}}
+              onClick={()=>xmlRef.current&&xmlRef.current.click()}>
+              📄 Subir el XML y evitar digitar</button>
             {FACTURAS_PROV.map(x=>(
               <button key={x.num} className="card card-pad"
                 style={{width:"100%",textAlign:"left",marginBottom:8,
@@ -3455,6 +3699,142 @@ function CuentasBancarias({irTab}){
         </div>
       </div>
     )}
+    <Aviso/>
+  </>);
+}
+
+/* ══ GUÍAS DE REMISIÓN ══
+   Las emite el PROVEEDOR (factura y despacha directo al cliente). Aquí solo se cargan:
+   nunca se emiten, porque emitir un comprobante electrónico exige firma digital y
+   conexión con el SRI. La guía ampara la mercadería en tránsito: si el SRI para el
+   camión y no está, la carga puede ser retenida.
+   Un camión puede llevar carga de varios proveedores: son VARIAS guías por viaje,
+   una por cada emisor. */
+const GUIAS_INI = [];
+function GuiasRemision(){
+  const [guias,setGuias]=useState(GUIAS_INI);
+  const [sel,setSel]=useState(null);
+  const [aviso,setAviso]=useState("");
+  const xmlRef=React.useRef(null);
+
+  const alSubirGuia=(e)=>{
+    const f=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!f) return;
+    const lec=new FileReader();
+    lec.onerror=()=>setAviso("No se pudo leer el archivo.");
+    lec.onload=()=>{
+      const r=leerComprobanteSRI(String(lec.result||""),"guiaRemision");
+      if(r.error){ setAviso(r.error); return; }
+      if(comprobanteRepetido(r)){ setAviso("Esta guía ya fue cargada."); return; }
+      const au=nuevoAuG();
+      registrarComprobante({...r, au});
+      setGuias(p=>[{...r, au, cargada:new Date().toISOString().slice(0,10)}, ...p]);
+      setAviso(`Guía ${r.numero} cargada · placa ${r.placa||"sin placa"} · ${au}`);
+    };
+    lec.readAsText(f);
+  };
+
+  const Aviso = () => aviso ? (
+    <div style={{position:"fixed",bottom:86,left:"50%",transform:"translateX(-50%)",zIndex:90,
+      background:"#1E1B14",color:"#fff",borderRadius:12,padding:"12px 18px",fontSize:13,
+      fontWeight:600,boxShadow:"0 6px 18px rgba(0,0,0,.28)",maxWidth:"88%",textAlign:"center"}}
+      onClick={()=>setAviso("")}>{aviso}</div>
+  ) : null;
+
+  /* ── detalle de una guía ── */
+  if(sel){
+    const g=sel;
+    return (<>
+      <div className="eyebrow">Guía de remisión</div>
+      <h1 className="h1">{g.numero}</h1>
+      <div className="sub" style={{marginTop:4}}>{g.emisor}</div>
+
+      <div className="sec-gap" style={{height:14}} />
+      <div className="card card-pad">
+        <div className="row between" style={{padding:"3px 0"}}>
+          <span className="sub tiny">Transportista</span>
+          <b style={{fontSize:13.5}}>{g.transportista||"—"}</b></div>
+        <div className="row between" style={{padding:"3px 0"}}>
+          <span className="sub tiny">Placa</span>
+          <b className="num" style={{fontSize:14}}>{g.placa||"—"}</b></div>
+        <div className="row between" style={{padding:"3px 0"}}>
+          <span className="sub tiny">Traslado</span>
+          <b style={{fontSize:12.5}}>{fCortaG(g.fecha)} → {fCortaG(g.fechaFin)}</b></div>
+      </div>
+
+      <div className="sec-gap" style={{height:12}} />
+      <div className="sub tiny" style={{marginBottom:6}}>Parte desde</div>
+      <div className="card card-pad"><div style={{fontSize:13.5}}>{g.partida||"—"}</div></div>
+
+      {(g.destinos||[]).map((d,i)=>(
+        <div key={i}>
+          <div className="sec-gap" style={{height:12}} />
+          <div className="card card-pad">
+            <div style={{fontWeight:600,fontSize:14.5}}>{d.cliente}</div>
+            <div className="sub tiny" style={{marginTop:2}}>{d.direccion}</div>
+            <div className="sub tiny" style={{marginTop:4}}>
+              {d.motivo||"Traslado"}{d.docSustento ? " · ampara "+d.docSustento : ""}</div>
+            {(d.lineas||[]).map((l,k)=>(
+              <div key={k} className="row between" style={{padding:"5px 0",
+                borderTop:"1px solid var(--linea)",marginTop:6}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13}}>{l.desc}</div>
+                  <div className="sub tiny">{l.codProv}</div></div>
+                <b className="num" style={{fontSize:13.5,flexShrink:0,marginLeft:10}}>{l.cant} qq</b>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <div className="sec-gap" style={{height:14}} />
+      <button className="btn btn-ghost" style={{width:"100%"}} onClick={()=>setSel(null)}>Volver</button>
+      <Aviso/>
+    </>);
+  }
+
+  /* ── lista ── */
+  return (<>
+    <div className="eyebrow">Mercadería en tránsito</div>
+    <h1 className="h1">Guías de remisión</h1>
+    <div className="sub" style={{marginTop:4}}>
+      Sube el XML de la guía: el chofer la necesita para salir a ruta.</div>
+
+    <div className="sec-gap" style={{height:16}} />
+    <input ref={xmlRef} type="file" accept=".xml,text/xml,application/xml"
+      style={{display:"none"}} onChange={alSubirGuia} />
+    <button className="btn btn-maiz" style={{width:"100%"}}
+      onClick={()=>xmlRef.current&&xmlRef.current.click()}>Subir el XML de la guía</button>
+
+    {guias.length===0 ? (
+      <>
+        <div className="sec-gap" style={{height:16}} />
+        <div className="card card-pad" style={{textAlign:"center",padding:"26px 18px"}}>
+          <div style={{fontSize:34,marginBottom:8}}>🚚</div>
+          <div style={{fontWeight:600,fontSize:14.5}}>Sin guías cargadas</div>
+          <div className="sub tiny" style={{marginTop:5,lineHeight:1.5}}>
+            Cuando subas una, el transportista la verá en su viaje.</div>
+        </div>
+      </>
+    ) : (<>
+      <div className="sec-gap" style={{height:14}} />
+      <div className="h2" style={{marginBottom:10}}>Cargadas · {guias.length}</div>
+      {guias.map((g,i)=>(
+        <button key={i} className="card card-pad" style={{width:"100%",textAlign:"left",marginBottom:8}}
+          onClick={()=>setSel(g)}>
+          <div className="row between">
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontWeight:600,fontSize:14.5,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.numero}</div>
+              <div className="sub tiny" style={{overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.cliente}</div>
+              <div className="sub tiny">{g.placa||"sin placa"} · {fCortaG(g.fecha)}</div>
+            </div>
+            <span style={{color:"var(--texto-3)",fontSize:20,flexShrink:0,marginLeft:10}}>›</span>
+          </div>
+        </button>
+      ))}
+    </>)}
     <Aviso/>
   </>);
 }
