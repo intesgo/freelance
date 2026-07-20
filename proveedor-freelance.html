@@ -601,6 +601,32 @@ const XML_EJEMPLO = {
   ],
 };
 
+/* ══ FACTURAS YA CARGADAS (anti-duplicado) ══
+   Una factura no se puede cargar dos veces: duplicaria la venta, la cartera del cliente
+   y la comision del vendedor. Se controla en DOS niveles:
+   · CLAVE DE ACCESO: los 49 digitos que el SRI da a cada comprobante. Es unica en el
+     pais, asi que es la defensa buena — atrapa el mismo archivo aunque lo renombren.
+   · NUMERO (estab-ptoEmi-secuencial): respaldo para archivos sin clave de acceso.
+   En Fase 4 esta lista vive en Supabase con restriccion UNIQUE, y el control deja de
+   depender del telefono. */
+const FACTURAS_KEY = "freelance_facturas_cargadas_v1";
+function facturasCargadas(){
+  try { return JSON.parse(localStorage.getItem(FACTURAS_KEY) || "[]"); } catch(e){ return []; }
+}
+function registrarFacturaCargada(f){
+  const l = facturasCargadas();
+  l.unshift({ clave:f.clave||"", numero:f.numero||"", cliente:f.cliente||"",
+    total:f.total||0, cuando:new Date().toISOString().slice(0,10), au:f.au||"" });
+  try { localStorage.setItem(FACTURAS_KEY, JSON.stringify(l.slice(0,200))); } catch(e){}
+}
+/* Devuelve la factura previa si ya se cargo, o null si es nueva. */
+function facturaRepetida(f){
+  const l = facturasCargadas();
+  if(f.clave)  { const p = l.find(x=>x.clave && x.clave===f.clave);   if(p) return p; }
+  if(f.numero) { const p = l.find(x=>x.numero && x.numero===f.numero); if(p) return p; }
+  return null;
+}
+
 /* ══ LECTOR DEL XML DEL SRI ══
    El archivo autorizado del SRI viene envuelto: la raiz es <autorizacion> y adentro,
    dentro de <comprobante>, viaja la factura como texto ESCAPADO (o en CDATA). Hay que
@@ -662,6 +688,7 @@ function leerFacturaSRI(texto){
 
   return {
     numero, fecha,
+    clave: textoDe(trib,"claveAcceso"),   /* 49 dígitos únicos en todo el país */
     ruc: textoDe(trib,"ruc"),
     cliente: textoDe(info,"razonSocialComprador") || "Cliente sin nombre",
     clienteRuc: textoDe(info,"identificacionComprador"),
@@ -764,7 +791,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"13", fecha:"20 jul 2026", desc:"Lector real del XML del SRI" };
+const VERSION = { n:"14", fecha:"20 jul 2026", desc:"Una factura no se carga dos veces" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2312,6 +2339,13 @@ function CargaXML({irTab}){
     lector.onload = ()=>{
       const r = leerFacturaSRI(String(lector.result||""));
       if(r.error){ toast(r.error); return; }
+      /* Anti-duplicado: cargarla dos veces duplicaria venta, cartera y comisión. */
+      const previa = facturaRepetida(r);
+      if(previa){
+        setXml(null); setResuelto({});
+        toast(`Esta factura ya fue cargada el ${previa.cuando} · ${previa.numero}`);
+        return;
+      }
       setXml(r); setResuelto({});
       toast(`Factura ${r.numero} leída · ${r.lineas.length} línea${r.lineas.length!==1?"s":""} · revísalas antes de cargarla`);
     };
@@ -2319,7 +2353,7 @@ function CargaXML({irTab}){
   };
   /* Respaldo para mostrar el flujo sin un XML a mano */
   const verEjemplo=()=>{
-    setXml(XML_EJEMPLO); setResuelto({});
+    setXml({...XML_EJEMPLO, esEjemplo:true}); setResuelto({});
     toast("Ejemplo cargado · así se ve una factura leída");
   };
 
@@ -2335,7 +2369,20 @@ function CargaXML({irTab}){
   };
 
   const cargar=()=>{
+    /* Segunda barrera: por si quedo abierta en pantalla y se cargo desde otro lado. */
+    if(xml.esEjemplo){
+      setXml(null); setResuelto({});
+      toast("Es solo un ejemplo · no se carga al sistema");
+      return;
+    }
+    const previa = facturaRepetida(xml);
+    if(previa){
+      setXml(null); setResuelto({});
+      toast(`Esta factura ya fue cargada el ${previa.cuando} · no se carga dos veces`);
+      return;
+    }
     const au=nuevoAu();
+    registrarFacturaCargada({...xml, au});
     toast(`Factura ${xml.numero} cargada · ${lineas.length} líneas · ${au}`);
     setXml(null); setResuelto({});
   };
