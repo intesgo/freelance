@@ -4158,7 +4158,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"270", fecha:"19 jul 2026", desc:"Boveda de cheques con traspaso por codigo"};
+const VERSION={n:"271", fecha:"19 jul 2026", desc:"Cheques unificados: Mios y Todos en un solo modulo"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5931,7 +5931,10 @@ const DESTINOS_CHEQUE = [
 const TRASPASOS_PEND = [];
 
 function Boveda({toast, yo, volver}){
+  const [tabB,setTabB]=useState("mios");   // mios | todos
+  const [subT,setSubT]=useState("custodia"); // custodia | depositados  (dentro de "Todos")
   const [q,setQ]=useState("");
+  const [qT,setQT]=useState("");
   const [sel,setSel]=useState(null);        // cheque abierto
   const [entregando,setEntregando]=useState(null);
   const [destino,setDestino]=useState("");
@@ -5939,32 +5942,59 @@ function Boveda({toast, yo, volver}){
   const [recibiendo,setRecibiendo]=useState(false);
   const [codigoIng,setCodigoIng]=useState("");
   const [tick,setTick]=useState(0);
+  const [verFoto,setVerFoto]=useState(false);
+  const [reprog,setReprog]=useState(false);
+  const [nuevaFecha,setNuevaFecha]=useState("");
+  const [coment,setComent]=useState("");
+  const [solEnviada,setSolEnviada]=useState(false);
   useModal(!!entregando, React.useCallback(()=>{setEntregando(null);setCodigoGen(null);},[]));
   useModal(recibiendo, React.useCallback(()=>setRecibiendo(false),[]));
+  useModal(verFoto, React.useCallback(()=>setVerFoto(false),[]));
   useRetroceso(()=>{
+    if(verFoto){ setVerFoto(false); return true; }
     if(entregando){ setEntregando(null); setCodigoGen(null); return true; }
     if(recibiendo){ setRecibiendo(false); return true; }
-    if(sel){ setSel(null); return true; }
+    if(reprog){ setReprog(false); return true; }
+    if(sel){ setSel(null); setReprog(false); setSolEnviada(false); return true; }
     return false;
   });
 
   const hoy = new Date("2026-07-19");
+  const HOY = "2026-07-19";
   const dias = (f)=>{ const d=new Date(String(f).slice(0,10)); return Math.round((hoy-d)/86400000); };
   const ultimoMov = (c)=> (c.traza && c.traza.length) ? c.traza[c.traza.length-1].f : null;
   const diasQuieto = (c)=>{ const f=ultimoMov(c); return f?dias(f):0; };
   const diasParaFecha = (c)=> Math.round((new Date(c.fecha)-hoy)/86400000);
-
-  /* solo los cheques que YO tengo en la mano */
-  const mios = CHEQUES_POSF.filter(c=>c.tenedor===yo && c.estado!=="efectivizado" && c.estado!=="deposito");
   const norm = s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const dm=f=>{ if(!f) return "—"; const d=new Date(String(f).slice(0,10)+"T00:00:00");
+    const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
+  const dmLargo=f=>f?String(f).slice(8,10)+"/"+String(f).slice(5,7)+"/"+String(f).slice(0,4):"—";
+  const fCorta=f=>{ if(!f) return "—"; const d=new Date(String(f).replace(" ","T"));
+    const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
+  const fHora=f=>{ const p=String(f||"").split(" "); return p[1]?p[1].slice(0,5):""; };
+  const ICO={recibido:"📥", traspaso:"🤝", deposito:"🏦", efectivizado:"✓"};
+
+  /* ── MÍOS: solo los cheques que YO tengo en la mano ── */
+  const mios = CHEQUES_POSF.filter(c=>c.tenedor===yo && c.estado!=="efectivizado" && c.estado!=="deposito");
   const lista = q.trim()==="" ? mios
     : mios.filter(c=>norm(c.cli+" "+c.numero+" "+c.banco).includes(norm(q)));
   const total = lista.reduce((s,c)=>s+c.valor,0);
   const conPermiso = lista.filter(c=>c.permiso && new Date(c.permiso.vence)>=hoy);
   const porEntregar = lista.filter(c=>!(c.permiso && new Date(c.permiso.vence)>=hoy));
   const quietos = lista.filter(c=>diasQuieto(c)>=DIAS_QUIETO_ALERTA);
-  /* traspasos que alguien me envió y aún no confirmo */
   const paraMi = TRASPASOS_PEND.filter(t=>t.para===yo);
+
+  /* ── TODOS: vista global del negocio ── */
+  const pendTodos = CHEQUES_POSF.filter(c=>c.estado!=="efectivizado");
+  const pendientes = pendTodos.filter(c=>norm(c.cli+" "+c.numero+" "+c.banco).includes(norm(qT)))
+    .slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
+  const efectivos = CHEQUES_POSF.filter(c=>c.estado==="efectivizado")
+    .filter(c=>norm(c.cli+" "+c.numero+" "+c.banco).includes(norm(qT)))
+    .slice().sort((a,b)=>(b.fechaEfect||"")<(a.fechaEfect||"")?-1:1);
+  const totPend = pendTodos.reduce((s,c)=>s+c.valor,0);
+  const listos = pendTodos.filter(c=>c.fecha<=HOY);
 
   const generarCodigo=()=>{
     if(!destino){ toast("Elige a quién entregas el cheque"); return; }
@@ -5988,9 +6018,10 @@ function Boveda({toast, yo, volver}){
     toast(`Cheque ${t.numero} recibido · auditado AU-260719-${Math.floor(1000+Math.random()*9000)}`);
   };
 
-  /* ── ficha de un cheque ── */
+  /* ── FICHA DE UN CHEQUE (sirve para las dos pestañas) ── */
   if(sel){
     const c = CHEQUES_POSF.find(x=>x.numero===sel) || {};
+    const esMio = c.tenedor===yo && c.estado!=="efectivizado" && c.estado!=="deposito";
     const permOk = c.permiso && new Date(c.permiso.vence)>=hoy;
     const dq = diasQuieto(c);
     return (<>
@@ -6004,7 +6035,7 @@ function Boveda({toast, yo, volver}){
         </div>
         <div className="row" style={{justifyContent:"space-between",padding:"5px 0"}}>
           <span className="meta">Fecha del cheque</span>
-          <b style={{fontSize:14}}>{c.fecha}</b>
+          <b style={{fontSize:14}}>{dmLargo(c.fecha)}</b>
         </div>
         <div className="row" style={{justifyContent:"space-between",padding:"5px 0"}}>
           <span className="meta">Dueño</span><b style={{fontSize:14}}>{c.dueno||"—"}</b>
@@ -6015,7 +6046,33 @@ function Boveda({toast, yo, volver}){
         )}
       </div>
 
-      {permOk ? (
+      {/* foto del cheque */}
+      <button className="card" onClick={()=>setVerFoto(true)}
+        style={{display:"flex",width:"100%",alignItems:"center",gap:12,padding:"14px 16px",marginTop:10,
+          cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit",textAlign:"left"}}>
+        <span style={{fontSize:26,flexShrink:0}}>🖼️</span>
+        <span style={{flex:1,minWidth:0}}>
+          <span style={{display:"block",fontWeight:700,fontSize:13.5}}>Foto del cheque</span>
+          <span className="meta" style={{fontSize:11}}>Toca para ver la imagen</span>
+        </span>
+        <span style={{color:"var(--muted)",fontSize:15}}>›</span>
+      </button>
+
+      {verFoto && (
+        <div className="ov" onClick={()=>setVerFoto(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
+            <h3>Foto del cheque · {c.numero}</h3>
+            <div style={{background:"#EFEBE0",borderRadius:12,padding:"48px 16px",margin:"12px 0",color:"var(--muted)"}}>
+              <div style={{fontSize:40}}>🧾</div>
+              <div className="meta" style={{marginTop:10,fontSize:12}}>Imagen del cheque físico</div>
+              <div className="meta" style={{fontSize:10.5}}>(Se sube al recibir el cheque · Fase 4)</div>
+            </div>
+            <button className="back" style={{width:"100%"}} onClick={()=>setVerFoto(false)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {c.estado!=="efectivizado" && (permOk ? (
         <div className="card" style={{padding:"12px 15px",marginTop:10,borderLeft:"3px solid #2E7D52"}}>
           <div style={{fontWeight:700,fontSize:13.5,color:"#2E7D52"}}>✓ Autorizado para depositar</div>
           <div className="meta" style={{fontSize:12.5,marginTop:3}}>
@@ -6027,143 +6084,278 @@ function Boveda({toast, yo, volver}){
           <div className="meta" style={{fontSize:12.5,marginTop:3}}>
             Todo cheque posfechado va al proveedor. Para retenerlo y depositarlo hace falta su autorización.</div>
         </div>
-      )}
+      ))}
 
-      {dq>=DIAS_QUIETO_ALERTA && (
+      {esMio && dq>=DIAS_QUIETO_ALERTA && (
         <div className="card" style={{padding:"11px 14px",marginTop:10,background:"#FDF3E2",border:"1px solid #C98A2B"}}>
           <div style={{fontWeight:700,fontSize:13,color:"#A06B15"}}>
             Lleva {dq} días en tus manos sin moverse</div>
         </div>
       )}
 
+      {c.estado!=="efectivizado" && c.tenedor && !esMio && (
+        <div className="card" style={{padding:"12px 15px",marginTop:10,background:"#F2F7F3"}}>
+          <div className="meta" style={{fontSize:10.5}}>Ahora en poder de</div>
+          <div style={{fontWeight:700,fontSize:14,marginTop:2}}>👤 {c.tenedor}</div>
+        </div>
+      )}
+
       <div className="ficha-sec" style={{marginTop:16}}>Recorrido del cheque</div>
-      <div className="card" style={{padding:"12px 15px"}}>
-        {(c.traza||[]).map((t,i)=>(
-          <div key={i} style={{display:"flex",gap:10,padding:"7px 0",
-            borderTop:i?"1px solid var(--line)":"none"}}>
-            <span style={{fontSize:15,flexShrink:0}}>
-              {t.ev==="recibido"?"📥":t.ev==="traspaso"?"🤝":t.ev==="deposito"?"🏦":"✓"}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:600}}>{t.d}</div>
-              <div className="meta" style={{fontSize:11}}>{t.quien} · {t.f}</div>
+      <div className="tl">
+        {(c.traza||[]).map((t,i)=>{
+          const ultimo=i===((c.traza||[]).length-1);
+          return (
+            <div className={"item "+(ultimo && c.estado!=="efectivizado"?"now":"ok")} key={i}>
+              <div className="node">{ICO[t.ev]||"•"}</div>
+              <div className="c">
+                <div className="tt">{t.quien}</div>
+                <div className="dd">{t.d}</div>
+                <div className="ff">{fCorta(t.f)}{fHora(t.f)?" · "+fHora(t.f):""}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <button className="cta" style={{marginTop:14}}
-        onClick={()=>{ setEntregando(c); setDestino(""); setCodigoGen(null); }}>
-        🤝 Entregar este cheque</button>
-      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>setSel(null)}>‹ Volver</button>
+      {c.depositadoPor && (
+        <div className="meta" style={{margin:"8px 2px 0",fontSize:11.5}}>
+          🏦 Depositado por {c.depositadoPor}{c.bancoDeposito?` en ${c.bancoDeposito}`:""}.</div>
+      )}
+
+      {/* reprogramar fecha (solo si no está efectivizado) */}
+      {c.estado!=="efectivizado" && !solEnviada && (
+        !reprog
+          ? <button className="back" style={{width:"100%",marginTop:14}} onClick={()=>setReprog(true)}>📅 Reprogramar fecha del cheque</button>
+          : (
+            <div className="card" style={{marginTop:14,padding:"14px 16px"}}>
+              <div style={{fontWeight:700,fontSize:13.5,marginBottom:4}}>Reprogramar fecha</div>
+              <div className="meta" style={{fontSize:11,marginBottom:12}}>Requiere aprobación del proveedor. Se envía a Solicitudes.</div>
+              <div className="field"><label>Nueva fecha (la que pide el cliente)</label>
+                <input type="date" value={nuevaFecha} onChange={e=>setNuevaFecha(e.target.value)}
+                  style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit"}}/></div>
+              <div className="field" style={{marginTop:10}}><label>Comentario (motivo)</label>
+                <input type="text" value={coment} placeholder="Ej.: el cliente cobra el día 15" onChange={e=>setComent(e.target.value)}/></div>
+              <button className="cta" style={{marginTop:14}} disabled={!nuevaFecha || !coment}
+                onClick={()=>{
+                  setSolEnviada(true); setReprog(false);
+                  toast("Solicitud de reprogramación enviada al proveedor. Queda pendiente de aprobación.");
+                }}>Enviar solicitud al proveedor</button>
+              <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setReprog(false)}>Cancelar</button>
+            </div>
+          )
+      )}
+
+      {solEnviada && (
+        <div className="card" style={{marginTop:14,padding:"13px 15px",borderLeft:"4px solid #7C5CBF",background:"#F5F1FB"}}>
+          <div style={{fontWeight:700,fontSize:13,color:"#5A3FA0"}}>⏳ Reprogramación solicitada</div>
+          <div className="meta" style={{fontSize:11.5,marginTop:4}}>
+            Nueva fecha propuesta: <b>{dmLargo(nuevaFecha)}</b>{coment?` · ${coment}`:""}. Pendiente de aprobación del proveedor en Solicitudes. La fecha no cambia hasta que apruebe.
+          </div>
+        </div>
+      )}
+
+      {esMio && (
+        <button className="cta" style={{marginTop:14}}
+          onClick={()=>{ setEntregando(c); setDestino(""); setCodigoGen(null); }}>
+          🤝 Entregar este cheque</button>
+      )}
+
+      {/* entregar: genera el código que el otro debe confirmar */}
+      {entregando && (
+        <div className="ov" onClick={()=>{setEntregando(null);setCodigoGen(null);}}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Entregar cheque {entregando.numero}</h3>
+            {!codigoGen ? (<>
+              <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
+                {entregando.cli} · {money(entregando.valor)}. Elige a quién se lo entregas; el cheque
+                sigue figurando en tus manos hasta que la otra persona confirme con el código.
+              </p>
+              <div className="field"><label>Entregar a</label>
+                <select className="aj-sel" style={{width:"100%",padding:"12px"}}
+                  value={destino} onChange={e=>setDestino(e.target.value)}>
+                  <option value="">Elige…</option>
+                  {DESTINOS_CHEQUE.filter(d=>d!==yo).map(d=><option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <button className="cta" style={{width:"100%"}} onClick={generarCodigo}>Generar código</button>
+            </>) : (<>
+              <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 10px"}}>
+                Dile este código a <b>{destino}</b> para que confirme la recepción:
+              </p>
+              <div className="montobox" style={{textAlign:"center",padding:"18px"}}>
+                <div className="num" style={{fontSize:34,fontWeight:800,letterSpacing:".12em"}}>{codigoGen}</div>
+              </div>
+              <div className="meta" style={{textAlign:"center",margin:"10px 0",fontSize:12}}>
+                El cheque sigue siendo tu responsabilidad hasta que lo confirmen.</div>
+              <button className="cta" style={{width:"100%"}}
+                onClick={()=>{setEntregando(null);setCodigoGen(null);setSel(null);}}>Entendido</button>
+            </>)}
+            <button className="back" style={{width:"100%",marginTop:10}}
+              onClick={()=>{setEntregando(null);setCodigoGen(null);}}>Cancelar</button>
+          </div>
+        </div>
+      )}
     </>);
   }
 
-  /* ── lista: mi bóveda ── */
+  /* ── LISTA con 2 pestañas ── */
   return (<>
-    <div className="h1">Mi bóveda</div>
-    <div className="sub">Cheques que tienes en tu poder</div>
-
-    <div className="card" style={{padding:"13px 16px",marginTop:12,
-      borderLeft:`4px solid ${porEntregar.length?"#C98A2B":"#2E7D52"}`}}>
-      <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
-        <span style={{fontWeight:800,fontSize:14}}>{lista.length} cheque{lista.length!==1?"s":""}</span>
-        <b className="num" style={{fontSize:24,fontWeight:800}}>{money(total)}</b>
-      </div>
-      {quietos.length>0 && (
-        <div className="meta" style={{fontSize:12,marginTop:5,color:"#C98A2B",fontWeight:700}}>
-          ⚠ {quietos.length} lleva{quietos.length!==1?"n":""} más de {DIAS_QUIETO_ALERTA} días sin moverse</div>
-      )}
+    <div className="h1">Cheques</div>
+    <div className="eq-tabs">
+      <button className={tabB==="mios"?"on":""} onClick={()=>setTabB("mios")}>Míos</button>
+      <button className={tabB==="todos"?"on":""} onClick={()=>setTabB("todos")}>Todos</button>
     </div>
 
-    {paraMi.length>0 && (
-      <button className="cta" style={{marginTop:12,background:"#2B6CB0"}}
-        onClick={()=>setRecibiendo(true)}>
-        📥 Recibir cheque · {paraMi.length} en camino</button>
-    )}
+    {tabB==="mios" && (<>
+      <div className="sub" style={{marginTop:2}}>Cheques que tienes en tu poder</div>
 
-    {lista.length>3 && (
-      <div className="field" style={{marginTop:12}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar por cliente, número o banco…"/>
+      <div className="card" style={{padding:"13px 16px",marginTop:12,
+        borderLeft:`4px solid ${porEntregar.length?"#C98A2B":"#2E7D52"}`}}>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+          <span style={{fontWeight:800,fontSize:14}}>{lista.length} cheque{lista.length!==1?"s":""}</span>
+          <b className="num" style={{fontSize:24,fontWeight:800}}>{money(total)}</b>
+        </div>
+        {quietos.length>0 && (
+          <div className="meta" style={{fontSize:12,marginTop:5,color:"#C98A2B",fontWeight:700}}>
+            ⚠ {quietos.length} lleva{quietos.length!==1?"n":""} más de {DIAS_QUIETO_ALERTA} días sin moverse</div>
+        )}
       </div>
-    )}
 
-    {porEntregar.length>0 && (<>
-      <div className="ficha-sec" style={{marginTop:14}}>Por entregar al proveedor</div>
-      {porEntregar.map(c=>{
-        const dq=diasQuieto(c), df=diasParaFecha(c);
-        return (
+      {paraMi.length>0 && (
+        <button className="cta" style={{marginTop:12,background:"#2B6CB0"}}
+          onClick={()=>setRecibiendo(true)}>
+          📥 Recibir cheque · {paraMi.length} en camino</button>
+      )}
+
+      {mios.length>3 && (
+        <div className="ss" style={{marginTop:12,marginBottom:2}}>
+          <div className="box"><span className="mag">⌕</span>
+            <input value={q} placeholder="Buscar por cliente, número o banco…" onChange={e=>setQ(e.target.value)}/>
+            <MicBtn onTexto={setQ}/>
+            {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
+        </div>
+      )}
+
+      {porEntregar.length>0 && (<>
+        <div className="ficha-sec" style={{marginTop:14}}>Por entregar al proveedor</div>
+        {porEntregar.map(c=>{
+          const dq=diasQuieto(c), df=diasParaFecha(c);
+          return (
+            <button key={c.numero} className="card" style={{width:"100%",padding:"11px 13px",marginBottom:8,
+              border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",fontFamily:"inherit",
+              display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",
+              borderLeft:dq>=DIAS_QUIETO_ALERTA?"3px solid #C98A2B":undefined}}
+              onClick={()=>{setSel(c.numero);setReprog(false);setSolEnviada(false);}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
+                <div className="meta" style={{fontSize:11}}>
+                  {c.numero} · {c.banco} · {df>0?`en ${df} d`:df===0?"vence hoy":`vencido ${-df} d`}</div>
+                {dq>=DIAS_QUIETO_ALERTA && <div className="meta" style={{fontSize:11,color:"#C98A2B",fontWeight:700}}>
+                  {dq} días sin moverse</div>}
+              </div>
+              <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(c.valor)}</b>
+            </button>
+          );
+        })}
+      </>)}
+
+      {conPermiso.length>0 && (<>
+        <div className="ficha-sec" style={{marginTop:14}}>Autorizados para depositar</div>
+        {conPermiso.map(c=>(
           <button key={c.numero} className="card" style={{width:"100%",padding:"11px 13px",marginBottom:8,
             border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",fontFamily:"inherit",
             display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",
-            borderLeft:dq>=DIAS_QUIETO_ALERTA?"3px solid #C98A2B":undefined}}
-            onClick={()=>setSel(c.numero)}>
+            borderLeft:"3px solid #2E7D52"}}
+            onClick={()=>{setSel(c.numero);setReprog(false);setSolEnviada(false);}}>
             <div style={{minWidth:0}}>
               <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
-              <div className="meta" style={{fontSize:11}}>
-                {c.numero} · {c.banco} · {df>0?`en ${df} d`:df===0?"vence hoy":`vencido ${-df} d`}</div>
-              {dq>=DIAS_QUIETO_ALERTA && <div className="meta" style={{fontSize:11,color:"#C98A2B",fontWeight:700}}>
-                {dq} días sin moverse</div>}
+              <div className="meta" style={{fontSize:11}}>{c.numero} · permiso hasta {c.permiso.vence}</div>
             </div>
             <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(c.valor)}</b>
           </button>
-        );
-      })}
+        ))}
+      </>)}
+
+      {lista.length===0 && <div className="ph" style={{marginTop:14}}>
+        {q?"Ningún cheque coincide.":"No tienes cheques en tu poder."}</div>}
     </>)}
 
-    {conPermiso.length>0 && (<>
-      <div className="ficha-sec" style={{marginTop:14}}>Autorizados para depositar</div>
-      {conPermiso.map(c=>(
-        <button key={c.numero} className="card" style={{width:"100%",padding:"11px 13px",marginBottom:8,
-          border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",fontFamily:"inherit",
-          display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",
-          borderLeft:"3px solid #2E7D52"}}
-          onClick={()=>setSel(c.numero)}>
-          <div style={{minWidth:0}}>
-            <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
-            <div className="meta" style={{fontSize:11}}>{c.numero} · permiso hasta {c.permiso.vence}</div>
-          </div>
-          <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(c.valor)}</b>
-        </button>
-      ))}
-    </>)}
+    {tabB==="todos" && (<>
+      <div className="sub" style={{marginTop:2}}>Todos los cheques del negocio</div>
 
-    {lista.length===0 && <div className="ph" style={{marginTop:14}}>No tienes cheques en tu poder.</div>}
-
-    {/* entregar: genera el código que el otro debe confirmar */}
-    {entregando && (
-      <div className="ov" onClick={()=>{setEntregando(null);setCodigoGen(null);}}>
-        <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Entregar cheque {entregando.numero}</h3>
-          {!codigoGen ? (<>
-            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
-              {entregando.cli} · {money(entregando.valor)}. Elige a quién se lo entregas; el cheque
-              sigue figurando en tus manos hasta que la otra persona confirme con el código.
-            </p>
-            <div className="field"><label>Entregar a</label>
-              <select className="aj-sel" style={{width:"100%",padding:"12px"}}
-                value={destino} onChange={e=>setDestino(e.target.value)}>
-                <option value="">Elige…</option>
-                {DESTINOS_CHEQUE.filter(d=>d!==yo).map(d=><option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <button className="cta" style={{width:"100%"}} onClick={generarCodigo}>Generar código</button>
-          </>) : (<>
-            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 10px"}}>
-              Dile este código a <b>{destino}</b> para que confirme la recepción:
-            </p>
-            <div className="montobox" style={{textAlign:"center",padding:"18px"}}>
-              <div className="num" style={{fontSize:34,fontWeight:800,letterSpacing:".12em"}}>{codigoGen}</div>
-            </div>
-            <div className="meta" style={{textAlign:"center",margin:"10px 0",fontSize:12}}>
-              El cheque sigue siendo tu responsabilidad hasta que lo confirmen.</div>
-            <button className="cta" style={{width:"100%"}}
-              onClick={()=>{setEntregando(null);setCodigoGen(null);setSel(null);}}>Entendido</button>
-          </>)}
-          <button className="back" style={{width:"100%",marginTop:10}}
-            onClick={()=>{setEntregando(null);setCodigoGen(null);}}>Cancelar</button>
-        </div>
+      <div className="tipochips" style={{marginTop:12,marginBottom:12}}>
+        <button className={"tchip"+(subT==="custodia"?" on":"")} onClick={()=>setSubT("custodia")}>
+          <span className="tchip-nom" style={subT==="custodia"?{color:"#fff"}:{color:"var(--ink)"}}>En custodia</span></button>
+        <button className={"tchip"+(subT==="depositados"?" on":"")} onClick={()=>setSubT("depositados")}>
+          <span className="tchip-nom" style={subT==="depositados"?{color:"#fff"}:{color:"var(--ink)"}}>Depositados</span></button>
       </div>
-    )}
+
+      {subT==="custodia" && (<>
+        <div className="montobox" style={{margin:"0 0 12px",padding:"12px 16px"}}>
+          <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontWeight:800,fontSize:13}}>{pendTodos.length} cheque{pendTodos.length!==1?"s":""} en custodia</span>
+            <b className="num" style={{fontSize:21,fontWeight:800}}>{money(totPend)}</b>
+          </div>
+          {listos.length>0 && <div className="meta" style={{marginTop:5,color:"var(--ok)",fontWeight:700}}>
+            ✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</div>}
+        </div>
+
+        <div className="ss" style={{marginBottom:12}}>
+          <div className="box"><span className="mag">⌕</span>
+            <input value={qT} placeholder="Buscar por cliente, número o banco…" onChange={e=>setQT(e.target.value)}/>
+            <MicBtn onTexto={setQT}/>
+            {qT && <button className="clr" onClick={()=>setQT("")}>×</button>}</div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,padding:"0 12px 6px",
+          fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
+          <span style={{width:52}}>Fecha</span><span>Cliente</span><span style={{textAlign:"right"}}>Valor</span>
+        </div>
+        {pendientes.map((c,i)=>{
+          const listo=c.fecha<=HOY;
+          return (
+            <button className="card" key={i} onClick={()=>{setSel(c.numero);setReprog(false);setSolEnviada(false);}}
+              style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",
+                cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit"}}>
+              <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
+                <span style={{width:52,fontWeight:800,fontSize:12.5,color:listo?"var(--ok)":"var(--field)",whiteSpace:"nowrap"}}>{dm(c.fecha)}</span>
+                <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
+              </div>
+              <div className="meta" style={{fontSize:10.5,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {c.numero} · {c.banco}{c.tenedor?` · 👤 ${c.tenedor}`:""}</div>
+            </button>
+          );
+        })}
+        {pendientes.length===0 && <div className="ph">{qT?"Ningún cheque coincide.":"No hay cheques en custodia."}</div>}
+      </>)}
+
+      {subT==="depositados" && (<>
+        <div className="ss" style={{marginBottom:12}}>
+          <div className="box"><span className="mag">⌕</span>
+            <input value={qT} placeholder="Buscar por cliente, número o banco…" onChange={e=>setQT(e.target.value)}/>
+            <MicBtn onTexto={setQT}/>
+            {qT && <button className="clr" onClick={()=>setQT("")}>×</button>}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,padding:"0 12px 6px",
+          fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
+          <span style={{width:52}}>Efectiv.</span><span>Cliente</span><span style={{textAlign:"right"}}>Valor</span>
+        </div>
+        {efectivos.map((c,i)=>(
+          <button className="card" key={i} onClick={()=>{setSel(c.numero);setReprog(false);setSolEnviada(false);}}
+            style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",
+              cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit"}}>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
+              <span style={{width:52,fontWeight:800,fontSize:12.5,color:"var(--ok)",whiteSpace:"nowrap"}}>{dm(c.fechaEfect)}</span>
+              <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+              <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
+            </div>
+            <div className="meta" style={{fontSize:10.5,marginTop:3}}>{c.numero} · {c.banco} · ✓ efectivizado</div>
+          </button>
+        ))}
+        {efectivos.length===0 && <div className="ph">{qT?"Ningún cheque coincide.":"Aún no hay cheques efectivizados."}</div>}
+      </>)}
+    </>)}
 
     {/* recibir: ingresa el código que le dieron */}
     {recibiendo && (
@@ -6188,8 +6380,6 @@ function Boveda({toast, yo, volver}){
         </div>
       </div>
     )}
-
-    {volver && <button className="ghost" style={{width:"100%",marginTop:14}} onClick={volver}>‹ Volver</button>}
   </>);
 }
 
@@ -7972,137 +8162,10 @@ function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura})
   </>);
 }
 
-function ChequeDetalle({cheque, volver, toast, subActual, irA}){
-  const [verFoto,setVerFoto]=useState(false);
-  useModal(verFoto, React.useCallback(()=>setVerFoto(false),[]));
-  const [reprog,setReprog]=useState(false);
-  const [nuevaFecha,setNuevaFecha]=useState("");
-  const [motivo,setMotivo]=useState("");
-  const [coment,setComent]=useState("");
-  const [solEnviada,setSolEnviada]=useState(false);
-  const dm=f=>f?f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4):"—";
-  const fCorta=f=>{ if(!f) return "—"; const d=new Date(f.replace(" ","T")); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-    return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
-  const fHora=f=>{ const p=(f||"").split(" "); return p[1]?p[1].slice(0,5):""; };
-  const ICO={recibido:"📥", traspaso:"🤝", deposito:"🏦", efectivizado:"✓"};
-  const MOTIVOS=["El cliente pidió extensión","Falta de fondos temporal","Acuerdo comercial","Otro"];
-
-  return (<>
-    <div className="tipochips" style={{marginBottom:14,marginTop:0}}>
-      <button className={"tchip"+(subActual==="resumen"?" on":"")} onClick={()=>irA&&irA("resumen")}>
-        <span className="tchip-nom" style={subActual==="resumen"?{color:"#fff"}:{color:"var(--ink)"}}>En custodia</span></button>
-      <button className={"tchip"+(subActual==="historial"?" on":"")} onClick={()=>irA&&irA("historial")}>
-        <span className="tchip-nom" style={subActual==="historial"?{color:"#fff"}:{color:"var(--ink)"}}>Depositados</span></button>
-    </div>
-
-    {/* encabezado del cheque */}
-    <div className="card" style={{padding:"16px",marginBottom:12,borderLeft:"4px solid var(--field)"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
-        <div style={{minWidth:0}}>
-          <div style={{fontWeight:800,fontSize:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cheque.cli}</div>
-          <div className="meta" style={{fontSize:11.5,marginTop:2}}>{cheque.numero} · {cheque.banco}</div>
-          <div className="meta" style={{fontSize:11.5}}>Dueño: {cheque.dueno}</div>
-        </div>
-        <div style={{textAlign:"right",flexShrink:0}}>
-          <div className="num" style={{fontSize:20,fontWeight:800,color:"var(--field)"}}>{money(cheque.valor)}</div>
-          <div className="meta" style={{fontSize:10.5}}>vence {dm(cheque.fecha)}</div>
-        </div>
-      </div>
-    </div>
-
-    {/* foto del cheque */}
-    <button className="card" onClick={()=>setVerFoto(true)}
-      style={{display:"flex",width:"100%",alignItems:"center",gap:12,padding:"14px 16px",marginBottom:12,cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit",textAlign:"left"}}>
-      <span style={{fontSize:26,flexShrink:0}}>🖼️</span>
-      <span style={{flex:1,minWidth:0}}>
-        <span style={{display:"block",fontWeight:700,fontSize:13.5}}>Foto del cheque</span>
-        <span className="meta" style={{fontSize:11}}>Toca para ver la imagen</span>
-      </span>
-      <span style={{color:"var(--muted)",fontSize:15}}>›</span>
-    </button>
-
-    {verFoto && (
-      <div className="ov" onClick={()=>setVerFoto(false)}>
-        <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
-          <h3>Foto del cheque · {cheque.numero}</h3>
-          <div style={{background:"#EFEBE0",borderRadius:12,padding:"48px 16px",margin:"12px 0",color:"var(--muted)"}}>
-            <div style={{fontSize:40}}>🧾</div>
-            <div className="meta" style={{marginTop:10,fontSize:12}}>Imagen del cheque físico</div>
-            <div className="meta" style={{fontSize:10.5}}>(Se sube al recibir el cheque · Fase 4)</div>
-          </div>
-          <button className="back" style={{width:"100%"}} onClick={()=>setVerFoto(false)}>Cerrar</button>
-        </div>
-      </div>
-    )}
-
-    {/* seguimiento de custodia con responsables */}
-    <div className="sec-h"><h2>Seguimiento del cheque</h2><div className="grain"></div></div>
-
-    {cheque.estado!=="efectivizado" && cheque.tenedor && (
-      <div className="card" style={{padding:"12px 15px",marginBottom:12,background:"#F2F7F3"}}>
-        <div className="meta" style={{fontSize:10.5}}>Ahora en poder de</div>
-        <div style={{fontWeight:700,fontSize:14,marginTop:2}}>👤 {cheque.tenedor}</div>
-      </div>
-    )}
-
-    <div className="tl">
-      {(cheque.traza||[]).map((t,i)=>{
-        const ultimo=i===(cheque.traza.length-1);
-        return (
-          <div className={"item "+(ultimo && cheque.estado!=="efectivizado"?"now":"ok")} key={i}>
-            <div className="node">{ICO[t.ev]||"•"}</div>
-            <div className="c">
-              <div className="tt">{t.quien}</div>
-              <div className="dd">{t.d}</div>
-              <div className="ff">{fCorta(t.f)}{fHora(t.f)?" · "+fHora(t.f):""}</div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-
-    {cheque.depositadoPor && (
-      <div className="meta" style={{margin:"8px 2px 0",fontSize:11.5}}>🏦 Depositado por {cheque.depositadoPor}{cheque.bancoDeposito?` en ${cheque.bancoDeposito}`:""}.</div>
-    )}
-
-    {/* reprogramar fecha (solo si no está efectivizado) */}
-    {cheque.estado!=="efectivizado" && !solEnviada && (
-      !reprog
-        ? <button className="back" style={{width:"100%",marginTop:14}} onClick={()=>setReprog(true)}>📅 Reprogramar fecha del cheque</button>
-        : (
-          <div className="card" style={{marginTop:14,padding:"14px 16px"}}>
-            <div style={{fontWeight:700,fontSize:13.5,marginBottom:4}}>Reprogramar fecha</div>
-            <div className="meta" style={{fontSize:11,marginBottom:12}}>Requiere aprobación del proveedor. Se envía a Solicitudes.</div>
-            <div className="field"><label>Nueva fecha (la que pide el cliente)</label>
-              <input type="date" value={nuevaFecha} onChange={e=>setNuevaFecha(e.target.value)}
-                style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,fontFamily:"inherit"}}/></div>
-            <div className="field" style={{marginTop:10}}><label>Comentario (motivo)</label>
-              <input type="text" value={coment} placeholder="Ej.: el cliente cobra el día 15" onChange={e=>setComent(e.target.value)}/></div>
-            <button className="cta" style={{marginTop:14}} disabled={!nuevaFecha || !coment}
-              onClick={()=>{
-                setSolEnviada(true); setReprog(false);
-                toast("Solicitud de reprogramación enviada al proveedor. Queda pendiente de aprobación.");
-              }}>Enviar solicitud al proveedor</button>
-            <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setReprog(false)}>Cancelar</button>
-          </div>
-        )
-    )}
-
-    {solEnviada && (
-      <div className="card" style={{marginTop:14,padding:"13px 15px",borderLeft:"4px solid #7C5CBF",background:"#F5F1FB"}}>
-        <div style={{fontWeight:700,fontSize:13,color:"#5A3FA0"}}>⏳ Reprogramación solicitada</div>
-        <div className="meta" style={{fontSize:11.5,marginTop:4}}>
-          Nueva fecha propuesta: <b>{dm(nuevaFecha)}</b>{coment?` · ${coment}`:""}. Pendiente de aprobación del proveedor en Solicitudes. La fecha no cambia hasta que apruebe.
-        </div>
-      </div>
-    )}
-  </>);
-}
-
 function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const [verFac,setVerFac]=useState(null); // factura abierta en detalle
   const [q,setQ]=useState("");
-  const [pestana,setPestana]=useState("resumen"); // resumen | facturas | analisis | cheques
+  const [pestana,setPestana]=useState("resumen"); // resumen | facturas
   const [fZona,setFZona]=useState("Todas");
   const [fVend,setFVend]=useState("Todos");
   const [fProv,setFProv]=useState("Todos");
@@ -8115,10 +8178,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const [secAbierta,setSecAbierta]=useState("deudores"); // sección de análisis abierta (acordeón)
   const [verAging,setVerAging]=useState(null); // tramo abierto al tocar la dona
   const [pagFac,setPagFac]=useState(1); // paginación de facturas
-  const [subCheque,setSubCheque]=useState("resumen"); // resumen | historial
-  const [verChq,setVerChq]=useState(null); // cheque abierto
-  const [qChq,setQChq]=useState(""); // búsqueda en historial de cheques
-  const [qCart,setQCart]=useState(""); // búsqueda en cheques en cartera
   /* si se abre desde la ficha de un cliente, filtra Facturas por ese cliente */
   React.useEffect(()=>{
     if(clienteIni){ setQ(clienteIni); setPestana("facturas"); if(onClienteConsumido) onClienteConsumido(); }
@@ -8126,7 +8185,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   },[clienteIni]);
   /* botón atrás inteligente: cierra de adentro hacia afuera dentro del módulo */
   useRetroceso(()=>{
-      if(verChq){ setVerChq(null); return true; }        // cierra detalle de cheque
       if(verFac){ setVerFac(null); return true; }        // cierra detalle de factura
       if(verAging){ setVerAging(null); return true; }    // cierra ventana de antigüedad
       if(verFiltros){ setVerFiltros(false); return true; } // cierra panel de filtros
@@ -8191,8 +8249,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const concentracion=totalCartera>0?Math.round((porCliente.slice(0,2).reduce((s,c)=>s+c.monto,0))/totalCartera*100):0;
   const proximos=base.filter(i=>i.dias<0&&i.dias>=-7).sort((a,b)=>b.dias-a.dias);
 
-  if(verChq) return <ChequeDetalle cheque={verChq} volver={()=>setVerChq(null)} toast={toast}
-    subActual={subCheque} irA={(sub)=>{ setSubCheque(sub); setVerChq(null); }}/>;
   if(verFac) return <DetalleFactura it={verFac} volver={()=>setVerFac(null)} toast={toast} onCobrar={onCobrar}/>;
   if(verAging){
     return <AgingDetalle tramos={tramos} tramoIni={verAging} base={base} totalCartera={totalCartera}
@@ -8204,8 +8260,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
     <div className="eq-tabs">
       <button className={pestana==="resumen"?"on":""} onClick={()=>setPestana("resumen")}>Resumen</button>
       <button className={pestana==="facturas"?"on":""} onClick={()=>setPestana("facturas")}>Facturas</button>
-      <button className={pestana==="cheques"?"on":""} onClick={()=>setPestana("cheques")}>Cheques</button>
-    </div>
+      </div>
 
     {pestana==="resumen" && <div className="hero-mini" style={{marginTop:0,marginBottom:14}}>
       <div>
@@ -8416,94 +8471,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       </>);
     })()}
 
-    {pestana==="cheques" && (()=>{
-      const HOY="2026-06-12";
-      const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-      const pendientes=CHEQUES_POSF.filter(c=>c.estado!=="efectivizado")
-        .filter(c=>norm(c.cli).includes(norm(qCart)))
-        .slice().sort((a,b)=>a.fecha<b.fecha?-1:1);
-      const efectivos=CHEQUES_POSF.filter(c=>c.estado==="efectivizado")
-        .filter(c=>norm(c.cli).includes(norm(qChq)))
-        .sort((a,b)=>(b.fechaEfect||"")<(a.fechaEfect||"")?-1:1);
-      const pendTodos=CHEQUES_POSF.filter(c=>c.estado!=="efectivizado");
-      const totPend=pendTodos.reduce((s,c)=>s+c.valor,0);
-      const listos=pendTodos.filter(c=>c.fecha<=HOY);
-      const dm=f=>{ if(!f) return "—"; const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-        return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
-      const ESTADO_LBL={recibido:"Recibido",custodia:"En custodia",deposito:"Depósito solicitado"};
-      return (<>
-        {/* sub-pestañas (segundo nivel, chips pequeños) */}
-        <div className="tipochips" style={{marginBottom:14}}>
-          <button className={"tchip"+(subCheque==="resumen"?" on":"")} onClick={()=>setSubCheque("resumen")}>
-            <span className="tchip-nom" style={subCheque==="resumen"?{color:"#fff"}:{color:"var(--ink)"}}>En custodia</span></button>
-          <button className={"tchip"+(subCheque==="historial"?" on":"")} onClick={()=>setSubCheque("historial")}>
-            <span className="tchip-nom" style={subCheque==="historial"?{color:"#fff"}:{color:"var(--ink)"}}>Depositados</span></button>
-        </div>
-
-        {subCheque==="resumen" ? (<>
-          {/* tarjeta de total de pendientes */}
-          <div className="montobox" style={{margin:"0 0 12px",padding:"12px 16px"}}>
-            <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontWeight:800,fontSize:13}}>{pendTodos.length} cheque{pendTodos.length!==1?"s":""} en custodia</span>
-              <b className="num" style={{fontSize:21,fontWeight:800}}>{money(totPend)}</b>
-            </div>
-            {listos.length>0 && <div className="meta" style={{marginTop:5,color:"var(--ok)",fontWeight:700}}>✓ {listos.length} listo{listos.length!==1?"s":""} para depositar</div>}
-          </div>
-
-          {/* buscador con voz */}
-          <div className="ss" style={{marginBottom:12}}>
-            <div className="box"><span className="mag">⌕</span>
-              <input value={qCart} placeholder="Buscar por cliente…" onChange={e=>setQCart(e.target.value)}/>
-              <MicBtn onTexto={setQCart}/>
-              {qCart && <button className="clr" onClick={()=>setQCart("")}>×</button>}</div>
-          </div>
-
-          {/* encabezado de columnas */}
-          <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,padding:"0 12px 6px",
-            fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
-            <span style={{width:52}}>Fecha</span><span>Cliente</span><span style={{textAlign:"right"}}>Valor</span>
-          </div>
-          {pendientes.map((c,i)=>{
-            const listo=c.fecha<=HOY;
-            return (
-              <button className="card" key={i} onClick={()=>setVerChq(c)}
-                style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit"}}>
-                <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
-                  <span style={{width:52,fontWeight:800,fontSize:12.5,color:listo?"var(--ok)":"var(--field)",whiteSpace:"nowrap"}}>{dm(c.fecha)}</span>
-                  <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
-                  <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
-                </div>
-              </button>
-            );
-          })}
-          {pendientes.length===0 && <div className="ph">{qCart?"Ningún cheque coincide.":"No hay cheques en custodia."}</div>}
-          <div className="meta" style={{margin:"10px 2px 0",fontSize:11}}>Toca un cheque para ver su estado, la foto y reprogramar la fecha.</div>
-        </>) : (<>
-          {/* historial de efectivizados con búsqueda */}
-          <div className="ss" style={{marginBottom:12}}>
-            <div className="box"><span className="mag">⌕</span>
-              <input value={qChq} placeholder="Buscar por cliente…" onChange={e=>setQChq(e.target.value)}/>
-              <MicBtn onTexto={setQChq}/>
-              {qChq && <button className="clr" onClick={()=>setQChq("")}>×</button>}</div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,padding:"0 12px 6px",
-            fontSize:9.5,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".02em"}}>
-            <span style={{width:52}}>Efectiv.</span><span>Cliente</span><span style={{textAlign:"right"}}>Valor</span>
-          </div>
-          {efectivos.map((c,i)=>(
-            <button className="card" key={i} onClick={()=>setVerChq(c)}
-              style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",cursor:"pointer",border:"1px solid var(--line)",fontFamily:"inherit"}}>
-              <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
-                <span style={{width:52,fontWeight:800,fontSize:12.5,color:"var(--ok)",whiteSpace:"nowrap"}}>{dm(c.fechaEfect)}</span>
-                <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
-                <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
-              </div>
-              <div className="meta" style={{fontSize:10.5,marginTop:3}}>{c.numero} · {c.banco} · ✓ efectivizado</div>
-            </button>
-          ))}
-          {efectivos.length===0 && <div className="ph">{qChq?"Ningún cheque coincide.":"Aún no hay cheques efectivizados."}</div>}
-        </>)}
-      </>);})()}
 
   </>);
 }
@@ -16106,7 +16073,7 @@ function App({usuario, onSalir}){
     };
   },[]);
   const irInicio=()=>{ setHist([]); setTab("inicio"); };
-  const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",boveda:"Mi bóveda"};
+  const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",boveda:"Cheques"};
   const enSub = tab in subPantallas;
 
   const HOY="2026-06-13";
@@ -16134,7 +16101,7 @@ function App({usuario, onSalir}){
     {tipo:"autorizaciones", icono:"🔐", titulo:"Autorizaciones esperan tu código", detalle:"Anulaciones y cambios que piden tu visto bueno", destino:"autorizaciones", n:AUTORIZACIONES_INI.filter(a=>a.estado==="pendiente").length},
     {tipo:"solicitudes", icono:"🙋", titulo:"Solicitudes del equipo por resolver", detalle:"Precios especiales, crédito y permisos", destino:"equipo", n:SOLICITUDES_INI.filter(x=>x.estado==="pendiente").length},
     {tipo:"cartera", icono:"⏰", titulo:"Facturas vencidas por gestionar", detalle:"Cobros que ya pasaron su fecha", destino:"cartera", n:CARTERA_INI.filter(f=>f.dias>0).length},
-    {tipo:"cheques", icono:"🧾", titulo:"Cheques en custodia por revisar", detalle:"Devueltos o próximos a depositar", destino:"cartera", n:CHEQUES_DEVUELTOS.length},
+    {tipo:"cheques", icono:"🧾", titulo:"Cheques en custodia por revisar", detalle:"Devueltos o próximos a depositar", destino:"boveda", n:CHEQUES_DEVUELTOS.length},
     {tipo:"novedades", icono:"📦", titulo:"Novedades abiertas", detalle:"Cambios y devoluciones en revisión", destino:"novedades", n:NOVEDADES_INI.filter(x=>x.estado==="revision").length},
   ];
   const tareasActivas=TAREAS_NOTIF.filter(t=>prefsNotif[t.tipo] && t.n>0);
@@ -16303,8 +16270,8 @@ function App({usuario, onSalir}){
             {secMenu==="gestion" && (<>
               <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("boveda");}}>
                 <span className="di-ic" style={{background:"#EFEAF7",color:"#6B46C1"}}><Ico n="docs" c="#6B46C1" s={19}/></span>
-                <div style={{flex:1}}><div className="di-t">Mi bóveda</div>
-                  <div className="di-s">Cheques en tu poder · traspasos</div></div>
+                <div style={{flex:1}}><div className="di-t">Cheques</div>
+                  <div className="di-s">Tu poder · traspasos · todos</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("midia");}}>
