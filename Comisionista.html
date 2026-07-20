@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"117", fecha:"20 jul 2026", desc:"Cierre diario en PDF A4" };
+const VERSION = { n:"118", fecha:"20 jul 2026", desc:"Reconectar impresora con lista filtrada" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1212,6 +1212,12 @@ function ticketRecibo(r, cobrador){
   return t;
 }
 
+/* Servicios de las térmicas más comunes (GOOJPRT, Xprinter y similares). */
+const SERVICIOS_IMP_G = [
+  "000018f0-0000-1000-8000-00805f9b34fb",
+  "0000ff00-0000-1000-8000-00805f9b34fb",
+  "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
+];
 /* ══ RECORDAR LA IMPRESORA ══
    Web Bluetooth exige un gesto del usuario para elegir un equipo, y al recargar la
    página se pierde el permiso. Pero Chrome guarda los equipos ya autorizados y
@@ -1238,7 +1244,12 @@ async function canalDeEscritura(gatt){
   }
   return null;
 }
-/* Reconexión silenciosa: solo funciona con equipos ya autorizados antes. */
+/* Reconexión SILENCIOSA (sin tocar nada).
+   PROBADO EL 20 JUL 2026 EN EL EQUIPO DE RICHARD: no funciona. getDevices() no
+   devolvió la impresora ni con la bandera experimental
+   chrome://flags/#enable-web-bluetooth-new-permissions-backend activada.
+   Se deja el intento porque no cuesta nada y en otros equipos puede servir, pero
+   NO se depende de él: el camino real es reconectarConFiltro(), abajo. */
 async function reconectarImpresora(){
   const guardada = impresoraRecordada();
   if(!guardada || !navigator.bluetooth || !navigator.bluetooth.getDevices) return false;
@@ -1253,6 +1264,29 @@ async function reconectarImpresora(){
     fijarImpresora(disp, canal);
     return true;
   }catch(e){ return false; }   /* apagada, lejos o sin permiso: silencio */
+}
+
+/* Reconexión CON UN TOQUE (la que sí funciona en cualquier Chrome).
+   Web Bluetooth exige que el usuario elija el equipo con un gesto; eso no se
+   puede evitar. Pero SÍ se puede filtrar la lista por el nombre guardado: en vez
+   de ver veinte dispositivos del entorno, aparece solo la impresora del vendedor.
+   Dos toques en total en vez de buscar entre todo. */
+async function reconectarConFiltro(){
+  const guardada = impresoraRecordada();
+  if(!guardada || !guardada.nombre || !navigator.bluetooth) return false;
+  try{
+    const disp = await navigator.bluetooth.requestDevice({
+      filters: [{ name: guardada.nombre }],
+      optionalServices: SERVICIOS_IMP_G,
+    });
+    const gatt = await disp.gatt.connect();
+    const canal = await canalDeEscritura(gatt);
+    if(!canal) return false;
+    disp.addEventListener("gattserverdisconnected", ()=>fijarImpresora(null,null));
+    fijarImpresora(disp, canal);
+    recordarImpresora(disp);
+    return true;
+  }catch(e){ return false; }   /* canceló o no apareció */
 }
 
 /* ══ CONEXIÓN VIVA CON LA IMPRESORA ══
@@ -9591,9 +9625,13 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
   /* Reconectar a la impresora recordada, sin volver a elegirla de la lista. */
   const reconectar=async()=>{
     setBuscandoImp(true);
-    const ok = await reconectarImpresora();
+    /* 1) intento silencioso (rara vez funciona, pero es gratis) */
+    let ok = await reconectarImpresora();
+    /* 2) si no, se abre el selector YA FILTRADO por el nombre guardado:
+          el vendedor ve solo su impresora, no veinte dispositivos. */
+    if(!ok) ok = await reconectarConFiltro();
     if(ok){ setImpre(IMPRESORA.disp); setCarImp(IMPRESORA.canal); toast("Impresora reconectada"); }
-    else   { toast("No respondió. Enciéndela y usa Conectar."); }
+    else  { toast("No se pudo. Revisa que esté encendida y cerca."); }
     setBuscandoImp(false);
   };
   const hayBluetooth=()=>typeof navigator!=="undefined" && !!navigator.bluetooth;
