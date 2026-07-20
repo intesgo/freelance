@@ -1492,42 +1492,60 @@ const {useState} = React;
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
 /* ══ COMPROBANTE EN IMAGEN (PNG, tamaño A6) ══
-   Réplica exacta de la vista previa "así lo recibe el cliente".
-   A6 = 105×148 mm, dibujado a 826×1165 px (200 ppp): nítido y liviano. */
+   Estilo aprobado: azul institucional, bloque destacado del cliente,
+   etiquetas de sección en azul y chip ámbar del estado.
+   A6 = 105×148 mm dibujado a 826×1165 px (200 ppp). */
 function imgComprobante(d){
-  const W=826, P=46;
+  const W=826, P=40;
   const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
-  const VERDE="#15392B", MAIZ="#C77F00", OK="#2E7D52", TINTA="#18211C", GRIS="#6F7A6F", LINEA="#E7E1D3";
+  /* paleta azul del comprobante */
+  const AZUL="#1B3A5C", AZUL2="#2C5F8A", AZULSUAVE="#EAF2FA", TINTA="#1A2733",
+        GRIS="#6B7A88", LINEA="#E3E9EF", AMBAR="#B8860B", AMBARBG="#FBEFD0", OK="#2E7D52";
 
-  /* alto según lo que hay que mostrar; mínimo A6 */
   const lineas=(d.lineas||[]), facs=(d.facturas||[]), obs=(d.obs||[]);
-  let H = 470 + lineas.length*42 + facs.length*66 + (obs.length?46+obs.length*32:0);
-  H = Math.max(1165, H+120);
+  let H = 560 + lineas.length*44 + facs.length*72 + (obs.length?54+obs.length*34:0);
+  H = Math.max(1165, H+90);
 
   const c=document.createElement("canvas"); c.width=W; c.height=H;
   const x=c.getContext("2d");
-  x.fillStyle="#F7F5EF"; x.fillRect(0,0,W,H);
-  x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,22); x.fill();
+  x.fillStyle="#F2F5F8"; x.fillRect(0,0,W,H);
+  x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,24); x.fill();
 
-  const IX=P+34, IW=W-P*2-68;
-  let y=P+62;
+  const IX=P+38, IW=W-P*2-76;
+  let y=P+64;
 
   /* cabecera centrada */
   x.textAlign="center";
-  x.fillStyle=TINTA; x.font=F(23,700); x.fillText(recorta(x,String(d.prov||"—"),IW), W/2, y);
-  y+=62; x.fillStyle=VERDE; x.font=F(52,800); x.fillText(money2(d.monto), W/2, y);
-  y+=32; x.fillStyle=GRIS; x.font=F(15,500);
+  x.fillStyle=TINTA; x.font=F(25,700); x.fillText(recorta(x,String(d.prov||"—"),IW), W/2, y);
+  y+=70; x.fillStyle=AZUL; x.font=F(58,800); x.fillText(money2(d.monto), W/2, y);
+  y+=36; x.fillStyle=GRIS; x.font=F(16,500);
   x.fillText([d.nRecibo, d.fecha||fechaHoy()].filter(Boolean).join(" · "), W/2, y);
-  y+=28; x.fillStyle=MAIZ; x.font=F(16,700); x.fillText("Pendiente de verificación", W/2, y);
+  /* chip del estado */
+  y+=38; const et="Pendiente de verificación";
+  x.font=F(17,700); const aw=x.measureText(et).width+40;
+  x.fillStyle=AMBARBG; redonda(x,(W-aw)/2,y-24,aw,38,19); x.fill();
+  x.fillStyle=AMBAR; x.fillText(et, W/2, y+2);
   x.textAlign="left";
 
-  y+=26; punteada(y); y+=34;
+  y+=34; separa(y); y+=40;
 
-  /* cliente */
-  sec("CLIENTE"); 
-  fila(String(d.cli||"—"), d.ruc?("RUC "+rucCorto(d.ruc)):"", true);
-  if(d.atendido) fila("Atendido por", d.atendido);
+  /* bloque destacado del cliente */
+  const BH = d.atendido ? 148 : 106;
+  x.fillStyle=AZULSUAVE; redonda(x,IX,y-26,IW,BH,16); x.fill();
+  x.fillStyle=AZUL2; x.font=F(15,700); x.fillText("CLIENTE", IX+24, y+2);
+  x.fillStyle=AZUL; x.font=F(30,800);
+  x.fillText(recorta(x,String(d.cli||"—"),IW-48), IX+24, y+42);
+  if(d.ruc){ x.fillStyle=AZUL2; x.font=F(17,500);
+    x.fillText("RUC "+rucCorto(d.ruc), IX+24, y+72); }
+  if(d.atendido){
+    x.strokeStyle="#D3E2F0"; x.lineWidth=1;
+    x.beginPath(); x.moveTo(IX+24,y+92); x.lineTo(IX+IW-24,y+92); x.stroke();
+    x.fillStyle=GRIS; x.font=F(16,500); x.fillText("Atendido por", IX+24, y+116);
+    x.textAlign="right"; x.fillStyle=TINTA;
+    x.fillText(recorta(x,String(d.atendido),IW-220), IX+IW-24, y+116); x.textAlign="left";
+  }
+  y+=BH+18;
 
   /* resumen del pago */
   if(lineas.length){
@@ -1536,6 +1554,7 @@ function imgComprobante(d){
       const det=[l.modalidad, l.banco, l.numero].filter(Boolean).join(" · ");
       fila(det, money2(parseFloat(l.monto)||0), true);
     });
+    separa(y-14);
   }
 
   /* aplicación del pago */
@@ -1544,13 +1563,14 @@ function imgComprobante(d){
     facs.forEach(f=>{
       const resta=(f.saldoRest!=null)?f.saldoRest:0;
       fila("Factura "+f.factura, money2(f.aplicado), true);
-      y-=6; x.fillStyle=GRIS; x.font=F(13.5,500);
+      y-=8; x.fillStyle=GRIS; x.font=F(15,500);
       const sub = (f.saldoAnt!=null)
         ? `Saldo ant. ${money2(f.saldoAnt)} → resta ${money2(resta)} · ${resta<=0.004?"Cancelada":"Abonada"}`
         : (resta<=0.004?"Cancelada":"Abonada · resta "+money2(resta));
-      x.fillText(recorta(x, sub, IW), IX, y+16);
-      y+=30;
+      x.fillText(recorta(x, sub, IW), IX, y+18);
+      y+=34;
     });
+    separa(y-14);
   }
 
   /* resumen financiero */
@@ -1558,38 +1578,35 @@ function imgComprobante(d){
   fila("Saldo anterior", money2(d.saldoAnterior||0));
   fila("Pago recibido", "−"+money2(d.monto));
   const act=d.saldoActual!=null ? d.saldoActual : Math.max(0,(d.saldoAnterior||0)-(d.monto||0));
-  filaFuerte("Saldo actual", money2(act), act<=0.004?OK:VERDE);
+  filaFuerte("Saldo actual", money2(act), act<=0.004?OK:AZUL);
   if(d.proxVence && act>0.004) fila("Próximo vencimiento", `${money2(d.proxVence.valor)} · ${d.proxVence.vence}`);
 
   /* observaciones */
   if(obs.length){
-    sec("OBSERVACIONES");
-    obs.forEach(o=>{ 
-      x.fillStyle=TINTA; x.font=F(15,500);
-      x.fillText(recorta(x, o, IW), IX, y); y+=32;
-    });
+    separa(y-10); sec("OBSERVACIONES");
+    obs.forEach(o=>{ x.fillStyle=TINTA; x.font=F(16,500);
+      x.fillText(recorta(x, o, IW), IX, y); y+=34; });
   }
 
   return c;
 
-  function sec(t){ y+=14; x.fillStyle=GRIS; x.font=F(14,700); x.fillText(t, IX, y); y+=30; }
+  function sec(t){ y+=16; x.fillStyle=AZUL2; x.font=F(15,700); x.fillText(t, IX, y); y+=34; }
   function fila(izq, der, negrita){
-    x.fillStyle=TINTA; x.font=F(17,negrita?700:500);
-    const anchoDer = der ? x.measureText(String(der)).width+18 : 0;
-    x.fillText(recorta(x, String(izq), IW-anchoDer), IX, y);
-    if(der){ x.textAlign="right"; x.font=F(17,negrita?700:500);
-      x.fillText(String(der), IX+IW, y); x.textAlign="left"; }
-    y+=34;
-  }
-  function filaFuerte(izq, der, color){
-    x.fillStyle=TINTA; x.font=F(18,800); x.fillText(izq, IX, y);
-    x.fillStyle=color; x.textAlign="right"; x.font=F(21,800);
-    x.fillText(der, IX+IW, y); x.textAlign="left"; x.fillStyle=TINTA;
+    x.fillStyle=TINTA; x.font=F(18,negrita?700:500);
+    const aw2 = der ? x.measureText(String(der)).width+20 : 0;
+    x.fillText(recorta(x, String(izq), IW-aw2), IX, y);
+    if(der){ x.textAlign="right"; x.fillText(String(der), IX+IW, y); x.textAlign="left"; }
     y+=36;
   }
-  function punteada(yy){
-    x.strokeStyle=LINEA; x.lineWidth=1.5; x.setLineDash([5,5]);
-    x.beginPath(); x.moveTo(IX,yy); x.lineTo(IX+IW,yy); x.stroke(); x.setLineDash([]);
+  function filaFuerte(izq, der, color){
+    x.fillStyle=TINTA; x.font=F(19,800); x.fillText(izq, IX, y);
+    x.fillStyle=color; x.textAlign="right"; x.font=F(22,800);
+    x.fillText(der, IX+IW, y); x.textAlign="left"; x.fillStyle=TINTA;
+    y+=38;
+  }
+  function separa(yy){
+    x.strokeStyle=LINEA; x.lineWidth=1.5;
+    x.beginPath(); x.moveTo(IX,yy); x.lineTo(IX+IW,yy); x.stroke();
   }
   function rucCorto(r){ const s=String(r||""); return s.length>7 ? s.slice(0,4)+"•••••"+s.slice(-3) : s; }
   function redonda(ctx,a,b,w,h,r){
@@ -1619,7 +1636,8 @@ function imgEstadoCuenta(d){
   const W=826, P=46;
   const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
-  const VERDE="#15392B", MAIZ="#C77F00", CLAY="#B5613C", TINTA="#18211C", GRIS="#6F7A6F", LINEA="#E7E1D3", CREMA="#F4F0E5";
+  /* misma paleta azul del comprobante */
+  const VERDE="#1B3A5C", MAIZ="#B8860B", CLAY="#C2603A", TINTA="#1A2733", GRIS="#6B7A88", LINEA="#E3E9EF", CREMA="#EAF2FA";
 
   const fmt = d.formato || "resumen";
   const fs  = (d.facturas||[]).filter(f=>(f.saldo||0)>0.004);   /* solo lo que sigue pendiente */
@@ -1635,7 +1653,7 @@ function imgEstadoCuenta(d){
 
   const c=document.createElement("canvas"); c.width=W; c.height=H;
   const x=c.getContext("2d");
-  x.fillStyle="#F7F5EF"; x.fillRect(0,0,W,H);
+  x.fillStyle="#F2F5F8"; x.fillRect(0,0,W,H);
   x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,22); x.fill();
 
   const IX=P+34, IW=W-P*2-68;
@@ -4109,7 +4127,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"261", fecha:"19 jul 2026", desc:"Estado de cuenta en imagen, 6 formatos"};
+const VERSION={n:"262", fecha:"19 jul 2026", desc:"Comprobante azul y PDF en blanco y negro"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5725,7 +5743,7 @@ function pdfComprobante(d, conEC, toast){   /* construye el PDF (2 partes) y lo 
       doc.setTextColor(...VERDE); doc.text(P(def.titulo),14,y+4); y+=6.5; }
     const L=c=> typeof c==="object" && c!==null ? {...c, content:P(c.content)} : P(c);
     doc.autoTable({ startY:y, margin:{left:14,right:14}, theme:"grid",
-      styles:{font:"helvetica",fontSize:8.6,cellPadding:2.2,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
+      styles:{font:"helvetica",fontSize:8.6,cellPadding:2.2,textColor:[30,30,30],lineColor:[150,150,150],lineWidth:0.3},
       headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold"},
       head:def.head?[def.head]:undefined, body:def.body.map(r=>r.map(L)), columnStyles:def.cols||{} });
     y=doc.lastAutoTable.finalY+6;
@@ -5966,7 +5984,8 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     if(!window.jspdf){ toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
     const pdfTxt=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
     const doc=new window.jspdf.jsPDF();
-    const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
+    /* impresión térmica: solo blanco y negro (la térmica no imprime color) */
+    const VERDE=[0,0,0], GRIS=[90,90,90], CREMA=[238,238,238];
     const R={halign:"right"}, TOTROW={fillColor:CREMA,fontStyle:"bold"};
     const pagina=(tipo)=>{
       doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(...VERDE); doc.text("FREELANCE",14,18);
@@ -5986,7 +6005,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
         const limpia=c=> typeof c==="object" && c!==null ? {...c, content:pdfTxt(c.content)} : pdfTxt(c);
         doc.autoTable({ startY:y, margin:{left:14,right:14}, theme:"grid",
           styles:{font:"helvetica",fontSize:9,cellPadding:2.3,textColor:[30,30,30],lineColor:[196,202,194],lineWidth:0.25},
-          headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold"},
+          headStyles:{fillColor:[0,0,0],textColor:255,fontStyle:"bold"},
           head:def.head?[def.head]:undefined, body:def.body.map(r=>r.map(limpia)), columnStyles:def.cols||{} });
         y=doc.lastAutoTable.finalY+6;
       };
