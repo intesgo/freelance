@@ -4540,7 +4540,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"285", fecha:"20 jul 2026", desc:"Deslizar para cambiar de pagina"};
+const VERSION={n:"286", fecha:"20 jul 2026", desc:"El cambio de pagina ahora se ve"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10647,7 +10647,20 @@ function Potenciales({toast}){
 function Deslizable({ pag, total, onPag, children }){
   const ini = React.useRef(null);
   const [arrastre, setArrastre] = useState(0);   // px de desplazamiento visual
+  const [entrando, setEntrando] = useState(0);   // -1 llega de la derecha · 1 de la izquierda
+  const pagAnt = React.useRef(pag);
   const BORDE = 30, MINIMO = 60;
+
+  /* Al cambiar de página la lista nueva ENTRA con un pequeño desplazamiento.
+     Sin esto el cambio es instantáneo y da la impresión de que no pasó nada. */
+  React.useEffect(() => {
+    if (pagAnt.current === pag) return;
+    const dir = pag > pagAnt.current ? -1 : 1;
+    pagAnt.current = pag;
+    setEntrando(dir);
+    const t = setTimeout(() => setEntrando(0), 20);   // el navegador pinta el inicio y anima al final
+    return () => clearTimeout(t);
+  }, [pag]);
 
   const empezar = (e) => {
     const t = e.touches ? e.touches[0] : e;
@@ -10672,10 +10685,14 @@ function Deslizable({ pag, total, onPag, children }){
     if (dx > 0 && pag > 1)     onPag(p => Math.max(1, p - 1));
   };
 
+  /* Mientras se arrastra manda el dedo; al soltar, manda la animación de entrada. */
+  const desplaz = arrastre || entrando * 26;
   return (
     <div onTouchStart={empezar} onTouchMove={mover} onTouchEnd={soltar} onTouchCancel={soltar}
-      style={{ touchAction:"pan-y", transform:`translateX(${arrastre}px)`,
-        transition: arrastre ? "none" : "transform .18s ease-out" }}>
+      style={{ touchAction:"pan-y",
+        transform:`translateX(${desplaz}px)`,
+        opacity: entrando ? .35 : 1,
+        transition: arrastre ? "none" : "transform .26s cubic-bezier(.2,.8,.3,1), opacity .26s ease-out" }}>
       {children}
     </div>
   );
@@ -10683,15 +10700,34 @@ function Deslizable({ pag, total, onPag, children }){
 
 /* Puntitos de posición, como en una galería de fotos. */
 function PuntosPag({ pag, total }){
+  const [salto, setSalto] = useState(false);
+  const ant = React.useRef(pag);
+  /* el punto activo pega un saltito al cambiar: confirma que sí se movió */
+  React.useEffect(() => {
+    if (ant.current === pag) return;
+    ant.current = pag;
+    setSalto(true);
+    const t = setTimeout(() => setSalto(false), 260);
+    return () => clearTimeout(t);
+  }, [pag]);
+
   if (!total || total <= 1) return null;
   const max = 7, desde = total <= max ? 1 : Math.max(1, Math.min(pag - 3, total - max + 1));
   const cuantos = Math.min(max, total);
   return (
-    <div className="row" style={{justifyContent:"center",gap:6,marginTop:10}}>
-      {Array.from({length:cuantos}, (_,i)=>desde+i).map(n=>(
-        <span key={n} style={{width: n===pag?18:6, height:6, borderRadius:99,
-          background: n===pag ? "var(--field)" : "#D9D3C4", transition:"width .18s" }}/>
-      ))}
+    <div className="row" style={{justifyContent:"center",gap:6,marginTop:10,alignItems:"center"}}>
+      {Array.from({length:cuantos}, (_,i)=>desde+i).map(n=>{
+        const on = n===pag;
+        return (
+          <span key={n} style={{
+            width: on ? (salto ? 26 : 18) : 6,
+            height: on && salto ? 8 : 6,
+            borderRadius:99,
+            background: on ? "var(--field)" : "#D9D3C4",
+            transition:"width .26s cubic-bezier(.2,.8,.3,1), height .26s, background .2s" }}/>
+        );
+      })}
+      <span className="num" style={{fontSize:10.5,color:"var(--muted)",marginLeft:6}}>{pag}/{total}</span>
     </div>
   );
 }
