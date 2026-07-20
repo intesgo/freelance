@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"108", fecha:"20 jul 2026", desc:"Menu lateral en acordeon" };
+const VERSION = { n:"109", fecha:"20 jul 2026", desc:"Aviso de version nueva" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -10035,10 +10035,69 @@ function Root(){
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
 </script>
 <script>
-/* ═ Nivel 2 de notificaciones: el service worker se registra SOLO al vivir en HTTPS (GitHub Pages).
-   Abriendo el archivo local no hace nada (ni molesta): el candado espera su momento. ═ */
+/* ═ Nivel 2 de notificaciones + modo offline: el service worker se registra SOLO al
+   vivir en HTTPS (GitHub Pages). Abriendo el archivo local no hace nada (ni molesta).
+
+   AVISO DE VERSIÓN NUEVA: cuando hay una versión publicada, el service worker nuevo
+   queda ESPERANDO en segundo plano y aquí se muestra una banda discreta abajo.
+   La app NO se recarga sola: si el vendedor está a mitad de un pedido, perdería el
+   trabajo. Él decide cuándo. ═ */
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  navigator.serviceWorker.register("./sw.js").catch(function(){ /* sin permiso o sin red: la app sigue normal */ });
+  navigator.serviceWorker.register("./sw.js").then(function(reg){
+
+    function mostrarAviso(esperando){
+      if (document.getElementById("aviso-version")) return;
+      var b = document.createElement("div");
+      b.id = "aviso-version";
+      b.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);"
+        + "bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:9999;"
+        + "max-width:min(420px,92vw);width:max-content;display:flex;align-items:center;gap:10px;"
+        + "background:#15392B;color:#fff;border-radius:14px;padding:11px 13px;"
+        + "box-shadow:0 8px 26px rgba(0,0,0,.32);font-family:inherit;font-size:13px;";
+      var t = document.createElement("span");
+      t.textContent = "Versión nueva disponible";
+      t.style.cssText = "flex:1;min-width:0;font-weight:600;";
+      var ok = document.createElement("button");
+      ok.textContent = "Actualizar";
+      ok.style.cssText = "flex-shrink:0;background:#F2A900;color:#15392B;border:none;"
+        + "border-radius:9px;padding:8px 13px;font-family:inherit;font-size:12.5px;"
+        + "font-weight:700;cursor:pointer;";
+      ok.onclick = function(){
+        ok.textContent = "Actualizando…"; ok.disabled = true;
+        /* el SW nuevo toma el control; al hacerlo se recarga la app */
+        if (esperando) esperando.postMessage({ tipo: "activar-ya" });
+        setTimeout(function(){ location.reload(); }, 900);
+      };
+      var no = document.createElement("button");
+      no.textContent = "Después";
+      no.style.cssText = "flex-shrink:0;background:transparent;color:rgba(255,255,255,.75);"
+        + "border:none;font-family:inherit;font-size:12.5px;cursor:pointer;padding:8px 4px;";
+      no.onclick = function(){ b.remove(); };
+      b.appendChild(t); b.appendChild(ok); b.appendChild(no);
+      document.body.appendChild(b);
+    }
+
+    /* ya había una versión esperando al abrir */
+    if (reg.waiting) mostrarAviso(reg.waiting);
+
+    /* llegó una versión nueva mientras la app estaba abierta */
+    reg.addEventListener("updatefound", function(){
+      var nuevo = reg.installing;
+      if (!nuevo) return;
+      nuevo.addEventListener("statechange", function(){
+        /* controller existe = no es la primera instalación, es una actualización */
+        if (nuevo.state === "installed" && navigator.serviceWorker.controller) {
+          mostrarAviso(reg.waiting || nuevo);
+        }
+      });
+    });
+
+    /* al volver a la app, revisa si hay algo nuevo publicado */
+    document.addEventListener("visibilitychange", function(){
+      if (!document.hidden) reg.update().catch(function(){});
+    });
+
+  }).catch(function(){ /* sin permiso o sin red: la app sigue normal */ });
 }
 </script>
 </body>
