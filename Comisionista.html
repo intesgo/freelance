@@ -229,6 +229,12 @@
   .di-t{font-size:13.5px;font-weight:700;color:var(--ink)}
   .di-s{font-size:11px;color:var(--muted);margin-top:1px}
   .di-a{color:var(--muted);font-size:15px;flex-shrink:0}
+  .drawer-acc{width:100%;display:flex;align-items:center;justify-content:space-between;
+    background:var(--paper);border:1px solid var(--line);border-radius:11px;padding:12px 14px;
+    margin-bottom:8px;font-size:13px;font-weight:700;color:var(--field);font-family:inherit;
+    cursor:pointer;text-align:left}
+  .drawer-acc.on{background:#E9EEE9;border-color:#CFE0D4}
+  .drawer-acc-fl{font-size:11px;color:var(--muted);flex-shrink:0}
   .drawer-salir{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;
     background:#FBE9E4;color:#B5613C;border:1px solid #E8C0B0;border-radius:13px;padding:13px;
     font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer}
@@ -1071,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"107", fecha:"20 jul 2026", desc:"Se retira la huella simulada" };
+const VERSION = { n:"108", fecha:"20 jul 2026", desc:"Menu lateral en acordeon" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2940,6 +2946,11 @@ function usarRepetir(accion){
     onPointerUp:parar, onPointerLeave:parar, onPointerCancel:parar,
   };
 }
+
+/* ══ NORMA DEL MENÚ LATERAL (transversal a las 5 apps) ══
+   Hasta 5 módulos: lista plana. Desde 6: ACORDEÓN por grupos, igual que
+   freelance-completo — un solo grupo abierto a la vez; tocar el abierto lo cierra. */
+const MENU_AGRUPA_DESDE = 6;
 
 function useGestoDrawer(abrir, activo){
   React.useEffect(()=>{
@@ -9548,7 +9559,8 @@ function App(){
 
   /* ── Botón físico de Android: cierra ventanas y navega hacia atrás dentro de la app ── */
   const [hist,setHist]=useState([]);
-  const [menuAbierto,setMenuAbierto]=useState(false);   // menú lateral
+  const [menuAbierto,setMenuAbierto]=useState(false);
+  const [secMenu,setSecMenu]=useState("trabajo");   /* grupo abierto del menu lateral */   // menú lateral
   const [confirmarSalir,setConfirmarSalir]=useState(false);
   const [confirmarCerrarApp,setConfirmarCerrarApp]=useState(false);  // aviso al querer salir de la app
   /* deslizar desde el borde izquierdo abre el menú */
@@ -9823,22 +9835,49 @@ function App(){
             <button className="drawer-x" onClick={()=>setMenuAbierto(false)}>×</button>
           </div>
           <div className="drawer-body">
-            {[
-              ["productos","🌾","#EDEAE0","Productos",`${PRODUCTOS.length} autorizados`],
-              ["precios","🏷️","#E5F0EA","Precios","Consulta por línea"],
-              ["comisiones","💰","#F3ECF9","Comisiones","Lo que has ganado"],
-              ["midia","📊","#E8F0F7","Mi día","Cuadre de caja y cierre"],
-              ["boveda","🔐","#EFEAF7","Mi bóveda","Cheques en tu poder"],
-              ["cuenta","🏆","#E9EEE9","Mi cuenta","Metas y logros"],
-              ["ajustes","⚙️","#EEF1F5","Ajustes","Colores, impresora y avisos"],
-            ].map(([k,ic,bg,t,s])=>(
-              <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar(k);}}>
-                <span className="di-ic" style={{background:bg}}>{ic}</span>
-                <div style={{flex:1,minWidth:0}}><div className="di-t">{t}</div>
-                  <div className="di-s">{s}</div></div>
-                <span className="di-a">›</span>
-              </button>
-            ))}
+            {/* Norma: hasta 5 módulos, lista plana. Desde 6, acordeón por grupos:
+                un solo grupo abierto a la vez; tocar el abierto lo cierra. */}
+            {(()=>{
+              const GRUPOS = [
+                ["trabajo","Mi trabajo", [
+                  ["productos","🌾","#EDEAE0","Productos",`${PRODUCTOS.length} autorizados`],
+                  ["precios","🏷️","#E5F0EA","Precios","Consulta por línea"],
+                ]],
+                ["plata","Mi plata", [
+                  ["comisiones","💰","#F3ECF9","Comisiones","Lo que has ganado"],
+                  ["midia","📊","#E8F0F7","Mi día","Cuadre de caja y cierre"],
+                  ["boveda","🔐","#EFEAF7","Mi bóveda","Cheques en tu poder"],
+                ]],
+                ["cuenta","Cuenta", [
+                  ["cuenta","🏆","#E9EEE9","Mi cuenta","Metas y logros"],
+                  ["ajustes","⚙️","#EEF1F5","Ajustes","Colores, impresora y avisos"],
+                ]],
+              ];
+              const item = ([k,ic,bg,t,sub])=>(
+                <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar(k);}}>
+                  <span className="di-ic" style={{background:bg}}>{ic}</span>
+                  <div style={{flex:1,minWidth:0}}><div className="di-t">{t}</div>
+                    <div className="di-s" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div></div>
+                  <span className="di-a">›</span>
+                </button>
+              );
+              const vivos = GRUPOS.filter(g=>g[2].length>0);
+              const todos = vivos.reduce((a,g)=>a.concat(g[2]),[]);
+              if(todos.length < MENU_AGRUPA_DESDE) return todos.map(item);
+              return vivos.map(([clave,titulo,lista])=>{
+                const abierto = secMenu===clave;
+                return (
+                  <div key={clave}>
+                    <button className={"drawer-acc"+(abierto?" on":"")}
+                      onClick={()=>setSecMenu(abierto?"":clave)}>
+                      <span>{titulo}</span>
+                      <span className="drawer-acc-fl">{abierto?"▾":"▸"}</span>
+                    </button>
+                    {abierto && lista.map(item)}
+                  </div>
+                );
+              });
+            })()}
 
             <button className="drawer-salir" onClick={()=>{setMenuAbierto(false);setConfirmarSalir(true);}}>
               Cerrar sesión
