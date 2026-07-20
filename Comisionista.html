@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"102", fecha:"20 jul 2026", desc:"Boveda con bitacora y courier"};
+const VERSION={n:"103", fecha:"20 jul 2026", desc:"Mi caja con recibos, historial y anulacion"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4904,6 +4904,199 @@ const DESTINOS_CHEQUE = [
 /* Traspasos en curso: esperan que el destinatario ingrese el código */
 const TRASPASOS_PEND = [];
 
+/* ══ COMPROBANTE DE ANULACIÓN (PNG, A6) ══
+   Se emite al anular un recibo ya entregado al cliente: es la constancia de que
+   ese comprobante quedó sin efecto. Mismo lenguaje visual del recibo pero en ROJO,
+   y dice con claridad QUÉ recibo anula y cuánto vuelve a deber. */
+function imgAnulacion(d){
+  const W=826, P=40;
+  const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
+  const ROJO="#9A2A2A", ROJO2="#C2603A", ROJOSUAVE="#FBEDE8", TINTA="#1A2733",
+        GRIS="#6B7A88", LINEA="#E3E9EF";
+
+  const facs=(d.facturas||[]);
+  let H = 620 + facs.length*72;
+  H = Math.max(1165, H+90);
+
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const x=c.getContext("2d");
+  x.fillStyle="#F8F4F2"; x.fillRect(0,0,W,H);
+  x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,24); x.fill();
+
+  const IX=P+38, IW=W-P*2-76;
+  let y=P+64;
+
+  /* cabecera */
+  x.textAlign="center";
+  x.fillStyle=TINTA; x.font=F(25,700); x.fillText(recorta(x,String(d.prov||"—"),IW), W/2, y);
+  y+=54; x.fillStyle=ROJO; x.font=F(40,800); x.fillText("COMPROBANTE ANULADO", W/2, y);
+  y+=54; x.fillStyle=ROJO; x.font=F(58,800); x.fillText(money2(d.monto), W/2, y);
+  y+=34; x.fillStyle=GRIS; x.font=F(16,500);
+  x.fillText("valor que queda sin efecto", W/2, y);
+  y+=42; const et="Sin validez";
+  x.font=F(17,700); const aw=x.measureText(et).width+40;
+  x.fillStyle=ROJOSUAVE; redonda(x,(W-aw)/2,y-24,aw,38,19); x.fill();
+  x.fillStyle=ROJO; x.fillText(et, W/2, y+2);
+  x.textAlign="left";
+
+  y+=34; separa(y); y+=40;
+
+  /* qué recibo se anula */
+  x.fillStyle=ROJOSUAVE; redonda(x,IX,y-26,IW,150,16); x.fill();
+  x.fillStyle=ROJO2; x.font=F(15,700); x.fillText("ANULA EL COMPROBANTE", IX+24, y+2);
+  x.fillStyle=ROJO; x.font=F(34,800);
+  x.fillText(recorta(x,String(d.nRecibo||"—"),IW-48), IX+24, y+48);
+  x.fillStyle=ROJO2; x.font=F(18,500);
+  x.fillText(`Emitido el ${d.fechaRecibo||"—"}${d.horaRecibo?" · "+d.horaRecibo:""}`, IX+24, y+82);
+  x.fillText(`Por ${money2(d.monto)}`, IX+24, y+110);
+  y+=168;
+
+  /* cliente */
+  sec("CLIENTE");
+  fila("Nombre comercial", "", true);
+  x.fillStyle=TINTA; x.font=F(26,800);
+  x.fillText(recorta(x,String(d.cli||"—"),IW), IX, y); y+=40;
+  if(d.ruc) fila("RUC", rucCorto(d.ruc));
+
+  /* motivo */
+  separa(y-10); sec("MOTIVO DE LA ANULACIÓN");
+  x.fillStyle=TINTA; x.font=F(19,700);
+  x.fillText(recorta(x,String(d.motivo||"—"),IW), IX, y); y+=34;
+  if(d.comentario){
+    x.fillStyle=GRIS; x.font=F(16,500);
+    envuelve(String(d.comentario), IW).forEach(l=>{ x.fillText(l, IX, y); y+=28; });
+  }
+  y+=8;
+
+  /* facturas que vuelven a quedar pendientes */
+  if(facs.length){
+    separa(y-10); sec("FACTURAS QUE VUELVEN A QUEDAR PENDIENTES");
+    facs.forEach(f=>{
+      x.fillStyle=TINTA; x.font=F(18,700);
+      x.fillText(recorta(x,String(f.factura),IW-160), IX, y);
+      x.textAlign="right"; x.fillStyle=ROJO; x.font=F(19,800);
+      x.fillText(money2(f.aplicado), IX+IW, y); x.textAlign="left";
+      y+=28;
+      x.fillStyle=GRIS; x.font=F(15,500);
+      x.fillText("vuelve a su saldo anterior", IX, y); y+=42;
+    });
+  }
+
+  /* saldo */
+  separa(y-10); sec("SALDO DEL CLIENTE");
+  fila("Saldo tras el cobro anulado", money2(d.saldoAntes||0));
+  filaFuerte("SALDO ACTUAL", money2(d.saldoDespues||0), ROJO);
+
+  /* pie */
+  y+=10; separa(y-16);
+  x.fillStyle=GRIS; x.font=F(15,500);
+  x.fillText(`Anulado el ${d.fechaAnu||fechaHoy()}${d.horaAnu?" · "+d.horaAnu:""}`, IX, y+14);
+  x.fillText(`Autorizado por ${d.quien||"Freelance"}`, IX, y+42);
+  if(d.au){ x.fillStyle=ROJO2; x.font=F(15,700);
+    x.fillText(`Auditoría ${d.au}`, IX, y+70); }
+
+  return c;
+
+  function sec(t){ y+=18; x.fillStyle=ROJO2; x.font=F(16,800); x.fillText(t, IX, y); y+=36; }
+  function fila(izq, der, soloIzq){
+    x.fillStyle=TINTA; x.font=F(18,500);
+    const aw2 = der ? x.measureText(String(der)).width+20 : 0;
+    x.fillText(recorta(x, String(izq), IW-aw2), IX, y);
+    if(der){ x.textAlign="right"; x.font=F(18,700); x.fillText(String(der), IX+IW, y); x.textAlign="left"; }
+    y+= soloIzq ? 30 : 36;
+  }
+  function filaFuerte(izq, der, color){
+    x.fillStyle=TINTA; x.font=F(19,800); x.fillText(izq, IX, y);
+    x.fillStyle=color; x.textAlign="right"; x.font=F(24,800);
+    x.fillText(der, IX+IW, y); x.textAlign="left"; x.fillStyle=TINTA;
+    y+=38;
+  }
+  function separa(yy){
+    x.strokeStyle=LINEA; x.lineWidth=1.5;
+    x.beginPath(); x.moveTo(IX,yy); x.lineTo(IX+IW,yy); x.stroke();
+  }
+  function envuelve(t, max){
+    const pal=String(t).split(/\s+/), out=[]; let ln="";
+    pal.forEach(p=>{ const pr=ln?ln+" "+p:p;
+      if(x.measureText(pr).width>max){ if(ln) out.push(ln); ln=p; } else ln=pr; });
+    if(ln) out.push(ln);
+    return out.slice(0,3);
+  }
+  function rucCorto(r){ const s=String(r||""); return s.length>7 ? s.slice(0,4)+"•••••"+s.slice(-3) : s; }
+  function redonda(ctx,a,b,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(a+r,b); ctx.lineTo(a+w-r,b); ctx.quadraticCurveTo(a+w,b,a+w,b+r);
+    ctx.lineTo(a+w,b+h-r); ctx.quadraticCurveTo(a+w,b+h,a+w-r,b+h);
+    ctx.lineTo(a+r,b+h); ctx.quadraticCurveTo(a,b+h,a,b+h-r);
+    ctx.lineTo(a,b+r); ctx.quadraticCurveTo(a,b,a+r,b); ctx.closePath();
+  }
+  function recorta(ctx,t,max){
+    t=String(t);
+    if(ctx.measureText(t).width<=max) return t;
+    let s=t;
+    while(s.length>3 && ctx.measureText(s+"…").width>max) s=s.slice(0,-1);
+    return s+"…";
+  }
+  function fechaHoy(){
+    const n=new Date(), M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return `${String(n.getDate()).padStart(2,"0")} ${M[n.getMonth()]} ${n.getFullYear()}`;
+  }
+}
+
+/* Envía la constancia de anulación al cliente por WhatsApp (mensaje + imagen) */
+async function enviarAnulacion(d, toast){
+  const texto = `Estimado/a ${d.cli}:\n\n`
+    + `Le informamos que el comprobante ${d.nRecibo} por ${money(d.monto)}, `
+    + `emitido el ${d.fechaRecibo||"—"}, ha sido ANULADO y queda sin validez.\n\n`
+    + `Motivo: ${d.motivo}${d.comentario?" · "+d.comentario:""}\n\n`
+    + `Su saldo actual es ${money(d.saldoDespues||0)}.\n\n`
+    + `Si usted conserva una copia del comprobante anterior, por favor considérela sin efecto. `
+    + `Ante cualquier duda comuníquese con su asesor comercial. 🌾`;
+  try{
+    const lienzo = imgAnulacion(d);
+    const blob = await new Promise(r=>lienzo.toBlob(r, "image/png", 0.95));
+    const nombre = `Anulacion_${String(d.nRecibo||"recibo").replace(/[^\w-]+/g,"_")}.png`;
+    const archivo = new File([blob], nombre, {type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      await navigator.share({files:[archivo], title:"Comprobante anulado", text:texto});
+      return true;
+    }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    toast && toast("Constancia descargada · compártela con el cliente");
+    return true;
+  }catch(e){ toast && toast("No se pudo generar la constancia"); return false; }
+}
+
+
+/* Motivos tipificados de anulación. El cheque protestado NO va aquí:
+   ese cobro SÍ ocurrió y se trata como cargo nuevo a la cartera del cliente. */
+const MOTIVOS_ANULACION = [
+  "Error en el monto digitado",
+  "Cobro duplicado",
+  "Cliente equivocado",
+  "Factura equivocada",
+  "Forma de pago mal registrada",
+  "Otro",
+];
+
+/* ══ ESTADO DE VERIFICACIÓN DE MIS COBROS ══
+   El proveedor concilia contra su banco y marca cada comprobante. Aquí el comisionista
+   ve SOLO los suyos: el módulo Verificación completo (cobros de todo el equipo) es del
+   Freelance. Aprobado = comisión liberada; observado = hay que corregir un dato. */
+const COBROS_EQUIPO = [
+  {nRecibo:"REC-260719-0431", estado:"pendiente"},
+  {nRecibo:"REC-260719-0432", estado:"aprobado",
+   verPor:"Agrícola del Valle", verFecha:"19 jul 2026 16:20", au:"AU-260719-4471"},
+  {nRecibo:"REC-260718-0912", estado:"aprobado",
+   verPor:"Agrícola del Valle", verFecha:"18 jul 2026 18:02", au:"AU-260718-3312"},
+  {nRecibo:"REC-260718-1540", estado:"observado",
+   motivo:"El número de operación no coincide",
+   verPor:"Molinos del Litoral", verFecha:"18 jul 2026 19:15", au:"AU-260718-5520"},
+];
+
 /* Empresas de courier: arranca con las conocidas del país y crece con lo que el usuario escriba */
 const COURIERS=["Servientrega","Laar Courier","Tramaco","Urbano Express","Correos del Ecuador"];
 const addCourier = (nom)=>{ const n=String(nom||"").trim();
@@ -5708,107 +5901,600 @@ function Boveda({toast, yo}){
 }
 
 
-function MiDia({toast, volver}){
+function MiDia({toast, yo}){
+  const [tabCie,setTabCie]=useState("resumen");
+  const [expProv,setExpProv]=useState(null);
   const [cerrando,setCerrando]=useState(false);
   const [motivoCie,setMotivoCie]=useState("");
   const [tick,setTick]=useState(0);
+  const [menuRec,setMenuRec]=useState(null);    // menú ⋮ del recibo
+  const [verRec,setVerRec]=useState(null);      // recibo abierto en detalle
+  const [anulando,setAnulando]=useState(null);  // recibo en proceso de anulación
+  const [motAnu,setMotAnu]=useState("");        // motivo tipificado
+  const [comAnu,setComAnu]=useState("");        // comentario obligatorio
+  const [codAut,setCodAut]=useState("");        // código de autorización del Freelance
+  const [anulado,setAnulado]=useState(null);    // resultado: constancia lista para enviar
+  const [diaHist,setDiaHist]=useState(null);    // cierre pasado abierto
+  const [pagHist,setPagHist]=useState(1);       // paginación del historial
   useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));
-  React.useEffect(()=>{  /* corte automático a la hora que acordó el freelance */
+  useModal(!!menuRec, React.useCallback(()=>setMenuRec(null),[]));
+  useModal(!!verRec, React.useCallback(()=>setVerRec(null),[]));
+  useModal(!!anulando, React.useCallback(()=>setAnulando(null),[]));
+  useModal(!!anulado, React.useCallback(()=>setAnulado(null),[]));
+  React.useEffect(()=>{  /* corte automático a la hora acordada con el proveedor */
     const c=correrCorteAutomatico();
     if(c.length){ setTick(t=>t+1);
-      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")}`); }
+      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")} · sin confirmar por el cobrador`); }
   },[]);
   useRetroceso(()=>{
     if(cerrando){ setCerrando(false); return true; }
+    if(anulado){ setAnulado(null); return true; }
+    if(anulando){ setAnulando(null); setCodAut(""); return true; }
+    if(menuRec){ setMenuRec(null); return true; }
+    if(verRec){ setVerRec(null); return true; }
+    if(diaHist){ setDiaHist(null); setTabCie("hist"); return true; }
     return false;
   });
 
-  const activos  = COBROS_DIA.filter(r=>!r.anulado);
+  const soloLect = false;
+  const dia      = {fecha:"2026-06-12", fechaTxt:"12 jun 2026", recibos:COBROS_DIA,
+                    estado:CIERRE_HOY.estado, cerradoEn:CIERRE_HOY.cerradoEn, obs:CIERRE_HOY.obs};
+  const recibos  = dia.recibos || [];
+  const activos  = recibos.filter(r=>!r.anulado);
   const total    = activos.reduce((s,r)=>s+r.monto,0);
+  const FORMAS   = ["Transferencia","Depósito","Efectivo","Cheque"];
+  const porForma = {}; activos.forEach(r=>Object.entries(r.formas||{}).forEach(([f,v])=>{ porForma[f]=(porForma[f]||0)+v; }));
+  const efeRecib = porForma["Efectivo"]||0;
   const efePend  = EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
-  const depositado = Math.max(0, total-efePend);
-  const auto     = CIERRE_HOY.estado==="cerrado_auto";
-  const cerrado  = CIERRE_HOY.estado==="cerrado" || CIERRE_HOY.estado==="cerrado_obs" || auto;
+  const efeDep   = Math.max(0, efeRecib-efePend);
+  const bancar   = (porForma["Transferencia"]||0) + (porForma["Depósito"]||0) + efeDep;
+  const enManos  = efePend + (porForma["Cheque"]||0);
+  const auto     = dia.estado==="cerrado_auto";
+  const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs" || auto;
+  const confirm  = CIERRE_HOY.confirmado;
+  const estadoTxt = auto ? (confirm?"Cerrado automáticamente · confirmado":"Cerrado automáticamente · sin confirmar")
+                   : cerrado ? (dia.estado==="cerrado_obs" ? "Cerrado con pendientes" : "Cerrado")
+                   : activos.length===0 ? "En progreso"
+                   : efePend>0 ? "Pendiente de depósito" : "Listo para cerrar";
+  const tono = auto ? (confirm?"#2E7D52":"#C98A2B")
+             : cerrado ? (dia.estado==="cerrado_obs" ? "#C98A2B" : "#2E7D52")
+             : efePend>0 ? "#C98A2B" : activos.length===0 ? "#8B9490" : "#2E7D52";
+
+  const chip=(txt,color)=>(<span style={{display:"inline-block",background:color+"1A",color,fontWeight:700,
+    borderRadius:20,padding:"3px 10px",fontSize:11}}>{txt}</span>);
+  const KPI=({t,v,c})=>(
+    <div style={{background:"var(--card)",border:"1px solid var(--line)",borderRadius:14,padding:"11px 12px"}}>
+      <div className="meta" style={{fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:".03em"}}>{t}</div>
+      <div className="num" style={{fontSize:18,fontWeight:800,marginTop:3,color:c||"var(--field)"}}>{v}</div>
+    </div>
+  );
+  /* ANULACIÓN DE COBRO: el recibo no se borra, se marca. La plata vuelve a la cartera
+     del cliente quitando los abonos que este recibo aplicó. Todo auditado con AU-.
+     El cheque protestado NO pasa por aquí: ese cobro sí ocurrió (se trata aparte). */
+  const ejecutarAnulacion=()=>{
+    const r = anulando;
+    if(!r) return;
+    const au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
+    const hora = new Date().toTimeString().slice(0,5);
+    /* revertir en cartera: quitar los abonos que dejó este recibo */
+    let saldoAntes=0, saldoDespues=0;
+    (r.facturas||[]).forEach(f=>{
+      const d = (typeof DETALLE_FACTURA!=="undefined") ? DETALLE_FACTURA[f.factura] : null;
+      if(d && Array.isArray(d.abonos)){
+        /* el abono de este recibo: por referencia explícita o por monto aplicado */
+        let i = d.abonos.findIndex(a=>String(a.ref||"").includes(r.nRecibo));
+        if(i<0) i = d.abonos.findIndex(a=>Math.abs((a.monto||0)-(f.aplicado||0))<0.005);
+        if(i>=0) d.abonos.splice(i,1);
+      }
+      saldoAntes  += (f.saldoRest!=null ? f.saldoRest : 0);
+      saldoDespues += (f.saldoAnt!=null ? f.saldoAnt : (f.aplicado||0));
+    });
+    /* marcar el recibo, sin borrarlo */
+    r.anulado = true;
+    r.motivoAnu = motAnu;
+    r.comentarioAnu = comAnu.trim();
+    r.auAnu = au;
+    r.horaAnu = hora;
+    r.quienAnu = yo || "Comisionista";
+    r.codAutAnu = codAut.trim();
+    /* si tenía efectivo pendiente, ese pendiente ya no corre */
+    for(let i=EFECTIVO_PENDIENTE.length-1;i>=0;i--){
+      if(EFECTIVO_PENDIENTE[i].nRecibo===r.nRecibo) EFECTIVO_PENDIENTE.splice(i,1);
+    }
+    const ficha = (typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[r.cli]) || {};
+    const constancia = {
+      nRecibo:r.nRecibo, cli:r.cli, prov:r.prov, monto:r.monto, ruc:ficha.ruc,
+      fechaRecibo:dia.fechaTxt, horaRecibo:r.hora,
+      motivo:motAnu, comentario:comAnu.trim(),
+      facturas:r.facturas||[], saldoAntes:r.saldoActual||saldoAntes,
+      saldoDespues:r.saldoAnterior!=null ? r.saldoAnterior : saldoDespues,
+      fechaAnu:dia.fechaTxt, horaAnu:hora, quien:(yo||"Comisionista"), au,
+      codAut:codAut.trim(),
+    };
+    setAnulando(null); setMotAnu(""); setComAnu(""); setCodAut("");
+    setAnulado(constancia); setTick(t=>t+1);
+    toast(`Recibo ${r.nRecibo} anulado · auditado ${au}`);
+  };
 
   const cerrarJornada=(motivo)=>{
     CIERRE_HOY.confirmado = true;
     CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
     CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
     CIERRE_HOY.obs = motivo||null;
-    CIERRE_HOY.au = "AU-260719-"+Math.floor(1000+Math.random()*9000);
+    CIERRE_HOY.au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
     setCerrando(false); setMotivoCie(""); setTick(t=>t+1);
     toast(efePend>0
-      ? `Día cerrado con ${money(efePend)} por depositar · auditado ${CIERRE_HOY.au}`
-      : `Día cerrado ✓ sin pendientes · auditado ${CIERRE_HOY.au}`);
+      ? `Jornada cerrada CON PENDIENTES · ${money(efePend)} sin depositar · auditado ${CIERRE_HOY.au}`
+      : `Jornada cerrada sin pendientes ✓ · auditado ${CIERRE_HOY.au}`);
   };
 
-  const F=(t,v,c,grande)=>(
-    <div className="row" style={{justifyContent:"space-between",alignItems:"baseline",
-      padding: grande?"10px 0 2px":"7px 0"}}>
-      <span style={{fontSize: grande?15:14, fontWeight: grande?800:500,
-        color: grande?"var(--ink)":"var(--muted)"}}>{t}</span>
-      <b className="num" style={{fontSize: grande?26:17, fontWeight:800, color:c||"var(--ink)"}}>{v}</b>
-    </div>
-  );
-
   return (<>
-    <div className="h1">Mi día</div>
-    <div className="sub">19 jul 2026 · {activos.length} cobro{activos.length!==1?"s":""}</div>
+    <div className="h1">Mi caja</div>
+    <div className="sub">{dia.fechaTxt} · {activos.length} recibo{activos.length!==1?"s":""} · {chip(estadoTxt,tono)}</div>
 
-    {/* lo único que importa: qué cobré y qué debo depositar */}
-    <div className="card" style={{padding:"14px 16px",marginTop:14,
-      borderLeft:`4px solid ${efePend>0?"#C98A2B":"#2E7D52"}`}}>
-      {F("Cobré hoy", money(total))}
-      {F("Ya depositado", money(depositado), "#2E7D52")}
-      <div style={{borderTop:"1.5px solid var(--line)",margin:"8px 0 2px"}}></div>
-      {F(efePend>0?"⏱ Debo depositar":"✓ Nada por depositar",
-         money(efePend), efePend>0?"#C98A2B":"#2E7D52", true)}
-      {efePend>0 && (
-        <div className="meta" style={{fontSize:12,marginTop:6,lineHeight:1.6}}>
-          {EFECTIVO_PENDIENTE.map(e=>(
-            <div key={e.nRecibo}>{e.cli} · {money(e.monto)} · vence {e.limite}</div>
+    <div className="nchips" style={{flexWrap:"wrap",marginTop:12}}>
+      {[["resumen","Resumen"],["detalle","Detalle"],["recibos","Recibos"],["hist","Historial"]].map(([k,t])=>(
+        <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 22%"}}
+          onClick={()=>{setTabCie(k);setDiaHist(null);}}>{t}</button>
+      ))}
+    </div>
+
+      {tabCie==="resumen" && (<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12}}>
+          <KPI t="Total cobrado" v={money(total)}/>
+          <KPI t="Recibos" v={String(activos.length)}/>
+          <KPI t="Ya bancarizado" v={money(bancar)} c="#2E7D52"/>
+          <KPI t="En tus manos" v={money(enManos)} c={enManos>0?"#C98A2B":"#2E7D52"}/>
+        </div>
+
+        {efePend>0 && (
+          <div style={{background:"#FDF3E2",border:"1px solid #C98A2B",borderRadius:16,padding:"14px 15px",marginBottom:14}}>
+            <div style={{fontWeight:800,fontSize:14,color:"#A06B15",marginBottom:6}}>⏱️ Efectivo pendiente por depositar</div>
+            <div className="num" style={{fontSize:24,fontWeight:800,color:"#A06B15",marginBottom:6}}>{money(efePend)}</div>
+            {(soloLect?[]:EFECTIVO_PENDIENTE).map((e,i)=>{
+              const rec=COBROS_DIA.find(c=>c.nRecibo===e.nRecibo);
+              return (<div key={e.nRecibo} className="meta" style={{fontSize:12,marginBottom:2}}>
+                {e.cli} · {rec?rec.prov:"—"} · {money(e.monto)}</div>);
+            })}
+            <div className="meta" style={{fontSize:12,margin:"6px 0 10px"}}>
+              {soloLect ? (dia.obs||"Quedó pendiente al cierre") : `${EFECTIVO_PENDIENTE.length} pendiente${EFECTIVO_PENDIENTE.length!==1?"s":""}`}
+            </div>
+          </div>
+        )}
+
+        <div className="ficha-sec">Estado del cierre</div>
+        <div className="card" style={{padding:"13px 15px"}}>
+          <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
+          {(cerrado || activos.length===0 || efePend===0) && (
+            <div className="meta" style={{fontSize:12.5}}>
+              {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
+               : activos.length===0 ? "Aún no se registran cobros hoy."
+               : "Listo para cerrar. No existen valores pendientes."}
+            </div>
+          )}
+          {!soloLect && !cerrado && (
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button className="ghost" style={{flex:1,margin:0}} onClick={()=>toast("Avance guardado (en Fase 4 se guarda en la base)")}>Guardar avance</button>
+              <button className="cta" style={{flex:1,margin:0,background:efePend>0?"#C98A2B":undefined}}
+                onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>Cerrar jornada</button>
+            </div>
+          )}
+          {!soloLect && auto && !CIERRE_HOY.confirmado && (
+            <button className="cta" style={{marginTop:12}} onClick={()=>{
+              CIERRE_HOY.confirmado=true; setTick(t=>t+1);
+              toast(`Cuadre confirmado · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
+            }}>✓ Confirmar mi cuadre</button>
+          )}
+        </div>
+      </>)}
+
+      {/* ── 2 · DETALLE ── */}      {tabCie==="detalle" && (()=>{
+        const provs={};
+        activos.forEach(r=>{ const p=r.prov||"—";
+          if(!provs[p]) provs[p]={n:0,total:0,formas:{},recibos:[]};
+          provs[p].n++; provs[p].total+=r.monto; provs[p].recibos.push(r);
+          Object.entries(r.formas||{}).forEach(([f,v])=>{ provs[p].formas[f]=(provs[p].formas[f]||0)+v; });
+        });
+        const lista=Object.keys(provs).sort((a,b)=>provs[b].total-provs[a].total);
+        const pendDe=(p)=> soloLect ? 0 : EFECTIVO_PENDIENTE.filter(e=>{
+          const r=COBROS_DIA.find(c=>c.nRecibo===e.nRecibo); return r && r.prov===p; }).reduce((s,e)=>s+e.monto,0);
+        return (<>
+          <div className="ficha-sec">Por proveedor</div>
+          {lista.length===0 && <div className="ph">Sin cobros este día</div>}
+          {lista.map(p=>{
+            const d=provs[p], pend=pendDe(p), abierto=expProv===p;
+            const est = pend>0 ? ["Pendiente de depósito","#C98A2B"] : ["Completado","#2E7D52"];
+            return (
+              <div key={p} className="card" style={{padding:"13px 15px",marginBottom:9}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setExpProv(abierto?null:p)}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</div>
+                    <div className="meta" style={{fontSize:11.5,marginTop:2}}>{d.n} cobro{d.n!==1?"s":""} · {FORMAS.filter(f=>d.formas[f]>0).map(f=>`${f} ${money(d.formas[f])}`).join(" · ")}</div>
+                    <div style={{marginTop:5}}>{chip(est[0],est[1])}</div>
+                  </div>
+                  <b className="num" style={{whiteSpace:"nowrap"}}>{money(d.total)}</b>
+                  <span className="meta" style={{fontSize:15,color:"var(--muted)"}}>{abierto?"▾":"▸"}</span>
+                </div>
+                {abierto && d.recibos.map(r=>(
+                  <div key={r.nRecibo} style={{borderTop:"1px solid var(--line)",marginTop:9,paddingTop:9,
+                    display:"flex",justifyContent:"space-between",gap:8}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cli}</div>
+                      <div className="meta" style={{fontSize:11}}>{r.hora} · {r.nRecibo}</div>
+                    </div>
+                    <b className="num" style={{whiteSpace:"nowrap",fontSize:13.5}}>{money(r.monto)}</b>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+
+          <div className="ficha-sec" style={{marginTop:16}}>Por forma de pago</div>
+          <div className="card" style={{padding:"13px 15px"}}>
+            <div className="meta" style={{fontWeight:700,fontSize:11,color:"#2E7D52",marginBottom:5}}>DINERO YA BANCARIZADO</div>
+            {[["Transferencias",porForma["Transferencia"]||0],["Depósitos",porForma["Depósito"]||0],["Efectivo depositado",efeDep]].map(([t,v])=>(
+              <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
+              </div>
+            ))}
+            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
+              <span style={{fontWeight:700,fontSize:13}}>Subtotal bancarizado</span>
+              <b className="num" style={{color:"#2E7D52",fontSize:15}}>{money(bancar)}</b>
+            </div>
+            <div className="meta" style={{fontWeight:700,fontSize:11,color:"#C98A2B",margin:"11px 0 5px"}}>BAJO TU RESPONSABILIDAD</div>
+            {[["Efectivo por depositar",efePend],["Cheques en cartera",porForma["Cheque"]||0]].map(([t,v])=>(
+              <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
+              </div>
+            ))}
+            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
+              <span style={{fontWeight:700,fontSize:13}}>Subtotal en tus manos</span>
+              <b className="num" style={{color:"#C98A2B",fontSize:15}}>{money(enManos)}</b>
+            </div>
+            <div className="row" style={{justifyContent:"space-between",padding:"8px 0 0",borderTop:"1.5px solid var(--field)",marginTop:8}}>
+              <span style={{fontWeight:800,fontSize:14}}>TOTAL COBRADO</span>
+              <b className="num" style={{fontSize:19,fontWeight:800}}>{money(total)}</b>
+            </div>
+            <div className="meta" style={{marginTop:6,fontSize:11.5}}>El efectivo recibido hoy fue {money(efeRecib)}. El cheque no cuenta como bancarizado hasta efectivizarse.</div>
+          </div>
+        </>);})()}
+
+      {/* ── 3 · RECIBOS ── */}
+      {tabCie==="recibos" && (()=>{
+        const lista = recibos.slice().sort((a,b)=>(b.hora||"")<(a.hora||"")?-1:1);
+        const anulados = lista.filter(r=>r.anulado).length;
+        return (<>
+          <div className="card" style={{padding:"13px 16px",marginBottom:12}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+              <span style={{fontWeight:800,fontSize:14}}>
+                {activos.length} recibo{activos.length!==1?"s":""} del día</span>
+              <b className="num" style={{fontSize:21,fontWeight:800}}>{money(total)}</b>
+            </div>
+            {anulados>0 && <div className="meta" style={{fontSize:11.5,marginTop:5,color:"#B5613C",fontWeight:700}}>
+              {anulados} anulado{anulados!==1?"s":""} · no suman al total</div>}
+          </div>
+
+          {lista.map((r,i)=>(
+            <div key={r.nRecibo+i} className="card" style={{padding:"12px 14px",marginBottom:8,
+              border:"1px solid var(--line)",
+              borderLeft:`3px solid ${r.anulado?"#B5613C":"#2E7D52"}`,
+              opacity:r.anulado?.72:1}}>
+              <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap",
+                    textDecoration:r.anulado?"line-through":undefined}}>{r.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>{r.nRecibo} · {r.hora}</div>
+                  <div className="meta" style={{fontSize:11,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {Object.keys(r.formas||{}).join(" · ")}{r.prov?` · ${r.prov}`:""}</div>
+                  {r.anulado && <div className="meta" style={{fontSize:11,marginTop:3,
+                    color:"#B5613C",fontWeight:700}}>ANULADO{r.motivoAnu?` · ${r.motivoAnu}`:""}</div>}
+                  {!r.anulado && (()=>{
+                    const v = (typeof COBROS_EQUIPO!=="undefined")
+                      ? COBROS_EQUIPO.find(x=>x.nRecibo===r.nRecibo) : null;
+                    if(!v) return null;
+                    const C={pendiente:"#C98A2B",aprobado:"#2E7D52",observado:"#C77F00",rechazado:"#8A2E3B"};
+                    const L={pendiente:"Por verificar",aprobado:"✓ Aprobado",
+                             observado:"Observado",rechazado:"Rechazado"};
+                    return (<div className="meta" style={{fontSize:11,marginTop:3,
+                      color:C[v.estado]||"var(--muted)",fontWeight:700}}>{L[v.estado]||""}</div>);
+                  })()}
+                </div>
+                <div style={{textAlign:"right",flexShrink:0,display:"flex",alignItems:"center",gap:6}}>
+                  <b className="num" style={{whiteSpace:"nowrap",fontSize:14,
+                    textDecoration:r.anulado?"line-through":undefined}}>{money(r.monto)}</b>
+                  <button className="back" style={{padding:"6px 9px",fontSize:15,lineHeight:1}}
+                    onClick={()=>setMenuRec(r)}>⋮</button>
+                </div>
+              </div>
+            </div>
           ))}
+          {lista.length===0 && <div className="ph">Aún no hay recibos hoy.</div>}
+        </>);})()}
+
+      {/* ── 4 · HISTORIAL ── */}
+      {tabCie==="hist" && !diaHist && (()=>{
+        const POR = 8;
+        const tot = Math.max(1, Math.ceil(CIERRES_HIST.length/POR));
+        const pag = Math.min(pagHist, tot);
+        const dias = CIERRES_HIST.slice((pag-1)*POR, pag*POR);
+        const lbl = d => d.estado==="cerrado_auto" ? "Cerrado automáticamente"
+          : d.estado==="cerrado_obs" ? "Cerrado con pendientes"
+          : d.estado==="cerrado" ? "Cerrado" : "Abierto";
+        const col = d => d.estado==="cerrado_obs" ? "#C98A2B"
+          : d.estado==="cerrado_auto" ? "#C98A2B"
+          : d.estado==="cerrado" ? "#2E7D52" : "#8B9490";
+        return (<>
+          <div className="meta" style={{fontSize:11.5,marginBottom:10}}>
+            Cierres anteriores · consulta de solo lectura</div>
+          <Deslizable pag={pag} total={tot} onPag={setPagHist}>
+          {dias.map(d=>{
+            const act = (d.recibos||[]).filter(r=>!r.anulado);
+            const tt = act.reduce((a,r)=>a+r.monto,0);
+            return (
+              <button key={d.fecha} className="card" style={{width:"100%",padding:"12px 14px",
+                marginBottom:8,border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",
+                fontFamily:"inherit",borderLeft:`3px solid ${col(d)}`}}
+                onClick={()=>setDiaHist(d)}>
+                <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13.5,fontWeight:700}}>{d.fechaTxt}</div>
+                    <div className="meta" style={{fontSize:11}}>
+                      {act.length} recibo{act.length!==1?"s":""}
+                      {d.cerradoEn?` · cerró ${d.cerradoEn}`:""}</div>
+                  </div>
+                  <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(tt)}</b>
+                </div>
+                <div className="meta" style={{fontSize:11,marginTop:4,color:col(d),fontWeight:700}}>
+                  {lbl(d)}{d.efePend>0?` · ${money(d.efePend)} sin depositar`:""}</div>
+                {d.obs && <div className="meta" style={{fontSize:11,marginTop:2,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.obs}</div>}
+              </button>
+            );
+          })}
+          </Deslizable>
+          <PuntosPag pag={pag} total={tot}/>
+          {tot>1 && (
+            <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+              <button className="back" style={{padding:"9px 14px"}} disabled={pag<=1}
+                onClick={()=>setPagHist(p=>Math.max(1,p-1))}>‹ Anterior</button>
+              <span className="meta" style={{fontSize:12}}>Página {pag} de {tot}</span>
+              <button className="back" style={{padding:"9px 14px"}} disabled={pag>=tot}
+                onClick={()=>setPagHist(p=>Math.min(tot,p+1))}>Siguiente ›</button>
+            </div>
+          )}
+        </>);})()}
+
+      {/* detalle de un día del historial (solo lectura) */}
+      {tabCie==="hist" && diaHist && (()=>{
+        const act = (diaHist.recibos||[]).filter(r=>!r.anulado);
+        const tt = act.reduce((a,r)=>a+r.monto,0);
+        return (<>
+          <div className="card" style={{padding:"13px 16px",marginBottom:12}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:15}}>{diaHist.fechaTxt}</div>
+                <div className="meta" style={{fontSize:11.5,marginTop:2}}>
+                  {act.length} recibo{act.length!==1?"s":""} · solo lectura</div>
+              </div>
+              <b className="num" style={{fontSize:21,fontWeight:800}}>{money(tt)}</b>
+            </div>
+            {diaHist.obs && <div className="meta" style={{fontSize:11.5,marginTop:6}}>{diaHist.obs}</div>}
+          </div>
+
+          {(diaHist.recibos||[]).map((r,i)=>(
+            <button key={r.nRecibo+i} className="card" style={{width:"100%",padding:"12px 14px",
+              marginBottom:8,border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",
+              fontFamily:"inherit",borderLeft:`3px solid ${r.anulado?"#B5613C":"#2E7D52"}`,
+              opacity:r.anulado?.72:1}}
+              onClick={()=>setVerRec(r)}>
+              <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap",
+                    textDecoration:r.anulado?"line-through":undefined}}>{r.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>{r.nRecibo} · {r.hora}</div>
+                </div>
+                <b className="num" style={{whiteSpace:"nowrap",fontSize:14,
+                  textDecoration:r.anulado?"line-through":undefined}}>{money(r.monto)}</b>
+              </div>
+            </button>
+          ))}
+          {(diaHist.recibos||[]).length===0 && <div className="ph">Ese día no tuvo recibos.</div>}
+        </>);})()}
+
+      {/* menú ⋮ del recibo */}
+      {menuRec && (
+        <div className="ov" onClick={()=>setMenuRec(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>{menuRec.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 14px"}}>
+              {menuRec.cli} · {money(menuRec.monto)} · {menuRec.hora}</div>
+            <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",padding:"13px 15px"}}
+              onClick={()=>{const r=menuRec;setMenuRec(null);setVerRec(r);}}>👁️ Ver recibo</button>
+            <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",padding:"13px 15px"}}
+              onClick={()=>{setMenuRec(null);toast("Se comparte el comprobante por el menú del celular");}}>
+              📤 Compartir</button>
+            {!menuRec.anulado && (
+              <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",
+                padding:"13px 15px",color:"#B5613C",fontWeight:700}}
+                onClick={()=>{const r=menuRec;setMenuRec(null);
+                  setMotAnu("");setComAnu("");setAnulando(r);}}>
+                🚫 Anular recibo</button>
+            )}
+            <button className="back" style={{width:"100%",marginTop:5}}
+              onClick={()=>setMenuRec(null)}>Cerrar</button>
+          </div>
         </div>
       )}
-    </div>
 
-    {/* estado y cierre */}
-    {cerrado ? (
-      <div className="card" style={{padding:"12px 15px",marginTop:10}}>
-        <div style={{fontWeight:700,fontSize:13.5,color:auto?"#C98A2B":"#2E7D52"}}>
-          {auto ? "Cerrado automáticamente" : "Día cerrado"}</div>
-        <div className="meta" style={{fontSize:12.5,marginTop:3}}>
-          A las {CIERRE_HOY.cerradoEn}{CIERRE_HOY.obs?` · ${CIERRE_HOY.obs}`:""}</div>
-        {efePend>0 && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700,fontSize:12}}>
-          El efectivo pendiente pasa a mañana con su reloj de 24 h.</div>}
-        {auto && !CIERRE_HOY.confirmado && (
-          <button className="cta" style={{marginTop:11}} onClick={()=>{
-            CIERRE_HOY.confirmado=true; setTick(t=>t+1);
-            toast(`Cuadre confirmado · auditado AU-260719-${Math.floor(1000+Math.random()*9000)}`);
-          }}>✓ Confirmar mi cuadre</button>
-        )}
-      </div>
-    ) : (
-      <button className="cta" style={{marginTop:14,background:efePend>0?"#C98A2B":undefined}}
-        onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>
-        Cerrar mi día</button>
-    )}
+      {/* detalle del recibo */}
+      {verRec && (
+        <div className="ov" onClick={()=>setVerRec(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>{verRec.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {verRec.cli}{verRec.prov?` · ${verRec.prov}`:""} · {verRec.hora}</div>
 
-    <div className="meta" style={{textAlign:"center",margin:"10px 2px 0",fontSize:11.5}}>
-      Tu día se cierra solo a las {CIERRE_HOY.cerradoEn||CONFIG_CIERRE.hora} aunque no lo confirmes.
-    </div>
+            {verRec.anulado && (
+              <div className="card" style={{padding:"11px 14px",marginBottom:12,
+                background:"#FBEDE8",border:"1px solid #B5613C"}}>
+                <div style={{fontWeight:800,fontSize:13,color:"#B5613C"}}>RECIBO ANULADO</div>
+                {verRec.motivoAnu && <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+                  {verRec.motivoAnu}{verRec.comentarioAnu?` · ${verRec.comentarioAnu}`:""}</div>}
+                {verRec.quienAnu && <div className="meta" style={{fontSize:11,marginTop:3}}>
+                  {verRec.quienAnu}{verRec.horaAnu?` · ${verRec.horaAnu}`:""}</div>}
+                {verRec.auAnu && <div className="num meta" style={{fontSize:11,marginTop:2}}>
+                  {verRec.auAnu}</div>}
+              </div>
+            )}
 
-    {/* cerrar con efectivo pendiente: exige motivo y queda auditado */}
+            <div className="card" style={{padding:"12px 15px",marginBottom:12}}>
+              <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+                <span className="meta">Monto</span>
+                <b className="num" style={{fontSize:22,fontWeight:800}}>{money(verRec.monto)}</b>
+              </div>
+            </div>
+
+            <div className="ficha-sec" style={{marginBottom:6}}>Formas de pago</div>
+            <div className="card" style={{padding:"10px 14px",marginBottom:12}}>
+              {(verRec.lineas||[]).map((l,i)=>(
+                <div key={i} className="row" style={{justifyContent:"space-between",
+                  padding:"5px 0",borderTop:i?"1px solid var(--line)":"none",gap:8}}>
+                  <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {l.modalidad}{l.banco?` · ${l.banco}`:""}{l.numero?` · ${l.numero}`:""}</span>
+                  <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>
+                    {money(parseFloat(l.monto)||0)}</b>
+                </div>
+              ))}
+            </div>
+
+            <div className="ficha-sec" style={{marginBottom:6}}>Facturas aplicadas</div>
+            <div className="card" style={{padding:"10px 14px",marginBottom:12}}>
+              {(verRec.facturas||[]).map((f,i)=>(
+                <div key={i} style={{padding:"5px 0",borderTop:i?"1px solid var(--line)":"none"}}>
+                  <div className="row" style={{justifyContent:"space-between",gap:8}}>
+                    <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.factura}</span>
+                    <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>{money(f.aplicado)}</b>
+                  </div>
+                  <div className="meta" style={{fontSize:11}}>
+                    {(f.saldoRest||0)<=0.004?"Cancelada":`Abonada · resta ${money(f.saldoRest||0)}`}</div>
+                </div>
+              ))}
+              {(verRec.facturas||[]).length===0 && <div className="meta" style={{fontSize:11.5}}>Sin detalle por factura.</div>}
+            </div>
+
+            <button className="back" style={{width:"100%"}} onClick={()=>setVerRec(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {/* anular recibo: motivo tipificado + comentario obligatorio */}
+      {anulando && (
+        <div className="ov" onClick={()=>setAnulando(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Anular {anulando.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {anulando.cli} · {money(anulando.monto)} · {anulando.hora}</div>
+
+            <div className="card" style={{padding:"11px 14px",marginBottom:12,
+              background:"#FBEDE8",border:"1px solid #B5613C"}}>
+              <div style={{fontWeight:700,fontSize:12.5,color:"#B5613C"}}>
+                Necesitas el código del Freelance</div>
+              <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+                Anular mueve plata: el dinero vuelve a la cartera del cliente. Pídele el código
+                a tu Freelance explicándole el motivo. Se emite una constancia para el cliente,
+                porque él ya tiene el comprobante original en su poder.</div>
+            </div>
+
+            <div className="field"><label>Motivo</label>
+              <select className="aj-sel" style={{width:"100%",padding:"12px"}}
+                value={motAnu} onChange={e=>setMotAnu(e.target.value)}>
+                <option value="">Elige el motivo…</option>
+                {ordUso("motivosAnulacion",MOTIVOS_ANULACION).map(m=>(
+                  <option key={m} value={m}>{m}</option>))}
+              </select>
+            </div>
+
+            <div className="field" style={{marginTop:10}}><label>Comentario</label>
+              <input value={comAnu} onChange={e=>setComAnu(e.target.value)}
+                placeholder="Explica qué pasó; queda en la auditoría"/></div>
+
+            <div className="field" style={{marginTop:10}}><label>Código de autorización</label>
+              <input className="num" inputMode="numeric" value={codAut}
+                style={{fontSize:20,textAlign:"center",letterSpacing:".1em"}}
+                onChange={e=>setCodAut(e.target.value)} placeholder="0000"/>
+              <div className="meta" style={{fontSize:11,marginTop:4}}>
+                Te lo entrega el Freelance. Es de un solo uso y queda en la auditoría.</div>
+            </div>
+
+            <button className="cta" style={{width:"100%",marginTop:14,background:"#B5613C"}}
+              disabled={!motAnu || comAnu.trim().length<4 || codAut.trim().length<4}
+              onClick={()=>{regUso("motivosAnulacion",motAnu);ejecutarAnulacion();}}>
+              Anular el recibo</button>
+            <button className="back" style={{width:"100%",marginTop:9}}
+              onClick={()=>setAnulando(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* constancia lista: se envía al cliente */}
+      {anulado && (
+        <div className="ov" onClick={()=>setAnulado(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Recibo anulado</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {anulado.nRecibo} · {anulado.cli} · {money(anulado.monto)}</div>
+
+            <div className="card" style={{padding:"12px 15px",marginBottom:12,
+              background:"#F2F7F3"}}>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Motivo</span>
+                <b style={{fontSize:12.5,textAlign:"right",maxWidth:"62%"}}>{anulado.motivo}</b>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Saldo del cliente</span>
+                <b className="num" style={{fontSize:13}}>{money(anulado.saldoDespues||0)}</b>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Autorizó</span>
+                <span className="num" style={{fontSize:12}}>código {anulado.codAut}</span>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Auditoría</span>
+                <span className="num" style={{fontSize:11,color:"var(--muted)"}}>{anulado.au}</span>
+              </div>
+            </div>
+
+            <div className="card" style={{padding:"11px 14px",marginBottom:12,
+              background:"#FDF3E2",border:"1px solid #C98A2B"}}>
+              <div className="meta" style={{fontSize:11.5,color:"#A06B15",fontWeight:700}}>
+                El cliente tiene el comprobante original. Envíale la constancia para que
+                sepa que quedó sin efecto.</div>
+            </div>
+
+            <button className="cta" style={{width:"100%"}}
+              onClick={()=>enviarAnulacion(anulado, toast)}>
+              📤 Enviar constancia al cliente</button>
+            <button className="back" style={{width:"100%",marginTop:9}}
+              onClick={()=>setAnulado(null)}>Después</button>
+          </div>
+        </div>
+      )}
+
     {cerrando && (
       <div className="ov" onClick={()=>setCerrando(false)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Te queda efectivo</h3>
+          <h3>Cerrar con pendientes</h3>
           <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
-            Tienes {money(efePend)} sin depositar. Dinos por qué cierras así; queda registrado.
+            Queda {money(efePend)} en efectivo sin depositar. Explica por qué se cierra así; queda observado en la auditoría.
           </p>
           <div className="field"><label>Motivo</label>
             <input value={motivoCie} onChange={e=>setMotivoCie(e.target.value)}
-              placeholder="Ej.: banco cerrado, deposito mañana"/></div>
+              placeholder="Ej.: banco cerrado, se deposita mañana temprano"/></div>
           <button className="cta" style={{width:"100%"}} disabled={motivoCie.trim().length<4}
             onClick={()=>cerrarJornada(motivoCie.trim())}>Cerrar de todos modos</button>
           <button className="back" style={{width:"100%",marginTop:10}}
@@ -5817,10 +6503,8 @@ function MiDia({toast, volver}){
       </div>
     )}
 
-    {volver && <button className="ghost" style={{width:"100%",marginTop:14}} onClick={volver}>‹ Volver</button>}
   </>);
 }
-
 
 function Cobros({toast, go}){
   const [paso,setPaso]=useState(1);
@@ -8873,7 +9557,7 @@ function App(){
           onGuardarPedido={(data)=>{ guardarPedido(data); irAPedidosGuardado(); }}/>}
         {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar}/>}
-        {tab==="midia" && <MiDia toast={show} volver={()=>navegar("cobros")}/>}
+        {tab==="midia" && <MiDia toast={show} yo="Carlos Andrade (Cobrador)"/>}
         {tab==="boveda" && <Boveda toast={show} yo="Carlos Andrade (Cobrador)"/>}
         {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)}/>}
         {tab==="ajustes" && <Ajustes toast={show} tema={tema} setTema={setTema}
