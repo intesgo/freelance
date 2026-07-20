@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"87", fecha:"19 jul 2026", desc:"Comprobante de cobro en imagen PNG"};
+const VERSION={n:"88", fecha:"19 jul 2026", desc:"Comprobante en imagen tamano A6"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1531,75 +1531,79 @@ function PantallaLogin({ onAutenticado }) {
 
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
-/* ══ COMPROBANTE EN IMAGEN (PNG) ══
-   Arma una tarjeta cuadrada, legible en el chat sin abrir nada.
-   Se dibuja con canvas: sin librerías extra y sin depender del PDF. */
+/* ══ COMPROBANTE EN IMAGEN (PNG, tamaño A6) ══
+   A6 = 105×148 mm. Se dibuja a 826×1165 px (200 ppp): nítido y liviano.
+   Cabe entero en la pantalla del chat, sin ampliar. */
 function imgComprobante(d){
-  const W=1080, P=64;                      /* ancho fijo y margen: se ve bien en cualquier teléfono */
-  const facs=(d.facturas||[]);
-  const H = 900 + facs.length*78;
+  const W=826, H=1165, P=52;
   const c=document.createElement("canvas"); c.width=W; c.height=H;
   const x=c.getContext("2d");
   const VERDE="#15392B", VERDE2="#1E4D3A", MAIZ="#C77F00", TINTA="#18211C", GRIS="#6F7A6F", LINEA="#E7E1D3";
   const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
+  const facs=(d.facturas||[]).slice(0,6);           /* hasta 6 facturas para no desbordar el A6 */
+  const masFac=(d.facturas||[]).length-facs.length;
 
-  /* fondo */
   x.fillStyle="#F7F5EF"; x.fillRect(0,0,W,H);
 
-  /* cabecera verde */
-  const g=x.createLinearGradient(0,0,W,300); g.addColorStop(0,VERDE); g.addColorStop(1,VERDE2);
-  x.fillStyle=g; x.fillRect(0,0,W,300);
-  x.fillStyle="#EAF0EA"; x.font=F(30,700); x.fillText("FREELANCE", P, 88);
-  x.fillStyle="#9DB6A6"; x.font=F(24,500); x.fillText("Comprobante de cobro", P, 132);
-  x.fillStyle="#fff"; x.font=F(76,800); x.fillText(money2(d.monto), P, 236);
+  /* cabecera */
+  const g=x.createLinearGradient(0,0,W,230); g.addColorStop(0,VERDE); g.addColorStop(1,VERDE2);
+  x.fillStyle=g; x.fillRect(0,0,W,230);
+  x.fillStyle="#EAF0EA"; x.font=F(23,700); x.fillText("FREELANCE", P, 60);
+  x.fillStyle="#9DB6A6"; x.font=F(17,500); x.fillText("Comprobante de cobro", P, 88);
+  x.fillStyle="#fff"; x.font=F(56,800); x.fillText(money2(d.monto), P, 168);
+  if(d.nRecibo){ x.fillStyle="#9DB6A6"; x.font=F(15,500); x.fillText(d.nRecibo, P, 200); }
 
-  /* recuadro blanco del detalle */
-  const CY=340, CH=H-CY-120;
-  x.fillStyle="#fff"; redonda(x,P,CY,W-P*2,CH,28); x.fill();
+  /* tarjeta del detalle */
+  const CY=262, CH=H-CY-92;
+  x.fillStyle="#fff"; redonda(x,P,CY,W-P*2,CH,20); x.fill();
 
-  let y=CY+78;
-  x.fillStyle=GRIS; x.font=F(24,600); x.fillText("CLIENTE", P+44, y);
-  y+=44; x.fillStyle=TINTA; x.font=F(34,700);
-  x.fillText(recorta(x, String(d.cli||"—"), W-P*2-88), P+44, y);
+  const IX=P+32, IW=W-P*2-64;
+  let y=CY+46;
 
-  y+=60; x.fillStyle=GRIS; x.font=F(24,600); x.fillText("PROVEEDOR", P+44, y);
-  y+=42; x.fillStyle=TINTA; x.font=F(30,600);
-  x.fillText(recorta(x, String(d.prov||"—"), W-P*2-88), P+44, y);
+  x.fillStyle=GRIS; x.font=F(15,600); x.fillText("CLIENTE", IX, y);
+  y+=28; x.fillStyle=TINTA; x.font=F(25,700);
+  x.fillText(recorta(x, String(d.cli||"—"), IW), IX, y);
 
-  /* facturas aplicadas */
-  y+=70; x.fillStyle=GRIS; x.font=F(24,600); x.fillText("FACTURAS PAGADAS", P+44, y);
-  y+=20;
+  y+=40; x.fillStyle=GRIS; x.font=F(15,600); x.fillText("PROVEEDOR", IX, y);
+  y+=26; x.fillStyle=TINTA; x.font=F(20,600);
+  x.fillText(recorta(x, String(d.prov||"—"), IW), IX, y);
+
+  /* facturas */
+  y+=46; x.fillStyle=GRIS; x.font=F(15,600); x.fillText("FACTURAS PAGADAS", IX, y);
+  y+=10;
   facs.forEach(f=>{
-    y+=64;
+    y+=44;
     x.strokeStyle=LINEA; x.lineWidth=1;
-    x.beginPath(); x.moveTo(P+44,y-38); x.lineTo(W-P-44,y-38); x.stroke();
-    x.fillStyle=TINTA; x.font=F(28,600);
-    x.fillText(recorta(x, "Factura "+f.factura, 520), P+44, y);
+    x.beginPath(); x.moveTo(IX,y-30); x.lineTo(IX+IW,y-30); x.stroke();
+    x.fillStyle=TINTA; x.font=F(19,600);
+    x.fillText(recorta(x, "Factura "+f.factura, IW-190), IX, y);
     x.fillStyle = f.estado==="cancelada" ? "#2E7D52" : MAIZ;
-    x.font=F(22,700);
-    x.fillText(f.estado==="cancelada"?"CANCELA":"ABONO", P+44, y+28);
-    x.fillStyle=TINTA; x.font=F(30,700); x.textAlign="right";
-    x.fillText(money2(f.aplicado), W-P-44, y);
+    x.font=F(13,700);
+    x.fillText(f.estado==="cancelada"?"CANCELA":"ABONO", IX, y+19);
+    x.fillStyle=TINTA; x.font=F(21,700); x.textAlign="right";
+    x.fillText(money2(f.aplicado), IX+IW, y);
     x.textAlign="left";
-    y+=16;
+    y+=10;
   });
+  if(masFac>0){
+    y+=34; x.fillStyle=GRIS; x.font=F(15,500);
+    x.fillText(`y ${masFac} factura(s) más`, IX, y);
+  }
 
-  /* saldo del cliente tras el pago */
-  y+=66;
-  x.fillStyle="#F0EEE4"; redonda(x,P+44,y-44,W-P*2-88,96,18); x.fill();
-  x.fillStyle=GRIS; x.font=F(24,600); x.fillText("SALDO PENDIENTE DEL CLIENTE", P+72, y-6);
+  /* saldo pendiente: pegado al pie de la tarjeta */
+  const SY=CY+CH-96;
+  x.fillStyle="#F0EEE4"; redonda(x,IX,SY,IW,66,14); x.fill();
+  x.fillStyle=GRIS; x.font=F(14,600); x.fillText("SALDO PENDIENTE", IX+22, SY+27);
   x.fillStyle = (d.saldoCli||0)>0 ? MAIZ : "#2E7D52";
-  x.font=F(38,800); x.textAlign="right";
-  x.fillText(money2(d.saldoCli||0), W-P-72, y+2);
+  x.font=F(27,800); x.textAlign="right";
+  x.fillText(money2(d.saldoCli||0), IX+IW-22, SY+46);
   x.textAlign="left";
 
   /* pie */
-  x.fillStyle=GRIS; x.font=F(22,500);
-  x.fillText((d.nRecibo?d.nRecibo+"  ·  ":"")+fechaHoy(), P, H-56);
-  x.textAlign="right";
-  x.fillText("Gracias por su pago", W-P, H-56);
-  x.textAlign="left";
+  x.fillStyle=GRIS; x.font=F(14,500);
+  x.fillText(fechaHoy(), P, H-44);
+  x.textAlign="right"; x.fillText("Gracias por su pago", W-P, H-44); x.textAlign="left";
 
   return c;
 
