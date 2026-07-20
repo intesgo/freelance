@@ -290,6 +290,49 @@ function SelloLineas() {
   );
 }
 
+/* ══ BIOMETRÍA REAL (WebAuthn) ══
+   Antes esta app tenia una huella SIMULADA: esperaba 1.4s y decia "ok" sin verificar
+   nada, y ademas solo aparecia DESPUES de escribir usuario y clave (no ahorraba el
+   login, lo alargaba). Se reemplaza por WebAuthn de verdad, el mismo que ya usan
+   Comisionista, socio-comercial y transportista: la credencial la custodia el
+   telefono y permite entrar SIN escribir nada.
+   Solo funciona en HTTPS (la app publicada); abriendo el archivo local no aparece. */
+const HUELLA_KEY_P = "freelance_huella_proveedor_v1";
+const puedeHuellaRealP = () => location.protocol === "https:" && !!window.PublicKeyCredential;
+function huellaGuardadaP(){
+  try { return JSON.parse(localStorage.getItem(HUELLA_KEY_P) || "null"); } catch(e){ return null; }
+}
+function guardarHuellaP(d){
+  try { localStorage.setItem(HUELLA_KEY_P, JSON.stringify(d)); } catch(e){}
+}
+function borrarHuellaP(){ try { localStorage.removeItem(HUELLA_KEY_P); } catch(e){} }
+function b64hP(buf){ return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(buf)))); }
+function deB64hP(s){ return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+function retoAleatorioP(){ const a = new Uint8Array(32); crypto.getRandomValues(a); return a; }
+async function crearHuellaP(usuario, nombre){
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: retoAleatorioP(),
+      rp: { name: "FREELANCE", id: location.hostname },
+      user: { id: new TextEncoder().encode(usuario), name: usuario, displayName: nombre || usuario },
+      pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
+      timeout: 60000, attestation: "none",
+    }});
+    return cred ? b64hP(cred.rawId) : null;
+  } catch(e){ return null; }
+}
+async function verificarHuellaP(credId){
+  try {
+    const res = await navigator.credentials.get({ publicKey: {
+      challenge: retoAleatorioP(),
+      allowCredentials: [{ id: deB64hP(credId), type: "public-key", transports: ["internal"] }],
+      userVerification: "required", timeout: 60000, rpId: location.hostname,
+    }});
+    return !!res;
+  } catch(e){ return false; }
+}
+
 function PantallaLogin({ onAutenticado }) {
   const [paso, setPaso]                 = useState("login");
   const [usr, setUsr]                   = useState("");
@@ -322,16 +365,45 @@ function PantallaLogin({ onAutenticado }) {
     setTimeout(() => {
       setCargando(false);
       usuarioAuthRef.current = u;
-      setPaso(conHuella ? "huella" : "sync");
+      /* Tras entrar con clave se ofrece registrar la huella UNA sola vez, si el
+         telefono la soporta y aun no hay credencial en este equipo. */
+      const ofrecer = puedeHuellaRealP() && !huellaGuardadaP();
+      setPaso(ofrecer ? "huella" : "sync");
     }, 900);
   };
 
-  const simularHuella = () => {
+  /* Registro REAL de la huella: la credencial la crea y custodia el telefono. */
+  const registrarHuella = () => {
+    const u = usuarioAuthRef.current;
+    if(!u){ setPaso("sync"); return; }
     setHuellaEstado("leyendo");
-    setTimeout(() => {
+    crearHuellaP(u.usuario || usr.toUpperCase(), u.nombre || "").then((credId)=>{
+      if(!credId){
+        setHuellaEstado("espera");
+        setError("No se pudo registrar. Revisa que el teléfono tenga huella o rostro configurado.");
+        return;
+      }
+      guardarHuellaP({ credId, usuario: usr.toUpperCase(), nombre: u.nombre || "" });
       setHuellaEstado("ok");
       setTimeout(() => setPaso("sync"), 700);
-    }, 1400);
+    });
+  };
+
+  /* Entrada por huella: sin escribir usuario ni clave. */
+  const [entrandoBio, setEntrandoBio] = useState(false);
+  const huellaReg = huellaGuardadaP();
+  const entrarConHuella = () => {
+    const reg = huellaGuardadaP();
+    if(!reg) return;
+    setError(""); setEntrandoBio(true);
+    verificarHuellaP(reg.credId).then((ok)=>{
+      setEntrandoBio(false);
+      if(!ok){ setError("No se pudo verificar. Entra con tu clave."); return; }
+      const u = USUARIOS[String(reg.usuario||"").toUpperCase()];
+      if(!u){ borrarHuellaP(); setError("Tu acceso cambió. Entra con tu clave."); return; }
+      usuarioAuthRef.current = u;
+      setPaso("sync");
+    });
   };
 
   React.useEffect(() => {
@@ -436,7 +508,7 @@ function PantallaLogin({ onAutenticado }) {
             </div>
           ))}
         </div>
-        <button onClick={simularHuella}
+        <button onClick={registrarHuella}
           style={{ width:96, height:96, borderRadius:"50%", border:`1px solid ${CL.linea}`, cursor: huellaEstado==="leyendo"?"not-allowed":"pointer", marginBottom:10,
             background: huellaEstado==="ok" ? CL.principal : huellaEstado==="leyendo" ? CL.ambarBg : "#fff",
             boxShadow: huellaEstado==="ok" ? `0 8px 28px ${CL.principal}55` : "0 4px 14px rgba(46,16,101,0.08)", transition:"all .3s" }}>
@@ -536,18 +608,30 @@ function PantallaLogin({ onAutenticado }) {
           </>)}
 
           {!conClave && (<>
-          <button onClick={() => handleLogin(true)} disabled={cargando}
+          {/* Entrada por huella REAL: solo si ya se registro en este equipo.
+              Sin credencial guardada, no se ofrece: se entra con clave y se registra
+              al final, para no prometer algo que no va a funcionar. */}
+          <button onClick={() => { if(huellaReg && puedeHuellaRealP()) entrarConHuella(); else setConClave(true); }}
+            disabled={cargando || entrandoBio}
             style={{ width:"100%", background: cargando ? "#d9d2ec" : CL.tinta, border:"none", borderRadius:10, padding:"16px",
               fontFamily:SERIF, fontSize:16.5, fontWeight:700, letterSpacing:"0.03em", color: cargando ? CL.grisTexto : "#fff",
               cursor: cargando ? "not-allowed" : "pointer", boxShadow: cargando ? "none" : `0 8px 22px ${CL.tinta}30`,
               display:"flex", alignItems:"center", justifyContent:"center", gap:11, transition:"all .2s" }}>
             <span style={{ display:"inline-flex", width:28, height:28, borderRadius:14, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", fontSize:14, lineHeight:1 }}>☉</span>
-            {cargando ? "Verificando…" : "Ingresar con huella dactilar"}
+            {entrandoBio ? "Verificando…"
+              : (huellaReg && puedeHuellaRealP()) ? "Ingresar con huella dactilar"
+              : "Ingresar con usuario y clave"}
           </button>
-          <div style={{ textAlign:"center", marginTop:16 }}>
-            <button onClick={() => setConClave(true)}
-              style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, fontWeight:600, color:CL.medio, cursor:"pointer", padding:6, textDecoration:"underline", textUnderlineOffset:3 }}>Primera vez o nuevo equipo · Ingresar con usuario y clave</button>
-          </div>
+          {(huellaReg && puedeHuellaRealP()) && (
+            <div style={{ textAlign:"center", marginTop:16 }}>
+              <button onClick={() => setConClave(true)}
+                style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, fontWeight:600, color:CL.medio, cursor:"pointer", padding:6, textDecoration:"underline", textUnderlineOffset:3 }}>Primera vez o nuevo equipo · Ingresar con usuario y clave</button>
+            </div>
+          )}
+          {!puedeHuellaRealP() && (
+            <p style={{ fontFamily:BODY, fontSize:11.5, color:CL.grisTenue, textAlign:"center", margin:"14px 6px 0", lineHeight:1.5 }}>
+              El ingreso con huella funciona en la app publicada.</p>
+          )}
           </>)}
         </div>
 
@@ -979,7 +1063,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"17", fecha:"20 jul 2026", desc:"Menu lateral en acordeon como freelance" };
+const VERSION = { n:"18", fecha:"20 jul 2026", desc:"Ingreso con huella real (WebAuthn)" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
