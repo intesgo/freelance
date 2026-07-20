@@ -79,6 +79,12 @@ input,select,textarea{font-family:inherit;font-size:16px;}
 .di-a{color:var(--texto-3);font-size:15px;flex-shrink:0;}
 .di-b{min-width:20px;height:20px;border-radius:10px;background:var(--maiz);color:var(--tinta);
   font-size:11px;font-weight:700;display:grid;place-items:center;padding:0 5px;flex-shrink:0;}
+/* Encabezado de grupo del menu: separador visual, no plegable.
+   Plegar obligaria a dos toques y esconderia lo que hay. */
+.dg-h{font-size:10.5px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+  color:var(--texto-3);margin:14px 2px 7px;display:flex;align-items:center;gap:8px;}
+.dg-h:first-child{margin-top:2px;}
+.dg-h::after{content:"";flex:1;height:1px;background:var(--linea);}
 .drawer-salir{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;
   background:#FBE9E4;color:#B5613C;border:1px solid #E8C0B0;border-radius:13px;padding:13px;
   font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer;}
@@ -968,7 +974,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"15", fecha:"20 jul 2026", desc:"XML del SRI en NC, retenciones y guias" };
+const VERSION = { n:"16", fecha:"20 jul 2026", desc:"Menu lateral agrupado desde 6 modulos" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1300,6 +1306,12 @@ function Decisiones({ctx}){
   );
 }
 
+/* ══ NORMA DEL MENÚ LATERAL (transversal a las 5 apps) ══
+   Hasta 5 módulos: lista plana. Desde 6: agrupados por encabezado.
+   Los grupos van SIEMPRE ABIERTOS — plegarlos obligaria a dos toques y
+   escondería lo que hay dentro. El encabezado solo ordena la vista. */
+const MENU_AGRUPA_DESDE = 6;
+
 /* ── Abrir el menu lateral deslizando desde el borde izquierdo ── */
 /* ══ LISTAS DESPLEGABLES ORDENADAS POR USO (norma sellada, transversal) ══
    Toda lista con repeticion real ordena sus opciones por cuantas veces se eligieron,
@@ -1609,27 +1621,48 @@ const TAREAS_NOTIF=[
             <button className="drawer-x" onClick={()=>setMenuAbierto(false)}>×</button>
           </div>
           <div className="drawer-body">
-            {[
-              ["prop","✎","#F3ECF9","Propuestas","Esperan a tu freelance",pendientes],
-              ["conciliacion","✓","#E5F0EA","Conciliación","Aprobar libera la comisión",cobrosPend],
-              ["carga","📄","#E8F0F7","Cargar factura","Sube el XML del SRI",0],
-              ["notas","↩","#F7EFE6","Notas de crédito","Devoluciones y descuentos",notasPend],
-              ["retenciones","🧾","#EDEAE0","Retenciones","Bajan la deuda del cliente",retenPend],
-              ["bancos","🏦","#E9EEE9","Mis cuentas","Dónde te pueden depositar",cuentasAct===0?"!":0],
-              ["guias","🚚","#E8F0F7","Guías de remisión","Amparan la carga en ruta",0],
-              ["catalogo","▤","#EFEAF7","Catálogo","Productos de tu línea",0],
-              ["cuenta","📒","#EEF1F5","Acuerdos","Tu cuenta y ajustes",0],
-            ].map(([k,ic,bg,t,sub,b])=>(
-              <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);irTab(k);}}>
-                <span className="di-ic" style={{background:bg}}>{ic}</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div className="di-t">{t}</div>
-                  <div className="di-s" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>
+            {/* Norma: hasta 5 módulos van en lista plana; desde 6, agrupados por
+                encabezado. El corte lo hace MENU_AGRUPA_DESDE, no la mano. */}
+            {(()=>{
+              const GRUPOS = [
+                ["Documentos", [
+                  ["carga","📄","#E8F0F7","Cargar factura","Sube el XML del SRI",0],
+                  ["notas","↩","#F7EFE6","Notas de crédito","Devoluciones y descuentos",notasPend],
+                  ["retenciones","🧾","#EDEAE0","Retenciones","Bajan la deuda del cliente",retenPend],
+                  ["guias","🚚","#E8F0F7","Guías de remisión","Amparan la carga en ruta",0],
+                ]],
+                ["Dinero", [
+                  ["conciliacion","✓","#E5F0EA","Conciliación","Aprobar libera la comisión",cobrosPend],
+                  ["bancos","🏦","#E9EEE9","Mis cuentas","Dónde te pueden depositar",cuentasAct===0?"!":0],
+                ]],
+                ["Mi línea", [
+                  ["prop","✎","#F3ECF9","Propuestas","Esperan a tu freelance",pendientes],
+                  ["catalogo","▤","#EFEAF7","Catálogo","Productos de tu línea",0],
+                ]],
+                ["Cuenta", [
+                  ["cuenta","📒","#EEF1F5","Acuerdos","Tu cuenta y ajustes",0],
+                ]],
+              ];
+              const item = ([k,ic,bg,t,sub,b])=>(
+                <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);irTab(k);}}>
+                  <span className="di-ic" style={{background:bg}}>{ic}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="di-t">{t}</div>
+                    <div className="di-s" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>
+                  </div>
+                  {b ? <span className="di-b" style={b==="!"?{background:"#B5432E",color:"#fff"}:null}>{b}</span> : null}
+                  <span className="di-a">›</span>
+                </button>
+              );
+              const todos = GRUPOS.reduce((a,g)=>a.concat(g[1]),[]);
+              if(todos.length < MENU_AGRUPA_DESDE) return todos.map(item);
+              return GRUPOS.filter(g=>g[1].length>0).map(([titulo,lista])=>(
+                <div key={titulo}>
+                  <div className="dg-h">{titulo}</div>
+                  {lista.map(item)}
                 </div>
-                {b ? <span className="di-b" style={b==="!"?{background:"#B5432E",color:"#fff"}:null}>{b}</span> : null}
-                <span className="di-a">›</span>
-              </button>
-            ))}
+              ));
+            })()}
 
             <button className="drawer-salir" onClick={()=>{setMenuAbierto(false);setConfirmarSalir(true);}}>
               Cerrar sesión
