@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"114", fecha:"20 jul 2026", desc:"Impresora: comandos ESC/POS intactos" };
+const VERSION = { n:"115", fecha:"20 jul 2026", desc:"Imprimir recibo de cobro desde Mi caja" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1158,6 +1158,94 @@ function SelloLineas() {
    jamas el contenido).
    En DEMO el hash vive en memoria/localStorage y no sale del telefono. En Fase 4 el
    cambio lo procesa Supabase Auth contra el servidor, con cifrado real. */
+/* ══ RECIBO DE COBRO PARA LA TÉRMICA ══
+   48 mm = 32 columnas. Se arma con los datos REALES del recibo guardado.
+   Las tildes las degrada textoImprimible() al enviar: aquí se escribe normal. */
+function ticketRecibo(r, cobrador){
+  if(!r) return "";
+  const F = (n)=>money(n||0);
+  let t = ESC_INI
+    + ESC_CENTRO + ESC_GRANDE + "FREELANCE\n" + ESC_NORMAL
+    + "RECIBO DE COBRO\n"
+    + ESC_NEGRITA + (r.nRecibo||"") + "\n" + ESC_PLANO + ESC_IZQ
+    + LINEA_32 + "\n"
+    + linea2("Cliente:", (r.cli||"").slice(0,21)) + "\n"
+    + linea2("Fecha:", r.hora || new Date().toLocaleDateString("es-EC")) + "\n";
+  if(cobrador) t += linea2("Cobrador:", String(cobrador).slice(0,21)) + "\n";
+  if(r.prov)   t += linea2("Proveedor:", String(r.prov).slice(0,21)) + "\n";
+  t += LINEA_32 + "\n";
+
+  /* Facturas que se cancelan o abonan con este cobro */
+  const facts = r.facturas || [];
+  if(facts.length){
+    facts.forEach((f)=>{
+      t += linea2(String(f.factura||"").slice(0,18), F(f.aplicado)) + "\n";
+      const resta = f.saldoRest||0;
+      t += (resta<=0.004 ? "  Cancelada" : "  Abona - resta "+F(resta)) + "\n";
+    });
+    t += LINEA_32 + "\n";
+  }
+
+  t += ESC_NEGRITA + linea2("TOTAL COBRADO", F(r.monto)) + "\n" + ESC_PLANO;
+
+  /* Cómo pagó: efectivo, transferencia, cheque… */
+  const pagos = r.lineas || [];
+  pagos.forEach((l)=>{
+    let et = l.modalidad || "Pago";
+    if(l.banco)  et += " " + l.banco;
+    if(l.numero) et += " " + l.numero;
+    t += linea2(et.slice(0,20), F(parseFloat(l.monto)||0)) + "\n";
+  });
+
+  if(r.anulado){
+    t += LINEA_32 + "\n" + ESC_CENTRO + ESC_NEGRITA + "*** RECIBO ANULADO ***\n" + ESC_PLANO;
+    if(r.motivoAnu) t += String(r.motivoAnu).slice(0,32) + "\n";
+    if(r.auAnu)     t += String(r.auAnu) + "\n";
+    t += ESC_IZQ;
+  }
+
+  t += LINEA_32 + "\n"
+    + ESC_CENTRO + "Gracias por su pago\n"
+    + "Este documento es una constancia\n"
+    + "de cobro, no una factura.\n"
+    + ESC_FIN;
+  return t;
+}
+
+/* ══ CONEXIÓN VIVA CON LA IMPRESORA ══
+   La impresora se vincula en Ajustes, pero se imprime desde Mi caja (otro
+   componente). Como React no comparte estado entre pantallas hermanas, el canal
+   de escritura se guarda aquí, fuera de React. Así sigue disponible al cambiar
+   de módulo, y solo se pierde al recargar la página (Web Bluetooth es así). */
+const IMPRESORA = { disp:null, canal:null, oyentes:[] };
+function fijarImpresora(disp, canal){
+  IMPRESORA.disp = disp; IMPRESORA.canal = canal;
+  IMPRESORA.oyentes.forEach((f)=>{ try{ f(); }catch(e){} });
+}
+function hayImpresora(){ return !!IMPRESORA.canal; }
+function useImpresora(){
+  const [,tick] = useState(0);
+  React.useEffect(()=>{
+    const f = ()=>tick(x=>x+1);
+    IMPRESORA.oyentes.push(f);
+    return ()=>{ const i=IMPRESORA.oyentes.indexOf(f); if(i>=0) IMPRESORA.oyentes.splice(i,1); };
+  },[]);
+  return IMPRESORA;
+}
+/* Envío global: cualquier módulo puede imprimir sin depender de Ajustes. */
+async function imprimirTexto(texto){
+  if(!IMPRESORA.canal) return false;
+  try{
+    const bytes = aBytesImpresora(texto);
+    const TROZO = 180;
+    for(let i=0;i<bytes.length;i+=TROZO){
+      await IMPRESORA.canal.writeValue(bytes.slice(i,i+TROZO));
+      await new Promise(r=>setTimeout(r,30));
+    }
+    return true;
+  }catch(e){ return false; }
+}
+
 /* ══ IMPRESORA TÉRMICA · comandos ESC/POS ══
    Modelo probado: GOOJPRT PT-210 (48 mm de ancho de impresión = 32 caracteres por
    línea en fuente normal). NO tiene cuchilla: en vez de cortar, se avanza papel
@@ -6510,6 +6598,20 @@ function MiDia({toast, yo}){
               {(verRec.facturas||[]).length===0 && <div className="meta" style={{fontSize:11.5}}>Sin detalle por factura.</div>}
             </div>
 
+            {/* Imprimir: solo aparece si hay impresora vinculada en Ajustes.
+                Si no la hay, se explica dónde se conecta en vez de un botón muerto. */}
+            {hayImpresora() ? (
+              <button className="cta" style={{width:"100%",marginBottom:9}}
+                onClick={async()=>{
+                  const ok = await imprimirTexto(ticketRecibo(verRec, String(yo||"").replace(/\s*\(.*\)\s*$/,"")));
+                  toast(ok ? "Recibo enviado a la impresora"
+                           : "No se pudo imprimir · revisa la impresora");
+                }}>
+                🖨️ Imprimir recibo</button>
+            ) : (
+              <div className="meta" style={{fontSize:11,lineHeight:1.5,margin:"0 2px 9px"}}>
+                Para imprimir este recibo, vincula la impresora en Ajustes → Impresora.</div>
+            )}
             <button className="back" style={{width:"100%"}} onClick={()=>setVerRec(null)}>Cerrar</button>
           </div>
         </div>
@@ -9359,8 +9461,10 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
         if(c){ canal=c; break; }
       }
       if(!canal){ toast("No se encontró por dónde enviar la impresión"); setBuscandoImp(false); return; }
-      disp.addEventListener("gattserverdisconnected",()=>{ setImpre(null); setCarImp(null); });
+      disp.addEventListener("gattserverdisconnected",()=>{
+        setImpre(null); setCarImp(null); fijarImpresora(null,null); });
       setImpre(disp); setCarImp(canal);
+      fijarImpresora(disp, canal);   /* queda disponible para los demás módulos */
       toast(`Impresora conectada: ${disp.name||"equipo"}`);
     }catch(e){
       if(e && e.name!=="NotFoundError") toast("No se pudo conectar. Revisa que esté encendida y cerca");
@@ -9653,7 +9757,8 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
             🧾 Muestra de recibo</button>
           <button className="back" style={{width:"100%",marginTop:8,color:"var(--clay)",borderColor:"#E8C0B0"}}
             onClick={()=>{ try{ impre.gatt && impre.gatt.disconnect(); }catch(e){}
-              setImpre(null); setCarImp(null); toast("Impresora desconectada"); }}>
+              setImpre(null); setCarImp(null); fijarImpresora(null,null);
+              toast("Impresora desconectada"); }}>
             Desconectar</button>
         </>)}
       </>)}
