@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"113", fecha:"20 jul 2026", desc:"Impresora: tildes degradadas + muestra de recibo" };
+const VERSION = { n:"114", fecha:"20 jul 2026", desc:"Impresora: comandos ESC/POS intactos" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1163,10 +1163,8 @@ function SelloLineas() {
    línea en fuente normal). NO tiene cuchilla: en vez de cortar, se avanza papel
    para poder cortar a mano.
 
-   TILDES Y Ñ: la impresora no entiende UTF-8. Hay que declararle una página de
-   códigos y mandarle los bytes en ESA codificación. Se usa CP858 (latino con €),
-   que es la que traen casi todas las térmicas chinas. Sin esto, "Cobré" y "Ñañay"
-   salen como basura. */
+   TILDES: esta impresora no las trae en su fuente (probado con CP437/850/858).
+   Se degradan antes de imprimir — ver textoImprimible(). */
 const ESC = "\x1B", GS = "\x1D";
 const ESC_INI    = ESC+"@";   /* reiniciar impresora */
 const ESC_CENTRO = ESC+"a"+"\x01";
@@ -1199,17 +1197,41 @@ const DEGRADA_IMP = {
   "¿":"","¡":"","·":"-","–":"-","—":"-","°":"o","ª":"a","º":"o",
   "“":'"',"”":'"',"‘":"'","’":"'","…":"...","€":"EUR","✓":"OK","★":"*","•":"-",
 };
-/* Deja el texto en ASCII imprimible. Lo que no se puede degradar se quita:
-   más vale una palabra limpia que una interrogante en medio del recibo. */
+/* Deja el texto en ASCII imprimible SIN tocar los comandos de la impresora.
+   OJO (error cometido el 20 jul 2026): un filtro que solo mira "¿es ASCII?" se
+   come los PARÁMETROS de los comandos — ESC a 0x01 (centrar) quedaba en ESC a, y
+   GS ! 0x11 (letra grande) en GS !. La impresora recibía comandos a medias y
+   sacaba el ticket en una columna angosta.
+   Por eso aquí se detectan las secuencias ESC/POS y se copian ENTERAS. */
 function textoImprimible(texto){
-  let t = String(texto||"");
+  const t = String(texto||"");
   let r = "";
-  for(const c of t){
-    if(DEGRADA_IMP[c]!==undefined) { r += DEGRADA_IMP[c]; continue; }
-    const k = c.charCodeAt(0);
-    if(k===10 || k===13 || k===27 || k===29) { r += c; continue; }  /* saltos y ESC/GS */
-    if(k>=32 && k<127) { r += c; continue; }                        /* ASCII imprimible */
-    /* cualquier otra cosa (emoji, símbolo raro) se descarta */
+  for(let i=0;i<t.length;i++){
+    const c = t[i], k = t.charCodeAt(i);
+
+    /* ── comandos: se copian tal cual, con sus parámetros ── */
+    if(k===27){                                   /* ESC */
+      const sig = t[i+1];
+      if(sig==="@"){ r += t.substr(i,2); i+=1; continue; }              /* ESC @      */
+      if(sig==="a"||sig==="E"||sig==="t"||sig==="R"||sig==="M"||sig==="-"||sig==="d"||sig==="J"){
+        r += t.substr(i,3); i+=2; continue;                              /* ESC x n    */
+      }
+      r += c; continue;
+    }
+    if(k===29){                                   /* GS */
+      const sig = t[i+1];
+      if(sig==="!"||sig==="B"||sig==="h"||sig==="w"||sig==="f"){
+        r += t.substr(i,3); i+=2; continue;                              /* GS x n     */
+      }
+      if(sig==="V"){ r += t.substr(i,4); i+=3; continue; }               /* GS V m n   */
+      r += c; continue;
+    }
+
+    /* ── texto: se degrada lo que no imprime esta térmica ── */
+    if(DEGRADA_IMP[c]!==undefined){ r += DEGRADA_IMP[c]; continue; }
+    if(k===10 || k===13){ r += c; continue; }     /* saltos de línea */
+    if(k>=32 && k<127){ r += c; continue; }       /* ASCII imprimible */
+    /* emoji o símbolo raro: se descarta */
   }
   return r;
 }
@@ -1219,7 +1241,7 @@ function textoImprimible(texto){
 function aBytesImpresora(texto){
   const t = textoImprimible(texto);
   const salida = new Uint8Array(t.length);
-  for(let i=0;i<t.length;i++) salida[i] = t.charCodeAt(i) & 0x7F;
+  for(let i=0;i<t.length;i++) salida[i] = t.charCodeAt(i) & 0xFF;
   return salida;
 }
 /* Dos columnas en 32 caracteres: etiqueta a la izquierda, valor a la derecha. */
