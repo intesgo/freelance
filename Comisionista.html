@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"109", fecha:"20 jul 2026", desc:"Aviso de version nueva" };
+const VERSION = { n:"110", fecha:"20 jul 2026", desc:"Aviso de version nueva unificado" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -10035,51 +10035,47 @@ function Root(){
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
 </script>
 <script>
-/* ═ Nivel 2 de notificaciones + modo offline: el service worker se registra SOLO al
-   vivir en HTTPS (GitHub Pages). Abriendo el archivo local no hace nada (ni molesta).
+/* ═ Nivel 2 de notificaciones + modo offline + aviso de versión nueva ═
+   El service worker se registra SOLO en HTTPS (GitHub Pages); abriendo el archivo
+   local no hace nada ni molesta.
 
-   AVISO DE VERSIÓN NUEVA: cuando hay una versión publicada, el service worker nuevo
-   queda ESPERANDO en segundo plano y aquí se muestra una banda discreta abajo.
-   La app NO se recarga sola: si el vendedor está a mitad de un pedido, perdería el
-   trabajo. Él decide cuándo. ═ */
+   AVISO DE VERSIÓN NUEVA (patrón único de las 5 apps): cuando hay una versión
+   publicada, el service worker nuevo queda ESPERANDO en segundo plano y aquí se
+   muestra una barra abajo. La app NO se recarga sola: si el usuario está a mitad
+   de un pedido o un cobro, perdería el trabajo. Él decide, y puede posponerlo. ═ */
 if ("serviceWorker" in navigator && location.protocol === "https:") {
+  var mostrarAvisoActualizar = function(reg){
+    if (document.getElementById("aviso-actualizar")) return;
+    var barra = document.createElement("div");
+    barra.id = "aviso-actualizar";
+    barra.style.cssText = "position:fixed;left:12px;right:12px;z-index:99999;"+
+      "bottom:calc(78px + env(safe-area-inset-bottom,0px));"+
+      "background:#1E3A2B;color:#EAF0EA;border-radius:14px;padding:12px 14px;"+
+      "display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.28);"+
+      "font-family:inherit;font-size:13.5px";
+    barra.innerHTML =
+      '<span style="flex:1;min-width:0;line-height:1.3">Hay una versión nueva disponible.</span>'+
+      '<button id="btn-actualizar" style="flex-shrink:0;background:#E9C46A;color:#1E3A2B;'+
+      'border:none;border-radius:10px;padding:8px 15px;font-weight:800;font-size:13px;'+
+      'font-family:inherit;cursor:pointer">Actualizar</button>'+
+      '<button id="btn-despues" style="flex-shrink:0;background:transparent;'+
+      'color:rgba(234,240,234,.72);border:none;font-size:12.5px;font-family:inherit;'+
+      'cursor:pointer;padding:8px 2px">Después</button>';
+    document.body.appendChild(barra);
+    document.getElementById("btn-despues").onclick = function(){ barra.remove(); };
+    document.getElementById("btn-actualizar").onclick = function(){
+      var b = document.getElementById("btn-actualizar");
+      b.textContent = "Actualizando…"; b.disabled = true;
+      var esperando = reg.waiting;
+      if (esperando) { esperando.postMessage({ tipo: "activar-ya" }); }
+      /* 900 ms: le da tiempo al service worker nuevo a tomar el control. Con menos,
+         a veces recarga con el viejo y el aviso vuelve a salir. */
+      setTimeout(function(){ location.reload(); }, 900);
+    };
+  };
   navigator.serviceWorker.register("./sw.js").then(function(reg){
-
-    function mostrarAviso(esperando){
-      if (document.getElementById("aviso-version")) return;
-      var b = document.createElement("div");
-      b.id = "aviso-version";
-      b.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);"
-        + "bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:9999;"
-        + "max-width:min(420px,92vw);width:max-content;display:flex;align-items:center;gap:10px;"
-        + "background:#15392B;color:#fff;border-radius:14px;padding:11px 13px;"
-        + "box-shadow:0 8px 26px rgba(0,0,0,.32);font-family:inherit;font-size:13px;";
-      var t = document.createElement("span");
-      t.textContent = "Versión nueva disponible";
-      t.style.cssText = "flex:1;min-width:0;font-weight:600;";
-      var ok = document.createElement("button");
-      ok.textContent = "Actualizar";
-      ok.style.cssText = "flex-shrink:0;background:#F2A900;color:#15392B;border:none;"
-        + "border-radius:9px;padding:8px 13px;font-family:inherit;font-size:12.5px;"
-        + "font-weight:700;cursor:pointer;";
-      ok.onclick = function(){
-        ok.textContent = "Actualizando…"; ok.disabled = true;
-        /* el SW nuevo toma el control; al hacerlo se recarga la app */
-        if (esperando) esperando.postMessage({ tipo: "activar-ya" });
-        setTimeout(function(){ location.reload(); }, 900);
-      };
-      var no = document.createElement("button");
-      no.textContent = "Después";
-      no.style.cssText = "flex-shrink:0;background:transparent;color:rgba(255,255,255,.75);"
-        + "border:none;font-family:inherit;font-size:12.5px;cursor:pointer;padding:8px 4px;";
-      no.onclick = function(){ b.remove(); };
-      b.appendChild(t); b.appendChild(ok); b.appendChild(no);
-      document.body.appendChild(b);
-    }
-
     /* ya había una versión esperando al abrir */
-    if (reg.waiting) mostrarAviso(reg.waiting);
-
+    if (reg.waiting && navigator.serviceWorker.controller) mostrarAvisoActualizar(reg);
     /* llegó una versión nueva mientras la app estaba abierta */
     reg.addEventListener("updatefound", function(){
       var nuevo = reg.installing;
@@ -10087,17 +10083,18 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
       nuevo.addEventListener("statechange", function(){
         /* controller existe = no es la primera instalación, es una actualización */
         if (nuevo.state === "installed" && navigator.serviceWorker.controller) {
-          mostrarAviso(reg.waiting || nuevo);
+          mostrarAvisoActualizar(reg);
         }
       });
     });
-
-    /* al volver a la app, revisa si hay algo nuevo publicado */
+    /* revisa al abrir y cada vez que se vuelve a la app */
+    reg.update();
     document.addEventListener("visibilitychange", function(){
-      if (!document.hidden) reg.update().catch(function(){});
+      if (document.visibilityState === "visible") reg.update();
     });
-
   }).catch(function(){ /* sin permiso o sin red: la app sigue normal */ });
+  /* NO se recarga solo al cambiar el service worker: puede entrar en bucle y dejar
+     la app cargando para siempre. El usuario decide con el botón. */
 }
 </script>
 </body>
