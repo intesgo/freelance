@@ -1287,6 +1287,33 @@ const PROVEEDORES = [
    · Liquidación: corte MENSUAL de lo ya liberado — y la liberación sigue la regla de oro:
      solo la confirmación del pago por parte del proveedor. Deudas y ajustes post-venta
      entran como cargos/notas de crédito al corte (matriz 50/50 o tercios). */
+/* ══ MIS CHEQUES ══
+   El socio recauda cheques y los entrega. Lo que necesita saber es simple:
+   qué tiene en la mano, cuándo se cobra cada uno y a quién se lo entregó.
+   NO marca protestos (eso carga plata a la cartera del cliente: lo decide el Freelance)
+   ni maneja courier ni bitácora con PDF: eso es de las apps de gestión. */
+const YO_SOCIO = "Marco Tipán (Socio)";
+const A_QUIEN_ENTREGO = ["Daniel Ríos (Freelance)", "Patricia Vélez (Logística)", "Agrícola del Valle", "Molinos del Litoral"];
+
+const MIS_CHEQUES = [
+  {numero:"CHQ-007712", cli:"Comercial Nilo", banco:"Banco Pichincha",
+   valor:850, fecha:"2026-07-24", dueno:"Comercial Nilo", tenedor:YO_SOCIO,
+   recibido:"2026-07-02"},
+  {numero:"CHQ-007890", cli:"Almacenes Fernando", banco:"Banco Guayaquil",
+   valor:1620, fecha:"2026-07-21", dueno:"Fernando Salazar", tenedor:YO_SOCIO,
+   recibido:"2026-07-05"},
+  {numero:"CHQ-008104", cli:"Distribuidora Los Andes", banco:"Produbanco",
+   valor:2400, fecha:"2026-08-15", dueno:"Distribuidora Los Andes", tenedor:YO_SOCIO,
+   recibido:"2026-07-11"},
+  /* ya entregados: quedan de respaldo, nunca se borran */
+  {numero:"CHQ-007455", cli:"Comercial Nilo", banco:"Banco del Pacífico",
+   valor:520, fecha:"2026-07-10", dueno:"Comercial Nilo", tenedor:"Daniel Ríos (Freelance)",
+   recibido:"2026-06-20", entregado:"2026-07-01", entregadoA:"Daniel Ríos (Freelance)", codigo:"418207"},
+];
+
+/* Entregas esperando que el otro confirme con el código */
+const ENTREGAS_PEND = [];
+
 /* ══ USO DE LISTAS DESPLEGABLES ══
    Norma sellada: toda lista desplegable se ordena por las veces que cada opción
    fue elegida, de mayor a menor. El contador se guarda pero NUNCA se muestra en
@@ -1326,14 +1353,13 @@ const ordUso = (cat, lista) => {
    Nada se borra: los ocultos siguen aquí, listos para encenderse.
    En Fase 4 esta lista viene de Supabase (tabla usuarios). */
 const MODULOS_PERMITIDOS = [
-  "inicio", "clientes", "pedido", "pedidos", "cobros", "cartera", "cuenta",
+  "inicio", "clientes", "pedido", "pedidos", "cobros", "cartera", "cheques", "cuenta",
   /* ocultos por ahora — los activa el sistema web:
      "portafolio", "stock", "precios", "productos", "agenda", "novedades", "comisiones" */
-  /* pendiente de construir: "boveda" (Mis cheques) */
 ];
 const puedeVer = (m) => MODULOS_PERMITIDOS.includes(m);
 
-const VERSION = { n:"6", fecha:"20 jul 2026", desc:"Sello de version en el inicio" };
+const VERSION = { n:"7", fecha:"20 jul 2026", desc:"Modulo Mis cheques" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -1885,6 +1911,10 @@ function Inicio({go}){
         <div className="ico" style={{background:"#E9EEE9",color:"#15392B"}}>💰</div>
         <div className="t">Lo que me deben</div><div className="s">De mis clientes</div>
       </button>
+      {puedeVer("cheques") && (<button onClick={()=>go("cheques")}>
+        <div className="ico" style={{background:"#FBF0D8",color:"#C77F00"}}>🧾</div>
+        <div className="t">Mis cheques</div><div className="s">Los que tengo en mano</div>
+      </button>)}
     </div>
 
     <div className="sec-h"><h2>Catálogo</h2><div className="grain"></div></div>
@@ -3749,6 +3779,216 @@ function Stock({toast}){
 }
 
 // ---------- CARTERA ----------
+function MisCheques({toast}){
+  const [sel,setSel]=useState(null);          // cheque abierto
+  const [entregando,setEntregando]=useState(null);
+  const [aQuien,setAQuien]=useState("");
+  const [codigo,setCodigo]=useState(null);
+  const [tick,setTick]=useState(0);
+
+  const HOY = "2026-07-20";
+  const dias = (f)=> Math.round((new Date(f) - new Date(HOY))/86400000);
+  const fCorta = (f)=>{
+    if(!f) return "—";
+    const M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const p=String(f).slice(0,10).split("-");
+    return `${parseInt(p[2])} ${M[parseInt(p[1])-1]}`;
+  };
+
+  const mios      = MIS_CHEQUES.filter(c=>c.tenedor===YO_SOCIO);
+  const entregados= MIS_CHEQUES.filter(c=>c.tenedor!==YO_SOCIO);
+  const total     = mios.reduce((a,c)=>a+c.valor,0);
+  /* lo que se cobra pronto es lo que hay que entregar primero */
+  const pronto    = mios.filter(c=>dias(c.fecha)<=7);
+
+  const entregar=()=>{
+    if(!aQuien){ toast("Elige a quién le entregas el cheque"); return; }
+    const cod = String(Math.floor(100000+Math.random()*900000));
+    ENTREGAS_PEND.push({numero:entregando.numero, a:aQuien, cod});
+    setCodigo(cod);
+  };
+  const confirmarEntrega=()=>{
+    const c = MIS_CHEQUES.find(x=>x.numero===entregando.numero);
+    if(c){ c.tenedor=aQuien; c.entregadoA=aQuien; c.codigo=codigo; c.entregado=HOY; }
+    setEntregando(null); setAQuien(""); setCodigo(null); setSel(null); setTick(t=>t+1);
+    toast(`Cheque entregado a ${aQuien}`);
+  };
+
+  /* ── UN CHEQUE ── */
+  if(sel){
+    const c = MIS_CHEQUES.find(x=>x.numero===sel) || {};
+    const d = dias(c.fecha);
+    const esMio = c.tenedor===YO_SOCIO;
+    return (<>
+      <div className="h1">Cheque de {c.cli}</div>
+      <div className="sub">{c.banco} · N° {c.numero}</div>
+
+      <div className="hero" style={{marginTop:14}}>
+        <div className="lbl">Valor del cheque</div>
+        <div className="big num">{money(c.valor)}</div>
+        <div className="split">
+          <div>
+            <div className="k">Se cobra el</div>
+            <div className="v num">{fCorta(c.fecha)}</div>
+          </div>
+          <div>
+            <div className="k">{d>0?"Faltan":d===0?"Es hoy":"Ya pasó"}</div>
+            <div className="v num">{d===0?"—":Math.abs(d)+" días"}</div>
+          </div>
+        </div>
+      </div>
+
+      {esMio && d<=7 && (
+        <div className="card" style={{marginTop:14,background:"#FBF0D8",border:"1px solid #EAD9A8"}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#7A5B00"}}>
+            {d<0 ? "Este cheque ya se podía cobrar" : "Este cheque se cobra pronto"}</div>
+          <div style={{fontSize:15,color:"#7A5B00",marginTop:4}}>
+            Entrégalo para que lo depositen a tiempo.</div>
+        </div>
+      )}
+
+      <div className="card" style={{marginTop:14}}>
+        <div style={{fontSize:15,color:"var(--muted)"}}>Quién firmó el cheque</div>
+        <div style={{fontSize:17,fontWeight:700,marginTop:2}}>{c.dueno}</div>
+        {c.dueno!==c.cli && (
+          <div style={{fontSize:15,color:"#C77F00",fontWeight:600,marginTop:4}}>
+            Es de un tercero, no del cliente</div>
+        )}
+        <div style={{fontSize:15,color:"var(--muted)",marginTop:12}}>Lo recibiste el</div>
+        <div style={{fontSize:17,fontWeight:700,marginTop:2}}>{fCorta(c.recibido)}</div>
+      </div>
+
+      {!esMio && (
+        <div className="card" style={{marginTop:14,background:"#E4F1E9",border:"1px solid #BFE0CC"}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#2E7D52"}}>✓ Ya lo entregaste</div>
+          <div style={{fontSize:15,marginTop:4}}>A {c.entregadoA} · {fCorta(c.entregado)}</div>
+          {c.codigo && <div style={{fontSize:15,color:"var(--muted)",marginTop:4}}>
+            Código de entrega: {c.codigo}</div>}
+        </div>
+      )}
+
+      {esMio && (
+        <button className="cta" style={{marginTop:18}}
+          onClick={()=>{ setEntregando(c); setAQuien(""); setCodigo(null); }}>
+          Entregar este cheque</button>
+      )}
+
+      <button className="back" style={{width:"100%",marginTop:12}}
+        onClick={()=>setSel(null)}>Volver a mis cheques</button>
+
+      {/* entregar: dos pasos, uno por pantalla */}
+      {entregando && (
+        <div className="ov" onClick={()=>{setEntregando(null);setCodigo(null);}}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            {!codigo ? (<>
+              <h3>¿A quién se lo entregas?</h3>
+              <div style={{fontSize:16,color:"var(--muted)",margin:"8px 0 16px"}}>
+                Cheque de {entregando.cli} · {money(entregando.valor)}</div>
+              {A_QUIEN_ENTREGO.map(p=>(
+                <button key={p} className="back"
+                  style={{width:"100%",marginBottom:10,padding:"16px",fontSize:16,
+                    textAlign:"left",fontWeight:aQuien===p?700:500,
+                    background:aQuien===p?"var(--field-soft)":undefined}}
+                  onClick={()=>setAQuien(p)}>{aQuien===p?"✓ ":""}{p}</button>
+              ))}
+              <button className="cta" style={{marginTop:8}} onClick={entregar}>Continuar</button>
+              <button className="back" style={{width:"100%",marginTop:10}}
+                onClick={()=>setEntregando(null)}>Cancelar</button>
+            </>) : (<>
+              <h3>Dile este número</h3>
+              <div style={{fontSize:16,color:"var(--muted)",margin:"8px 0 4px"}}>
+                A {aQuien}, para que confirme que lo recibió:</div>
+              <div style={{textAlign:"center",background:"var(--field-soft)",
+                borderRadius:14,padding:"22px 16px",margin:"14px 0"}}>
+                <div className="num" style={{fontSize:38,fontWeight:800,letterSpacing:".1em"}}>{codigo}</div>
+              </div>
+              <div style={{fontSize:15,color:"var(--muted)",marginBottom:16,lineHeight:1.5}}>
+                Hasta que lo confirme, el cheque sigue siendo tu responsabilidad.</div>
+              <button className="cta" onClick={confirmarEntrega}>Ya se lo di</button>
+              <button className="back" style={{width:"100%",marginTop:10}}
+                onClick={()=>{setEntregando(null);setCodigo(null);}}>Cancelar</button>
+            </>)}
+          </div>
+        </div>
+      )}
+    </>);
+  }
+
+  /* ── LISTA ── */
+  return (<>
+    <div className="h1">Mis cheques</div>
+    <div className="sub">Los cheques que tienes en tu poder.</div>
+
+    <div className="hero" style={{marginTop:14}}>
+      <div className="lbl">Tienes {mios.length} cheque{mios.length!==1?"s":""}</div>
+      <div className="big num">{money(total)}</div>
+      {pronto.length>0 && (
+        <div className="split">
+          <div>
+            <div className="k" style={{color:"#F2C9B8"}}>Se cobran pronto</div>
+            <div className="v num" style={{color:"#F2C9B8"}}>{pronto.length}</div>
+          </div>
+          <div>
+            <div className="k" style={{color:"#F2C9B8"}}>Por entregar</div>
+            <div className="v num" style={{color:"#F2C9B8"}}>
+              {money(pronto.reduce((a,c)=>a+c.valor,0))}</div>
+          </div>
+        </div>
+      )}
+    </div>
+
+    {mios.length===0 && <div className="ph" style={{marginTop:16}}>
+      No tienes cheques en tu poder.</div>}
+
+    {mios.length>0 && (<>
+      <div className="sec-h"><h2>Los que se cobran primero</h2><div className="grain"></div></div>
+      {[...mios].sort((a,b)=>a.fecha<b.fecha?-1:1).map(c=>{
+        const d=dias(c.fecha), urge=d<=7;
+        return (
+          <div className="card" key={c.numero} onClick={()=>setSel(c.numero)}
+            style={{cursor:"pointer",borderLeft:urge?"4px solid #C77F00":undefined}}>
+            <div className="row">
+              <div style={{minWidth:0,flex:1}}>
+                <div className="cli">{c.cli}</div>
+                <div className="meta">{c.banco} · N° {c.numero}</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div className="amt num">{money(c.valor)}</div>
+              </div>
+            </div>
+            <div className="row" style={{marginTop:10,alignItems:"center"}}>
+              <span style={{fontSize:15,fontWeight:700,padding:"6px 12px",borderRadius:99,
+                color:urge?"#7A5B00":"#2E7D52", background:urge?"#FBF0D8":"#E4F1E9"}}>
+                {d<0 ? `Se podía cobrar hace ${Math.abs(d)} días`
+                     : d===0 ? "Se cobra hoy"
+                     : `Se cobra en ${d} días`}</span>
+              <span className="mini-cta" style={{marginLeft:"auto"}}>Ver →</span>
+            </div>
+          </div>
+        );
+      })}
+    </>)}
+
+    {entregados.length>0 && (<>
+      <div className="sec-h"><h2>Ya entregados</h2><div className="grain"></div></div>
+      {entregados.map(c=>(
+        <div className="card" key={c.numero} onClick={()=>setSel(c.numero)}
+          style={{cursor:"pointer",opacity:.75}}>
+          <div className="row">
+            <div style={{minWidth:0,flex:1}}>
+              <div className="cli">{c.cli}</div>
+              <div className="meta">A {c.entregadoA} · {fCorta(c.entregado)}</div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <div className="amt num">{money(c.valor)}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>)}
+  </>);
+}
+
 function Cartera({toast}){
   const [q,setQ]=useState("");
   const [fVer,setFVer]=useState("todas");   // todas | vencidas | pronto
@@ -5392,6 +5632,7 @@ function App(){
         {tab==="agenda" && <Agenda toast={show}/>}
         {tab==="stock" && <Stock toast={show}/>}
         {tab==="cartera" && <Cartera toast={show}/>}
+        {tab==="cheques" && <MisCheques toast={show}/>}
         {tab==="clientes" && <Clientes toast={show}/>}
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="portafolio" && <Portafolio modo="comisionista" miSector="Sierra Centro" miDistribuidor="Distribuidora Ríos"/>}
