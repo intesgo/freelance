@@ -4193,7 +4193,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"274", fecha:"19 jul 2026", desc:"Listas desplegables ordenadas por uso"};
+const VERSION={n:"275", fecha:"19 jul 2026", desc:"Historial: boton de evidencia (cheque y guia)"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6069,6 +6069,7 @@ function Boveda({toast, yo, volver}){
   const [codigoIng,setCodigoIng]=useState("");
   const [tick,setTick]=useState(0);
   const [verFoto,setVerFoto]=useState(false);
+  const [verEvid,setVerEvid]=useState(null);   // movimiento de la bitácora con evidencia abierta
   const [reprog,setReprog]=useState(false);
   const [nuevaFecha,setNuevaFecha]=useState("");
   const [coment,setComent]=useState("");
@@ -6076,7 +6077,9 @@ function Boveda({toast, yo, volver}){
   useModal(!!entregando, React.useCallback(()=>{setEntregando(null);setCodigoGen(null);},[]));
   useModal(recibiendo, React.useCallback(()=>setRecibiendo(false),[]));
   useModal(verFoto, React.useCallback(()=>setVerFoto(false),[]));
+  useModal(!!verEvid, React.useCallback(()=>setVerEvid(null),[]));
   useRetroceso(()=>{
+    if(verEvid){ setVerEvid(null); return true; }
     if(verFoto){ setVerFoto(false); return true; }
     if(entregando){ setEntregando(null); setCodigoGen(null); return true; }
     if(recibiendo){ setRecibiendo(false); return true; }
@@ -6635,9 +6638,13 @@ function Boveda({toast, yo, volver}){
               color:entregue?"#A06B15":"#2E7D52"}}>
               {entregue ? `↗ Entregado a ${t.para}` : `↙ Recibido de ${t.de}`}</div>
 
-            <div className="meta" style={{fontSize:11,marginTop:4,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {t.via==="courier" ? `📦 ${t.courier} · guía ${t.guia}` : "🤝 En mano"}</div>
+            <div className="row" style={{alignItems:"center",gap:8,marginTop:4}}>
+              <div className="meta" style={{fontSize:11,flex:1,minWidth:0,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {t.via==="courier" ? `📦 ${t.courier} · guía ${t.guia}` : "🤝 En mano"}</div>
+              <button className="back" style={{flexShrink:0,padding:"7px 11px",fontSize:11.5,fontWeight:700}}
+                onClick={()=>setVerEvid(t)}>🖼️ Evidencia</button>
+            </div>
 
             <div style={{borderTop:"1px solid var(--line)",marginTop:8,paddingTop:7}}>
               <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
@@ -6680,6 +6687,51 @@ function Boveda({toast, yo, volver}){
           📄 Compartir bitácora en PDF</button>
       )}
     </>)}
+
+    {/* evidencia del movimiento: foto del cheque y, si fue por courier, la guía */}
+    {verEvid && (
+      <div className="ov" onClick={()=>setVerEvid(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Evidencia · {verEvid.numero}</h3>
+          <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+            {verEvid.cli} · {money(verEvid.valor||0)}</div>
+
+          <div className="ficha-sec" style={{marginBottom:6}}>Foto del cheque</div>
+          <div style={{background:"#EFEBE0",borderRadius:12,padding:"38px 16px",
+            textAlign:"center",color:"var(--muted)"}}>
+            <div style={{fontSize:36}}>🧾</div>
+            <div className="meta" style={{marginTop:8,fontSize:12}}>Imagen del cheque físico</div>
+            <div className="meta" style={{fontSize:10.5}}>(Se sube al recibir el cheque · Fase 4)</div>
+          </div>
+
+          {verEvid.via==="courier" && (<>
+            <div className="ficha-sec" style={{margin:"14px 0 6px"}}>Guía del courier</div>
+            <div style={{background:"#EFEBE0",borderRadius:12,padding:"38px 16px",
+              textAlign:"center",color:"var(--muted)"}}>
+              <div style={{fontSize:36}}>📦</div>
+              <div className="meta" style={{marginTop:8,fontSize:12}}>
+                {verEvid.courier} · guía {verEvid.guia}</div>
+              <div className="meta" style={{fontSize:10.5}}>
+                {verEvid.guiaFoto?"(Foto tomada al despachar · Fase 4)":"(Sin foto de la guía)"}</div>
+            </div>
+          </>)}
+
+          <div className="card" style={{padding:"11px 14px",marginTop:14,background:"#F2F7F3"}}>
+            <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
+              <span className="meta" style={{fontSize:11}}>Código validado</span>
+              <b className="num" style={{fontSize:13,letterSpacing:".06em"}}>{verEvid.cod}</b>
+            </div>
+            <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
+              <span className="meta" style={{fontSize:11}}>Auditoría</span>
+              <span className="num" style={{fontSize:11,color:"var(--muted)"}}>{verEvid.au}</span>
+            </div>
+          </div>
+
+          <button className="back" style={{width:"100%",marginTop:12}}
+            onClick={()=>setVerEvid(null)}>Cerrar</button>
+        </div>
+      </div>
+    )}
 
     {/* recibir: ingresa el código que le dieron */}
     {recibiendo && (
