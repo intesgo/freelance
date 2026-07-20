@@ -23,6 +23,34 @@
     position:relative;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.4)}
   @media(min-width:480px){.shell{height:100dvh}}
 
+  /* ===== menu lateral (drawer) ===== */
+  .ham{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.10);color:#EAF0EA;
+    display:grid;place-items:center;font-size:19px;line-height:1;flex-shrink:0;font-weight:700;border:none}
+  .ham:active{background:rgba(255,255,255,.22)}
+  .drawer-ov{position:fixed;inset:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
+    background:rgba(0,0,0,0);visibility:hidden;z-index:60;transition:background .25s}
+  .drawer-ov.on{background:rgba(0,0,0,.45);visibility:visible}
+  .drawer{position:absolute;top:0;bottom:0;left:0;width:82%;max-width:330px;background:var(--paper);
+    transform:translateX(-100%);transition:transform .25s ease;display:flex;flex-direction:column;
+    box-shadow:2px 0 22px rgba(0,0,0,.22)}
+  .drawer.on{transform:translateX(0)}
+  .drawer-head{background:var(--field);padding:18px 16px 16px;display:flex;align-items:flex-start;
+    justify-content:space-between;gap:10px}
+  .drawer-x{background:rgba(255,255,255,.15);border:none;color:#fff;width:30px;height:30px;
+    border-radius:8px;font-size:17px;flex-shrink:0}
+  .drawer-body{flex:1;overflow-y:auto;padding:14px 13px 20px}
+  .drawer-it{width:100%;display:flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--line);
+    border-radius:13px;padding:11px 13px;margin-bottom:8px;font-family:inherit;text-align:left}
+  .drawer-it:active{background:var(--paper)}
+  .di-ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:16px;flex-shrink:0}
+  .di-t{font-size:13.5px;font-weight:700;color:var(--ink)}
+  .di-s{font-size:11px;color:var(--muted);margin-top:1px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .di-a{color:var(--muted);font-size:15px;flex-shrink:0}
+  .drawer-salir{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;
+    background:#FBE9E4;color:#B5613C;border:1px solid #E8C0B0;border-radius:13px;padding:13px;
+    font-size:13.5px;font-weight:700;font-family:inherit}
+
   /* ===== top ===== */
   .top{background:var(--field);color:#EAF0EA;padding:14px 18px 16px;
     display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -281,7 +309,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const VERSION = { n:"4", fecha:"20 jul 2026", desc:"Sello de version en el encabezado" };
+const VERSION = { n:"5", fecha:"20 jul 2026", desc:"Menu lateral con las gestiones del chofer" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -787,17 +815,123 @@ function PantallaLogin({ onEntrar }){
 }
 
 /* ---------- Cascarón interior (barra superior + cuerpo) ---------- */
-function Shell({ who, name, onSalir, extraDer, children }){
+/* ── Abrir el menu lateral deslizando desde el borde izquierdo ── */
+function useGestoDrawer(abrir, activo){
+  React.useEffect(()=>{
+    if(!activo) return;
+    const BORDE=20, MINIMO=60;
+    let x0=0, y0=0, valido=false;
+    const inicio=(e)=>{
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const caja=document.querySelector(".shell");
+      const izq=caja ? caja.getBoundingClientRect().left : 0;
+      valido = (t.clientX - izq) <= BORDE;
+      x0=t.clientX; y0=t.clientY;
+    };
+    const mover=(e)=>{
+      if(!valido) return;
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const dx=t.clientX-x0, dy=Math.abs(t.clientY-y0);
+      if(dx>MINIMO && dx>dy*2){ valido=false; abrir(); }
+      if(dy>28) valido=false;
+    };
+    const fin=()=>{ valido=false; };
+    document.addEventListener("touchstart", inicio, {passive:true});
+    document.addEventListener("touchmove", mover, {passive:true});
+    document.addEventListener("touchend", fin, {passive:true});
+    document.addEventListener("touchcancel", fin, {passive:true});
+    return ()=>{
+      document.removeEventListener("touchstart", inicio);
+      document.removeEventListener("touchmove", mover);
+      document.removeEventListener("touchend", fin);
+      document.removeEventListener("touchcancel", fin);
+    };
+  },[abrir,activo]);
+}
+
+/* ── Menu lateral del transportista: sus gestiones, fuera de la pantalla de ruta ── */
+function MenuLateral({ abierto, cerrar, chofer, irSeccion, pedirSalir }){
+  const ITEMS = [
+    ["pagos","💵","#E5F0EA","Pagos por transporte","Lo que te deben"],
+    ["anticipo","🧾","#EDEAE0","Anticipo de estibada","Pedir por adelantado"],
+    ["reposicion","↩️","#F7EFE6","Reposición de estibada","Ya pagué, me devuelven"],
+    ["historial","📋","#E8F0F7","Historial de rutas","Viajes entregados"],
+  ];
+  return (
+    <div className={"drawer-ov"+(abierto?" on":"")} onClick={cerrar}>
+      <div className={"drawer"+(abierto?" on":"")} onClick={(e)=>e.stopPropagation()}
+        onTouchStart={(e)=>{ const t=e.touches[0]; e.currentTarget.dataset.x0=t.clientX; e.currentTarget.dataset.y0=t.clientY; }}
+        onTouchMove={(e)=>{
+          const t=e.touches[0], d=e.currentTarget.dataset;
+          if(d.x0===undefined) return;
+          const dx=t.clientX-Number(d.x0), dy=Math.abs(t.clientY-Number(d.y0));
+          if(dx < -60 && Math.abs(dx) > dy*2){ d.x0=undefined; cerrar(); }
+        }}>
+        <div className="drawer-head">
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:11.5, color:"#9DB6A6", fontWeight:600 }}>Transportista</div>
+            <div style={{ fontSize:16, color:"#fff", fontWeight:700, marginTop:1,
+              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{chofer||""}</div>
+          </div>
+          <button className="drawer-x" onClick={cerrar}>×</button>
+        </div>
+        <div className="drawer-body">
+          {ITEMS.map(([k,ic,bg,t,sub])=>(
+            <button key={k} className="drawer-it" onClick={()=>{ cerrar(); irSeccion(k); }}>
+              <span className="di-ic" style={{ background:bg }}>{ic}</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div className="di-t">{t}</div>
+                <div className="di-s">{sub}</div>
+              </div>
+              <span className="di-a">›</span>
+            </button>
+          ))}
+          <button className="drawer-salir" onClick={()=>{ cerrar(); pedirSalir(); }}>Cerrar sesión</button>
+          <div style={{ textAlign:"center", fontSize:10.5, color:"var(--muted)", padding:"12px 0 2px", opacity:.8 }}>
+            Versión {VERSION.fecha} b{VERSION.n}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Shell({ who, name, onSalir, extraDer, children, menu, chofer, irSeccion }){
+  /* menu=true solo en Inicio y secciones: en carga/entrega el chofer esta trabajando
+     y el gesto de deslizar estorbaria. */
+  const [abierto, setAbierto] = useState(false);
+  const [confirmarSalir, setConfirmarSalir] = useState(false);
+  const abrir = React.useCallback(()=>setAbierto(true), []);
+  useGestoDrawer(abrir, !!menu && !abierto);
   return (
     <div className="shell">
       <div className="top">
-        <div>{typeof who === "string" ? <div className="who">{who}</div> : who}{name ? <div className="name">{name}</div> : null}</div>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:11, minWidth:0 }}>
+          {menu && <button className="ham" onClick={()=>setAbierto(true)} aria-label="Menú">☰</button>}
+          <div style={{ minWidth:0 }}>
+            {typeof who === "string" ? <div className="who">{who}</div> : who}
+            {name ? <div className="name">{name}</div> : null}
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
           <span className="net"><span className="dot"></span>En línea</span>
-          {extraDer ? extraDer : <button className="topbtn" onClick={onSalir}>Salir</button>}
+          {extraDer ? extraDer : (!menu && <button className="topbtn" onClick={onSalir}>Salir</button>)}
         </div>
       </div>
       <div className="body">{children}</div>
+      {menu && (
+        <MenuLateral abierto={abierto} cerrar={()=>setAbierto(false)} chofer={chofer}
+          irSeccion={irSeccion} pedirSalir={()=>setConfirmarSalir(true)} />
+      )}
+      {confirmarSalir && (
+        <Hoja titulo="¿Cerrar sesión?" onCerrar={()=>setConfirmarSalir(false)}>
+          <div style={{ padding:"4px 2px 6px", fontSize:13.5, color:"var(--muted)", lineHeight:1.5 }}>
+            Saldrás de la app y volverás a la pantalla de ingreso.</div>
+          <button className="b-carga-accion salir" onClick={()=>{ setConfirmarSalir(false); onSalir(); }}>
+            Sí, cerrar sesión</button>
+          <button className="b-carga-accion" style={{ background:"transparent", color:"var(--muted)" }}
+            onClick={()=>setConfirmarSalir(false)}>Cancelar</button>
+        </Hoja>
+      )}
     </div>
   );
 }
@@ -838,13 +972,10 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
   const docsPend = DOCS_RETORNO.filter((d)=>!d.entregadoOficina);
   const porCobrar = fletesDe(chofer).filter((f)=>f.estado==="por_cobrar").reduce((a,f)=>a+f.monto,0);
   const solPend = solicitudesDe(chofer).filter((s)=>s.estado==="pendiente").length;
-  const nHist = historialDe(chofer).length;
 
   return (
-    <Shell who={"Transportista · CI "+(c.cedula||"—")} name={chofer} onSalir={onSalir}>
-      <div style={{textAlign:"center",fontSize:10.5,color:"#8B9490",
-        margin:"0 0 10px",letterSpacing:".02em"}}>
-        v{VERSION.n} · {VERSION.fecha}</div>
+    <Shell who={"Transportista · CI "+(c.cedula||"—")} name={chofer} onSalir={onSalir}
+      menu chofer={chofer} irSeccion={onSeccion}>
 
       {docsPend.length > 0 && (<>
         <div className="sect-h">📑 Documentos que llevo de vuelta · {docsPend.length}</div>
@@ -878,13 +1009,17 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
         </>)}
       </>)}
 
-      <div className="sect-h" style={{ marginTop:20 }}>Mis gestiones</div>
-      <div className="acc-grid">
-        <AccCard ico="💵" titulo="Pagos por transporte" sub={porCobrar>0 ? (dineroUSD(porCobrar)+" por cobrar") : "al día"} onClick={()=>onSeccion("pagos")} />
-        <AccCard ico="🧾" titulo="Anticipo de estibada" sub="pedir por adelantado" onClick={()=>onSeccion("anticipo")} />
-        <AccCard ico="↩️" titulo="Reposición de estibada" sub="ya pagué, me devuelven" onClick={()=>onSeccion("reposicion")} />
-        <AccCard ico="📋" titulo="Historial de rutas" sub={nHist+" entregada"+(nHist!==1?"s":"")} onClick={()=>onSeccion("historial")} />
-      </div>
+      {porCobrar>0 && (
+        <button className="acc-card" onClick={()=>onSeccion("pagos")}
+          style={{ width:"100%", marginTop:18, display:"flex", alignItems:"center", gap:12 }}>
+          <span className="acc-ico" style={{ flexShrink:0 }}>💵</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div className="acc-tit" style={{ marginTop:0 }}>{dineroUSD(porCobrar)} por cobrar</div>
+            <div className="acc-sub">Pagos por transporte</div>
+          </div>
+          <span style={{ color:"var(--muted)", fontSize:18, flexShrink:0 }}>›</span>
+        </button>
+      )}
       {solPend>0 && <div className="acc-aviso">⏳ Tienes {solPend} solicitud{solPend>1?"es":""} en revisión por el área financiera.</div>}
     </Shell>
   );
@@ -908,6 +1043,7 @@ function App(){
 
   let pantalla;
   if (seccion) pantalla = <PantallaSeccion seccion={seccion} chofer={chofer}
+    irSeccion={(x)=>{ setSeccion(x); window.scrollTo(0,0); }}
     onVolver={()=>{ setSeccion(null); window.scrollTo(0,0); }} onSalir={salir} />;
   else if (rutaId) pantalla = <PantallaRuta key={rutaId+":"+(faseCampana||"auto")} rutaId={rutaId} chofer={chofer}
     faseInicial={faseCampana}
@@ -1559,13 +1695,14 @@ function SecSolicitud({ tipo, chofer, refrescar }){
 }
 
 /* ---------- Cascarón de sección ---------- */
-function PantallaSeccion({ seccion, chofer, onVolver, onSalir }){
+function PantallaSeccion({ seccion, chofer, onVolver, onSalir, irSeccion }){
   const [, tick] = useState(0);
   const refrescar = () => tick((x)=>x+1);
   const titulos = { pagos:"Pagos por transporte", anticipo:"Anticipo de estibada",
     reposicion:"Reposición de estibada", historial:"Historial de rutas" };
   return (
     <Shell who={<button className="back" onClick={onVolver}>‹ Inicio</button>} name="" onSalir={onSalir}
+      menu chofer={chofer} irSeccion={irSeccion}
       extraDer={<span className="badge-est" style={{ background:"rgba(255,255,255,.12)", color:"#EAF0EA" }}>{titulos[seccion]||""}</span>}>
       {seccion==="pagos" && <SecPagos chofer={chofer} />}
       {seccion==="historial" && <SecHistorial chofer={chofer} />}
