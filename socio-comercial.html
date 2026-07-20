@@ -29,6 +29,33 @@
   button{font-family:inherit;cursor:pointer;border:none;background:none}
   input,select{font-family:inherit;font-size:16px}
   /* phone shell */
+  .ham{background:rgba(21,57,43,.07);border:1px solid rgba(21,57,43,.12);color:var(--field);
+    width:38px;height:38px;border-radius:10px;font-size:18px;cursor:pointer;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-weight:700}
+  .ham:active{background:rgba(21,57,43,.14)}
+  .drawer-ov{position:fixed;inset:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
+    background:rgba(0,0,0,0);visibility:hidden;z-index:60;transition:background .25s}
+  .drawer-ov.on{background:rgba(0,0,0,.42);visibility:visible}
+  .drawer{position:absolute;top:0;bottom:0;left:0;width:82%;max-width:330px;background:var(--paper);
+    transform:translateX(-100%);transition:transform .25s ease;display:flex;flex-direction:column;
+    box-shadow:2px 0 20px rgba(0,0,0,.2)}
+  .drawer.on{transform:translateX(0)}
+  .drawer-head{background:var(--field,#15392B);padding:18px 16px 16px;display:flex;
+    align-items:flex-start;justify-content:space-between;gap:10px}
+  .drawer-x{background:rgba(255,255,255,.15);border:none;color:#fff;width:30px;height:30px;
+    border-radius:8px;font-size:17px;cursor:pointer;flex-shrink:0}
+  .drawer-body{flex:1;overflow-y:auto;padding:14px 13px 20px}
+  .drawer-it{width:100%;display:flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--line);
+    border-radius:13px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-family:inherit;text-align:left}
+  .drawer-it:active{background:var(--paper)}
+  .di-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;
+    justify-content:center;font-size:16px;flex-shrink:0}
+  .di-t{font-size:13.5px;font-weight:700;color:var(--ink)}
+  .di-s{font-size:11px;color:var(--muted);margin-top:1px}
+  .di-a{color:var(--muted);font-size:15px;flex-shrink:0}
+  .drawer-salir{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;
+    background:#FBE9E4;color:#B5613C;border:1px solid #E8C0B0;border-radius:13px;padding:13px;
+    font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer}
   .shell{max-width:430px;margin:0 auto;min-height:100dvh;background:var(--paper);
     position:relative;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.4)}
   @media(min-width:480px){.shell{min-height:auto;height:100dvh;margin:0 auto;border-radius:0}}
@@ -1359,7 +1386,7 @@ const MODULOS_PERMITIDOS = [
 ];
 const puedeVer = (m) => MODULOS_PERMITIDOS.includes(m);
 
-const VERSION = { n:"8", fecha:"20 jul 2026", desc:"Sello de version en el encabezado" };
+const VERSION = { n:"9", fecha:"20 jul 2026", desc:"Menu lateral (drawer) con modulos por rol" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -5507,6 +5534,40 @@ function Comisiones({toast}){
 }
 
 // ---------- APP ----------
+/* ── Abrir el menu lateral deslizando desde el borde izquierdo ── */
+function useGestoDrawer(abrir, activo){
+  React.useEffect(()=>{
+    if(!activo) return;
+    const BORDE=20, MINIMO=60;
+    let x0=0, y0=0, valido=false;
+    const inicio=(e)=>{
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const caja=document.querySelector(".shell");
+      const izq=caja ? caja.getBoundingClientRect().left : 0;
+      valido = (t.clientX - izq) <= BORDE;
+      x0=t.clientX; y0=t.clientY;
+    };
+    const mover=(e)=>{
+      if(!valido) return;
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const dx=t.clientX-x0, dy=Math.abs(t.clientY-y0);
+      if(dx>MINIMO && dx>dy*2){ valido=false; abrir(); }
+      if(dy>28) valido=false;
+    };
+    const fin=()=>{ valido=false; };
+    document.addEventListener("touchstart", inicio, {passive:true});
+    document.addEventListener("touchmove", mover, {passive:true});
+    document.addEventListener("touchend", fin, {passive:true});
+    document.addEventListener("touchcancel", fin, {passive:true});
+    return ()=>{
+      document.removeEventListener("touchstart", inicio);
+      document.removeEventListener("touchmove", mover);
+      document.removeEventListener("touchend", fin);
+      document.removeEventListener("touchcancel", fin);
+    };
+  },[abrir,activo]);
+}
+
 function App(){
   const [tab,setTab]=useState("inicio");
   const [toast,setToast]=useState(null);
@@ -5518,6 +5579,11 @@ function App(){
   const [pendientes,setPendientes]=useState(PENDIENTES_SYNC);
   const [verSync,setVerSync]=useState(false);
   const [sincronizando,setSincronizando]=useState(false);
+  // menu lateral: modulos que no estan en el tablero ni en la barra
+  const [menuAbierto,setMenuAbierto]=useState(false);
+  const [confirmarSalir,setConfirmarSalir]=useState(false);
+  const abrirMenu=React.useCallback(()=>setMenuAbierto(true),[]);
+  useGestoDrawer(abrirMenu, !menuAbierto && !bloqueado);
   const show=m=>{setToast(m);setTimeout(()=>setToast(null),2600);};
   const sincronizar=()=>{
     if(pendientes.length===0){show("No hay nada pendiente. Estás al día.");return;}
@@ -5609,14 +5675,17 @@ function App(){
   return (
     <div className="shell">
       <div className="top">
-        {tab==="inicio" ? (
-          <div><div className="who">Socio comercial</div><div className="name">Marco Salazar</div></div>
-        ) : (
-          <div className="top-nav">
-            {hist.length>1 && <button className="topbtn" onClick={atras}><span style={{fontSize:18}}>‹</span> Atrás</button>}
-            <button className="topbtn" onClick={irInicio}><span style={{fontSize:15}}>⌂</span> Inicio</button>
-          </div>
-        )}
+        <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+          <button className="ham" onClick={()=>setMenuAbierto(true)} aria-label="Menú">☰</button>
+          {tab==="inicio" ? (
+            <div><div className="who">Socio comercial</div><div className="name">Marco Salazar</div></div>
+          ) : (
+            <div className="top-nav">
+              {hist.length>1 && <button className="topbtn" onClick={atras}><span style={{fontSize:18}}>‹</span> Atrás</button>}
+              <button className="topbtn" onClick={irInicio}><span style={{fontSize:15}}>⌂</span> Inicio</button>
+            </div>
+          )}
+        </div>
         <Net n={pendientes.length} onClick={()=>setVerSync(true)}/>
       </div>
       <div className="body">
@@ -5750,6 +5819,59 @@ function App(){
           </div>
         </div>
       )}
+      {/* ── Menú lateral: módulos que no están en el tablero ni en la barra ── */}
+      <div className={"drawer-ov"+(menuAbierto?" on":"")} onClick={()=>setMenuAbierto(false)}>
+        <div className={"drawer"+(menuAbierto?" on":"")} onClick={e=>e.stopPropagation()}
+          onTouchStart={e=>{ const t=e.touches[0]; e.currentTarget.dataset.x0=t.clientX; e.currentTarget.dataset.y0=t.clientY; }}
+          onTouchMove={e=>{
+            const t=e.touches[0], d=e.currentTarget.dataset;
+            if(d.x0===undefined) return;
+            const dx=t.clientX-Number(d.x0), dy=Math.abs(t.clientY-Number(d.y0));
+            if(dx < -60 && Math.abs(dx) > dy*2){ d.x0=undefined; setMenuAbierto(false); }
+          }}>
+          <div className="drawer-head">
+            <div><div style={{fontSize:11.5,color:"rgba(255,255,255,.7)",fontWeight:600}}>Socio comercial</div>
+              <div style={{fontSize:16,color:"#fff",fontWeight:700,marginTop:1}}>Marco Salazar</div></div>
+            <button className="drawer-x" onClick={()=>setMenuAbierto(false)}>×</button>
+          </div>
+          <div className="drawer-body">
+            {[
+              ["cartera","💵","#E5F0EA","Cartera","Lo que te deben tus clientes"],
+              ["cheques","🔐","#EFEAF7","Mis cheques","Cheques en tu poder"],
+              ["clientes","👥","#E8F0F7","Clientes","Tu cartera de clientes"],
+              ["stock","📦","#EDEAE0","Stock","Existencias disponibles"],
+              ["precios","🏷️","#E9EEE9","Precios","Consulta por línea"],
+              ["productos","🌾","#EDEAE0","Productos","Catálogo autorizado"],
+              ["comisiones","💰","#F3ECF9","Comisiones","Lo que has ganado"],
+            ].filter(([k])=>puedeVer(k)).map(([k,ic,bg,t,sub])=>(
+              <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar(k);}}>
+                <span className="di-ic" style={{background:bg}}>{ic}</span>
+                <div style={{flex:1,minWidth:0}}><div className="di-t">{t}</div>
+                  <div className="di-s">{sub}</div></div>
+                <span className="di-a">›</span>
+              </button>
+            ))}
+
+            <button className="drawer-salir" onClick={()=>{setMenuAbierto(false);setConfirmarSalir(true);}}>
+              Cerrar sesión
+            </button>
+            <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"12px 0 2px",opacity:.8}}>
+              Versión {VERSION.fecha} b{VERSION.n}</div>
+          </div>
+        </div>
+      </div>
+
+      {confirmarSalir && (
+        <div className="ov" onClick={()=>setConfirmarSalir(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>¿Cerrar sesión?</h3>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 14px"}}>Saldrás de la app y volverás a la pantalla de ingreso.</p>
+            <button className="cta" style={{width:"100%"}} onClick={()=>{setConfirmarSalir(false);location.reload();}}>Sí, cerrar sesión</button>
+            <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setConfirmarSalir(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
       <div className="nav">
         <button className={tab==="novedades"?"act":""} onClick={()=>tocarTab("novedades")}>
           <span className="nIco">📣{badgeNovedades>0 && <span className="badge">{badgeNovedades}</span>}</span>Novedades</button>
