@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"93", fecha:"19 jul 2026", desc:"Comprobante A6 con proporciones del diseno"};
+const VERSION={n:"94", fecha:"19 jul 2026", desc:"Revisar resumen antes de guardar el cobro"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4649,8 +4649,18 @@ function Cobros({toast}){
   const [pagFac,setPagFac]=useState(1);       // paginación de facturas del paso 2
   const [buscando,setBuscando]=useState(false); // buscador de cliente abierto: oculta el tablero de abajo
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
+  const [resumen,setResumen]=useState(false); // pantalla de revisión antes de guardar
+  /* botón atrás: retrocede paso a paso dentro del módulo antes de salir */
+  useRetroceso(()=>{
+    if(modal){ setModal(null); return true; }
+    if(enviado){ setEnviado(null); reset(); return true; }
+    if(resumen){ setResumen(false); return true; }
+    if(paso>1){ setPaso(paso-1); return true; }
+    if(cli){ reset(); return true; }
+    return false;
+  });
 
-  const reset=()=>{setPaso(1);setCli(null);setProv(null);setAplic({});setLineas([]);setPagFac(1);};
+  const reset=()=>{setPaso(1);setCli(null);setProv(null);setAplic({});setLineas([]);setPagFac(1);setResumen(false);};
   const provsDelCliente = cli
     ? PROVEEDORES.filter(pv => COBROS_INI.some(c=>c.cli===cli && c.provId===pv.id)) : [];
   const facturas = (cli && prov)
@@ -4664,6 +4674,71 @@ function Cobros({toast}){
   const totalLineas = lineas.reduce((s,l)=>s+(parseFloat(l.monto)||0),0);
   const restanteLineas = Math.round((monto-totalLineas)*100)/100;
 
+  /* Guardar cobro: registra, imprime y comparte, todo con un solo toque */
+  const guardarTodo=()=>{
+    /* ── VALIDAR COBRO: un solo toque hace todo el cierre ── */
+    const ahora=new Date();
+    const hora=String(ahora.getHours()).padStart(2,"0")+":"+String(ahora.getMinutes()).padStart(2,"0");
+    const nRecibo="REC-"+ahora.getFullYear().toString().slice(2)
+      + String(ahora.getMonth()+1).padStart(2,"0") + String(ahora.getDate()).padStart(2,"0")
+      + "-" + String(Math.floor(1000+Math.random()*9000));
+    /* 1 · aplicar a las facturas y calcular el nuevo saldo de cada una */
+    const facturasRecibo = factSel.map(f=>{
+      const ap=Math.round((parseFloat(aplic[f.id])||0)*100)/100;
+      const rest=Math.round(Math.max(0,f.valor-ap)*100)/100;
+      return {factura:f.factura, aplicado:ap, saldoAnt:f.valor, saldoRest:rest,
+              estado: rest<=0.004?"cancelada":"abono"};
+    });
+    /* 2 · actualizar el saldo del cliente */
+    const suyas=COBROS_INI.filter(c=>c.cli===cli);
+    const saldoAnterior=suyas.reduce((s,c)=>s+c.valor,0);
+    const saldoActual=Math.round(Math.max(0,saldoAnterior-monto)*100)/100;
+    /* 3 · cola persistente: el cobro queda a salvo aunque muera el teléfono */
+    lineas.forEach(l=>colaAgregar({ op_id:opId(), tipo:"Cobro", ic:"💵",
+      cli:(cli&&cli.nombre)||cli||"—",
+      detalle:`${l.modalidad} · ${money(parseFloat(l.monto)||0)}`, cuando:"recién" }));
+    /* 4 · efectivo con su reloj de 24 h */
+    const efe=lineas.filter(l=>l.modalidad==="Efectivo")
+                    .reduce((s,l)=>s+(parseFloat(l.monto)||0),0);
+    if(efe>0) EFECTIVO_PENDIENTE.push({nRecibo, cli, monto:efe, limite:`hoy ${hora} + 24h`});
+    /* 5 · registrar en el día para la meta y el cuadre */
+    COBROS_DIA.push({nRecibo, cli, monto, hora, modalidad:(lineas[0]||{}).modalidad||"—", anulado:false});
+    const fcl=(typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[cli])||{};
+    const datos={
+      nRecibo, hora, cli, prov:prov.nombre, monto,
+      facturas:facturasRecibo, lineas,
+      saldoAnterior, saldoActual,
+      ruc: fcl.ruc, atendido:"Carlos Andrade · Comisionista",
+      obs: efe>0 ? ["Efectivo pendiente de depósito (máx. 24h)"] : [],
+      destinatarios:[
+        {rol:"Cliente", nombre:cli},
+        {rol:"Proveedor", nombre:prov.nombre},
+        {rol:"Freelance", nombre:"Administrador"}
+      ]
+    };
+    setEnviado(datos);
+    /* 6 · preparar el envío por WhatsApp: imagen A6, una sola copia */
+    setTimeout(async ()=>{
+      await compartirImgComprobante(datos, toast);
+      /* 7 · estado de cuenta actualizado, solo si al cliente le queda saldo */
+      if(saldoActual>0.004){
+        const rest={}; facturasRecibo.forEach(f=>{ rest[f.factura]=(f.saldoRest!=null?f.saldoRest:0); });
+        const pend=suyas
+          .map(f=>({factura:f.factura, vence:f.vence,
+                    saldo: rest[f.factura]!=null ? rest[f.factura] : f.valor}))
+          .filter(f=>f.saldo>0.004);
+        setTimeout(()=>compartirImgEstado({
+          cli, nRecibo, formato:(typeof FORMATO_EC!=="undefined" && FORMATO_EC[cli]) || "resumen",
+          facturas: pend,
+          movimientos: (typeof MOVIMIENTOS_CLIENTE!=="undefined" && MOVIMIENTOS_CLIENTE[cli]) || [],
+          saldoAnterior, pago: monto,
+        }, toast), 600);
+      }
+    }, 500);
+    toast(`Cobro registrado ${nRecibo} · listo para enviar`);
+    setResumen(false);
+  };
+
   const PASOS=["Datos del cobro","Facturas y montos","Formas de pago"];
   const paso1Ok = cli && prov;
   const paso2Ok = factSel.length>0 && !sobregiro && monto>0;
@@ -4671,6 +4746,54 @@ function Cobros({toast}){
   const puedeAvanzar = paso===1?paso1Ok : paso===2?paso2Ok : paso3Ok;
 
   // Pantalla de recibo enviado por WhatsApp
+  /* Pantalla de revisión: se ve el recibo tal cual antes de guardarlo */
+  if(resumen){
+    const facturasRev = factSel.map(f=>({
+      factura:f.factura, aplicado:parseFloat(aplic[f.id])||0,
+      estado:(parseFloat(aplic[f.id])||0)>=f.valor?"cancelada":"abono"
+    }));
+    return (<>
+      <div className="h1">Resumen del cobro</div>
+      <div className="sub">Revisa que todo esté bien antes de guardar</div>
+
+      <div className="recibo" style={{marginTop:12}}>
+        <div className="rh">
+          <div className="rt">{(cli && cli.nombre) || cli}</div>
+          <div className="rmonto num">{money(monto)}</div>
+          <div className="meta" style={{marginTop:4}}>Proveedor: {prov.nombre}</div>
+        </div>
+        <div className="rsec">Facturas aplicadas</div>
+        {facturasRev.map((f,i)=>(
+          <div className="rrow" key={i}>
+            <span className="rk">Factura {f.factura} {f.estado==="cancelada"?"· Cancela":"· Abono"}</span>
+            <span className="num" style={{fontWeight:600}}>{money(f.aplicado)}</span>
+          </div>
+        ))}
+        <div className="rsec">Formas de pago</div>
+        {lineas.map((l,i)=>(
+          <div className="rrow" key={i} style={{alignItems:"center"}}>
+            <span className="rk" style={{display:"flex",alignItems:"center",gap:8}}>
+              {l.foto && <img src={l.foto} alt="comp." style={{width:34,height:26,objectFit:"cover",borderRadius:5,border:"1px solid var(--line)"}}/>}
+              {l.modalidad}{l.numero?` · ${l.numero}`:""}{l.banco?` · ${l.banco}`:""}
+            </span>
+            <span className="num" style={{fontWeight:600}}>{money(parseFloat(l.monto)||0)}</span>
+          </div>
+        ))}
+        <div className="rsec">Recibirán copia del recibo</div>
+        <div className="meta" style={{padding:"2px 2px 6px"}}>
+          {(cli && cli.nombre) || cli} (cliente) · {prov.nombre} (proveedor) · Freelance
+        </div>
+      </div>
+
+      <button className="cta" style={{marginTop:14}} onClick={guardarTodo}>
+        💾 GUARDAR COBRO</button>
+      <div className="meta" style={{textAlign:"center",margin:"8px 0 4px",fontSize:11.5,lineHeight:1.6}}>
+        Registra el cobro · aplica a las facturas · actualiza saldos<br/>
+        comparte el comprobante y el estado de cuenta al cliente</div>
+      <button className="ghost" style={{width:"100%"}} onClick={()=>setResumen(false)}>‹ Corregir</button>
+    </>);
+  }
+
   if(enviado){
     return (<>
       <div className="recibo">
@@ -5016,75 +5139,10 @@ function Cobros({toast}){
       {paso<3
         ? <button className="cta next" disabled={!puedeAvanzar} onClick={()=>setPaso(paso+1)}>Siguiente</button>
         : <button className="cta next" disabled={!paso3Ok}
-            onClick={()=>{
-              /* ── VALIDAR COBRO: un solo toque hace todo el cierre ── */
-              const ahora=new Date();
-              const hora=String(ahora.getHours()).padStart(2,"0")+":"+String(ahora.getMinutes()).padStart(2,"0");
-              const nRecibo="REC-"+ahora.getFullYear().toString().slice(2)
-                + String(ahora.getMonth()+1).padStart(2,"0") + String(ahora.getDate()).padStart(2,"0")
-                + "-" + String(Math.floor(1000+Math.random()*9000));
-              /* 1 · aplicar a las facturas y calcular el nuevo saldo de cada una */
-              const facturasRecibo = factSel.map(f=>{
-                const ap=Math.round((parseFloat(aplic[f.id])||0)*100)/100;
-                const rest=Math.round(Math.max(0,f.valor-ap)*100)/100;
-                return {factura:f.factura, aplicado:ap, saldoAnt:f.valor, saldoRest:rest,
-                        estado: rest<=0.004?"cancelada":"abono"};
-              });
-              /* 2 · actualizar el saldo del cliente */
-              const suyas=COBROS_INI.filter(c=>c.cli===cli);
-              const saldoAnterior=suyas.reduce((s,c)=>s+c.valor,0);
-              const saldoActual=Math.round(Math.max(0,saldoAnterior-monto)*100)/100;
-              /* 3 · cola persistente: el cobro queda a salvo aunque muera el teléfono */
-              lineas.forEach(l=>colaAgregar({ op_id:opId(), tipo:"Cobro", ic:"💵",
-                cli:(cli&&cli.nombre)||cli||"—",
-                detalle:`${l.modalidad} · ${money(parseFloat(l.monto)||0)}`, cuando:"recién" }));
-              /* 4 · efectivo con su reloj de 24 h */
-              const efe=lineas.filter(l=>l.modalidad==="Efectivo")
-                              .reduce((s,l)=>s+(parseFloat(l.monto)||0),0);
-              if(efe>0) EFECTIVO_PENDIENTE.push({nRecibo, cli, monto:efe, limite:`hoy ${hora} + 24h`});
-              /* 5 · registrar en el día para la meta y el cuadre */
-              COBROS_DIA.push({nRecibo, cli, monto, hora, modalidad:(lineas[0]||{}).modalidad||"—", anulado:false});
-              const fcl=(typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[cli])||{};
-              const datos={
-                nRecibo, hora, cli, prov:prov.nombre, monto,
-                facturas:facturasRecibo, lineas,
-                saldoAnterior, saldoActual,
-                ruc: fcl.ruc, atendido:"Carlos Andrade · Comisionista",
-                obs: efe>0 ? ["Efectivo pendiente de depósito (máx. 24h)"] : [],
-                destinatarios:[
-                  {rol:"Cliente", nombre:cli},
-                  {rol:"Proveedor", nombre:prov.nombre},
-                  {rol:"Freelance", nombre:"Administrador"}
-                ]
-              };
-              setEnviado(datos);
-              /* 6 · preparar el envío por WhatsApp: imagen A6, una sola copia */
-              setTimeout(async ()=>{
-                await compartirImgComprobante(datos, toast);
-                /* 7 · estado de cuenta actualizado, solo si al cliente le queda saldo */
-                if(saldoActual>0.004){
-                  const rest={}; facturasRecibo.forEach(f=>{ rest[f.factura]=(f.saldoRest!=null?f.saldoRest:0); });
-                  const pend=suyas
-                    .map(f=>({factura:f.factura, vence:f.vence,
-                              saldo: rest[f.factura]!=null ? rest[f.factura] : f.valor}))
-                    .filter(f=>f.saldo>0.004);
-                  setTimeout(()=>compartirImgEstado({
-                    cli, nRecibo, formato:(typeof FORMATO_EC!=="undefined" && FORMATO_EC[cli]) || "resumen",
-                    facturas: pend,
-                    movimientos: (typeof MOVIMIENTOS_CLIENTE!=="undefined" && MOVIMIENTOS_CLIENTE[cli]) || [],
-                    saldoAnterior, pago: monto,
-                  }, toast), 600);
-                }
-              }, 500);
-              toast(`Cobro registrado ${nRecibo} · listo para enviar`);
-            }}>
-            ✓ VALIDAR COBRO</button>}
+            onClick={()=>setResumen(true)}>
+            Revisar resumen</button>}
     </div>
-    {paso===3 && paso3Ok && (
-      <div className="meta" style={{textAlign:"center",margin:"8px 0 4px",fontSize:11.5,lineHeight:1.6}}>
-        Registra el cobro · aplica a las facturas · actualiza saldos<br/>
-        genera el recibo · prepara el envío por WhatsApp</div>
-    )}
+
 
     {modal && <LineaPago modalidad={modal} restante={Math.max(0,restanteLineas)} cliente={cli}
       onCancel={()=>setModal(null)}
