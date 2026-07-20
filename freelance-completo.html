@@ -2893,6 +2893,12 @@ const COMO_FUNCIONA = [
    d:"Si el banco no paga un cheque, ese cobro sí ocurrió: no se anula el recibo. El valor vuelve como un cargo nuevo a la cartera del cliente y el cheque queda marcado como protestado."},
   {mod:"Cheques", ic:"⚠️", t:"Marcar un cheque protestado",
    d:"Se hace desde la ficha del cheque. Pide el motivo del banco y los gastos del protesto, que los asume el cliente. El cheque conserva todo su recorrido y suma un protesto al riesgo del cliente."},
+  {mod:"Verificación", ic:"✅", t:"Quién concilia los cobros",
+   d:"El proveedor revisa su banco y marca cada cobro Aprobado, Observado o Rechazado. Solo el cobro APROBADO libera la comisión."},
+  {mod:"Verificación", ic:"✎", t:"Cobro observado",
+   d:"El proveedor observa cuando un dato no le calza. Lo corrige el cobrador, que tiene la foto del comprobante, y solo los datos del documento: número, banco y fecha. El monto y las facturas nunca se editan."},
+  {mod:"Verificación", ic:"🚫", t:"Cobro rechazado",
+   d:"El proveedor no anula: avisa. El rechazo llega al Freelance, que decide si anula el cobro (con su constancia al cliente) o lo devuelve a verificación porque el pago sí existe."},
   {mod:"Cheques", ic:"📤", t:"Aviso de protesto al cliente",
    d:"Al registrar el protesto se emite un aviso con el número del cheque, el motivo del banco y el total a reponer (valor más gastos). El comprobante de cobro original mantiene su validez."},
   {mod:"Pedidos", ic:"🔒", t:"Tu base de precio",
@@ -4523,7 +4529,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"279", fecha:"19 jul 2026", desc:"Cheque protestado: cargo a cartera y aviso al cliente"};
+const VERSION={n:"280", fecha:"19 jul 2026", desc:"Modulo Verificacion: cobros del equipo y conciliacion"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -7268,6 +7274,387 @@ function Boveda({toast, yo, volver}){
   </>);
 }
 
+/* ══ VERIFICACIÓN DE COBROS (conciliación del proveedor) ══
+   Modelo sellado 19 jul 2026:
+   · El PROVEEDOR mira su banco por fuera y marca cada comprobante Aprobado / Observado / Rechazado.
+   · APROBADO libera la comisión.
+   · OBSERVADO vuelve al COBRADOR, que corrige solo datos de identificación (número, banco, fecha).
+     Nunca se edita el monto ni las facturas: eso es una anulación, no una observación.
+   · RECHAZADO es una señal, no una acción sobre el recibo. El proveedor NO anula ni corrige:
+     el aviso llega al Freelance, que decide anular (con su constancia al cliente) o devolver a pendiente.
+   · Si un cobro se observa 3 veces, escala al Freelance. */
+/* Estos dos catálogos los CONSUME LA APP DEL PROVEEDOR (aún por construir): es él
+   quien observa o rechaza. Viven aquí porque el Freelance los muestra al leer el motivo. */
+const MOTIVOS_OBSERVACION = [
+  "El número de operación no coincide",
+  "La fecha no coincide",
+  "El valor no coincide",
+  "Banco equivocado",
+  "Comprobante ilegible",
+  "Otro",
+];
+const MOTIVOS_RECHAZO = [
+  "El depósito no llegó",
+  "Cuenta destino no autorizada",
+  "El comprobante no corresponde",
+  "Depósito duplicado",
+  "Otro",
+];
+/* Lo único que el cobrador puede corregir de un cobro observado. */
+const CAMPOS_CORREGIBLES = ["numero","banco","fecha"];
+
+/* Cobros reportados por todo el equipo (yo, vendedores y socio comercial).
+   En Fase 4 esto lo alimenta Supabase; aquí es demo en memoria. */
+const COBROS_EQUIPO = [
+  {nRecibo:"REC-260612-1021", cli:"Tienda La Esquina", prov:"Molinos del Litoral",
+   cobrador:"Daniel Ríos", rol:"Freelance", fecha:"12 jun 2026", hora:"09:12", monto:430,
+   forma:"Efectivo", banco:"—", numero:"—", fechaDoc:"2026-06-12",
+   facturas:[{factura:"001-001-000097", aplicado:430}], estado:"pendiente", intentos:0, hist:[]},
+  {nRecibo:"REC-260612-1088", cli:"Bodega El Agricultor", prov:"Agrícola del Valle",
+   cobrador:"Daniel Ríos", rol:"Freelance", fecha:"12 jun 2026", hora:"11:47", monto:645,
+   forma:"Transferencia", banco:"Produbanco", numero:"8841203", fechaDoc:"2026-06-12",
+   facturas:[{factura:"001-001-000119", aplicado:645}], estado:"aprobado", intentos:0,
+   verPor:"Agrícola del Valle", verFecha:"12 jun 2026 16:20", au:"AU-260612-4471", hist:[]},
+  {nRecibo:"REC-260612-1315", cli:"Comercial Mendoza", prov:"Agrícola del Valle",
+   cobrador:"Carlos Andrade", rol:"Subcomisionista", fecha:"12 jun 2026", hora:"13:15", monto:860,
+   forma:"Depósito", banco:"Banco Pichincha", numero:"7742011", fechaDoc:"2026-06-12",
+   facturas:[{factura:"001-001-000103", aplicado:860}], estado:"observado", intentos:1,
+   motivo:"El número de operación no coincide",
+   verPor:"Agrícola del Valle", verFecha:"12 jun 2026 17:05", au:"AU-260612-5520",
+   nota:"En mi estado de cuenta ese número corresponde a otro depósito.", hist:[]},
+  {nRecibo:"REC-260612-1402", cli:"Mayorista Santa Rosa", prov:"Molinos del Litoral",
+   cobrador:"Marco Tipán", rol:"Socio comercial", fecha:"12 jun 2026", hora:"14:02", monto:1740,
+   forma:"Transferencia", banco:"Banco Guayaquil", numero:"9930277", fechaDoc:"2026-06-12",
+   facturas:[{factura:"001-001-000110", aplicado:1740}], estado:"aprobado", intentos:0,
+   verPor:"Molinos del Litoral", verFecha:"12 jun 2026 18:40", au:"AU-260612-6613", hist:[]},
+  {nRecibo:"REC-260612-1530", cli:"Distribuidora Ríos", prov:"Agrícola del Valle",
+   cobrador:"Lucía Andrade", rol:"Subcomisionista", fecha:"12 jun 2026", hora:"15:30", monto:1200,
+   forma:"Depósito", banco:"Banco Bolivariano", numero:"5510882", fechaDoc:"2026-06-12",
+   facturas:[{factura:"001-001-000127", aplicado:1200}], estado:"rechazado", intentos:0,
+   motivo:"El depósito no llegó",
+   verPor:"Agrícola del Valle", verFecha:"12 jun 2026 19:10", au:"AU-260612-7788",
+   nota:"Revisé todo el día y no aparece ningún ingreso por ese valor.", hist:[]},
+  {nRecibo:"REC-260611-0914", cli:"Comercial Mendoza", prov:"Molinos del Litoral",
+   cobrador:"Jorge Pazmiño", rol:"Subcomisionista", fecha:"11 jun 2026", hora:"10:05", monto:760,
+   forma:"Depósito", banco:"Banco Pichincha", numero:"7742011", fechaDoc:"2026-06-11",
+   facturas:[{factura:"001-001-000140", aplicado:760}], estado:"pendiente", intentos:0, hist:[]},
+  {nRecibo:"REC-260611-1533", cli:"Mayorista Santa Rosa", prov:"Agrícola del Valle",
+   cobrador:"Carlos Andrade", rol:"Subcomisionista", fecha:"11 jun 2026", hora:"15:33", monto:1200,
+   forma:"Transferencia", banco:"Banco Guayaquil", numero:"9930277", fechaDoc:"2026-06-11",
+   facturas:[{factura:"001-001-000110", aplicado:1200}], estado:"aprobado", intentos:0,
+   verPor:"Agrícola del Valle", verFecha:"11 jun 2026 18:02", au:"AU-260611-3312", hist:[]},
+];
+
+function Verificacion({toast, yo, volver}){
+  const [tabV,setTabV]=useState("pendiente");   // pendiente | aprobado | observado | rechazado
+  const [q,setQ]=useState("");
+  const [fCob,setFCob]=useState("Todos");
+  const [sel,setSel]=useState(null);            // cobro abierto
+  const [corrigiendo,setCorrigiendo]=useState(null); // cobro en corrección
+  const [cNumero,setCNumero]=useState("");
+  const [cBanco,setCBanco]=useState("");
+  const [cFecha,setCFecha]=useState("");
+  const [resolviendo,setResolviendo]=useState(null); // rechazado que el freelance resuelve
+  const [pag,setPag]=useState(1);
+  const [tick,setTick]=useState(0);
+  useModal(!!corrigiendo, React.useCallback(()=>setCorrigiendo(null),[]));
+  useModal(!!resolviendo, React.useCallback(()=>setResolviendo(null),[]));
+  useRetroceso(()=>{
+    if(resolviendo){ setResolviendo(null); return true; }
+    if(corrigiendo){ setCorrigiendo(null); return true; }
+    if(sel){ setSel(null); return true; }
+    return false;
+  });
+
+  const norm = s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const COLOR={pendiente:"#C98A2B", aprobado:"#2E7D52", observado:"#C77F00", rechazado:"#8A2E3B"};
+  const LBL={pendiente:"Pendiente", aprobado:"Aprobado", observado:"Observado", rechazado:"Rechazado"};
+
+  const cobradores = ["Todos", ...Array.from(new Set(COBROS_EQUIPO.map(c=>c.cobrador)))];
+  const base = COBROS_EQUIPO.filter(c=>c.estado===tabV)
+    .filter(c=>fCob==="Todos" || c.cobrador===fCob)
+    .filter(c=>q.trim()==="" || norm(c.cli+" "+c.nRecibo+" "+c.cobrador+" "+c.prov).includes(norm(q)))
+    .slice().sort((a,b)=>(b.nRecibo<a.nRecibo?-1:1));
+  const POR=8;
+  const totPag=Math.max(1,Math.ceil(base.length/POR));
+  const pagAct=Math.min(pag,totPag);
+  const lista=base.slice((pagAct-1)*POR, pagAct*POR);
+
+  const cuenta = e => COBROS_EQUIPO.filter(c=>c.estado===e).length;
+  const suma   = e => COBROS_EQUIPO.filter(c=>c.estado===e).reduce((s,c)=>s+c.monto,0);
+
+  /* el COBRADOR corrige solo datos de identificación y el cobro vuelve a pendiente */
+  const guardarCorreccion=()=>{
+    const c=corrigiendo; if(!c) return;
+    const au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+    const antes={numero:c.numero, banco:c.banco, fecha:c.fechaDoc};
+    c.numero=cNumero.trim()||c.numero;
+    c.banco=cBanco.trim()||c.banco;
+    c.fechaDoc=cFecha||c.fechaDoc;
+    (c.hist=c.hist||[]).push({ev:"corrección", quien:yo, f:"12 jun 2026",
+      antes, despues:{numero:c.numero, banco:c.banco, fecha:c.fechaDoc}, au});
+    c.estado="pendiente";
+    c.motivo=null; c.nota=null;
+    setCorrigiendo(null); setSel(null); setTick(t=>t+1);
+    toast(`Corregido y devuelto a verificación · auditado ${au}`);
+  };
+
+  /* el FREELANCE resuelve un rechazo: o lo anula, o lo devuelve a pendiente */
+  const resolverRechazo=(accion)=>{
+    const c=resolviendo; if(!c) return;
+    const au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+    if(accion==="anular"){
+      c.estado="anulado";
+      (c.hist=c.hist||[]).push({ev:"anulado por el Freelance", quien:yo, f:"12 jun 2026", au});
+      toast(`Cobro ${c.nRecibo} anulado · envía la constancia al cliente · ${au}`);
+    }else{
+      c.estado="pendiente"; c.motivo=null; c.nota=null;
+      (c.hist=c.hist||[]).push({ev:"devuelto a verificación", quien:yo, f:"12 jun 2026", au});
+      toast(`Devuelto al proveedor para nueva revisión · auditado ${au}`);
+    }
+    setResolviendo(null); setSel(null); setTick(t=>t+1);
+  };
+
+  /* ── ficha de un cobro ── */
+  if(sel){
+    const c = COBROS_EQUIPO.find(x=>x.nRecibo===sel.nRecibo) || sel;
+    return (<>
+      <div className="h1">{c.nRecibo}</div>
+      <div className="sub">{c.cli} · {c.prov}</div>
+
+      <div className="card" style={{padding:"14px 16px",marginTop:12,
+        borderLeft:`4px solid ${COLOR[c.estado]||"#8B9490"}`}}>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+          <span style={{fontWeight:800,fontSize:13.5,color:COLOR[c.estado]}}>
+            {LBL[c.estado]||"Anulado"}</span>
+          <b className="num" style={{fontSize:24,fontWeight:800}}>{money(c.monto)}</b>
+        </div>
+        {c.verPor && <div className="meta" style={{fontSize:11.5,marginTop:4}}>
+          {c.verPor} · {c.verFecha}</div>}
+        {c.au && <div className="num meta" style={{fontSize:11,marginTop:2}}>{c.au}</div>}
+      </div>
+
+      {(c.estado==="observado" || c.estado==="rechazado") && (
+        <div className="card" style={{padding:"12px 15px",marginTop:10,
+          background:c.estado==="rechazado"?"#FBECEE":"#FDF3E2",
+          border:`1px solid ${COLOR[c.estado]}`}}>
+          <div style={{fontWeight:800,fontSize:13,color:COLOR[c.estado]}}>{c.motivo}</div>
+          {c.nota && <div className="meta" style={{fontSize:11.5,marginTop:4}}>{c.nota}</div>}
+          {c.estado==="rechazado" && (
+            <div className="meta" style={{fontSize:11.5,marginTop:6,fontWeight:700}}>
+              El proveedor no anula: tú decides si se anula o vuelve a revisión.</div>
+          )}
+        </div>
+      )}
+
+      {c.intentos>=3 && (
+        <div className="card" style={{padding:"11px 14px",marginTop:10,
+          background:"#FDF3E2",border:"1px solid #C98A2B"}}>
+          <div style={{fontWeight:700,fontSize:12.5,color:"#A06B15"}}>
+            Observado {c.intentos} veces · revísalo tú</div>
+        </div>
+      )}
+
+      <div className="ficha-sec" style={{marginTop:16}}>Datos del cobro</div>
+      <div className="card" style={{padding:"12px 15px"}}>
+        {[["Cobrador",`${c.cobrador} · ${c.rol}`],["Fecha",`${c.fecha} · ${c.hora}`],
+          ["Forma de pago",c.forma],["Banco",c.banco],
+          ["N° de operación",c.numero],["Fecha del documento",c.fechaDoc]].map(([k,v],i)=>(
+          <div key={k} className="row" style={{justifyContent:"space-between",gap:8,
+            padding:"5px 0",borderTop:i?"1px solid var(--line)":"none"}}>
+            <span className="meta" style={{fontSize:11.5,flexShrink:0}}>{k}</span>
+            <span style={{fontSize:12.5,fontWeight:600,textAlign:"right",minWidth:0,
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="ficha-sec" style={{marginTop:14}}>Facturas aplicadas</div>
+      <div className="card" style={{padding:"10px 14px"}}>
+        {(c.facturas||[]).map((f,i)=>(
+          <div key={i} className="row" style={{justifyContent:"space-between",gap:8,
+            padding:"5px 0",borderTop:i?"1px solid var(--line)":"none"}}>
+            <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.factura}</span>
+            <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>{money(f.aplicado)}</b>
+          </div>
+        ))}
+      </div>
+
+      {(c.hist||[]).length>0 && (<>
+        <div className="ficha-sec" style={{marginTop:14}}>Movimientos</div>
+        <div className="card" style={{padding:"11px 14px"}}>
+          {c.hist.map((h,i)=>(
+            <div key={i} style={{padding:"6px 0",borderTop:i?"1px solid var(--line)":"none"}}>
+              <div style={{fontSize:12.5,fontWeight:700}}>{h.ev}</div>
+              <div className="meta" style={{fontSize:11}}>{h.quien} · {h.f}</div>
+              {h.antes && (
+                <div className="meta" style={{fontSize:11,marginTop:2}}>
+                  {h.antes.numero!==h.despues.numero && `N° ${h.antes.numero} → ${h.despues.numero}`}
+                  {h.antes.banco!==h.despues.banco && ` · ${h.antes.banco} → ${h.despues.banco}`}</div>
+              )}
+              {h.au && <div className="num meta" style={{fontSize:10.5}}>{h.au}</div>}
+            </div>
+          ))}
+        </div>
+      </>)}
+
+      {c.estado==="observado" && (
+        <button className="cta" style={{marginTop:14}}
+          onClick={()=>{ setCNumero(c.numero==="—"?"":c.numero); setCBanco(c.banco==="—"?"":c.banco);
+            setCFecha(c.fechaDoc); setCorrigiendo(c); }}>
+          ✎ Corregir y devolver a verificación</button>
+      )}
+
+      {c.estado==="rechazado" && (
+        <button className="cta" style={{marginTop:14,background:"#8A2E3B"}}
+          onClick={()=>setResolviendo(c)}>
+          Resolver este rechazo</button>
+      )}
+
+      {/* corrección: solo datos de identificación */}
+      {corrigiendo && (
+        <div className="ov" onClick={()=>setCorrigiendo(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Corregir {corrigiendo.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {corrigiendo.motivo}</div>
+
+            <div className="card" style={{padding:"11px 14px",marginBottom:12,background:"#F2F7F3"}}>
+              <div className="meta" style={{fontSize:11.5}}>
+                Solo se corrigen los datos del documento. El monto y las facturas no se editan:
+                si el valor está mal, el cobro se anula.</div>
+            </div>
+
+            <div className="field"><label>N° de operación</label>
+              <input value={cNumero} onChange={e=>setCNumero(e.target.value)}
+                placeholder="Como aparece en el comprobante"/></div>
+            <div className="field" style={{marginTop:10}}><label>Banco</label>
+              <input value={cBanco} onChange={e=>setCBanco(e.target.value)}/></div>
+            <div className="field" style={{marginTop:10}}><label>Fecha del documento</label>
+              <input type="date" value={cFecha} onChange={e=>setCFecha(e.target.value)}
+                style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",
+                  borderRadius:10,fontFamily:"inherit"}}/></div>
+
+            <button className="cta" style={{width:"100%",marginTop:14}}
+              onClick={guardarCorreccion}>Guardar y devolver</button>
+            <button className="back" style={{width:"100%",marginTop:9}}
+              onClick={()=>setCorrigiendo(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* resolver rechazo: solo el Freelance */}
+      {resolviendo && (
+        <div className="ov" onClick={()=>setResolviendo(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Resolver rechazo</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {resolviendo.nRecibo} · {resolviendo.cli} · {money(resolviendo.monto)}</div>
+
+            <div className="card" style={{padding:"11px 14px",marginBottom:14,
+              background:"#FBECEE",border:"1px solid #8A2E3B"}}>
+              <div style={{fontWeight:700,fontSize:12.5,color:"#8A2E3B"}}>{resolviendo.motivo}</div>
+              {resolviendo.nota && <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+                {resolviendo.nota}</div>}
+            </div>
+
+            <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",
+              padding:"13px 15px",color:"#8A2E3B",fontWeight:700}}
+              onClick={()=>resolverRechazo("anular")}>
+              🚫 Anular el cobro
+              <div className="meta" style={{fontSize:11,fontWeight:400,marginTop:2}}>
+                El dinero vuelve a la cartera y se emite la constancia al cliente</div>
+            </button>
+            <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",
+              padding:"13px 15px",fontWeight:700}}
+              onClick={()=>resolverRechazo("devolver")}>
+              ↩ Devolver a verificación
+              <div className="meta" style={{fontSize:11,fontWeight:400,marginTop:2}}>
+                El cobro sí existe: que el proveedor lo revise de nuevo</div>
+            </button>
+            <button className="back" style={{width:"100%",marginTop:5}}
+              onClick={()=>setResolviendo(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+    </>);
+  }
+
+  /* ── lista con pestañas ── */
+  return (<>
+    <div className="h1">Verificación</div>
+    <div className="sub">Cobros de todo el equipo y su conciliación</div>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,margin:"12px 0"}}>
+      {[["pendiente","Por verificar"],["aprobado","Aprobados"],
+        ["observado","Observados"],["rechazado","Rechazados"]].map(([k,t])=>(
+        <button key={k} onClick={()=>{setTabV(k);setPag(1);}}
+          style={{background:tabV===k?COLOR[k]:"var(--card)",
+            border:`1px solid ${tabV===k?COLOR[k]:"var(--line)"}`,borderRadius:14,
+            padding:"11px 12px",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+          <div style={{fontSize:10.5,fontWeight:700,textTransform:"uppercase",
+            letterSpacing:".03em",color:tabV===k?"#EAF0EA":"var(--muted)"}}>{t}</div>
+          <div className="num" style={{fontSize:17,fontWeight:800,marginTop:3,
+            color:tabV===k?"#fff":COLOR[k]}}>{cuenta(k)}</div>
+          <div className="num" style={{fontSize:11,
+            color:tabV===k?"#EAF0EA":"var(--muted)"}}>{money(suma(k))}</div>
+        </button>
+      ))}
+    </div>
+
+    <div className="ss" style={{marginBottom:10}}>
+      <div className="box"><span className="mag">⌕</span>
+        <input value={q} placeholder="Buscar por cliente, recibo o cobrador…"
+          onChange={e=>{setQ(e.target.value);setPag(1);}}/>
+        <MicBtn onTexto={t=>{setQ(t);setPag(1);}}/>
+        {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
+    </div>
+
+    <div style={{marginBottom:12}}>
+      <FiltroBuscador cat="cobradores" items={cobradores.filter(c=>c!=="Todos")}
+        value={fCob==="Todos"?"__":fCob}
+        onPick={v=>{setFCob(v==="__"?"Todos":v);setPag(1);}}
+        todos="__" etiquetaTodos="Todos los cobradores"/>
+    </div>
+
+    {lista.map(c=>(
+      <button key={c.nRecibo} className="card" style={{width:"100%",padding:"12px 14px",
+        marginBottom:8,border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",
+        fontFamily:"inherit",borderLeft:`3px solid ${COLOR[c.estado]}`}}
+        onClick={()=>setSel(c)}>
+        <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
+            <div className="meta" style={{fontSize:11}}>{c.nRecibo} · {c.fecha}</div>
+            <div className="meta" style={{fontSize:11,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              👤 {c.cobrador} · {c.forma}</div>
+            {c.motivo && <div className="meta" style={{fontSize:11,marginTop:3,
+              color:COLOR[c.estado],fontWeight:700,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.motivo}</div>}
+          </div>
+          <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(c.monto)}</b>
+        </div>
+      </button>
+    ))}
+
+    {base.length===0 && <div className="ph" style={{marginTop:14}}>
+      {q||fCob!=="Todos" ? "Ningún cobro coincide." : "No hay cobros en este estado."}</div>}
+
+    {totPag>1 && (
+      <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+        <button className="back" style={{padding:"9px 14px"}} disabled={pagAct<=1}
+          onClick={()=>setPag(p=>Math.max(1,p-1))}>‹ Anterior</button>
+        <span className="meta" style={{fontSize:12}}>Página {pagAct} de {totPag}</span>
+        <button className="back" style={{padding:"9px 14px"}} disabled={pagAct>=totPag}
+          onClick={()=>setPag(p=>Math.min(totPag,p+1))}>Siguiente ›</button>
+      </div>
+    )}
+  </>);
+}
+
 /* ══ MI CAJA · recibos, cuadre de caja y cierre diario ══
    Módulo propio: se llega desde el drawer o desde el atajo en Cobros.
    La hora de corte se acuerda con el proveedor y se aplica en Ajustes. */
@@ -7557,6 +7944,16 @@ function MiDia({toast, volver}){
                     {Object.keys(r.formas||{}).join(" · ")}{r.prov?` · ${r.prov}`:""}</div>
                   {r.anulado && <div className="meta" style={{fontSize:11,marginTop:3,
                     color:"#B5613C",fontWeight:700}}>ANULADO{r.motivoAnu?` · ${r.motivoAnu}`:""}</div>}
+                  {!r.anulado && (()=>{
+                    const v = (typeof COBROS_EQUIPO!=="undefined")
+                      ? COBROS_EQUIPO.find(x=>x.nRecibo===r.nRecibo) : null;
+                    if(!v) return null;
+                    const C={pendiente:"#C98A2B",aprobado:"#2E7D52",observado:"#C77F00",rechazado:"#8A2E3B"};
+                    const L={pendiente:"Por verificar",aprobado:"✓ Aprobado",
+                             observado:"Observado",rechazado:"Rechazado"};
+                    return (<div className="meta" style={{fontSize:11,marginTop:3,
+                      color:C[v.estado]||"var(--muted)",fontWeight:700}}>{L[v.estado]||""}</div>);
+                  })()}
                 </div>
                 <div style={{textAlign:"right",flexShrink:0,display:"flex",alignItems:"center",gap:6}}>
                   <b className="num" style={{whiteSpace:"nowrap",fontSize:14,
@@ -17318,7 +17715,7 @@ function App({usuario, onSalir}){
     };
   },[]);
   const irInicio=()=>{ setHist([]); setTab("inicio"); };
-  const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",boveda:"Cheques"};
+  const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",boveda:"Cheques",verificacion:"Verificación"};
   const enSub = tab in subPantallas;
 
   const HOY="2026-06-13";
@@ -17425,6 +17822,7 @@ function App({usuario, onSalir}){
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="midia" && <MiDia toast={show} volver={()=>navegar("cobros")}/>}
         {tab==="boveda" && <Boveda toast={show} yo="Daniel Ríos (Freelance)" volver={()=>navegar("inicio")}/>}
+        {tab==="verificacion" && <Verificacion toast={show} yo="Daniel Ríos (Freelance)" volver={()=>navegar("inicio")}/>}
         {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
         {tab==="equipo" && <Equipo toast={show}/>}
         {tab==="solicitudes" && <Solicitudes toast={show} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
@@ -17517,6 +17915,12 @@ function App({usuario, onSalir}){
                 <span className="di-ic" style={{background:"#EFEAF7",color:"#6B46C1"}}><Ico n="docs" c="#6B46C1" s={19}/></span>
                 <div style={{flex:1}}><div className="di-t">Cheques</div>
                   <div className="di-s">Tu poder · traspasos · todos</div></div>
+                <span className="di-a">›</span>
+              </button>
+              <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("verificacion");}}>
+                <span className="di-ic" style={{background:"#EAF2FA",color:"#2B6CB0"}}><Ico n="docs" c="#2B6CB0" s={19}/></span>
+                <div style={{flex:1}}><div className="di-t">Verificación</div>
+                  <div className="di-s">Cobros del equipo y su conciliación</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("midia");}}>
