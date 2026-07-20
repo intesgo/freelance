@@ -1629,6 +1629,183 @@ function imgComprobante(d){
   }
 }
 
+/* ══ COMPROBANTE DE ANULACIÓN (PNG, A6) ══
+   Se emite al anular un recibo ya entregado al cliente: es la constancia de que
+   ese comprobante quedó sin efecto. Mismo lenguaje visual del recibo pero en ROJO,
+   y dice con claridad QUÉ recibo anula y cuánto vuelve a deber. */
+function imgAnulacion(d){
+  const W=826, P=40;
+  const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
+  const ROJO="#9A2A2A", ROJO2="#C2603A", ROJOSUAVE="#FBEDE8", TINTA="#1A2733",
+        GRIS="#6B7A88", LINEA="#E3E9EF";
+
+  const facs=(d.facturas||[]);
+  let H = 620 + facs.length*72;
+  H = Math.max(1165, H+90);
+
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const x=c.getContext("2d");
+  x.fillStyle="#F8F4F2"; x.fillRect(0,0,W,H);
+  x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,24); x.fill();
+
+  const IX=P+38, IW=W-P*2-76;
+  let y=P+64;
+
+  /* cabecera */
+  x.textAlign="center";
+  x.fillStyle=TINTA; x.font=F(25,700); x.fillText(recorta(x,String(d.prov||"—"),IW), W/2, y);
+  y+=54; x.fillStyle=ROJO; x.font=F(40,800); x.fillText("COMPROBANTE ANULADO", W/2, y);
+  y+=54; x.fillStyle=ROJO; x.font=F(58,800); x.fillText(money2(d.monto), W/2, y);
+  y+=34; x.fillStyle=GRIS; x.font=F(16,500);
+  x.fillText("valor que queda sin efecto", W/2, y);
+  y+=42; const et="Sin validez";
+  x.font=F(17,700); const aw=x.measureText(et).width+40;
+  x.fillStyle=ROJOSUAVE; redonda(x,(W-aw)/2,y-24,aw,38,19); x.fill();
+  x.fillStyle=ROJO; x.fillText(et, W/2, y+2);
+  x.textAlign="left";
+
+  y+=34; separa(y); y+=40;
+
+  /* qué recibo se anula */
+  x.fillStyle=ROJOSUAVE; redonda(x,IX,y-26,IW,150,16); x.fill();
+  x.fillStyle=ROJO2; x.font=F(15,700); x.fillText("ANULA EL COMPROBANTE", IX+24, y+2);
+  x.fillStyle=ROJO; x.font=F(34,800);
+  x.fillText(recorta(x,String(d.nRecibo||"—"),IW-48), IX+24, y+48);
+  x.fillStyle=ROJO2; x.font=F(18,500);
+  x.fillText(`Emitido el ${d.fechaRecibo||"—"}${d.horaRecibo?" · "+d.horaRecibo:""}`, IX+24, y+82);
+  x.fillText(`Por ${money2(d.monto)}`, IX+24, y+110);
+  y+=168;
+
+  /* cliente */
+  sec("CLIENTE");
+  fila("Nombre comercial", "", true);
+  x.fillStyle=TINTA; x.font=F(26,800);
+  x.fillText(recorta(x,String(d.cli||"—"),IW), IX, y); y+=40;
+  if(d.ruc) fila("RUC", rucCorto(d.ruc));
+
+  /* motivo */
+  separa(y-10); sec("MOTIVO DE LA ANULACIÓN");
+  x.fillStyle=TINTA; x.font=F(19,700);
+  x.fillText(recorta(x,String(d.motivo||"—"),IW), IX, y); y+=34;
+  if(d.comentario){
+    x.fillStyle=GRIS; x.font=F(16,500);
+    envuelve(String(d.comentario), IW).forEach(l=>{ x.fillText(l, IX, y); y+=28; });
+  }
+  y+=8;
+
+  /* facturas que vuelven a quedar pendientes */
+  if(facs.length){
+    separa(y-10); sec("FACTURAS QUE VUELVEN A QUEDAR PENDIENTES");
+    facs.forEach(f=>{
+      x.fillStyle=TINTA; x.font=F(18,700);
+      x.fillText(recorta(x,String(f.factura),IW-160), IX, y);
+      x.textAlign="right"; x.fillStyle=ROJO; x.font=F(19,800);
+      x.fillText(money2(f.aplicado), IX+IW, y); x.textAlign="left";
+      y+=28;
+      x.fillStyle=GRIS; x.font=F(15,500);
+      x.fillText("vuelve a su saldo anterior", IX, y); y+=42;
+    });
+  }
+
+  /* saldo */
+  separa(y-10); sec("SALDO DEL CLIENTE");
+  fila("Saldo tras el cobro anulado", money2(d.saldoAntes||0));
+  filaFuerte("SALDO ACTUAL", money2(d.saldoDespues||0), ROJO);
+
+  /* pie */
+  y+=10; separa(y-16);
+  x.fillStyle=GRIS; x.font=F(15,500);
+  x.fillText(`Anulado el ${d.fechaAnu||fechaHoy()}${d.horaAnu?" · "+d.horaAnu:""}`, IX, y+14);
+  x.fillText(`Autorizado por ${d.quien||"Freelance"}`, IX, y+42);
+  if(d.au){ x.fillStyle=ROJO2; x.font=F(15,700);
+    x.fillText(`Auditoría ${d.au}`, IX, y+70); }
+
+  return c;
+
+  function sec(t){ y+=18; x.fillStyle=ROJO2; x.font=F(16,800); x.fillText(t, IX, y); y+=36; }
+  function fila(izq, der, soloIzq){
+    x.fillStyle=TINTA; x.font=F(18,500);
+    const aw2 = der ? x.measureText(String(der)).width+20 : 0;
+    x.fillText(recorta(x, String(izq), IW-aw2), IX, y);
+    if(der){ x.textAlign="right"; x.font=F(18,700); x.fillText(String(der), IX+IW, y); x.textAlign="left"; }
+    y+= soloIzq ? 30 : 36;
+  }
+  function filaFuerte(izq, der, color){
+    x.fillStyle=TINTA; x.font=F(19,800); x.fillText(izq, IX, y);
+    x.fillStyle=color; x.textAlign="right"; x.font=F(24,800);
+    x.fillText(der, IX+IW, y); x.textAlign="left"; x.fillStyle=TINTA;
+    y+=38;
+  }
+  function separa(yy){
+    x.strokeStyle=LINEA; x.lineWidth=1.5;
+    x.beginPath(); x.moveTo(IX,yy); x.lineTo(IX+IW,yy); x.stroke();
+  }
+  function envuelve(t, max){
+    const pal=String(t).split(/\s+/), out=[]; let ln="";
+    pal.forEach(p=>{ const pr=ln?ln+" "+p:p;
+      if(x.measureText(pr).width>max){ if(ln) out.push(ln); ln=p; } else ln=pr; });
+    if(ln) out.push(ln);
+    return out.slice(0,3);
+  }
+  function rucCorto(r){ const s=String(r||""); return s.length>7 ? s.slice(0,4)+"•••••"+s.slice(-3) : s; }
+  function redonda(ctx,a,b,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(a+r,b); ctx.lineTo(a+w-r,b); ctx.quadraticCurveTo(a+w,b,a+w,b+r);
+    ctx.lineTo(a+w,b+h-r); ctx.quadraticCurveTo(a+w,b+h,a+w-r,b+h);
+    ctx.lineTo(a+r,b+h); ctx.quadraticCurveTo(a,b+h,a,b+h-r);
+    ctx.lineTo(a,b+r); ctx.quadraticCurveTo(a,b,a+r,b); ctx.closePath();
+  }
+  function recorta(ctx,t,max){
+    t=String(t);
+    if(ctx.measureText(t).width<=max) return t;
+    let s=t;
+    while(s.length>3 && ctx.measureText(s+"…").width>max) s=s.slice(0,-1);
+    return s+"…";
+  }
+  function fechaHoy(){
+    const n=new Date(), M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return `${String(n.getDate()).padStart(2,"0")} ${M[n.getMonth()]} ${n.getFullYear()}`;
+  }
+}
+
+/* Envía la constancia de anulación al cliente por WhatsApp (mensaje + imagen) */
+async function enviarAnulacion(d, toast){
+  const texto = `Estimado/a ${d.cli}:\n\n`
+    + `Le informamos que el comprobante ${d.nRecibo} por ${money(d.monto)}, `
+    + `emitido el ${d.fechaRecibo||"—"}, ha sido ANULADO y queda sin validez.\n\n`
+    + `Motivo: ${d.motivo}${d.comentario?" · "+d.comentario:""}\n\n`
+    + `Su saldo actual es ${money(d.saldoDespues||0)}.\n\n`
+    + `Si usted conserva una copia del comprobante anterior, por favor considérela sin efecto. `
+    + `Ante cualquier duda comuníquese con su asesor comercial. 🌾`;
+  try{
+    const lienzo = imgAnulacion(d);
+    const blob = await new Promise(r=>lienzo.toBlob(r, "image/png", 0.95));
+    const nombre = `Anulacion_${String(d.nRecibo||"recibo").replace(/[^\w-]+/g,"_")}.png`;
+    const archivo = new File([blob], nombre, {type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      await navigator.share({files:[archivo], title:"Comprobante anulado", text:texto});
+      return true;
+    }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    toast && toast("Constancia descargada · compártela con el cliente");
+    return true;
+  }catch(e){ toast && toast("No se pudo generar la constancia"); return false; }
+}
+
+/* Motivos tipificados de anulación. El cheque protestado NO va aquí:
+   ese cobro SÍ ocurrió y se trata como cargo nuevo a la cartera del cliente. */
+const MOTIVOS_ANULACION = [
+  "Error en el monto digitado",
+  "Cobro duplicado",
+  "Cliente equivocado",
+  "Factura equivocada",
+  "Forma de pago mal registrada",
+  "Otro",
+];
+
 /* ══ ESTADO DE CUENTA EN IMAGEN (PNG, A6) ══
    Sale en el formato que el cliente tiene definido en su ficha (FORMATO_EC),
    con los saldos YA actualizados tras el cobro. Solo se envía si queda saldo. */
@@ -2570,7 +2747,11 @@ const COMO_FUNCIONA = [
   {mod:"Mi caja", ic:"⏰", t:"Corte automático del día",
    d:"El día se cierra solo a la hora acordada con el proveedor. Esa hora se cambia en Ajustes. Si el día cierra sin tu confirmación, queda como \"Automático · sin confirmar\" hasta que confirmes tu cuadre."},
   {mod:"Mi caja", ic:"🚫", t:"Recibos anulados",
-   d:"Un recibo anulado no se borra: queda tachado en la lista con su motivo y no suma al total del día."},
+   d:"Un recibo anulado no se borra: queda tachado con su motivo, quién lo anuló y su código de auditoría, y no suma al total del día. El dinero vuelve a la cartera del cliente."},
+  {mod:"Mi caja", ic:"📤", t:"Constancia de anulación",
+   d:"Al anular se emite una constancia para el cliente, porque él ya tiene en su poder el comprobante original. Dice qué recibo queda sin efecto, el motivo y su saldo actualizado."},
+  {mod:"Mi caja", ic:"⚠️", t:"Cheque protestado no es anulación",
+   d:"Si el banco no paga un cheque, ese cobro sí ocurrió: no se anula el recibo. El valor vuelve como un cargo nuevo a la cartera del cliente y el cheque queda marcado como protestado."},
   {mod:"Pedidos", ic:"🔒", t:"Tu base de precio",
    d:"Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil."},
   {mod:"Pedidos", ic:"💵", t:"Precio de venta",
@@ -4199,7 +4380,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"277", fecha:"19 jul 2026", desc:"Mi caja: sin datos duplicados, KPI En tus manos"};
+const VERSION={n:"278", fecha:"19 jul 2026", desc:"Anulacion de cobro con constancia al cliente"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6776,11 +6957,17 @@ function MiDia({toast, volver}){
   const [tick,setTick]=useState(0);
   const [menuRec,setMenuRec]=useState(null);    // menú ⋮ del recibo
   const [verRec,setVerRec]=useState(null);      // recibo abierto en detalle
+  const [anulando,setAnulando]=useState(null);  // recibo en proceso de anulación
+  const [motAnu,setMotAnu]=useState("");        // motivo tipificado
+  const [comAnu,setComAnu]=useState("");        // comentario obligatorio
+  const [anulado,setAnulado]=useState(null);    // resultado: constancia lista para enviar
   const [diaHist,setDiaHist]=useState(null);    // cierre pasado abierto
   const [pagHist,setPagHist]=useState(1);       // paginación del historial
   useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));
   useModal(!!menuRec, React.useCallback(()=>setMenuRec(null),[]));
   useModal(!!verRec, React.useCallback(()=>setVerRec(null),[]));
+  useModal(!!anulando, React.useCallback(()=>setAnulando(null),[]));
+  useModal(!!anulado, React.useCallback(()=>setAnulado(null),[]));
   React.useEffect(()=>{  /* corte automático a la hora acordada con el proveedor */
     const c=correrCorteAutomatico();
     if(c.length){ setTick(t=>t+1);
@@ -6788,6 +6975,8 @@ function MiDia({toast, volver}){
   },[]);
   useRetroceso(()=>{
     if(cerrando){ setCerrando(false); return true; }
+    if(anulado){ setAnulado(null); return true; }
+    if(anulando){ setAnulando(null); return true; }
     if(menuRec){ setMenuRec(null); return true; }
     if(verRec){ setVerRec(null); return true; }
     if(diaHist){ setDiaHist(null); setTabCie("hist"); return true; }
@@ -6826,6 +7015,52 @@ function MiDia({toast, volver}){
       <div className="num" style={{fontSize:18,fontWeight:800,marginTop:3,color:c||"var(--field)"}}>{v}</div>
     </div>
   );
+  /* ANULACIÓN DE COBRO: el recibo no se borra, se marca. La plata vuelve a la cartera
+     del cliente quitando los abonos que este recibo aplicó. Todo auditado con AU-.
+     El cheque protestado NO pasa por aquí: ese cobro sí ocurrió (se trata aparte). */
+  const ejecutarAnulacion=()=>{
+    const r = anulando;
+    if(!r) return;
+    const au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
+    const hora = new Date().toTimeString().slice(0,5);
+    /* revertir en cartera: quitar los abonos que dejó este recibo */
+    let saldoAntes=0, saldoDespues=0;
+    (r.facturas||[]).forEach(f=>{
+      const d = (typeof DETALLE_FACTURA!=="undefined") ? DETALLE_FACTURA[f.factura] : null;
+      if(d && Array.isArray(d.abonos)){
+        /* el abono de este recibo: por referencia explícita o por monto aplicado */
+        let i = d.abonos.findIndex(a=>String(a.ref||"").includes(r.nRecibo));
+        if(i<0) i = d.abonos.findIndex(a=>Math.abs((a.monto||0)-(f.aplicado||0))<0.005);
+        if(i>=0) d.abonos.splice(i,1);
+      }
+      saldoAntes  += (f.saldoRest!=null ? f.saldoRest : 0);
+      saldoDespues += (f.saldoAnt!=null ? f.saldoAnt : (f.aplicado||0));
+    });
+    /* marcar el recibo, sin borrarlo */
+    r.anulado = true;
+    r.motivoAnu = motAnu;
+    r.comentarioAnu = comAnu.trim();
+    r.auAnu = au;
+    r.horaAnu = hora;
+    r.quienAnu = "Daniel Ríos · Freelance";
+    /* si tenía efectivo pendiente, ese pendiente ya no corre */
+    for(let i=EFECTIVO_PENDIENTE.length-1;i>=0;i--){
+      if(EFECTIVO_PENDIENTE[i].nRecibo===r.nRecibo) EFECTIVO_PENDIENTE.splice(i,1);
+    }
+    const ficha = (typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[r.cli]) || {};
+    const constancia = {
+      nRecibo:r.nRecibo, cli:r.cli, prov:r.prov, monto:r.monto, ruc:ficha.ruc,
+      fechaRecibo:dia.fechaTxt, horaRecibo:r.hora,
+      motivo:motAnu, comentario:comAnu.trim(),
+      facturas:r.facturas||[], saldoAntes:r.saldoActual||saldoAntes,
+      saldoDespues:r.saldoAnterior!=null ? r.saldoAnterior : saldoDespues,
+      fechaAnu:dia.fechaTxt, horaAnu:hora, quien:"Daniel Ríos · Freelance", au,
+    };
+    setAnulando(null); setMotAnu(""); setComAnu("");
+    setAnulado(constancia); setTick(t=>t+1);
+    toast(`Recibo ${r.nRecibo} anulado · auditado ${au}`);
+  };
+
   const cerrarJornada=(motivo)=>{
     CIERRE_HOY.confirmado = true;
     CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
@@ -7116,7 +7351,8 @@ function MiDia({toast, volver}){
             {!menuRec.anulado && (
               <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",
                 padding:"13px 15px",color:"#B5613C",fontWeight:700}}
-                onClick={()=>{setMenuRec(null);toast("La anulación llega en la próxima entrega");}}>
+                onClick={()=>{const r=menuRec;setMenuRec(null);
+                  setMotAnu("");setComAnu("");setAnulando(r);}}>
                 🚫 Anular recibo</button>
             )}
             <button className="back" style={{width:"100%",marginTop:5}}
@@ -7138,7 +7374,11 @@ function MiDia({toast, volver}){
                 background:"#FBEDE8",border:"1px solid #B5613C"}}>
                 <div style={{fontWeight:800,fontSize:13,color:"#B5613C"}}>RECIBO ANULADO</div>
                 {verRec.motivoAnu && <div className="meta" style={{fontSize:11.5,marginTop:3}}>
-                  {verRec.motivoAnu}</div>}
+                  {verRec.motivoAnu}{verRec.comentarioAnu?` · ${verRec.comentarioAnu}`:""}</div>}
+                {verRec.quienAnu && <div className="meta" style={{fontSize:11,marginTop:3}}>
+                  {verRec.quienAnu}{verRec.horaAnu?` · ${verRec.horaAnu}`:""}</div>}
+                {verRec.auAnu && <div className="num meta" style={{fontSize:11,marginTop:2}}>
+                  {verRec.auAnu}</div>}
               </div>
             )}
 
@@ -7180,6 +7420,86 @@ function MiDia({toast, volver}){
             </div>
 
             <button className="back" style={{width:"100%"}} onClick={()=>setVerRec(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {/* anular recibo: motivo tipificado + comentario obligatorio */}
+      {anulando && (
+        <div className="ov" onClick={()=>setAnulando(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Anular {anulando.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {anulando.cli} · {money(anulando.monto)} · {anulando.hora}</div>
+
+            <div className="card" style={{padding:"11px 14px",marginBottom:12,
+              background:"#FBEDE8",border:"1px solid #B5613C"}}>
+              <div style={{fontWeight:700,fontSize:12.5,color:"#B5613C"}}>
+                El dinero vuelve a la cartera del cliente</div>
+              <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+                Se emite una constancia para enviarle al cliente, porque él ya tiene el
+                comprobante original en su poder.</div>
+            </div>
+
+            <div className="field"><label>Motivo</label>
+              <select className="aj-sel" style={{width:"100%",padding:"12px"}}
+                value={motAnu} onChange={e=>setMotAnu(e.target.value)}>
+                <option value="">Elige el motivo…</option>
+                {ordUso("motivosAnulacion",MOTIVOS_ANULACION).map(m=>(
+                  <option key={m} value={m}>{m}</option>))}
+              </select>
+            </div>
+
+            <div className="field" style={{marginTop:10}}><label>Comentario</label>
+              <input value={comAnu} onChange={e=>setComAnu(e.target.value)}
+                placeholder="Explica qué pasó; queda en la auditoría"/></div>
+
+            <button className="cta" style={{width:"100%",marginTop:14,background:"#B5613C"}}
+              disabled={!motAnu || comAnu.trim().length<4}
+              onClick={()=>{regUso("motivosAnulacion",motAnu);ejecutarAnulacion();}}>
+              Anular el recibo</button>
+            <button className="back" style={{width:"100%",marginTop:9}}
+              onClick={()=>setAnulando(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* constancia lista: se envía al cliente */}
+      {anulado && (
+        <div className="ov" onClick={()=>setAnulado(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Recibo anulado</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {anulado.nRecibo} · {anulado.cli} · {money(anulado.monto)}</div>
+
+            <div className="card" style={{padding:"12px 15px",marginBottom:12,
+              background:"#F2F7F3"}}>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Motivo</span>
+                <b style={{fontSize:12.5,textAlign:"right",maxWidth:"62%"}}>{anulado.motivo}</b>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Saldo del cliente</span>
+                <b className="num" style={{fontSize:13}}>{money(anulado.saldoDespues||0)}</b>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Auditoría</span>
+                <span className="num" style={{fontSize:11,color:"var(--muted)"}}>{anulado.au}</span>
+              </div>
+            </div>
+
+            <div className="card" style={{padding:"11px 14px",marginBottom:12,
+              background:"#FDF3E2",border:"1px solid #C98A2B"}}>
+              <div className="meta" style={{fontSize:11.5,color:"#A06B15",fontWeight:700}}>
+                El cliente tiene el comprobante original. Envíale la constancia para que
+                sepa que quedó sin efecto.</div>
+            </div>
+
+            <button className="cta" style={{width:"100%"}}
+              onClick={()=>enviarAnulacion(anulado, toast)}>
+              📤 Enviar constancia al cliente</button>
+            <button className="back" style={{width:"100%",marginTop:9}}
+              onClick={()=>setAnulado(null)}>Después</button>
           </div>
         </div>
       )}
