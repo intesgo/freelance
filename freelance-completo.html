@@ -4540,7 +4540,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"286", fecha:"20 jul 2026", desc:"El cambio de pagina ahora se ve"};
+const VERSION={n:"287", fecha:"20 jul 2026", desc:"Pedidos: entrada con dos tarjetas graficas"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -9228,6 +9228,76 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
           <button style={{cursor:"default"}}>
             <span className="mk-v num" style={{fontSize:14}}>{money(montoAct)}</span>
             <span className="mk-k">En curso</span></button>
+        </div>
+      );
+    })()}
+
+    {/* ENTRADA DEL MÓDULO · norma sellada: la entrada nunca es solo una lista.
+        Los 4 KPI de arriba dan el número; estas dos tarjetas dan el panorama. */}
+    {(()=>{
+      const activos = pedidos.filter(p=>!(LIBERADOS.includes(p.estado)||p.comisionLiberada));
+      /* dónde se traban los pedidos */
+      const porEstado = ESTADOS.filter(e=>e!=="Todos").map(e=>({
+        estado:e, n:activos.filter(p=>p.estado===e).length,
+        monto:activos.filter(p=>p.estado===e).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
+      })).filter(x=>x.n>0);
+      const maxE = Math.max(...porEstado.map(x=>x.n), 1);
+      const COLOR_EST = {"Esperando aprobación":"#C9A227","Enviado al proveedor":"#2B6CB0",
+                         "Facturado":"#2E7D52","Despachado":"#7C5CBF"};
+      /* con quién estás más comprometido */
+      const porProv = Array.from(new Set(activos.map(p=>p.prov))).map(pr=>({
+        prov:pr, n:activos.filter(p=>p.prov===pr).length,
+        qq:activos.filter(p=>p.prov===pr).reduce((a,p)=>a+(p.cant||0),0),
+        monto:activos.filter(p=>p.prov===pr).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
+      })).sort((a,b)=>b.monto-a.monto);
+      const maxP = Math.max(...porProv.map(x=>x.monto), 1);
+      if(activos.length===0) return null;
+      return (
+        <div className="ndash" style={{marginTop:12,marginBottom:14}}>
+
+          <div className="ncard" onClick={()=>cambiarPestana("activos",true)}>
+            <div className="nk">Dónde están</div>
+            <div className="nbars" style={{marginTop:6}}>
+              {porEstado.map(x=>(
+                <button key={x.estado}
+                  onClick={ev=>{ev.stopPropagation();cambiarPestana("activos",true);setEstado(x.estado);}}
+                  style={{border:"none",background:"none",padding:0,width:"100%",
+                    textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
+                    <span style={{fontSize:9.5,color:"var(--muted)",overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.estado}</span>
+                    <span className="num" style={{fontSize:10,fontWeight:700,flexShrink:0}}>{x.n}</span>
+                  </div>
+                  <span style={{display:"block",height:6,borderRadius:4,background:"#EFEBE0",overflow:"hidden"}}>
+                    <span style={{display:"block",height:"100%",borderRadius:4,
+                      width:`${Math.round(x.n/maxE*100)}%`,background:COLOR_EST[x.estado]||"var(--field)"}}/>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="nsub">Toca un estado para filtrar</div>
+          </div>
+
+          <div className="ncard" onClick={()=>cambiarPestana("activos",true)}>
+            <div className="nk">Por proveedor</div>
+            <div className="nbars" style={{marginTop:6}}>
+              {porProv.slice(0,3).map(x=>(
+                <div key={x.prov}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
+                    <span style={{fontSize:9.5,color:"var(--muted)",overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.prov}</span>
+                    <span className="num" style={{fontSize:10,fontWeight:700,flexShrink:0}}>{x.qq} qq</span>
+                  </div>
+                  <span style={{display:"block",height:6,borderRadius:4,background:"#EFEBE0",overflow:"hidden"}}>
+                    <span style={{display:"block",height:"100%",borderRadius:4,
+                      width:`${Math.round(x.monto/maxP*100)}%`,background:"var(--field-700)"}}/>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="nsub">{porProv.length} proveedor{porProv.length!==1?"es":""} con pedidos en curso</div>
+          </div>
+
         </div>
       );
     })()}
