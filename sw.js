@@ -1,16 +1,47 @@
 /* ═══════════════════════════════════════════════════════════════════
-   FREELANCE · sw.js — Trabajador de avisos (Nivel 2)
-   Qué hace: permite que los avisos aparezcan en la PANTALLA DEL TELÉFONO
-   (la bandeja de notificaciones), incluso con la app cerrada.
+   FREELANCE · sw.js — Trabajador de avisos + modo offline
+   Qué hace:
+   · Muestra avisos en la bandeja del teléfono, incluso con la app cerrada.
+   · Guarda las pantallas para que la app ABRA SIN INTERNET en el campo.
    Requisito: la app debe estar publicada con HTTPS (GitHub Pages).
-   Cómo se instala: este archivo va junto a los HTML en el repositorio;
-   la app lo registra sola al detectar HTTPS.
+
+   REGLA DE ORO (aprendida en campo, 12 jul 2026):
+   NUNCA dejar al usuario sin app. Si la red falla, responde mal o va lenta,
+   se sirve SIEMPRE la copia guardada anterior. Un vendedor sin app en la
+   mitad del campo es un problema real.
    ═══════════════════════════════════════════════════════════════════ */
 
-self.addEventListener("install", (e) => self.skipWaiting());
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+const CACHE = "freelance-v4";
+const PIEZAS = [
+  "./", "./index.html",
+  "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
+  "./freelance-completo.html", "./proveedor-freelance.html",
+];
 
-/* La app (abierta o en segundo plano) pide mostrar un aviso en la bandeja */
+/* ── Instalación: guarda las pantallas.
+   OJO: NO se llama skipWaiting() aquí. El service worker nuevo espera en
+   segundo plano hasta que el usuario toque "Actualizar" en la app. Si tomara
+   el control solo, recargaría la pantalla a mitad de un pedido. ── */
+self.addEventListener("install", (e) => {
+  e.waitUntil(
+    caches.open(CACHE).then((c) =>
+      /* addAll falla entero si una pieza falla; se guardan una por una para que
+         una sola pieza rota no deje la app sin caché. */
+      Promise.all(PIEZAS.map((p) => c.add(p).catch(() => {})))
+    )
+  );
+});
+
+/* ── Activación: limpia cachés viejos y toma el control ── */
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((lista) => Promise.all(lista.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+/* ── Mensajes desde la app ── */
 self.addEventListener("message", (e) => {
   const d = e.data || {};
   /* el botón "Actualizar" pide que este service worker nuevo tome el control ya */
@@ -18,10 +49,10 @@ self.addEventListener("message", (e) => {
   if (d.tipo !== "aviso") return;
   self.registration.showNotification(d.titulo || "FREELANCE", {
     body: d.detalle || "",
-    tag: d.tag || "freelance",         // agrupa avisos del mismo tema
-    badge: d.badge,                     // ícono pequeño (opcional)
-    icon: d.icon,                       // ícono grande (opcional)
-    data: { destino: d.destino || "" }, // a qué pantalla llevar al tocar
+    tag: d.tag || "freelance",
+    badge: d.badge,
+    icon: d.icon,
+    data: { destino: d.destino || "" },
     renotify: !!d.renotify,
   });
 });
@@ -51,51 +82,40 @@ self.addEventListener("notificationclick", (e) => {
   );
 });
 
-/* ═══════════ MODO OFFLINE · la app instalada abre SIN internet ═══════════
-   Al instalar, el teléfono guarda las pantallas. En el campo sin señal, la app
-   abre igual (con la cola 4.4 protegiendo lo que se registre). Al volver la señal,
-   se actualiza sola desde internet (red primero, guardado como respaldo). */
-const CACHE = "freelance-v3";
-const PIEZAS = [
-  "./", "./index.html",
-  "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
-  "./freelance-completo.html", "./proveedor-freelance.html",
-];
-
-self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PIEZAS)).then(() => self.skipWaiting()));
-});
-
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((lista) =>
-      Promise.all(lista.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
-});
-
+/* ── Red primero, copia guardada como red de seguridad ──
+   Diferencia clave con la versión anterior: una respuesta con error (404, 500,
+   o un despliegue a medio publicar) NO cuenta como buena. Antes se guardaba
+   igual y se servía después: así es como la app se quedó sin abrir. */
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;   /* Supabase y demás siguen directo a internet */
-  e.respondWith(
-    (async () => {
-      /* Red primero, pero con límite: si en 4 s no responde, servimos la copia guardada.
-         Así la app nunca se queda cargando por una red lenta. */
-      const guardada = await caches.match(e.request, { ignoreSearch: true });
-      try {
-        const conLimite = new Promise((_, rechaza) => setTimeout(() => rechaza(new Error("lenta")), 4000));
-        const resp = await Promise.race([fetch(e.request), conLimite]);
+  if (url.origin !== location.origin) return;   /* Supabase y demás van directo a internet */
+
+  e.respondWith((async () => {
+    const guardada = await caches.match(e.request, { ignoreSearch: true });
+    try {
+      /* Si en 4 s no responde, servimos lo guardado: la app nunca se queda cargando. */
+      const conLimite = new Promise((_, rechaza) =>
+        setTimeout(() => rechaza(new Error("lenta")), 4000));
+      const resp = await Promise.race([fetch(e.request), conLimite]);
+
+      /* Solo se guarda y se sirve si la respuesta es BUENA. */
+      if (resp && resp.ok) {
         const copia = resp.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copia)).catch(() => {});
         return resp;
-      } catch (err) {
-        if (guardada) return guardada;
+      }
+      /* Respondió mal: mejor la copia anterior que una pantalla rota. */
+      if (guardada) return guardada;
+      return resp;
+    } catch (err) {
+      if (guardada) return guardada;
+      /* Navegación sin copia propia: al menos abrir la portada. */
+      if (e.request.mode === "navigate") {
         const inicio = await caches.match("./index.html");
         if (inicio) return inicio;
-        /* último recurso: intentar la red sin límite */
-        return fetch(e.request);
       }
-    })()
-  );
+      return fetch(e.request);
+    }
+  })());
 });
