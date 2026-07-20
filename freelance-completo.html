@@ -4540,7 +4540,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"287", fecha:"20 jul 2026", desc:"Pedidos: entrada con dos tarjetas graficas"};
+const VERSION={n:"288", fecha:"20 jul 2026", desc:"Comisiones: entrada con panorama"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -13719,6 +13719,69 @@ function Cuenta({usuario, onSalir}){
       <div><div className="h1" style={{marginBottom:2}}>Comisiones</div>
         <div className="sub" style={{margin:0}}>Tus comisiones y las de tu equipo</div></div>
     </div>
+
+    {/* ENTRADA DEL MÓDULO · norma sellada: la entrada nunca es solo pestañas.
+        Tres tarjetas dan el panorama antes de entrar al detalle de cada pestaña. */}
+    {(()=>{
+      const mesHoy = new Date().getMonth();
+      /* últimos 6 meses con dato, para la línea de tendencia */
+      const desde = Math.max(0, mesHoy - 5);
+      const ult6 = comFreelanceMes.slice(desde, mesHoy + 1);
+      const maxS = Math.max(...ult6, 1);
+      const pts = ult6.length > 1
+        ? ult6.map((v,i)=>`${Math.round(i/(ult6.length-1)*100)},${Math.round(32 - (v/maxS)*28)}`).join(" ")
+        : "0,16 100,16";
+      const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+      /* lo retenido depende de que cobres: por eso se separa de lo liberado */
+      const totalCom = liberadas + totalRetenida;
+      const pctLib = totalCom > 0 ? Math.round(liberadas / totalCom * 100) : 0;
+      return (
+        <div className="ndash" style={{marginTop:0,marginBottom:16}}>
+
+          <div className="ncard" onClick={()=>setPestana("mias")}>
+            <div className="nk">Este mes</div>
+            <div className="nv money">{money(neto)}</div>
+            <svg className="nspark" viewBox="0 0 100 32" preserveAspectRatio="none">
+              <polyline points={pts} fill="none" stroke="var(--field-700)"
+                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <polygon points={`0,32 ${pts} 100,32`} fill="rgba(30,77,58,.12)" stroke="none"/>
+            </svg>
+            <div className="nsub">
+              {MES[desde]}–{MES[mesHoy]} · {variacion>=0?"▲":"▼"} {Math.abs(variacion)}% vs. mes anterior</div>
+          </div>
+
+          <div className="ncard" onClick={()=>setPestana("equipo")}>
+            <div className="nk">Liberada vs. retenida</div>
+            <div className="nring-wrap">
+              <div className="nring" style={{background:`conic-gradient(var(--field-700) 0 ${pctLib}%, #EFEBE0 ${pctLib}% 100%)`}}>
+                <div className="hole"><b style={{fontSize:15}}>{pctLib}%</b><span>libre</span></div>
+              </div>
+              <div className="nleg">
+                <span><span className="d" style={{background:"var(--field-700)"}}></span>{money(liberadas)} liberada</span>
+                <span><span className="d" style={{background:"#D9D3C4"}}></span>{money(totalRetenida)} retenida</span>
+              </div>
+            </div>
+            <div className="nsub">Lo retenido se libera cuando cobras</div>
+          </div>
+
+          <div className="ncard" onClick={()=>setPestana("equipo")} style={{gridColumn:"1 / -1",minHeight:0}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+              <div className="nk">Meta del mes</div>
+              <span className="num" style={{fontSize:12,fontWeight:800,
+                color: metaPct>=100 ? "#2E7D52" : metaPct>=70 ? "var(--field)" : "#C9A227"}}>{metaPct}%</span>
+            </div>
+            <span style={{display:"block",height:9,borderRadius:6,background:"#EFEBE0",overflow:"hidden",marginTop:6}}>
+              <span style={{display:"block",height:"100%",borderRadius:6,
+                width:`${Math.min(100,metaPct)}%`,
+                background: metaPct>=100 ? "#2E7D52" : "var(--field-700)"}}/>
+            </span>
+            <div className="nsub" style={{marginTop:6}}>
+              {money(ventaActual)} de {money(metaTotal)} · faltan {money(Math.max(0,metaTotal-ventaActual))}</div>
+          </div>
+
+        </div>
+      );
+    })()}
 
     <div className="eq-tabs" style={{marginBottom:16}}>
       <button className={pestana==="mias"?"on":""} onClick={()=>setPestana("mias")}>Mías</button>
