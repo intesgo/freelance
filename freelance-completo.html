@@ -4193,7 +4193,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"275", fecha:"19 jul 2026", desc:"Historial: boton de evidencia (cheque y guia)"};
+const VERSION={n:"276", fecha:"19 jul 2026", desc:"Mi caja: pestanas Recibos e Historial"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6759,7 +6759,7 @@ function Boveda({toast, yo, volver}){
   </>);
 }
 
-/* ══ MI DÍA · cuadre de caja y cierre diario ══
+/* ══ MI CAJA · recibos, cuadre de caja y cierre diario ══
    Módulo propio: se llega desde el drawer o desde el atajo en Cobros.
    La hora de corte se acuerda con el proveedor y se aplica en Ajustes. */
 function MiDia({toast, volver}){
@@ -6768,7 +6768,13 @@ function MiDia({toast, volver}){
   const [cerrando,setCerrando]=useState(false);
   const [motivoCie,setMotivoCie]=useState("");
   const [tick,setTick]=useState(0);
+  const [menuRec,setMenuRec]=useState(null);    // menú ⋮ del recibo
+  const [verRec,setVerRec]=useState(null);      // recibo abierto en detalle
+  const [diaHist,setDiaHist]=useState(null);    // cierre pasado abierto
+  const [pagHist,setPagHist]=useState(1);       // paginación del historial
   useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));
+  useModal(!!menuRec, React.useCallback(()=>setMenuRec(null),[]));
+  useModal(!!verRec, React.useCallback(()=>setVerRec(null),[]));
   React.useEffect(()=>{  /* corte automático a la hora acordada con el proveedor */
     const c=correrCorteAutomatico();
     if(c.length){ setTick(t=>t+1);
@@ -6776,6 +6782,9 @@ function MiDia({toast, volver}){
   },[]);
   useRetroceso(()=>{
     if(cerrando){ setCerrando(false); return true; }
+    if(menuRec){ setMenuRec(null); return true; }
+    if(verRec){ setVerRec(null); return true; }
+    if(diaHist){ setDiaHist(null); setTabCie("hist"); return true; }
     return false;
   });
 
@@ -6824,13 +6833,13 @@ function MiDia({toast, volver}){
   };
 
   return (<>
-    <div className="h1">Mi día</div>
+    <div className="h1">Mi caja</div>
     <div className="sub">{dia.fechaTxt} · {activos.length} recibo{activos.length!==1?"s":""} · {chip(estadoTxt,tono)}</div>
 
     <div className="nchips" style={{flexWrap:"wrap",marginTop:12}}>
-      {[["resumen","Resumen"],["detalle","Detalle"]].map(([k,t])=>(
-        <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 45%"}}
-          onClick={()=>setTabCie(k)}>{t}</button>
+      {[["resumen","Resumen"],["detalle","Detalle"],["recibos","Recibos"],["hist","Historial"]].map(([k,t])=>(
+        <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 22%"}}
+          onClick={()=>{setTabCie(k);setDiaHist(null);}}>{t}</button>
       ))}
     </div>
 
@@ -6957,6 +6966,220 @@ function MiDia({toast, volver}){
         </>);})()}
 
       {/* ── 3 · RECIBOS ── */}
+      {tabCie==="recibos" && (()=>{
+        const lista = recibos.slice().sort((a,b)=>(b.hora||"")<(a.hora||"")?-1:1);
+        const anulados = lista.filter(r=>r.anulado).length;
+        return (<>
+          <div className="card" style={{padding:"13px 16px",marginBottom:12}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+              <span style={{fontWeight:800,fontSize:14}}>
+                {activos.length} recibo{activos.length!==1?"s":""} del día</span>
+              <b className="num" style={{fontSize:21,fontWeight:800}}>{money(total)}</b>
+            </div>
+            {anulados>0 && <div className="meta" style={{fontSize:11.5,marginTop:5,color:"#B5613C",fontWeight:700}}>
+              {anulados} anulado{anulados!==1?"s":""} · no suman al total</div>}
+          </div>
+
+          {lista.map((r,i)=>(
+            <div key={r.nRecibo+i} className="card" style={{padding:"12px 14px",marginBottom:8,
+              border:"1px solid var(--line)",
+              borderLeft:`3px solid ${r.anulado?"#B5613C":"#2E7D52"}`,
+              opacity:r.anulado?.72:1}}>
+              <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap",
+                    textDecoration:r.anulado?"line-through":undefined}}>{r.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>{r.nRecibo} · {r.hora}</div>
+                  <div className="meta" style={{fontSize:11,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {Object.keys(r.formas||{}).join(" · ")}{r.prov?` · ${r.prov}`:""}</div>
+                  {r.anulado && <div className="meta" style={{fontSize:11,marginTop:3,
+                    color:"#B5613C",fontWeight:700}}>ANULADO{r.motivoAnu?` · ${r.motivoAnu}`:""}</div>}
+                </div>
+                <div style={{textAlign:"right",flexShrink:0,display:"flex",alignItems:"center",gap:6}}>
+                  <b className="num" style={{whiteSpace:"nowrap",fontSize:14,
+                    textDecoration:r.anulado?"line-through":undefined}}>{money(r.monto)}</b>
+                  <button className="back" style={{padding:"6px 9px",fontSize:15,lineHeight:1}}
+                    onClick={()=>setMenuRec(r)}>⋮</button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {lista.length===0 && <div className="ph">Aún no hay recibos hoy.</div>}
+        </>);})()}
+
+      {/* ── 4 · HISTORIAL ── */}
+      {tabCie==="hist" && !diaHist && (()=>{
+        const POR = 8;
+        const tot = Math.max(1, Math.ceil(CIERRES_HIST.length/POR));
+        const pag = Math.min(pagHist, tot);
+        const dias = CIERRES_HIST.slice((pag-1)*POR, pag*POR);
+        const lbl = d => d.estado==="cerrado_auto" ? "Cerrado automáticamente"
+          : d.estado==="cerrado_obs" ? "Cerrado con pendientes"
+          : d.estado==="cerrado" ? "Cerrado" : "Abierto";
+        const col = d => d.estado==="cerrado_obs" ? "#C98A2B"
+          : d.estado==="cerrado_auto" ? "#C98A2B"
+          : d.estado==="cerrado" ? "#2E7D52" : "#8B9490";
+        return (<>
+          <div className="meta" style={{fontSize:11.5,marginBottom:10}}>
+            Cierres anteriores · consulta de solo lectura</div>
+          {dias.map(d=>{
+            const act = (d.recibos||[]).filter(r=>!r.anulado);
+            const tt = act.reduce((a,r)=>a+r.monto,0);
+            return (
+              <button key={d.fecha} className="card" style={{width:"100%",padding:"12px 14px",
+                marginBottom:8,border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",
+                fontFamily:"inherit",borderLeft:`3px solid ${col(d)}`}}
+                onClick={()=>setDiaHist(d)}>
+                <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13.5,fontWeight:700}}>{d.fechaTxt}</div>
+                    <div className="meta" style={{fontSize:11}}>
+                      {act.length} recibo{act.length!==1?"s":""}
+                      {d.cerradoEn?` · cerró ${d.cerradoEn}`:""}</div>
+                  </div>
+                  <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(tt)}</b>
+                </div>
+                <div className="meta" style={{fontSize:11,marginTop:4,color:col(d),fontWeight:700}}>
+                  {lbl(d)}{d.efePend>0?` · ${money(d.efePend)} sin depositar`:""}</div>
+                {d.obs && <div className="meta" style={{fontSize:11,marginTop:2,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.obs}</div>}
+              </button>
+            );
+          })}
+          {tot>1 && (
+            <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+              <button className="back" style={{padding:"9px 14px"}} disabled={pag<=1}
+                onClick={()=>setPagHist(p=>Math.max(1,p-1))}>‹ Anterior</button>
+              <span className="meta" style={{fontSize:12}}>Página {pag} de {tot}</span>
+              <button className="back" style={{padding:"9px 14px"}} disabled={pag>=tot}
+                onClick={()=>setPagHist(p=>Math.min(tot,p+1))}>Siguiente ›</button>
+            </div>
+          )}
+        </>);})()}
+
+      {/* detalle de un día del historial (solo lectura) */}
+      {tabCie==="hist" && diaHist && (()=>{
+        const act = (diaHist.recibos||[]).filter(r=>!r.anulado);
+        const tt = act.reduce((a,r)=>a+r.monto,0);
+        return (<>
+          <div className="card" style={{padding:"13px 16px",marginBottom:12}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:15}}>{diaHist.fechaTxt}</div>
+                <div className="meta" style={{fontSize:11.5,marginTop:2}}>
+                  {act.length} recibo{act.length!==1?"s":""} · solo lectura</div>
+              </div>
+              <b className="num" style={{fontSize:21,fontWeight:800}}>{money(tt)}</b>
+            </div>
+            {diaHist.obs && <div className="meta" style={{fontSize:11.5,marginTop:6}}>{diaHist.obs}</div>}
+          </div>
+
+          {(diaHist.recibos||[]).map((r,i)=>(
+            <button key={r.nRecibo+i} className="card" style={{width:"100%",padding:"12px 14px",
+              marginBottom:8,border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",
+              fontFamily:"inherit",borderLeft:`3px solid ${r.anulado?"#B5613C":"#2E7D52"}`,
+              opacity:r.anulado?.72:1}}
+              onClick={()=>setVerRec(r)}>
+              <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap",
+                    textDecoration:r.anulado?"line-through":undefined}}>{r.cli}</div>
+                  <div className="meta" style={{fontSize:11}}>{r.nRecibo} · {r.hora}</div>
+                </div>
+                <b className="num" style={{whiteSpace:"nowrap",fontSize:14,
+                  textDecoration:r.anulado?"line-through":undefined}}>{money(r.monto)}</b>
+              </div>
+            </button>
+          ))}
+          {(diaHist.recibos||[]).length===0 && <div className="ph">Ese día no tuvo recibos.</div>}
+        </>);})()}
+
+      {/* menú ⋮ del recibo */}
+      {menuRec && (
+        <div className="ov" onClick={()=>setMenuRec(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>{menuRec.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 14px"}}>
+              {menuRec.cli} · {money(menuRec.monto)} · {menuRec.hora}</div>
+            <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",padding:"13px 15px"}}
+              onClick={()=>{const r=menuRec;setMenuRec(null);setVerRec(r);}}>👁️ Ver recibo</button>
+            <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",padding:"13px 15px"}}
+              onClick={()=>{setMenuRec(null);toast("Se comparte el comprobante por el menú del celular");}}>
+              📤 Compartir</button>
+            {!menuRec.anulado && (
+              <button className="back" style={{width:"100%",marginBottom:9,textAlign:"left",
+                padding:"13px 15px",color:"#B5613C",fontWeight:700}}
+                onClick={()=>{setMenuRec(null);toast("La anulación llega en la próxima entrega");}}>
+                🚫 Anular recibo</button>
+            )}
+            <button className="back" style={{width:"100%",marginTop:5}}
+              onClick={()=>setMenuRec(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {/* detalle del recibo */}
+      {verRec && (
+        <div className="ov" onClick={()=>setVerRec(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>{verRec.nRecibo}</h3>
+            <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+              {verRec.cli}{verRec.prov?` · ${verRec.prov}`:""} · {verRec.hora}</div>
+
+            {verRec.anulado && (
+              <div className="card" style={{padding:"11px 14px",marginBottom:12,
+                background:"#FBEDE8",border:"1px solid #B5613C"}}>
+                <div style={{fontWeight:800,fontSize:13,color:"#B5613C"}}>RECIBO ANULADO</div>
+                {verRec.motivoAnu && <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+                  {verRec.motivoAnu}</div>}
+              </div>
+            )}
+
+            <div className="card" style={{padding:"12px 15px",marginBottom:12}}>
+              <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+                <span className="meta">Monto</span>
+                <b className="num" style={{fontSize:22,fontWeight:800}}>{money(verRec.monto)}</b>
+              </div>
+            </div>
+
+            <div className="ficha-sec" style={{marginBottom:6}}>Formas de pago</div>
+            <div className="card" style={{padding:"10px 14px",marginBottom:12}}>
+              {(verRec.lineas||[]).map((l,i)=>(
+                <div key={i} className="row" style={{justifyContent:"space-between",
+                  padding:"5px 0",borderTop:i?"1px solid var(--line)":"none",gap:8}}>
+                  <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {l.modalidad}{l.banco?` · ${l.banco}`:""}{l.numero?` · ${l.numero}`:""}</span>
+                  <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>
+                    {money(parseFloat(l.monto)||0)}</b>
+                </div>
+              ))}
+            </div>
+
+            <div className="ficha-sec" style={{marginBottom:6}}>Facturas aplicadas</div>
+            <div className="card" style={{padding:"10px 14px",marginBottom:12}}>
+              {(verRec.facturas||[]).map((f,i)=>(
+                <div key={i} style={{padding:"5px 0",borderTop:i?"1px solid var(--line)":"none"}}>
+                  <div className="row" style={{justifyContent:"space-between",gap:8}}>
+                    <span style={{fontSize:12.5,fontWeight:600,minWidth:0,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.factura}</span>
+                    <b className="num" style={{fontSize:12.5,whiteSpace:"nowrap"}}>{money(f.aplicado)}</b>
+                  </div>
+                  <div className="meta" style={{fontSize:11}}>
+                    {(f.saldoRest||0)<=0.004?"Cancelada":`Abonada · resta ${money(f.saldoRest||0)}`}</div>
+                </div>
+              ))}
+              {(verRec.facturas||[]).length===0 && <div className="meta" style={{fontSize:11.5}}>Sin detalle por factura.</div>}
+            </div>
+
+            <button className="back" style={{width:"100%"}} onClick={()=>setVerRec(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
     {cerrando && (
       <div className="ov" onClick={()=>setCerrando(false)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
@@ -7508,8 +7731,8 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
               onClick={()=>{ if(go) go("midia"); }}>
               <Ico n="stats" c="#2E7D52" s={19}/>
               <span style={{minWidth:0}}>
-                <span style={{display:"block",fontSize:11,fontWeight:800,color:"var(--ink)"}}>Cierre del día</span>
-                <span className="meta" style={{fontSize:9.5}}>cuadre de caja</span>
+                <span style={{display:"block",fontSize:11,fontWeight:800,color:"var(--ink)"}}>Mi caja</span>
+                <span className="meta" style={{fontSize:9.5}}>recibos y cierre</span>
               </span>
             </button>
           </div>
@@ -16652,8 +16875,8 @@ function App({usuario, onSalir}){
               </button>
               <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("midia");}}>
                 <span className="di-ic" style={{background:"#E8F0F7",color:"#1B3A5C"}}><Ico n="stats" c="#1B3A5C" s={19}/></span>
-                <div style={{flex:1}}><div className="di-t">Mi día</div>
-                  <div className="di-s">Cuadre de caja y cierre diario</div></div>
+                <div style={{flex:1}}><div className="di-t">Mi caja</div>
+                  <div className="di-s">Recibos, cuadre y cierre diario</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("portafolio");}}>
