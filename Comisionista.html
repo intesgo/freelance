@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"110", fecha:"20 jul 2026", desc:"Aviso de version nueva unificado" };
+const VERSION = { n:"111", fecha:"20 jul 2026", desc:"Impresora 48mm con tildes" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1158,6 +1158,55 @@ function SelloLineas() {
    jamas el contenido).
    En DEMO el hash vive en memoria/localStorage y no sale del telefono. En Fase 4 el
    cambio lo procesa Supabase Auth contra el servidor, con cifrado real. */
+/* ══ IMPRESORA TÉRMICA · comandos ESC/POS ══
+   Modelo probado: GOOJPRT PT-210 (48 mm de ancho de impresión = 32 caracteres por
+   línea en fuente normal). NO tiene cuchilla: en vez de cortar, se avanza papel
+   para poder cortar a mano.
+
+   TILDES Y Ñ: la impresora no entiende UTF-8. Hay que declararle una página de
+   códigos y mandarle los bytes en ESA codificación. Se usa CP858 (latino con €),
+   que es la que traen casi todas las térmicas chinas. Sin esto, "Cobré" y "Ñañay"
+   salen como basura. */
+const ESC = "\x1B", GS = "\x1D";
+const ESC_INI    = ESC+"@" + ESC+"t"+"\x13" + ESC+"R"+"\x0C";  /* reiniciar + CP858 + español */
+const ESC_CENTRO = ESC+"a"+"\x01";
+const ESC_IZQ    = ESC+"a"+"\x00";
+const ESC_GRANDE = GS+"!"+"\x11";
+const ESC_NORMAL = GS+"!"+"\x00";
+const ESC_NEGRITA= ESC+"E"+"\x01";
+const ESC_PLANO  = ESC+"E"+"\x00";
+/* Sin cuchilla: 4 saltos para que el papel salga y se pueda cortar a mano. */
+const ESC_FIN    = "\n\n\n\n";
+const LINEA_32   = "--------------------------------";
+
+/* Tabla CP858: del carácter que se ve al byte que entiende la impresora. */
+const CP858 = {
+  "á":0xA0,"é":0x82,"í":0xA1,"ó":0xA2,"ú":0xA3,"ü":0x81,"ñ":0xA4,
+  "Á":0xB5,"É":0x90,"Í":0xD6,"Ó":0xE0,"Ú":0xE9,"Ü":0x9A,"Ñ":0xA5,
+  "¿":0xA8,"¡":0xAD,"°":0xF8,"·":0xFA,"€":0xD5,"ª":0xA6,"º":0xA7,
+};
+/* Convierte el texto a los bytes que la impresora imprime bien.
+   Lo que no esté en la tabla y no sea ASCII se reemplaza por "?" en vez de
+   mandar basura: es más honesto que imprimir símbolos raros. */
+function aBytesImpresora(texto){
+  const t = String(texto||"");
+  const salida = new Uint8Array(t.length);
+  for(let i=0;i<t.length;i++){
+    const c = t[i], cod = t.charCodeAt(i);
+    if(cod < 128)          salida[i] = cod;
+    else if(CP858[c]!==undefined) salida[i] = CP858[c];
+    else                   salida[i] = 0x3F;   /* "?" */
+  }
+  return salida;
+}
+/* Dos columnas en 32 caracteres: etiqueta a la izquierda, valor a la derecha. */
+function linea2(izq, der, ancho){
+  const a = ancho || 32;
+  let i = String(izq||""), d = String(der||"");
+  if(i.length + d.length + 1 > a) i = i.slice(0, Math.max(0, a - d.length - 1));
+  return i + " ".repeat(Math.max(1, a - i.length - d.length)) + d;
+}
+
 const CLAVE_KEY = "freelance_clave_hist_v1";
 /* Hash simple (FNV-1a). Suficiente para la demo: sirve para comparar sin guardar el
    texto. NO es criptografico — en Fase 4 lo reemplaza el hash del servidor. */
@@ -9235,7 +9284,7 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
     toast("Contraseña actualizada ✓ · "+au);
   };   // pestaña activa de Ajustes
 
-  /* ── Impresora térmica Bluetooth (ESC/POS, 58 mm) ──
+  /* ── Impresora térmica Bluetooth (ESC/POS, 48 mm · GOOJPRT PT-210) ──
      Solo funciona en Chrome de Android con la app abierta en pantalla. */
   const [impre,setImpre]=useState(null);        // dispositivo emparejado
   const [carImp,setCarImp]=useState(null);      // canal por donde se envían los datos
@@ -9278,7 +9327,9 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
   const enviarAImpresora=async(texto)=>{
     if(!carImp){ toast("Conecta primero la impresora"); return false; }
     try{
-      const bytes=new TextEncoder().encode(texto);
+      /* NO se usa TextEncoder: manda UTF-8 y la impresora escupe basura en las
+         tildes. Se convierte a CP858, que es lo que ella entiende. */
+      const bytes=aBytesImpresora(texto);
       const TROZO=180;
       for(let i=0;i<bytes.length;i+=TROZO){
         await carImp.writeValue(bytes.slice(i,i+TROZO));
@@ -9289,19 +9340,17 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
   };
 
   const pruebaImpresion=async()=>{
-    const ESC="\x1B", GS="\x1D";
-    const centro=ESC+"a"+"\x01", izq=ESC+"a"+"\x00";
-    const grande=GS+"!"+"\x11", normal=GS+"!"+"\x00";
-    const corte=GS+"V"+"\x42"+"\x00";
-    const t = ESC+"@"                       /* reiniciar impresora */
-      + centro + grande + "FREELANCE\n" + normal
-      + "Prueba de impresion\n"
-      + "--------------------------------\n" + izq
-      + "Equipo: " + (impre&&impre.name ? impre.name : "termica") + "\n"
+    const t = ESC_INI
+      + ESC_CENTRO + ESC_GRANDE + "FREELANCE\n" + ESC_NORMAL
+      + "Prueba de impresión\n"
+      + LINEA_32 + "\n" + ESC_IZQ
+      + "Equipo: " + (impre&&impre.name ? impre.name : "térmica") + "\n"
       + "Fecha: " + new Date().toLocaleString("es-EC") + "\n"
-      + "Ancho: 58 mm - 32 caracteres\n"
-      + "--------------------------------\n"
-      + centro + "Si lees esto, la impresora\nquedo lista.\n\n\n" + corte;
+      + "Ancho: 48 mm · 32 caracteres\n"
+      + "Acentos: á é í ó ú ñ Ñ ¿? ¡!\n"
+      + LINEA_32 + "\n"
+      + ESC_CENTRO + "Si lees esto con las tildes\nbien, la impresora quedó lista.\n"
+      + ESC_FIN;
     const ok=await enviarAImpresora(t);
     if(ok) toast("Prueba enviada a la impresora");
   };
@@ -9500,7 +9549,7 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
             {impre ? "● Conectada" : "○ Sin conectar"}</b>
         </div>
         {impre && <div className="cu-line"><span>Equipo</span><b style={{fontSize:12}}>{impre.name||"Impresora térmica"}</b></div>}
-        <div className="cu-line"><span>Ancho de papel</span><b style={{fontSize:12.5}}>58 mm · 32 caracteres</b></div>
+        <div className="cu-line"><span>Ancho de papel</span><b style={{fontSize:12.5}}>48 mm · 32 caracteres</b></div>
 
         {!impre ? (
           <button className="cta" style={{width:"100%",marginTop:10}} disabled={buscandoImp}
