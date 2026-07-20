@@ -1795,6 +1795,145 @@ async function enviarAnulacion(d, toast){
   }catch(e){ toast && toast("No se pudo generar la constancia"); return false; }
 }
 
+/* ══ AVISO DE CHEQUE PROTESTADO (PNG, A6) ══
+   No es una anulación: el cobro ocurrió. Este documento le informa al cliente que su
+   cheque no fue pagado por el banco y que el valor vuelve a su cuenta, más los gastos. */
+function imgProtesto(d){
+  const W=826, P=40;
+  const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
+  const VINO="#8A2E3B", VINO2="#B5613C", VINOSUAVE="#FBECEE", TINTA="#1A2733",
+        GRIS="#6B7A88", LINEA="#E3E9EF";
+
+  const H = Math.max(1165, 980);
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const x=c.getContext("2d");
+  x.fillStyle="#F8F3F4"; x.fillRect(0,0,W,H);
+  x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,24); x.fill();
+
+  const IX=P+38, IW=W-P*2-76;
+  let y=P+64;
+
+  x.textAlign="center";
+  x.fillStyle=TINTA; x.font=F(25,700); x.fillText(recorta(x,String(d.prov||"—"),IW), W/2, y);
+  y+=54; x.fillStyle=VINO; x.font=F(38,800); x.fillText("CHEQUE PROTESTADO", W/2, y);
+  y+=56; x.fillStyle=VINO; x.font=F(58,800); x.fillText(money2(d.total), W/2, y);
+  y+=34; x.fillStyle=GRIS; x.font=F(16,500);
+  x.fillText("valor que vuelve a su cuenta", W/2, y);
+  y+=42; const et="Pendiente de reposición";
+  x.font=F(17,700); const aw=x.measureText(et).width+40;
+  x.fillStyle=VINOSUAVE; redonda(x,(W-aw)/2,y-24,aw,38,19); x.fill();
+  x.fillStyle=VINO; x.fillText(et, W/2, y+2);
+  x.textAlign="left";
+
+  y+=34; separa(y); y+=40;
+
+  /* el cheque */
+  x.fillStyle=VINOSUAVE; redonda(x,IX,y-26,IW,178,16); x.fill();
+  x.fillStyle=VINO2; x.font=F(15,700); x.fillText("CHEQUE NO PAGADO", IX+24, y+2);
+  x.fillStyle=VINO; x.font=F(34,800);
+  x.fillText(recorta(x,String(d.numero||"—"),IW-48), IX+24, y+48);
+  x.fillStyle=VINO2; x.font=F(18,500);
+  x.fillText(recorta(x,String(d.banco||"—"),IW-48), IX+24, y+82);
+  x.fillText(`Fecha del cheque ${d.fechaCheque||"—"}`, IX+24, y+110);
+  if(d.dueno) x.fillText(recorta(x,`Girado por ${d.dueno}`,IW-48), IX+24, y+138);
+  y+=196;
+
+  sec("CLIENTE");
+  x.fillStyle=TINTA; x.font=F(26,800);
+  x.fillText(recorta(x,String(d.cli||"—"),IW), IX, y); y+=40;
+  if(d.ruc) fila("RUC", rucCorto(d.ruc));
+
+  separa(y-10); sec("MOTIVO DEL BANCO");
+  x.fillStyle=TINTA; x.font=F(20,700);
+  x.fillText(recorta(x,String(d.motivo||"—"),IW), IX, y); y+=36;
+  if(d.fechaProtesto){ x.fillStyle=GRIS; x.font=F(15,500);
+    x.fillText(`Protestado el ${d.fechaProtesto}`, IX, y); y+=32; }
+
+  separa(y-10); sec("DETALLE DEL CARGO");
+  fila("Valor del cheque", money2(d.monto));
+  if((d.gastos||0)>0) fila("Gastos bancarios del protesto", money2(d.gastos));
+  filaFuerte("TOTAL A REPONER", money2(d.total), VINO);
+
+  y+=10; separa(y-16);
+  x.fillStyle=GRIS; x.font=F(15,500);
+  const nota = "Este valor se ha cargado nuevamente a su cuenta. El comprobante de cobro original mantiene su validez.";
+  envuelve(nota, IW).forEach(l=>{ x.fillText(l, IX, y+14); y+=26; });
+  if(d.au){ x.fillStyle=VINO2; x.font=F(15,700);
+    x.fillText(`Auditoría ${d.au}`, IX, y+22); }
+
+  return c;
+
+  function sec(t){ y+=18; x.fillStyle=VINO2; x.font=F(16,800); x.fillText(t, IX, y); y+=36; }
+  function fila(izq, der){
+    x.fillStyle=TINTA; x.font=F(18,500);
+    const aw2 = der ? x.measureText(String(der)).width+20 : 0;
+    x.fillText(recorta(x, String(izq), IW-aw2), IX, y);
+    if(der){ x.textAlign="right"; x.font=F(18,700); x.fillText(String(der), IX+IW, y); x.textAlign="left"; }
+    y+=36;
+  }
+  function filaFuerte(izq, der, color){
+    x.fillStyle=TINTA; x.font=F(19,800); x.fillText(izq, IX, y);
+    x.fillStyle=color; x.textAlign="right"; x.font=F(24,800);
+    x.fillText(der, IX+IW, y); x.textAlign="left"; x.fillStyle=TINTA;
+    y+=38;
+  }
+  function separa(yy){
+    x.strokeStyle=LINEA; x.lineWidth=1.5;
+    x.beginPath(); x.moveTo(IX,yy); x.lineTo(IX+IW,yy); x.stroke();
+  }
+  function envuelve(t, max){
+    const pal=String(t).split(/\s+/), out=[]; let ln="";
+    pal.forEach(p=>{ const pr=ln?ln+" "+p:p;
+      if(x.measureText(pr).width>max){ if(ln) out.push(ln); ln=p; } else ln=pr; });
+    if(ln) out.push(ln);
+    return out.slice(0,3);
+  }
+  function rucCorto(r){ const s=String(r||""); return s.length>7 ? s.slice(0,4)+"•••••"+s.slice(-3) : s; }
+  function redonda(ctx,a,b,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(a+r,b); ctx.lineTo(a+w-r,b); ctx.quadraticCurveTo(a+w,b,a+w,b+r);
+    ctx.lineTo(a+w,b+h-r); ctx.quadraticCurveTo(a+w,b+h,a+w-r,b+h);
+    ctx.lineTo(a+r,b+h); ctx.quadraticCurveTo(a,b+h,a,b+h-r);
+    ctx.lineTo(a,b+r); ctx.quadraticCurveTo(a,b,a+r,b); ctx.closePath();
+  }
+  function recorta(ctx,t,max){
+    t=String(t);
+    if(ctx.measureText(t).width<=max) return t;
+    let s=t;
+    while(s.length>3 && ctx.measureText(s+"…").width>max) s=s.slice(0,-1);
+    return s+"…";
+  }
+}
+
+/* Envía el aviso de protesto al cliente por WhatsApp (mensaje + imagen) */
+async function enviarProtesto(d, toast){
+  const texto = `Estimado/a ${d.cli}:\n\n`
+    + `Le informamos que el cheque ${d.numero} del ${d.banco}, por ${money(d.monto)}, `
+    + `fue devuelto por el banco.\n\n`
+    + `Motivo: ${d.motivo}\n\n`
+    + ((d.gastos||0)>0
+        ? `Valor del cheque: ${money(d.monto)}\nGastos bancarios: ${money(d.gastos)}\nTotal a reponer: ${money(d.total)}\n\n`
+        : `Total a reponer: ${money(d.total)}\n\n`)
+    + `Este valor se ha cargado nuevamente a su cuenta. Le agradecemos comunicarse con su asesor `
+    + `comercial para coordinar la reposición. 🌾`;
+  try{
+    const lienzo = imgProtesto(d);
+    const blob = await new Promise(r=>lienzo.toBlob(r, "image/png", 0.95));
+    const nombre = `Protesto_${String(d.numero||"cheque").replace(/[^\w-]+/g,"_")}.png`;
+    const archivo = new File([blob], nombre, {type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      await navigator.share({files:[archivo], title:"Cheque protestado", text:texto});
+      return true;
+    }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    toast && toast("Aviso descargado · compártelo con el cliente");
+    return true;
+  }catch(e){ toast && toast("No se pudo generar el aviso"); return false; }
+}
+
 /* Motivos tipificados de anulación. El cheque protestado NO va aquí:
    ese cobro SÍ ocurrió y se trata como cargo nuevo a la cartera del cliente. */
 const MOTIVOS_ANULACION = [
@@ -2752,6 +2891,10 @@ const COMO_FUNCIONA = [
    d:"Al anular se emite una constancia para el cliente, porque él ya tiene en su poder el comprobante original. Dice qué recibo queda sin efecto, el motivo y su saldo actualizado."},
   {mod:"Mi caja", ic:"⚠️", t:"Cheque protestado no es anulación",
    d:"Si el banco no paga un cheque, ese cobro sí ocurrió: no se anula el recibo. El valor vuelve como un cargo nuevo a la cartera del cliente y el cheque queda marcado como protestado."},
+  {mod:"Cheques", ic:"⚠️", t:"Marcar un cheque protestado",
+   d:"Se hace desde la ficha del cheque. Pide el motivo del banco y los gastos del protesto, que los asume el cliente. El cheque conserva todo su recorrido y suma un protesto al riesgo del cliente."},
+  {mod:"Cheques", ic:"📤", t:"Aviso de protesto al cliente",
+   d:"Al registrar el protesto se emite un aviso con el número del cheque, el motivo del banco y el total a reponer (valor más gastos). El comprobante de cobro original mantiene su validez."},
   {mod:"Pedidos", ic:"🔒", t:"Tu base de precio",
    d:"Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil."},
   {mod:"Pedidos", ic:"💵", t:"Precio de venta",
@@ -4380,7 +4523,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"278", fecha:"19 jul 2026", desc:"Anulacion de cobro con constancia al cliente"};
+const VERSION={n:"279", fecha:"19 jul 2026", desc:"Cheque protestado: cargo a cartera y aviso al cliente"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -4535,16 +4678,35 @@ const CARTERA_INI = [
   {cli:"Almacenes Fernando", vendedor:"María Espinoza", proveedor:"Agrícola del Valle", prov:"Chimborazo", ciudad:"Riobamba", zona:"Centro", barrio:"Centro", fac:"001-001-000072", saldo:740.00, dias:58, estado:"Vencida 58 días", venc:"Vencida", v:"bad"},
 ].map(it=>({...it, saldoBase:it.saldo, saldo:saldoRealFactura(it.fac, it.saldo)}));
 
+/* ══ PROTESTO DE CHEQUE ══
+   Regla sellada: un cheque protestado NO es una anulación de cobro. Ese cobro SÍ ocurrió:
+   el cliente entregó el cheque, se le dio recibo y el cheque viajó. Lo que falló fue el banco.
+   Por eso el recibo queda intacto y el valor vuelve como CARGO NUEVO a la cartera del cliente,
+   con fecha de hoy. Los gastos bancarios del protesto los asume el CLIENTE. */
+const MOTIVOS_PROTESTO = [
+  "Fondos insuficientes",
+  "Cuenta cerrada",
+  "Firma no coincide",
+  "Cheque caducado",
+  "Orden de no pago",
+  "Defecto de forma",
+  "Otro",
+];
 const CHEQUES_DEVUELTOS = [
   {cli:"Distribuidora Ríos", vendedor:"María Quishpe", proveedor:"Agrícola del Valle", prov:"Guayas", ciudad:"Guayaquil", zona:"Norte", barrio:"Alborada",
    numero:"CHQ-004521", banco:"Banco Pichincha", monto:620.00, fac:"001-001-000131", motivo:"Fondos insuficientes", fecha:"hoy 08:30", estado:"pendiente"},
   {cli:"Comercial Mendoza", vendedor:"Carlos Andrade", proveedor:"Molinos del Litoral", prov:"Guayas", ciudad:"Milagro", zona:"Sur", barrio:"Las Piñas",
    numero:"CHQ-008812", banco:"Banco Guayaquil", monto:300.00, fac:"001-001-000103", motivo:"Cuenta cerrada", fecha:"ayer 16:10", estado:"pendiente"},
 ];
-const CARTERA_CHEQUES = CHEQUES_DEVUELTOS.map(c=>({
+/* Los cheques devueltos se vuelven cargos en la cartera del cliente.
+   Es función (no constante) para que los protestos registrados hoy entren de inmediato. */
+const carteraDeCheques = () => CHEQUES_DEVUELTOS.map(c=>({
   cli:c.cli, vendedor:c.vendedor, proveedor:c.proveedor, prov:c.prov, ciudad:c.ciudad, zona:c.zona, barrio:c.barrio,
-  fac:c.numero, saldo:c.monto, saldoBase:c.monto, dias:1, estado:"Cheque devuelto", venc:"Reponer", v:"bad", chequeDevuelto:true,
+  fac:c.numero, saldo:(c.monto||0)+(c.gastos||0), saldoBase:(c.monto||0)+(c.gastos||0),
+  dias:1, estado:"Cheque devuelto", venc:"Reponer", v:"bad", chequeDevuelto:true,
+  gastos:c.gastos||0, motivoProtesto:c.motivo,
 }));
+const CARTERA_CHEQUES = carteraDeCheques();
 
 const PROVINCIAS_EC = [
   "Azuay","Bolívar","Cañar","Carchi","Chimborazo","Cotopaxi","El Oro","Esmeraldas",
@@ -6257,6 +6419,10 @@ function Boveda({toast, yo, volver}){
   const [tick,setTick]=useState(0);
   const [verFoto,setVerFoto]=useState(false);
   const [verEvid,setVerEvid]=useState(null);   // movimiento de la bitácora con evidencia abierta
+  const [protestando,setProtestando]=useState(null); // cheque que se marca como protestado
+  const [motProt,setMotProt]=useState("");           // motivo del banco
+  const [gastosProt,setGastosProt]=useState("");     // gastos bancarios (los asume el cliente)
+  const [protestado,setProtestado]=useState(null);   // aviso listo para enviar al cliente
   const [reprog,setReprog]=useState(false);
   const [nuevaFecha,setNuevaFecha]=useState("");
   const [coment,setComent]=useState("");
@@ -6265,7 +6431,11 @@ function Boveda({toast, yo, volver}){
   useModal(recibiendo, React.useCallback(()=>setRecibiendo(false),[]));
   useModal(verFoto, React.useCallback(()=>setVerFoto(false),[]));
   useModal(!!verEvid, React.useCallback(()=>setVerEvid(null),[]));
+  useModal(!!protestando, React.useCallback(()=>setProtestando(null),[]));
+  useModal(!!protestado, React.useCallback(()=>setProtestado(null),[]));
   useRetroceso(()=>{
+    if(protestado){ setProtestado(null); return true; }
+    if(protestando){ setProtestando(null); return true; }
     if(verEvid){ setVerEvid(null); return true; }
     if(verFoto){ setVerFoto(false); return true; }
     if(entregando){ setEntregando(null); setCodigoGen(null); return true; }
@@ -6290,10 +6460,11 @@ function Boveda({toast, yo, volver}){
     const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
   const fHora=f=>{ const p=String(f||"").split(" "); return p[1]?p[1].slice(0,5):""; };
-  const ICO={recibido:"📥", traspaso:"🤝", deposito:"🏦", efectivizado:"✓"};
+  const ICO={recibido:"📥", traspaso:"🤝", deposito:"🏦", efectivizado:"✓", protestado:"⚠"};
 
   /* ── MÍOS: solo los cheques que YO tengo en la mano ── */
-  const mios = CHEQUES_POSF.filter(c=>c.tenedor===yo && c.estado!=="efectivizado" && c.estado!=="deposito");
+  const mios = CHEQUES_POSF.filter(c=>c.tenedor===yo && c.estado!=="efectivizado"
+    && c.estado!=="deposito" && c.estado!=="protestado");
   const lista = q.trim()==="" ? mios
     : mios.filter(c=>norm(c.cli+" "+c.numero+" "+c.banco).includes(norm(q)));
   const total = lista.reduce((s,c)=>s+c.valor,0);
@@ -6367,6 +6538,45 @@ function Boveda({toast, yo, volver}){
     TRASPASOS_PEND.splice(i,1);
     setRecibiendo(false); setCodigoIng(""); setTick(x=>x+1);
     toast(`Cheque ${t.numero} recibido · auditado ${au}`);
+  };
+
+  /* PROTESTO: el cobro SÍ ocurrió, así que el recibo queda intacto. El valor del cheque
+     más los gastos bancarios (los asume el cliente) vuelven como cargo nuevo a su cartera. */
+  const ejecutarProtesto=()=>{
+    const c = protestando;
+    if(!c) return;
+    const au = "AU-260719-"+Math.floor(1000+Math.random()*9000);
+    const gastos = Math.max(0, parseFloat(String(gastosProt).replace(",","."))||0);
+    const ahora = new Date().toISOString().slice(0,16).replace("T"," ");
+    const ficha = (typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[c.cli]) || {};
+    /* el cheque cambia de estado y conserva toda su traza */
+    c.estado = "protestado";
+    c.motivoProtesto = motProt;
+    c.gastosProtesto = gastos;
+    c.fechaProtesto = ahora.slice(0,10);
+    c.auProtesto = au;
+    (c.traza=c.traza||[]).push({ev:"protestado", quien:yo, f:ahora,
+      d:`Protestado por el banco · ${motProt}`, au});
+    /* cargo nuevo a la cartera del cliente */
+    CHEQUES_DEVUELTOS.push({
+      cli:c.cli, vendedor:yo, proveedor:c.proveedorNombre||"—",
+      numero:c.numero, banco:c.banco, monto:c.valor, gastos,
+      fac:c.numero, motivo:motProt, fecha:ahora, estado:"pendiente", au,
+    });
+    /* el cliente suma un protesto a su ranking de riesgo */
+    if(typeof RIESGO_CLIENTE!=="undefined"){
+      RIESGO_CLIENTE[c.cli] = RIESGO_CLIENTE[c.cli] || {vencidas:0, protestados:0};
+      RIESGO_CLIENTE[c.cli].protestados = (RIESGO_CLIENTE[c.cli].protestados||0) + 1;
+    }
+    const aviso = {
+      cli:c.cli, ruc:ficha.ruc, prov:c.proveedorNombre||"FREELANCE",
+      numero:c.numero, banco:c.banco, dueno:c.dueno, fechaCheque:c.fecha,
+      motivo:motProt, fechaProtesto:c.fechaProtesto,
+      monto:c.valor, gastos, total:Math.round((c.valor+gastos)*100)/100, au,
+    };
+    setProtestando(null); setMotProt(""); setGastosProt("");
+    setProtestado(aviso); setSel(null); setTick(x=>x+1);
+    toast(`Cheque ${c.numero} protestado · cargado a la cartera de ${c.cli} · auditado ${au}`);
   };
 
   /* ── FICHA DE UN CHEQUE (sirve para las dos pestañas) ── */
@@ -6510,11 +6720,29 @@ function Boveda({toast, yo, volver}){
         </div>
       )}
 
-      {esMio && (
+      {c.estado==="protestado" && (
+        <div className="card" style={{padding:"12px 15px",marginTop:12,
+          background:"#FBECEE",border:"1px solid #8A2E3B"}}>
+          <div style={{fontWeight:800,fontSize:13.5,color:"#8A2E3B"}}>⚠ CHEQUE PROTESTADO</div>
+          <div className="meta" style={{fontSize:12,marginTop:3}}>{c.motivoProtesto}</div>
+          <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+            Cargado a la cartera de {c.cli}
+            {(c.gastosProtesto||0)>0?` · ${money(c.valor+c.gastosProtesto)} con gastos`:""}</div>
+          {c.auProtesto && <div className="num meta" style={{fontSize:11,marginTop:3}}>{c.auProtesto}</div>}
+        </div>
+      )}
+
+      {esMio && c.estado!=="protestado" && (
         <button className="cta" style={{marginTop:14}}
           onClick={()=>{ setEntregando(c); setDestino(""); setCodigoGen(null);
             setVia("mano"); setCourEmp(""); setCourOtro(""); setCourGuia(""); setCourFoto(false); }}>
           🤝 Entregar este cheque</button>
+      )}
+
+      {c.estado!=="protestado" && c.estado!=="efectivizado" && (
+        <button className="back" style={{width:"100%",marginTop:10,color:"#8A2E3B",fontWeight:700}}
+          onClick={()=>{ setMotProt(""); setGastosProt(""); setProtestando(c); }}>
+          ⚠ Marcar como protestado</button>
       )}
 
       {/* entregar: genera el código que el otro debe confirmar */}
@@ -6751,8 +6979,11 @@ function Boveda({toast, yo, volver}){
                 <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
                 <span className="num" style={{textAlign:"right",fontWeight:800,fontSize:13.5,whiteSpace:"nowrap"}}>{money(c.valor)}</span>
               </div>
-              {c.tenedor && <div className="meta" style={{fontSize:10.5,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                👤 {c.tenedor}</div>}
+              {c.estado==="protestado"
+                ? <div className="meta" style={{fontSize:10.5,marginTop:3,color:"#8A2E3B",fontWeight:700}}>
+                    ⚠ Protestado · {c.motivoProtesto}</div>
+                : c.tenedor && <div className="meta" style={{fontSize:10.5,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    👤 {c.tenedor}</div>}
             </button>
           );
         })}
@@ -6916,6 +7147,97 @@ function Boveda({toast, yo, volver}){
 
           <button className="back" style={{width:"100%",marginTop:12}}
             onClick={()=>setVerEvid(null)}>Cerrar</button>
+        </div>
+      </div>
+    )}
+
+    {/* marcar cheque como protestado */}
+    {protestando && (
+      <div className="ov" onClick={()=>setProtestando(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Cheque protestado</h3>
+          <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+            {protestando.numero} · {protestando.banco} · {money(protestando.valor)}</div>
+
+          <div className="card" style={{padding:"11px 14px",marginBottom:12,
+            background:"#FBECEE",border:"1px solid #8A2E3B"}}>
+            <div style={{fontWeight:700,fontSize:12.5,color:"#8A2E3B"}}>
+              Esto no anula el cobro</div>
+            <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+              El recibo original mantiene su validez. El valor vuelve como un cargo nuevo
+              a la cartera de {protestando.cli}, con fecha de hoy.</div>
+          </div>
+
+          <div className="field"><label>Motivo del banco</label>
+            <select className="aj-sel" style={{width:"100%",padding:"12px"}}
+              value={motProt} onChange={e=>setMotProt(e.target.value)}>
+              <option value="">Elige el motivo…</option>
+              {ordUso("motivosProtesto",MOTIVOS_PROTESTO).map(m=>(
+                <option key={m} value={m}>{m}</option>))}
+            </select>
+          </div>
+
+          <div className="field" style={{marginTop:10}}><label>Gastos bancarios del protesto</label>
+            <input className="num" inputMode="decimal" value={gastosProt}
+              onChange={e=>setGastosProt(e.target.value)} placeholder="0.00"/>
+            <div className="meta" style={{fontSize:11,marginTop:4}}>
+              Los asume el cliente: se suman al cargo. Déjalo en blanco si no hubo.</div>
+          </div>
+
+          <div className="card" style={{padding:"11px 14px",marginTop:12,background:"#F2F7F3"}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+              <span className="meta" style={{fontSize:12}}>Total a reponer</span>
+              <b className="num" style={{fontSize:19,fontWeight:800,color:"#8A2E3B"}}>
+                {money(protestando.valor + (Math.max(0,parseFloat(String(gastosProt).replace(",","."))||0)))}</b>
+            </div>
+          </div>
+
+          <button className="cta" style={{width:"100%",marginTop:14,background:"#8A2E3B"}}
+            disabled={!motProt}
+            onClick={()=>{regUso("motivosProtesto",motProt);ejecutarProtesto();}}>
+            Registrar el protesto</button>
+          <button className="back" style={{width:"100%",marginTop:9}}
+            onClick={()=>setProtestando(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* aviso de protesto listo para el cliente */}
+    {protestado && (
+      <div className="ov" onClick={()=>setProtestado(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Protesto registrado</h3>
+          <div className="meta" style={{fontSize:12,margin:"4px 0 12px"}}>
+            {protestado.numero} · {protestado.cli}</div>
+
+          <div className="card" style={{padding:"12px 15px",marginBottom:12,background:"#F2F7F3"}}>
+            <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+              <span className="meta" style={{fontSize:11.5}}>Valor del cheque</span>
+              <b className="num" style={{fontSize:13}}>{money(protestado.monto)}</b>
+            </div>
+            {protestado.gastos>0 && (
+              <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:11.5}}>Gastos bancarios</span>
+                <b className="num" style={{fontSize:13}}>{money(protestado.gastos)}</b>
+              </div>
+            )}
+            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",
+              borderTop:"1px solid var(--line)",marginTop:4}}>
+              <span style={{fontSize:12.5,fontWeight:800}}>Cargado a su cartera</span>
+              <b className="num" style={{fontSize:16,fontWeight:800,color:"#8A2E3B"}}>
+                {money(protestado.total)}</b>
+            </div>
+            <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+              <span className="meta" style={{fontSize:11.5}}>Auditoría</span>
+              <span className="num" style={{fontSize:11,color:"var(--muted)"}}>{protestado.au}</span>
+            </div>
+          </div>
+
+          <button className="cta" style={{width:"100%"}}
+            onClick={()=>enviarProtesto(protestado, toast)}>
+            📤 Enviar aviso al cliente</button>
+          <button className="back" style={{width:"100%",marginTop:9}}
+            onClick={()=>setProtestado(null)}>Después</button>
         </div>
       </div>
     )}
@@ -9114,7 +9436,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       if(pestana!=="resumen"){ setPestana("resumen"); return true; } // vuelve a Resumen
       return false;  // ya en la raíz: deja salir del módulo
     });
-  const items=[...CARTERA_INI, ...CARTERA_CHEQUES];
+  const items=[...CARTERA_INI, ...carteraDeCheques()];
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const opc=(campo)=>Array.from(new Set(items.map(i=>i[campo]))).sort();
   const tramoDe=d=> d<=0?"porvencer" : d<=30?"30" : d<=45?"45" : d<=60?"60" : "venc";
