@@ -1185,7 +1185,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"19", fecha:"20 jul 2026", desc:"Modulo de Ajustes con temas de color" };
+const VERSION = { n:"20", fecha:"20 jul 2026", desc:"Carga de factura por pestanas, menos scroll" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2737,6 +2737,8 @@ function CargaXML({irTab}){
   const [eligiendo,setEligiendo]=useState(null); // línea que se está emparejando
   const [verEquis,setVerEquis]=useState(false);
   const [aviso,setAviso]=useState("");
+  /* pestaña de grupo; null = elige sola la accionable */
+  const [grupo,setGrupo]=useState(null);
   const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3600); };
 
   const r2=(n)=>Math.round(n*100)/100;
@@ -2767,6 +2769,11 @@ function CargaXML({irTab}){
   const propues = lineas.filter(l=>l.grupo==="propuesto");
   const desconoc= lineas.filter(l=>l.grupo==="desconocido");
   const listo   = xml && desconoc.length===0 && propues.length===0;
+  /* Qué pestaña se ve: lo accionable manda. Si el usuario elige una a mano se respeta,
+     salvo que ya no tenga líneas (por ejemplo, tras resolverlas todas). */
+  const cuantos = {calzan:calzan.length, propues:propues.length, desconoc:desconoc.length};
+  const auto = desconoc.length ? "desconoc" : propues.length ? "propues" : "calzan";
+  const grupoVivo = (grupo && cuantos[grupo]) ? grupo : auto;
 
   const archivoRef = React.useRef(null);
   /* Lector real: abre el explorador del telefono y lee el XML de verdad.
@@ -2915,67 +2922,79 @@ function CargaXML({irTab}){
         </div>
       </div>
 
-      {/* 1 · las que entran solas */}
-      {calzan.length>0 && (<>
-        <div className="sec-gap" />
-        <div className="eyebrow" style={{color:"#2E7D52"}}>✓ Entran solas · {calzan.length}</div>
-        <div className="sec-gap" style={{height:10}} />
-        {calzan.map((l,i)=>(
-          <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"#2E7D52"}}>
-            <div className="row between">
-              <div style={{minWidth:0,flex:1}}>
-                <div style={{fontWeight:600,fontSize:14}}>{l.nombre}</div>
-                <div className="sub tiny num">{l.codProv} · {l.desc}</div>
-              </div>
-              <span className="num" style={{fontSize:14,flexShrink:0,marginLeft:10}}>
-                {l.cant} qq · {money(l.cant*l.precio)}</span>
-            </div>
-          </div>
+      {/* Los 3 grupos en PESTAÑAS, no apilados: antes había que desplazarse por todo
+          lo que ya estaba bien para llegar a lo que hay que resolver. Abre en el
+          grupo accionable si hay algo pendiente. */}
+      <div className="sec-gap" style={{height:14}} />
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        {[["calzan","Entran solas",calzan.length,"#2E7D52"],
+          ["propues","Confirmar",propues.length,"var(--maiz)"],
+          ["desconoc","No reconozco",desconoc.length,"#B5432E"]].map(([k,t,n,col])=>(
+          <button key={k} onClick={()=>setGrupo(k)} disabled={n===0}
+            style={{background:grupoVivo===k?col:"var(--papel-2)",
+              border:`1px solid ${grupoVivo===k?col:"var(--linea)"}`,borderRadius:13,
+              padding:"10px 6px",cursor:n?"pointer":"default",fontFamily:"inherit",
+              opacity:n?1:.45,minWidth:0,textAlign:"center"}}>
+            <div className="num" style={{fontSize:19,fontWeight:700,
+              color:grupoVivo===k?"#fff":col}}>{n}</div>
+            <div style={{fontSize:9.5,fontWeight:600,lineHeight:1.15,marginTop:2,
+              color:grupoVivo===k?"rgba(255,255,255,.9)":"var(--texto-3)",
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t}</div>
+          </button>
         ))}
-      </>)}
+      </div>
 
-      {/* 2 · las que el sistema propone */}
-      {propues.length>0 && (<>
-        <div className="sec-gap" />
-        <div className="eyebrow" style={{color:"var(--maiz)"}}>
-          Confirma si es el mismo · {propues.length}</div>
-        <div className="sec-gap" style={{height:10}} />
-        {propues.map((l,i)=>(
-          <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"var(--maiz)"}}>
-            <div className="sub tiny num">{l.codProv} · {l.desc}</div>
-            <div className="sub tiny" style={{margin:"8px 0 4px"}}>¿Es este producto?</div>
-            <div style={{fontWeight:600,fontSize:15}}>{l.nombre}</div>
-            <div className="sub tiny" style={{marginTop:2}}>Se parece un {l.pct}%</div>
-            <div className="row" style={{gap:10,marginTop:12}}>
-              <button className="btn btn-maiz" style={{flex:1}}
-                onClick={()=>emparejar(l.codProv, l.prodId, l.desc)}>Sí, es ese</button>
-              <button className="btn btn-ghost" style={{flex:1}}
-                onClick={()=>setEligiendo(l)}>Es otro</button>
-            </div>
-          </div>
-        ))}
-      </>)}
+      <div className="sec-gap" style={{height:12}} />
 
-      {/* 3 · las que no reconoce */}
-      {desconoc.length>0 && (<>
-        <div className="sec-gap" />
-        <div className="eyebrow" style={{color:"#B5432E"}}>
-          No los reconozco · {desconoc.length}</div>
-        <div className="sec-gap" style={{height:10}} />
-        {desconoc.map((l,i)=>(
-          <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"#B5432E"}}>
-            <div className="sub tiny num">{l.codProv}</div>
-            <div style={{fontWeight:600,fontSize:15,marginTop:2}}>{l.desc}</div>
-            <div className="sub tiny" style={{marginTop:4}}>
-              {l.cant} qq · {money(l.cant*l.precio)}</div>
-            <button className="btn btn-maiz" style={{width:"100%",marginTop:12}}
-              onClick={()=>setEligiendo(l)}>Decir a qué producto va</button>
+      {/* Entran solas: no piden acción, así que van en lista compacta (una línea) */}
+      {grupoVivo==="calzan" && (
+        calzan.length===0
+          ? <div className="card card-pad" style={{textAlign:"center"}}>
+              <div className="sub tiny">Ninguna línea calzó sola.</div></div>
+          : <div className="card card-pad" style={{padding:"4px 13px"}}>
+              {calzan.map((l,i)=>(
+                <div key={i} className="row between" style={{padding:"9px 0",minWidth:0,
+                  borderTop:i?"1px solid var(--linea)":"none"}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13.5,fontWeight:600,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nombre}</div>
+                    <div className="sub tiny num" style={{overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.codProv}</div>
+                  </div>
+                  <span className="num" style={{fontSize:13,flexShrink:0,marginLeft:10}}>
+                    {l.cant} qq · {money(l.cant*l.precio)}</span>
+                </div>
+              ))}
+            </div>
+      )}
+
+      {/* Confirmar: aquí sí hay que decidir, van en tarjeta con sus botones */}
+      {grupoVivo==="propues" && propues.map((l,i)=>(
+        <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"var(--maiz)"}}>
+          <div className="sub tiny num">{l.codProv} · {l.desc}</div>
+          <div className="sub tiny" style={{margin:"8px 0 4px"}}>¿Es este producto?</div>
+          <div style={{fontWeight:600,fontSize:15}}>{l.nombre}</div>
+          <div className="sub tiny" style={{marginTop:2}}>Se parece un {l.pct}%</div>
+          <div className="row" style={{gap:10,marginTop:12}}>
+            <button className="btn btn-maiz" style={{flex:1}}
+              onClick={()=>emparejar(l.codProv, l.prodId, l.desc)}>Sí, es ese</button>
+            <button className="btn btn-ghost" style={{flex:1}}
+              onClick={()=>setEligiendo(l)}>Es otro</button>
           </div>
-        ))}
-        <div className="card card-pad" style={{marginTop:4}}>
-          
         </div>
-      </>)}
+      ))}
+
+      {/* No reconozco: nunca se adivina, el proveedor dice a qué producto va */}
+      {grupoVivo==="desconoc" && desconoc.map((l,i)=>(
+        <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"#B5432E"}}>
+          <div className="sub tiny num">{l.codProv}</div>
+          <div style={{fontWeight:600,fontSize:15,marginTop:2}}>{l.desc}</div>
+          <div className="sub tiny" style={{marginTop:4}}>
+            {l.cant} qq · {money(l.cant*l.precio)}</div>
+          <button className="btn btn-maiz" style={{width:"100%",marginTop:12}}
+            onClick={()=>setEligiendo(l)}>Decir a qué producto va</button>
+        </div>
+      ))}
 
       <div className="sec-gap" style={{height:16}} />
       <button className="btn btn-maiz" style={{width:"100%"}} disabled={!listo} onClick={cargar}>
