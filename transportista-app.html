@@ -309,7 +309,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const VERSION = { n:"5", fecha:"20 jul 2026", desc:"Menu lateral con las gestiones del chofer" };
+const VERSION = { n:"6", fecha:"20 jul 2026", desc:"Campanilla bajo el menu + registro nuevo blindado" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -599,9 +599,17 @@ const HuellaIcono = ({ t=22, c="currentColor", g=1.7, marco=false }) =>
 const RostroIcono = ({ t=22, c="currentColor", g=1.7 }) =>
   <span style={{ display:"inline-flex" }} dangerouslySetInnerHTML={{ __html: svgRostro(t, c, g) }} />;
 
+const CHOFER_NUEVO_KEY = "freelance_chofer_nuevo_v1";
+function guardarChoferNuevo(d){ try{ localStorage.setItem(CHOFER_NUEVO_KEY, JSON.stringify(d)); }catch(e){} }
+function choferNuevoGuardado(){ try{ return JSON.parse(localStorage.getItem(CHOFER_NUEVO_KEY)||"null"); }catch(e){ return null; } }
 function choferActualDe(chofer, choferNuevo){
   if (choferNuevo) return choferNuevo;
-  return choferPorNombre(chofer) || { nombre: chofer };
+  const enNomina = choferPorNombre(chofer);
+  if (enNomina) return enNomina;
+  /* chofer registrado por enlace: sus datos siguen en el telefono aunque se recargue */
+  const g = choferNuevoGuardado();
+  if (g && g.nombre === chofer) return g;
+  return { nombre: chofer };
 }
 
 /* ---------- Franja superior del login (logo + lema) ---------- */
@@ -679,6 +687,7 @@ function PantallaLogin({ onEntrar }){
     const datos = { nombre: nom.trim(), cedula: ced.trim(), telefono: tel.trim(),
                     placas: [pla.trim().toUpperCase()], nuevo: true };
     r.chofer = datos.nombre; r.placa = datos.placas[0];   /* como haría logística al recibir el registro */
+    guardarChoferNuevo(datos);      /* para que su cédula no se pierda al recargar */
     onEntrar(datos.nombre, datos);
     toast("Bienvenido, " + datos.nombre.split(" ")[0]);
   };
@@ -815,6 +824,23 @@ function PantallaLogin({ onEntrar }){
 }
 
 /* ---------- Cascarón interior (barra superior + cuerpo) ---------- */
+/* La campanilla flota por encima de todo (zIndex 1200) y vive fuera del Shell.
+   Para que no quede encima del menu abierto, el drawer avisa por aqui. */
+const AVISO_DRAWER = { abierto:false, oyentes:[] };
+function setDrawerAbierto(v){
+  AVISO_DRAWER.abierto = v;
+  AVISO_DRAWER.oyentes.forEach((f)=>{ try{ f(v); }catch(e){} });
+}
+function useDrawerAbierto(){
+  const [ab, setAb] = useState(AVISO_DRAWER.abierto);
+  React.useEffect(()=>{
+    AVISO_DRAWER.oyentes.push(setAb);
+    setAb(AVISO_DRAWER.abierto);
+    return ()=>{ const i=AVISO_DRAWER.oyentes.indexOf(setAb); if(i>=0) AVISO_DRAWER.oyentes.splice(i,1); };
+  },[]);
+  return ab;
+}
+
 /* ── Abrir el menu lateral deslizando desde el borde izquierdo ── */
 function useGestoDrawer(abrir, activo){
   React.useEffect(()=>{
@@ -902,6 +928,8 @@ function Shell({ who, name, onSalir, extraDer, children, menu, chofer, irSeccion
   const [confirmarSalir, setConfirmarSalir] = useState(false);
   const abrir = React.useCallback(()=>setAbierto(true), []);
   useGestoDrawer(abrir, !!menu && !abierto);
+  React.useEffect(()=>{ setDrawerAbierto(abierto); }, [abierto]);
+  React.useEffect(()=>()=>setDrawerAbierto(false), []);   /* si la pantalla se cierra, se limpia */
   return (
     <div className="shell">
       <div className="top">
@@ -993,7 +1021,15 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
 
       {activas.length===0 && completadas.length===0 ? (
         <div className="empty"><div className="ico">📭</div><div className="t">Sin rutas hoy</div>
-          <div className="s">Cuando logística te asigne una ruta, aparecerá aquí.</div></div>
+          {choferPorNombre(chofer) ? (
+            <div className="s">Cuando logística te asigne una ruta, aparecerá aquí.</div>
+          ) : (<>
+            <div className="s">Tu registro se perdió al recargar la app. En la demo los datos
+              viven en el teléfono; al conectar el sistema, tu ruta quedará guardada.</div>
+            <button className="b-carga-accion" style={{ maxWidth:260, margin:"16px auto 0" }}
+              onClick={onSalir}>Volver a ingresar</button>
+          </>)}
+        </div>
       ) : (<>
         {activas.length>0 ? (<>
           <div className="sect-h">Rutas asignadas · hoy</div>
@@ -1757,6 +1793,8 @@ function Campana({ rutaId, onIr }){
   const [tab, setTab] = useState("tareas");   // tareas | ayuda
   const tareas = tareasNotifDe(rutaId);
   const total = tareas.reduce((a,x)=>a+x.n,0);
+  const menuAbierto = useDrawerAbierto();
+  if (menuAbierto) return null;    /* con el menu abierto, la campanilla estorba */
   return (<>
     <button onClick={()=>setAbierta(true)}
       style={{ position:"fixed", top:"calc(env(safe-area-inset-top,0px) + 58px)", right:12, zIndex:1200, width:42, height:42, borderRadius:21, background:"#fff", border:"1px solid #E2E8E2", boxShadow:"0 4px 14px rgba(0,0,0,.18)", fontSize:17, cursor:"pointer" }}>🔔
