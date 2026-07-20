@@ -695,7 +695,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"11", fecha:"20 jul 2026", desc:"Inicio compacto + menu lateral" };
+const VERSION = { n:"12", fecha:"20 jul 2026", desc:"Listas por uso + textos a la campanilla" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1028,6 +1028,31 @@ function Decisiones({ctx}){
 }
 
 /* ── Abrir el menu lateral deslizando desde el borde izquierdo ── */
+/* ══ LISTAS DESPLEGABLES ORDENADAS POR USO (norma sellada, transversal) ══
+   Toda lista con repeticion real ordena sus opciones por cuantas veces se eligieron,
+   de MAYOR a MENOR. El contador se guarda pero NUNCA se muestra en pantalla.
+   Desempate alfabetico. En Fase 4 los contadores viajan a Supabase POR USUARIO. */
+const USOS = {};
+function regUso(cat, opcion){
+  if(!cat || !opcion) return;
+  if(!USOS[cat]) USOS[cat] = {};
+  USOS[cat][opcion] = (USOS[cat][opcion] || 0) + 1;
+  try{ localStorage.setItem("usos_proveedor", JSON.stringify(USOS)); }catch(e){}
+}
+function ordUso(cat, lista){
+  const c = USOS[cat] || {};
+  return [...(lista||[])].sort((a,b)=>{
+    const d = (c[b]||0) - (c[a]||0);
+    return d !== 0 ? d : String(a).localeCompare(String(b), "es");
+  });
+}
+(function cargarUsos(){
+  try{
+    const g = JSON.parse(localStorage.getItem("usos_proveedor") || "{}");
+    Object.keys(g).forEach(k=>{ USOS[k] = g[k]; });
+  }catch(e){}
+})();
+
 function useGestoDrawer(abrir, activo){
   React.useEffect(()=>{
     if(!activo) return;
@@ -1104,6 +1129,8 @@ const COMO_FUNCIONA = [
    d:"El número completo no se guarda ni se muestra. Con los 4 dígitos basta para cruzar el comprobante que sube el cobrador."},
   {mod:"Retenciones", ic:"🧾", t:"Bajan la deuda sin ser un cobro",
    d:"Ese dinero se fue al Estado, no a tu caja. Una factura de $1.000 con $10 de retención se cancela con $990 en efectivo."},
+  {mod:"Retenciones", ic:"⏳", t:"Sin autorización la deuda baja igual",
+   d:"Si aún no tienes el número de autorización, la retención queda como \"falta confirmar\", pero la cartera del cliente baja desde el momento en que la registras."},
   {mod:"Retenciones", ic:"📋", t:"Puedes registrarla antes del SRI",
    d:"Si aún no tienes la autorización, regístrala igual: la cartera del cliente baja desde ya y confirmas después."},
   {mod:"Notas de crédito", ic:"↩", t:"Dos tipos, y se tratan distinto",
@@ -2291,9 +2318,7 @@ function CargaXML({irTab}){
 
       <div className="sec-gap" style={{height:12}} />
       <div className="card card-pad">
-        <div className="sub tiny" style={{lineHeight:1.55}}>
-          La primera vez confirmas a qué producto corresponde cada código tuyo.
-          De ahí en adelante entra solo: al mes siguiente casi no hay nada que confirmar.</div>
+        
       </div>
     </>)}
 
@@ -2367,9 +2392,7 @@ function CargaXML({irTab}){
           </div>
         ))}
         <div className="card card-pad" style={{marginTop:4}}>
-          <div className="sub tiny" style={{lineHeight:1.5}}>
-            Nada entra sin estar vinculado: si no dices a qué producto va, esa línea
-            queda pendiente. El sistema nunca lo adivina por su cuenta.</div>
+          
         </div>
       </>)}
 
@@ -2621,8 +2644,7 @@ function NotasCredito({irTab}){
 
           {paso===1 && (<>
             <h3>¿Por qué le bajas la deuda?</h3>
-            <div className="sub tiny" style={{margin:"6px 0 16px"}}>
-              Se trata distinto según si vuelve producto o no.</div>
+            
             <button className="card card-pad" style={{width:"100%",textAlign:"left",marginBottom:10,
               borderColor:tipo==="devolucion"?"var(--maiz)":"var(--linea)"}}
               onClick={()=>{setTipo("devolucion");setMotivo("");}}>
@@ -3091,6 +3113,7 @@ function CuentasBancarias({irTab}){
     const c={ id:"CB-"+String(cuentas.length+1).padStart(2,"0"), banco:f.banco, tipo:f.tipo,
       ult4:f.ult4.replace(/\D/g,""), titular:f.titular.trim()||PROVEEDOR.nombre,
       ruc:f.ruc.trim(), operaciones:ops, desde:HOY, hasta:null, activa:true, au:nuevoAu() };
+    regUso("banco_cuenta", f.banco);   // la proxima vez este banco sube en la lista
     setCuentas(p=>[c,...p]);
     setNueva(false);
     setF({banco:"",tipo:"Corriente",ult4:"",titular:PROVEEDOR.nombre,ruc:"",dep:true,tra:true});
@@ -3164,9 +3187,7 @@ function CuentasBancarias({irTab}){
 
       <div className="sec-gap" style={{height:12}} />
       <div className="card card-pad">
-        <div className="sub tiny" style={{lineHeight:1.5}}>
-          El número completo nunca se guarda ni se muestra: solo estos 4 dígitos, que sirven
-          para cruzar el comprobante que sube el cobrador.</div>
+        
       </div>
 
       <div className="sec-gap" style={{height:16}} />
@@ -3238,15 +3259,14 @@ function CuentasBancarias({irTab}){
       <div className="scrim" onClick={()=>setNueva(false)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Autorizar una cuenta</h3>
-          <div className="sub tiny" style={{margin:"6px 0 14px"}}>
-            Solo los 4 últimos dígitos: con eso basta para cruzar los comprobantes.</div>
+          
 
           <div className="sub tiny" style={{marginBottom:6}}>Banco</div>
           <select value={f.banco} onChange={e=>setF({...f,banco:e.target.value})}
             style={{width:"100%",padding:"12px 14px",borderRadius:10,
               border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit",marginBottom:12}}>
             <option value="">Elige el banco…</option>
-            {BANCOS_EC.map(b=><option key={b} value={b}>{b}</option>)}
+            {ordUso("banco_cuenta", BANCOS_EC).map(b=><option key={b} value={b}>{b}</option>)}
           </select>
 
           <div className="sub tiny" style={{marginBottom:6}}>Tipo de cuenta</div>
@@ -3421,8 +3441,7 @@ function Conciliacion({irTab}){
       {c.estado==="pendiente" && (<>
         <div className="sec-gap" style={{height:16}} />
         <div className="card card-pad">
-          <div className="sub tiny" style={{marginBottom:10}}>
-            Compara con tu estado de cuenta y decide. Aprobar libera la comisión del cobrador.</div>
+          
           <button className="btn btn-maiz" onClick={()=>aprobar(c)}>✓ Aprobar</button>
           <div className="row" style={{gap:10,marginTop:10}}>
             <button className="btn btn-ghost" style={{flex:1}}
