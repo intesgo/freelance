@@ -4554,7 +4554,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"292", fecha:"20 jul 2026", desc:"Aviso de version nueva unificado" };
+const VERSION = { n:"293", fecha:"20 jul 2026", desc:"Impresora termica completa" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -8173,6 +8173,19 @@ function MiDia({toast}){
               {(verRec.facturas||[]).length===0 && <div className="meta" style={{fontSize:11.5}}>Sin detalle por factura.</div>}
             </div>
 
+            {/* Imprimir: solo si hay impresora vinculada en Ajustes. */}
+            {hayImpresora() ? (
+              <button className="cta" style={{width:"100%",marginBottom:9}}
+                onClick={async()=>{
+                  const ok = await imprimirTexto(ticketRecibo(verRec, "Daniel Ríos"));
+                  toast(ok ? "Recibo enviado a la impresora"
+                           : "No se pudo imprimir · revisa la impresora");
+                }}>
+                🖨️ Imprimir recibo</button>
+            ) : (
+              <div className="meta" style={{fontSize:11,lineHeight:1.5,margin:"0 2px 9px"}}>
+                Para imprimir este recibo, vincula la impresora en Ajustes → Impresora.</div>
+            )}
             <button className="back" style={{width:"100%"}} onClick={()=>setVerRec(null)}>Cerrar</button>
           </div>
         </div>
@@ -14497,11 +14510,15 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     toast("Contraseña actualizada ✓ · "+au);
   };   // pestaña activa de Ajustes
 
-  /* ── Impresora térmica Bluetooth (ESC/POS, 58 mm) ──
+  /* ── Impresora térmica Bluetooth (ESC/POS, 48 mm · GOOJPRT PT-210) ──
      Solo funciona en Chrome de Android con la app abierta en pantalla. */
   const [impre,setImpre]=useState(null);        // dispositivo emparejado
   const [carImp,setCarImp]=useState(null);      // canal por donde se envían los datos
   const [buscandoImp,setBuscandoImp]=useState(false);
+  /* Si Root ya reconectó, Ajustes lo refleja al abrir. */
+  React.useEffect(()=>{
+    if(IMPRESORA.canal && !carImp){ setImpre(IMPRESORA.disp); setCarImp(IMPRESORA.canal); }
+  },[]);
   const hayBluetooth=()=>typeof navigator!=="undefined" && !!navigator.bluetooth;
 
   /* servicios que usan las térmicas más comunes (GOOJPRT, Xprinter y similares) */
@@ -14527,8 +14544,11 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
         if(c){ canal=c; break; }
       }
       if(!canal){ toast("No se encontró por dónde enviar la impresión"); setBuscandoImp(false); return; }
-      disp.addEventListener("gattserverdisconnected",()=>{ setImpre(null); setCarImp(null); });
+      disp.addEventListener("gattserverdisconnected",()=>{
+        setImpre(null); setCarImp(null); fijarImpresora(null,null); });
       setImpre(disp); setCarImp(canal);
+      fijarImpresora(disp, canal);   /* disponible para los demás módulos */
+      recordarImpresora(disp);       /* para reconectar con un toque */
       toast(`Impresora conectada: ${disp.name||"equipo"}`);
     }catch(e){
       if(e && e.name!=="NotFoundError") toast("No se pudo conectar. Revisa que esté encendida y cerca");
@@ -14540,7 +14560,8 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   const enviarAImpresora=async(texto)=>{
     if(!carImp){ toast("Conecta primero la impresora"); return false; }
     try{
-      const bytes=new TextEncoder().encode(texto);
+      /* NO TextEncoder: manda UTF-8 y la térmica escupe basura. Se degrada a ASCII. */
+      const bytes=aBytesImpresora(texto);
       const TROZO=180;
       for(let i=0;i<bytes.length;i+=TROZO){
         await carImp.writeValue(bytes.slice(i,i+TROZO));
@@ -14551,21 +14572,55 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   };
 
   const pruebaImpresion=async()=>{
-    const ESC="\x1B", GS="\x1D";
-    const centro=ESC+"a"+"\x01", izq=ESC+"a"+"\x00";
-    const grande=GS+"!"+"\x11", normal=GS+"!"+"\x00";
-    const corte=GS+"V"+"\x42"+"\x00";
-    const t = ESC+"@"                       /* reiniciar impresora */
-      + centro + grande + "FREELANCE\n" + normal
-      + "Prueba de impresion\n"
-      + "--------------------------------\n" + izq
-      + "Equipo: " + (impre&&impre.name ? impre.name : "termica") + "\n"
+    const t = ESC_INI
+      + ESC_CENTRO + ESC_GRANDE + "FREELANCE\n" + ESC_NORMAL
+      + "Prueba de impresión\n"
+      + LINEA_32 + "\n" + ESC_IZQ
+      + "Equipo: " + (impre&&impre.name ? impre.name : "térmica") + "\n"
       + "Fecha: " + new Date().toLocaleString("es-EC") + "\n"
-      + "Ancho: 58 mm - 32 caracteres\n"
-      + "--------------------------------\n"
-      + centro + "Si lees esto, la impresora\nquedo lista.\n\n\n" + corte;
+      + "Ancho: 48 mm · 32 caracteres\n"
+      + LINEA_32 + "\n"
+      + ESC_CENTRO + "Si lees esto, la impresora\nquedó lista.\n"
+      + ESC_FIN;
     const ok=await enviarAImpresora(t);
     if(ok) toast("Prueba enviada a la impresora");
+  };
+
+  /* Muestra del recibo con el formato real de 32 columnas. */
+  const muestraRecibo=async()=>{
+    if(!carImp){ toast("Conecta primero la impresora"); return; }
+    const hoy = new Date();
+    const t = ESC_INI
+      + ESC_CENTRO + ESC_GRANDE + "FREELANCE\n" + ESC_NORMAL
+      + "RECIBO DE COBRO\n"
+      + ESC_NEGRITA + "REC-260720-0001\n" + ESC_PLANO + ESC_IZQ
+      + LINEA_32 + "\n"
+      + linea2("Cliente:", "Bodegon Ñañay") + "\n"
+      + linea2("Fecha:", hoy.toLocaleDateString("es-EC")) + "\n"
+      + linea2("Cobrador:", "Daniel Ríos") + "\n"
+      + LINEA_32 + "\n"
+      + linea2("Factura 001-0004521", "$1.720,00") + "\n"
+      + linea2("Factura 001-0004610", "$  530,00") + "\n"
+      + LINEA_32 + "\n"
+      + ESC_NEGRITA + linea2("TOTAL COBRADO", "$2.250,00") + "\n" + ESC_PLANO
+      + linea2("Forma de pago:", "Transferencia") + "\n"
+      + LINEA_32 + "\n"
+      + ESC_CENTRO + "Gracias por su pago\n"
+      + "Este documento es una constancia\n"
+      + "de cobro, no una factura.\n"
+      + ESC_FIN;
+    const ok = await enviarAImpresora(t);
+    if(ok) toast("Muestra de recibo enviada");
+  };
+
+  /* Reconectar con un toque: la lista sale filtrada por el nombre guardado. */
+  const reconectar=async()=>{
+    setBuscandoImp(true);
+    let ok = await reconectarImpresora();
+    if(!ok) ok = await reconectarConFiltro();
+    if(ok){ setImpre(IMPRESORA.disp); setCarImp(IMPRESORA.canal); toast("Impresora reconectada"); }
+    else  { toast("No se pudo. Revisa que esté encendida y cerca."); }
+    setBuscandoImp(false);
   };
 
   const [destRec,setDestRec]=useState(DESTINATARIOS_RECIBO.map(d=>({...d})));
@@ -14843,18 +14898,26 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
             {impre ? "● Conectada" : "○ Sin conectar"}</b>
         </div>
         {impre && <div className="cu-line"><span>Equipo</span><b style={{fontSize:12}}>{impre.name||"Impresora térmica"}</b></div>}
-        <div className="cu-line"><span>Ancho de papel</span><b style={{fontSize:12.5}}>58 mm · 32 caracteres</b></div>
+        <div className="cu-line"><span>Ancho de papel</span><b style={{fontSize:12.5}}>48 mm · 32 caracteres</b></div>
 
-        {!impre ? (
-          <button className="cta" style={{width:"100%",marginTop:10}} disabled={buscandoImp}
-            onClick={conectarImpresora}>
-            {buscandoImp ? "Buscando…" : "🔗 Conectar impresora"}</button>
-        ) : (<>
+        {!impre ? (<>
+          {impresoraRecordada() && (
+            <button className="cta" style={{width:"100%",marginTop:10}} disabled={buscandoImp}
+              onClick={reconectar}>
+              {buscandoImp ? "Conectando…" : `⚡ Reconectar ${impresoraRecordada().nombre||"impresora"}`}</button>
+          )}
+          <button className={impresoraRecordada()?"ghost":"cta"} style={{width:"100%",marginTop:impresoraRecordada()?8:10}}
+            disabled={buscandoImp} onClick={conectarImpresora}>
+            {buscandoImp ? "Buscando…" : impresoraRecordada() ? "🔗 Elegir otra impresora" : "🔗 Conectar impresora"}</button>
+        </>) : (<>
           <button className="ghost" style={{width:"100%",marginTop:10}} onClick={pruebaImpresion}>
             🖨️ Imprimir prueba</button>
+          <button className="ghost" style={{width:"100%",marginTop:8}} onClick={muestraRecibo}>
+            🧾 Muestra de recibo</button>
           <button className="back" style={{width:"100%",marginTop:8,color:"var(--clay)",borderColor:"#E8C0B0"}}
             onClick={()=>{ try{ impre.gatt && impre.gatt.disconnect(); }catch(e){}
-              setImpre(null); setCarImp(null); toast("Impresora desconectada"); }}>
+              setImpre(null); setCarImp(null); fijarImpresora(null,null); olvidarImpresora();
+              toast("Impresora desconectada"); }}>
             Desconectar</button>
         </>)}
       </>)}
@@ -16697,6 +16760,307 @@ function SelloLineas() {
 /* ═══════════ HUELLA REAL (WebAuthn) · el sensor del teléfono, como en la banca ═══════════
    En HTTPS (app publicada/instalada): biometría verdadera. En archivo local: simulación demo.
    La sesión verificada contra el servidor llega en Fase 4 (portal único). */
+/* Servicios de las térmicas más comunes (GOOJPRT, Xprinter y similares). */
+const SERVICIOS_IMP_G = [
+  "000018f0-0000-1000-8000-00805f9b34fb",
+  "0000ff00-0000-1000-8000-00805f9b34fb",
+  "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
+];
+/* ══ RECORDAR LA IMPRESORA ══
+   Web Bluetooth exige un gesto del usuario para elegir un equipo, y al recargar la
+   página se pierde el permiso. Pero Chrome guarda los equipos ya autorizados y
+   getDevices() los devuelve SIN volver a mostrar la lista.
+   Con eso la app puede reconectarse sola al abrir. Si falla (impresora apagada o
+   lejos), se calla: el usuario verá el botón de conectar como siempre. */
+const IMP_KEY = "freelance_impresora_v1";
+function recordarImpresora(disp){
+  try{
+    if(disp && disp.id) localStorage.setItem(IMP_KEY, JSON.stringify({id:disp.id, nombre:disp.name||""}));
+  }catch(e){}
+}
+function impresoraRecordada(){
+  try{ return JSON.parse(localStorage.getItem(IMP_KEY)||"null"); }catch(e){ return null; }
+}
+function olvidarImpresora(){ try{ localStorage.removeItem(IMP_KEY); }catch(e){} }
+/* Busca el canal de escritura entre los servicios del equipo. */
+async function canalDeEscritura(gatt){
+  const servicios = await gatt.getPrimaryServices();
+  for(const s of servicios){
+    const cars = await s.getCharacteristics();
+    const c = cars.find(x=>x.properties.write || x.properties.writeWithoutResponse);
+    if(c) return c;
+  }
+  return null;
+}
+/* Reconexión SILENCIOSA (sin tocar nada).
+   PROBADO EL 20 JUL 2026 EN EL EQUIPO DE RICHARD: no funciona. getDevices() no
+   devolvió la impresora ni con la bandera experimental
+   chrome://flags/#enable-web-bluetooth-new-permissions-backend activada.
+   Se deja el intento porque no cuesta nada y en otros equipos puede servir, pero
+   NO se depende de él: el camino real es reconectarConFiltro(), abajo. */
+async function reconectarImpresora(){
+  const guardada = impresoraRecordada();
+  if(!guardada || !navigator.bluetooth || !navigator.bluetooth.getDevices) return false;
+  try{
+    const equipos = await navigator.bluetooth.getDevices();
+    const disp = equipos.find(d=>d.id===guardada.id);
+    if(!disp) return false;
+    const gatt = await disp.gatt.connect();
+    const canal = await canalDeEscritura(gatt);
+    if(!canal) return false;
+    disp.addEventListener("gattserverdisconnected", ()=>fijarImpresora(null,null));
+    fijarImpresora(disp, canal);
+    return true;
+  }catch(e){ return false; }   /* apagada, lejos o sin permiso: silencio */
+}
+
+/* Reconexión CON UN TOQUE (la que sí funciona en cualquier Chrome).
+   Web Bluetooth exige que el usuario elija el equipo con un gesto; eso no se
+   puede evitar. Pero SÍ se puede filtrar la lista por el nombre guardado: en vez
+   de ver veinte dispositivos del entorno, aparece solo la impresora del vendedor.
+   Dos toques en total en vez de buscar entre todo. */
+async function reconectarConFiltro(){
+  const guardada = impresoraRecordada();
+  if(!guardada || !guardada.nombre || !navigator.bluetooth) return false;
+  try{
+    const disp = await navigator.bluetooth.requestDevice({
+      filters: [{ name: guardada.nombre }],
+      optionalServices: SERVICIOS_IMP_G,
+    });
+    const gatt = await disp.gatt.connect();
+    const canal = await canalDeEscritura(gatt);
+    if(!canal) return false;
+    disp.addEventListener("gattserverdisconnected", ()=>fijarImpresora(null,null));
+    fijarImpresora(disp, canal);
+    recordarImpresora(disp);
+    return true;
+  }catch(e){ return false; }   /* canceló o no apareció */
+}
+
+/* ══ CONEXIÓN VIVA CON LA IMPRESORA ══
+   La impresora se vincula en Ajustes, pero se imprime desde Mi caja (otro
+   componente). Como React no comparte estado entre pantallas hermanas, el canal
+   de escritura se guarda aquí, fuera de React. Así sigue disponible al cambiar
+   de módulo, y solo se pierde al recargar la página (Web Bluetooth es así). */
+const IMPRESORA = { disp:null, canal:null, oyentes:[] };
+function fijarImpresora(disp, canal){
+  IMPRESORA.disp = disp; IMPRESORA.canal = canal;
+  IMPRESORA.oyentes.forEach((f)=>{ try{ f(); }catch(e){} });
+}
+function hayImpresora(){ return !!IMPRESORA.canal; }
+function useImpresora(){
+  const [,tick] = useState(0);
+  React.useEffect(()=>{
+    const f = ()=>tick(x=>x+1);
+    IMPRESORA.oyentes.push(f);
+    return ()=>{ const i=IMPRESORA.oyentes.indexOf(f); if(i>=0) IMPRESORA.oyentes.splice(i,1); };
+  },[]);
+  return IMPRESORA;
+}
+/* Envío global: cualquier módulo puede imprimir sin depender de Ajustes. */
+async function imprimirTexto(texto){
+  if(!IMPRESORA.canal) return false;
+  try{
+    const bytes = aBytesImpresora(texto);
+    const TROZO = 180;
+    for(let i=0;i<bytes.length;i+=TROZO){
+      await IMPRESORA.canal.writeValue(bytes.slice(i,i+TROZO));
+      await new Promise(r=>setTimeout(r,30));
+    }
+    return true;
+  }catch(e){ return false; }
+}
+
+/* ══ IMPRESORA TÉRMICA · comandos ESC/POS ══
+   Modelo probado: GOOJPRT PT-210 (48 mm de ancho de impresión = 32 caracteres por
+   línea en fuente normal). NO tiene cuchilla: en vez de cortar, se avanza papel
+   para poder cortar a mano.
+
+   TILDES: esta impresora no las trae en su fuente (probado con CP437/850/858).
+   Se degradan antes de imprimir — ver textoImprimible(). */
+const ESC = "\x1B", GS = "\x1D";
+const ESC_INI    = ESC+"@";   /* reiniciar impresora */
+const ESC_CENTRO = ESC+"a"+"\x01";
+const ESC_IZQ    = ESC+"a"+"\x00";
+const ESC_GRANDE = GS+"!"+"\x11";
+const ESC_NORMAL = GS+"!"+"\x00";
+const ESC_NEGRITA= ESC+"E"+"\x01";
+const ESC_PLANO  = ESC+"E"+"\x00";
+/* Sin cuchilla: 4 saltos para que el papel salga y se pueda cortar a mano. */
+const ESC_FIN    = "\n\n\n\n";
+const LINEA_32   = "--------------------------------";
+
+/* ══ CARACTERES EN LA IMPRESORA ══
+   Probado en la GOOJPRT PT-210 (20 jul 2026): se le declararon las tres páginas
+   de códigos candidatas (CP437, CP850, CP858) y en LAS TRES los acentos salieron
+   como "?". La conclusión es que esta impresora NO trae los caracteres acentuados
+   en su ROM: su fuente es ASCII pelado.
+
+   Por eso no se pelea con páginas de códigos: se DEGRADAN las tildes antes de
+   imprimir. "Cobré" sale "Cobre" y "Ñañay" sale "Nanay". Se lee perfecto y nunca
+   aparece un "?" en un recibo que va al cliente.
+
+   Si algún día se quiere el recibo con tildes y logo, el camino es imprimir el
+   ticket como IMAGEN (canvas → mapa de bits), que no depende de la fuente del
+   equipo. Es más lento y más código; queda anotado como mejora. */
+const DEGRADA_IMP = {
+  "á":"a","é":"e","í":"i","ó":"o","ú":"u","ü":"u","ñ":"n",
+  "Á":"A","É":"E","Í":"I","Ó":"O","Ú":"U","Ü":"U","Ñ":"N",
+  "à":"a","è":"e","ì":"i","ò":"o","ù":"u","â":"a","ê":"e","î":"i","ô":"o","û":"u",
+  "¿":"","¡":"","·":"-","–":"-","—":"-","°":"o","ª":"a","º":"o",
+  "“":'"',"”":'"',"‘":"'","’":"'","…":"...","€":"EUR","✓":"OK","★":"*","•":"-",
+};
+/* Deja el texto en ASCII imprimible SIN tocar los comandos de la impresora.
+   OJO (error cometido el 20 jul 2026): un filtro que solo mira "¿es ASCII?" se
+   come los PARÁMETROS de los comandos — ESC a 0x01 (centrar) quedaba en ESC a, y
+   GS ! 0x11 (letra grande) en GS !. La impresora recibía comandos a medias y
+   sacaba el ticket en una columna angosta.
+   Por eso aquí se detectan las secuencias ESC/POS y se copian ENTERAS. */
+function textoImprimible(texto){
+  const t = String(texto||"");
+  let r = "";
+  for(let i=0;i<t.length;i++){
+    const c = t[i], k = t.charCodeAt(i);
+
+    /* ── comandos: se copian tal cual, con sus parámetros ── */
+    if(k===27){                                   /* ESC */
+      const sig = t[i+1];
+      if(sig==="@"){ r += t.substr(i,2); i+=1; continue; }              /* ESC @      */
+      if(sig==="a"||sig==="E"||sig==="t"||sig==="R"||sig==="M"||sig==="-"||sig==="d"||sig==="J"){
+        r += t.substr(i,3); i+=2; continue;                              /* ESC x n    */
+      }
+      r += c; continue;
+    }
+    if(k===29){                                   /* GS */
+      const sig = t[i+1];
+      if(sig==="!"||sig==="B"||sig==="h"||sig==="w"||sig==="f"){
+        r += t.substr(i,3); i+=2; continue;                              /* GS x n     */
+      }
+      if(sig==="V"){ r += t.substr(i,4); i+=3; continue; }               /* GS V m n   */
+      r += c; continue;
+    }
+
+    /* ── texto: se degrada lo que no imprime esta térmica ── */
+    if(DEGRADA_IMP[c]!==undefined){ r += DEGRADA_IMP[c]; continue; }
+    if(k===10 || k===13){ r += c; continue; }     /* saltos de línea */
+    if(k>=32 && k<127){ r += c; continue; }       /* ASCII imprimible */
+    /* emoji o símbolo raro: se descarta */
+  }
+  return r;
+}
+/* Convierte el texto a los bytes que la impresora imprime bien.
+   Lo que no esté en la tabla y no sea ASCII se reemplaza por "?" en vez de
+   mandar basura: es más honesto que imprimir símbolos raros. */
+function aBytesImpresora(texto){
+  const t = textoImprimible(texto);
+  const salida = new Uint8Array(t.length);
+  for(let i=0;i<t.length;i++) salida[i] = t.charCodeAt(i) & 0xFF;
+  return salida;
+}
+/* Dos columnas en 32 caracteres: etiqueta a la izquierda, valor a la derecha. */
+function linea2(izq, der, ancho){
+  const a = ancho || 32;
+  let i = String(izq||""), d = String(der||"");
+  if(i.length + d.length + 1 > a) i = i.slice(0, Math.max(0, a - d.length - 1));
+  return i + " ".repeat(Math.max(1, a - i.length - d.length)) + d;
+}
+
+const CLAVE_KEY = "freelance_clave_hist_v1";
+/* Hash simple (FNV-1a). Suficiente para la demo: sirve para comparar sin guardar el
+   texto. NO es criptografico — en Fase 4 lo reemplaza el hash del servidor. */
+function hashClave(txt){
+  let h = 2166136261;
+  const t = String(txt||"");
+  for (let i=0; i<t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16).padStart(8,"0");
+}
+function historialClaves(){
+  try { return JSON.parse(localStorage.getItem(CLAVE_KEY) || "[]"); } catch(e){ return []; }
+}
+function guardarClave(hash){
+  const h = historialClaves();
+  h.unshift(hash);
+  try { localStorage.setItem(CLAVE_KEY, JSON.stringify(h.slice(0,3))); } catch(e){}
+}
+function claveRepetida(txt){ return historialClaves().indexOf(hashClave(txt)) >= 0; }
+/* Fuerza: nivel 0-3 mas el detalle de que le falta, para guiar al vendedor. */
+function fuerzaClave(txt){
+  const t = String(txt||"");
+  const largo = t.length >= 8, letra = /[a-zA-Z]/.test(t), num = /[0-9]/.test(t);
+  const extra = t.length >= 12 && /[^a-zA-Z0-9]/.test(t);
+  const falta = [];
+  if(!largo) falta.push("8 caracteres");
+  if(!letra) falta.push("una letra");
+  if(!num)   falta.push("un número");
+  const valida = largo && letra && num;
+  let nivel = 0;
+  if(valida) nivel = extra ? 3 : (t.length >= 10 ? 2 : 1);
+  return { valida, nivel, falta,
+    texto: ["Muy débil","Aceptable","Buena","Fuerte"][nivel],
+    color: ["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
+}
+function nuevoAuClave(){
+  const d = new Date();
+  const p = (n)=>String(n).padStart(2,"0");
+  return "AU-" + String(d.getFullYear()).slice(2) + p(d.getMonth()+1) + p(d.getDate())
+    + "-" + Math.floor(1000 + Math.random()*9000);
+}
+
+/* ══ RECIBO DE COBRO PARA LA TÉRMICA ══
+   48 mm = 32 columnas. Se arma con los datos REALES del recibo guardado.
+   Las tildes las degrada textoImprimible() al enviar: aquí se escribe normal. */
+function ticketRecibo(r, cobrador){
+  if(!r) return "";
+  const F = (n)=>money(n||0);
+  let t = ESC_INI
+    + ESC_CENTRO + ESC_GRANDE + "FREELANCE\n" + ESC_NORMAL
+    + "RECIBO DE COBRO\n"
+    + ESC_NEGRITA + (r.nRecibo||"") + "\n" + ESC_PLANO + ESC_IZQ
+    + LINEA_32 + "\n"
+    + linea2("Cliente:", (r.cli||"").slice(0,21)) + "\n"
+    + linea2("Fecha:", r.hora || new Date().toLocaleDateString("es-EC")) + "\n";
+  if(cobrador) t += linea2("Cobrador:", String(cobrador).slice(0,21)) + "\n";
+  if(r.prov)   t += linea2("Proveedor:", String(r.prov).slice(0,21)) + "\n";
+  t += LINEA_32 + "\n";
+
+  /* Facturas que se cancelan o abonan con este cobro */
+  const facts = r.facturas || [];
+  if(facts.length){
+    facts.forEach((f)=>{
+      t += linea2(String(f.factura||"").slice(0,18), F(f.aplicado)) + "\n";
+      const resta = f.saldoRest||0;
+      t += (resta<=0.004 ? "  Cancelada" : "  Abona - resta "+F(resta)) + "\n";
+    });
+    t += LINEA_32 + "\n";
+  }
+
+  t += ESC_NEGRITA + linea2("TOTAL COBRADO", F(r.monto)) + "\n" + ESC_PLANO;
+
+  /* Cómo pagó: efectivo, transferencia, cheque… */
+  const pagos = r.lineas || [];
+  pagos.forEach((l)=>{
+    let et = l.modalidad || "Pago";
+    if(l.banco)  et += " " + l.banco;
+    if(l.numero) et += " " + l.numero;
+    t += linea2(et.slice(0,20), F(parseFloat(l.monto)||0)) + "\n";
+  });
+
+  if(r.anulado){
+    t += LINEA_32 + "\n" + ESC_CENTRO + ESC_NEGRITA + "*** RECIBO ANULADO ***\n" + ESC_PLANO;
+    if(r.motivoAnu) t += String(r.motivoAnu).slice(0,32) + "\n";
+    if(r.auAnu)     t += String(r.auAnu) + "\n";
+    t += ESC_IZQ;
+  }
+
+  t += LINEA_32 + "\n"
+    + ESC_CENTRO + "Gracias por su pago\n"
+    + "Este documento es una constancia\n"
+    + "de cobro, no una factura.\n"
+    + ESC_FIN;
+  return t;
+}
+
+
 /* ══ CONTRASEÑA (modo demo) ══
    Regla sellada: NUNCA se guarda ni se muestra en texto plano, solo el hash. Nadie
    puede verla. Historial anti-repetición por hash. El cambio queda auditado (evento,
@@ -18553,6 +18917,9 @@ function App({usuario, onSalir}){
 }
 function Root(){
   const [sesion,setSesion]=useState(null); // usuario autenticado; null = mostrar login
+  /* Intenta reconectar la última impresora. Si no puede, no dice nada: el usuario
+     verá el botón "Reconectar" en Ajustes. */
+  React.useEffect(()=>{ if(sesion) reconectarImpresora(); },[sesion]);
   if(!sesion) return (
     <div className="shell" style={{background:"var(--paper)"}}>
       <div style={{flex:1, display:"flex", flexDirection:"column"}}>
