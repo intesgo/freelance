@@ -2450,10 +2450,39 @@ function extraerComprobante(txt){
   return {banco, numero, fecha, valor};
 }
 
-const USO_BANCOS = {
-  "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
-  "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3
+/* ══ USO DE LISTAS DESPLEGABLES ══
+   Norma sellada: toda lista desplegable se ordena por las veces que cada opción
+   fue elegida, de mayor a menor. El contador se guarda pero NUNCA se muestra en
+   pantalla. Desempate alfabético para que lo nunca usado no salga aleatorio.
+   En Fase 4 estos contadores viajan a Supabase por usuario. */
+const USOS = {
+  bancos:{ "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
+           "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3 },
+  couriers:{ "Servientrega":18, "Laar Courier":9, "Tramaco":4 },
 };
+/* categorías donde el orden propio manda: nunca se reordenan por uso */
+const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas"];
+const usoClave = it => typeof it==="string" ? it
+  : (it && (it.nombre||it.nom||it.t||it.label||it.cli||it.id)) || String(it);
+/* registra una selección */
+const regUso = (cat, it) => {
+  if(!cat || it==null) return it;
+  const k = usoClave(it); if(!k) return it;
+  (USOS[cat] = USOS[cat] || {});
+  USOS[cat][k] = (USOS[cat][k]||0) + 1;
+  return it;
+};
+/* ordena una lista por uso (mayor→menor), con desempate alfabético */
+const ordUso = (cat, lista) => {
+  if(!cat || USO_FIJO.includes(cat) || !Array.isArray(lista)) return lista;
+  const c = USOS[cat] || {};
+  return lista.slice().sort((a,b)=>{
+    const ka=usoClave(a), kb=usoClave(b);
+    return ((c[kb]||0)-(c[ka]||0)) || String(ka).localeCompare(String(kb),"es");
+  });
+};
+/* compatibilidad con el código anterior de bancos */
+const USO_BANCOS = USOS.bancos;
 
 const PEDIDOS_INI = [
   {id:1, cli:"Comercial Mendoza", prov:"Agrícola del Valle", fecha:"2026-06-10", prod:"Arroz Gustadina · Quintal", cant:100, precio:43.00, cond:"Crédito",
@@ -3205,12 +3234,13 @@ function BotonCrear({onClick, titulo}){
   );
 }
 
-function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
+function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio, cat}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const txt=(it)=>render?render(it):String(it);
-  const opciones=[{__todos:true}, ...items];
+  /* norma sellada: lo más elegido va primero (el contador nunca se muestra) */
+  const opciones=[{__todos:true}, ...ordUso(cat, items)];
   const filtrados = q.trim()==="" ? opciones
     : opciones.filter(it=>it.__todos ? false
         : norm(q).split(/\s+/).filter(Boolean).every(w=>norm(txt(it)).includes(w)));
@@ -3235,7 +3265,9 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
             ? <div className="fb-none">Sin resultados para “{q}”</div>
             : filtrados.map((it,i)=>(
               <div className="fb-opt" key={i}
-                onMouseDown={e=>{e.preventDefault();onPick(it.__todos?todos:it);setOpen(false);setQ("");}}>
+                onMouseDown={e=>{e.preventDefault();
+                  if(!it.__todos) regUso(cat,it);
+                  onPick(it.__todos?todos:it);setOpen(false);setQ("");}}>
                 {it.__todos ? <span style={{fontWeight:700,color:"var(--muted)"}}>{etiquetaTodos}</span> : txt(it)}
               </div>))}
         </div>)}
@@ -3243,7 +3275,7 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
   );
 }
 
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel, className, onAbrir}){
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, sinLabel, className, onAbrir, cat}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   const [reabrir,setReabrir]=useState(false);   // al tocar la tarjeta: limpiar y desplegar la lista de una
@@ -3278,7 +3310,9 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
     return norm(texto).includes(norm(q));
   };
   let filtrados = q.trim()==="" ? items : items.filter(it=>coincide(render.text(it)));
+  /* norma sellada: lo más elegido va primero (el contador nunca se muestra) */
   if(sortBy) filtrados = [...filtrados].sort(sortBy);
+  else if(cat) filtrados = ordUso(cat, filtrados);
   return (<div className="field">{!sinLabel && <label>{label}</label>}
     <div className={"ss"+(className?" "+className:"")}>
       <div className={"box"+(disabled?" dis":"")}>
@@ -3296,7 +3330,8 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
           {filtrados.length===0
             ? <div className="none">Sin resultados para “{q}”</div>
             : filtrados.map((it,i)=>(
-              <div className="opt" key={i} onMouseDown={e=>{e.preventDefault();onPick(it);setOpen(false);setQ("");}}>
+              <div className="opt" key={i} onMouseDown={e=>{e.preventDefault();
+                regUso(cat,it); onPick(it);setOpen(false);setQ("");}}>
                 {render.option(it)}
               </div>))}
         </div>)}
@@ -4158,7 +4193,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"273", fecha:"19 jul 2026", desc:"Bitacora de traspasos con courier, guia y PDF"};
+const VERSION={n:"274", fecha:"19 jul 2026", desc:"Listas desplegables ordenadas por uso"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -4638,7 +4673,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     <div className="h1">Tomar pedido</div>
 
     {!prod && <div className="busc-cliente">
-    <SearchSelect label="Cliente" items={CLIENTES} sinLabel value={cli} multiPalabra
+    <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} sinLabel value={cli} multiPalabra
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);setProv(null);setProd(null);reset();}}
       onClear={()=>{ if(carrito.length===0){ setCli(null);setCodigo("");setDesbloqueado(false);setProv(null);setProd(null);reset(); } }}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
@@ -4651,7 +4686,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       }}/>
     </div>}
 
-    {cli && !bloqueado && !verFact && !prod && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
+    {cli && !bloqueado && !verFact && !prod && <SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -4660,7 +4695,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor</div></>)
       }}/>}
 
-    {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto" items={productosDelProv} sinLabel value={prod}
+    {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto" cat="productos" items={productosDelProv} sinLabel value={prod}
       placeholder="Producto"
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       render={{
@@ -6105,7 +6140,9 @@ function Boveda({toast, yo, volver}){
 
   const generarCodigo=()=>{
     if(!destino){ toast("Elige a quién entregas el cheque"); return; }
+    regUso("destinatarios", destino);
     const empresa = via==="courier" ? (courEmp==="__otro" ? addCourier(courOtro) : courEmp) : "";
+    if(empresa) regUso("couriers", empresa);
     if(via==="courier"){
       if(!empresa){ toast("Indica la empresa de courier"); return; }
       if(!courGuia.trim()){ toast("Ingresa el número de guía"); return; }
@@ -6304,7 +6341,7 @@ function Boveda({toast, yo, volver}){
                 <select className="aj-sel" style={{width:"100%",padding:"12px"}}
                   value={destino} onChange={e=>setDestino(e.target.value)}>
                   <option value="">Elige…</option>
-                  {DESTINOS_CHEQUE.filter(d=>d!==yo).map(d=><option key={d} value={d}>{d}</option>)}
+                  {ordUso("destinatarios",DESTINOS_CHEQUE.filter(d=>d!==yo)).map(d=><option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
 
@@ -6328,7 +6365,7 @@ function Boveda({toast, yo, volver}){
                   <select className="aj-sel" style={{width:"100%",padding:"12px"}}
                     value={courEmp} onChange={e=>setCourEmp(e.target.value)}>
                     <option value="">Elige…</option>
-                    {COURIERS.map(c=><option key={c} value={c}>{c}</option>)}
+                    {ordUso("couriers",COURIERS).map(c=><option key={c} value={c}>{c}</option>)}
                     <option value="__otro">➕ Otra empresa…</option>
                   </select>
                 </div>
@@ -7332,7 +7369,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     </div>
 
     {paso===1 && (<>
-      <SearchSelect className="ss-hero" onAbrir={setBuscando} label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
+      <SearchSelect className="ss-hero" cat="clientes" onAbrir={setBuscando} label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
           text:c=>c,
@@ -7426,7 +7463,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
           </div>
         </>);})()}
       {cli && (
-        <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
+        <SearchSelect label="Proveedor" cat="proveedores" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setAplic({});setLineas([]);}} onClear={()=>{setProv(null);setAplic({});setLineas([]);}}
           hint={`${provsDelCliente.length} ${provsDelCliente.length===1?"proveedor con facturas":"proveedores con facturas"} de ${cli}`}
           render={{
@@ -7756,8 +7793,8 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
         )}
         {vBan && (
           <SearchSelect label="Banco" items={BANCOS} value={banco}
-            sortBy={(a,b)=>(USO_BANCOS[b]||0)-(USO_BANCOS[a]||0)}
-            onPick={b=>{setBanco(b);USO_BANCOS[b]=(USO_BANCOS[b]||0)+1;}} onClear={()=>setBanco("")}
+            cat="bancos"
+            onPick={b=>setBanco(b)} onClear={()=>setBanco("")}
             render={{
               text:b=>b,
               option:b=>(<div className="o1">{b}</div>),
@@ -8116,7 +8153,7 @@ function Stock({toast}){
         )}
       </>)}
 
-      <SearchSelect label="Cliente visitado" items={CLIENTES} value={cli} multiPalabra
+      <SearchSelect label="Cliente visitado" cat="clientes" items={CLIENTES} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setCant({});}} onClear={()=>{setCli(null);setProv(null);setCant({});}}
         render={{
           text:c=>c,
@@ -8126,7 +8163,7 @@ function Stock({toast}){
 
       {cli && (
         provsDelCliente.length>0 ? (
-          <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
+          <SearchSelect label="Proveedor" cat="proveedores" items={provsDelCliente} value={prov}
             onPick={p=>{setProv(p);setCant({});}} onClear={()=>{setProv(null);setCant({});}}
             hint={`${provsDelCliente.length} proveedor(es) con productos que ${cli} ya ha comprado`}
             render={{
@@ -8574,15 +8611,15 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
 
     {verFiltros && (
       <div className="cf-grid">
-        <FiltroBuscador items={opc("zona")} value={fZona} onPick={setFZona}
+        <FiltroBuscador cat="zonas" items={opc("zona")} value={fZona} onPick={setFZona}
           todos="Todas" etiquetaTodos="Todas las zonas" render={z=>`Zona ${z}`}/>
-        <FiltroBuscador items={opc("vendedor")} value={fVend} onPick={setFVend}
+        <FiltroBuscador cat="vendedores" items={opc("vendedor")} value={fVend} onPick={setFVend}
           todos="Todos" etiquetaTodos="Todos los vendedores"/>
-        <FiltroBuscador items={opc("proveedor")} value={fProv} onPick={setFProv}
+        <FiltroBuscador cat="proveedores" items={opc("proveedor")} value={fProv} onPick={setFProv}
           todos="Todos" etiquetaTodos="Todos los proveedores"/>
-        <FiltroBuscador items={opc("ciudad")} value={fCiudad} onPick={setFCiudad}
+        <FiltroBuscador cat="ciudades" items={opc("ciudad")} value={fCiudad} onPick={setFCiudad}
           todos="Todas" etiquetaTodos="Todas las ciudades"/>
-        <FiltroBuscador items={opc("cli")} value={fCli} onPick={setFCli}
+        <FiltroBuscador cat="clientes" items={opc("cli")} value={fCli} onPick={setFCli}
           todos="Todos" etiquetaTodos="Todos los clientes"/>
         <FiltroBuscador items={[["porvencer","Al día"],["vencidas","Vencidas"]]}
           value={fEstado} onPick={v=>setFEstado(Array.isArray(v)?v[0]:v)}
@@ -9096,7 +9133,7 @@ function Potenciales({toast}){
       <div className="field"><label>Nombre del negocio</label><input value={np.nombre} onChange={e=>setNp({...np,nombre:e.target.value})} placeholder="Ej. Comercial Nuevo"/></div>
       <div className="field"><label>Tipo de negocio</label><input value={np.negocio} onChange={e=>setNp({...np,negocio:e.target.value})} placeholder="Ej. Abarrotes"/></div>
       <div className="field"><label>Canal estimado</label>
-        <FiltroBuscador items={Object.keys(CANALES)} value={np.canal||""}
+        <FiltroBuscador cat="canales" items={Object.keys(CANALES)} value={np.canal||""}
           onPick={v=>setNp({...np,canal:v==="__"?"":v})}
           todos="__" etiquetaTodos="Elige canal…"/></div>
       <div className="field"><label>Contacto</label><input value={np.contacto} onChange={e=>setNp({...np,contacto:e.target.value})} placeholder="Nombre de la persona"/></div>
@@ -9689,7 +9726,7 @@ function ComprasMensuales({nombre}){
         <FiltroBuscador items={lineas} value={fLinea}
           onPick={v=>{setFLinea(v);setFProd("Todos");}}
           todos="Todas" etiquetaTodos="Toda línea"/>
-        <FiltroBuscador items={productos} value={fProd} onPick={setFProd}
+        <FiltroBuscador cat="productos" items={productos} value={fProd} onPick={setFProd}
           todos="Todos" etiquetaTodos="Todo producto"/>
       </div>
 
@@ -11815,7 +11852,7 @@ function Agenda({toast, verCliente}){
 
           {completando.tipo==="Visita" && (<>
             <div><div className="ficha-sec" style={{marginBottom:6}}>Resultado de la visita *</div>
-              <FiltroBuscador items={["Pedido tomado","No compró","No estaba el encargado","Local cerrado"]}
+              <FiltroBuscador cat="resVisita" items={["Pedido tomado","No compró","No estaba el encargado","Local cerrado"]}
                 value={evResultado||""} onPick={v=>setEvResultado(v==="__"?"":v)}
                 todos="__" etiquetaTodos="Elige…"/></div>
             <div className="field" style={{marginTop:10}}><label>Observación</label>
@@ -11826,7 +11863,7 @@ function Agenda({toast, verCliente}){
             <div className="field"><label>Valor cobrado *</label>
               <input type="number" inputMode="decimal" value={evValor} onChange={e=>setEvValor(e.target.value)} placeholder="0,00"/></div>
             <div style={{marginTop:10}}><div className="ficha-sec" style={{marginBottom:6}}>Forma de pago</div>
-              <FiltroBuscador items={["Efectivo","Transferencia","Depósito","Cheque"]}
+              <FiltroBuscador cat="formasPago" items={["Efectivo","Transferencia","Depósito","Cheque"]}
                 value={evForma||""} onPick={v=>setEvForma(v==="__"?"":v)}
                 todos="__" etiquetaTodos="Elige…"/></div>
             <div style={{marginTop:10}}><div className="ficha-sec" style={{marginBottom:6}}>Resultado *</div>
@@ -11891,7 +11928,7 @@ function Agenda({toast, verCliente}){
           <h3>No realizada</h3>
           <div className="meta" style={{marginBottom:12}}>{noReal.cli} · {fAmable(noReal.fecha)}</div>
           <div><div className="ficha-sec" style={{marginBottom:6}}>¿Por qué no se realizó? *</div>
-            <FiltroBuscador items={["Local cerrado","No estaba el encargado","Falta de tiempo","Cliente canceló","Otro"]}
+            <FiltroBuscador cat="motivosVisita" items={["Local cerrado","No estaba el encargado","Falta de tiempo","Cliente canceló","Otro"]}
               value={motivoR||""} onPick={v=>setMotivoR(v==="__"?"":v)}
               todos="__" etiquetaTodos="Elige un motivo…"/></div>
           <button className="cta" style={{marginTop:14}} disabled={!motivoR} onClick={guardarNoReal}>Guardar</button>
@@ -11916,7 +11953,7 @@ function Agenda({toast, verCliente}){
           </div>
 
           <div className="ficha-sec">Cliente *</div>
-          <SearchSelect label="Cliente" sinLabel items={CLIENTES} value={cli} multiPalabra
+          <SearchSelect label="Cliente" cat="clientes" sinLabel items={CLIENTES} value={cli} multiPalabra
             onPick={c=>{ setCli(c); const f=FICHA_CLIENTE[c]||{}; setUbicF(f.ciudad?`${f.ciudad}${f.zona?", "+f.zona:""}`:""); }}
             onClear={()=>setCli(null)}
             render={{ text:c=>c, option:c=>(<div className="o1">{c}</div>),
@@ -12550,13 +12587,13 @@ function Novedades({toast, go}){
 
     {pestana==="enviadas" && (<>
 
-    <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
+    <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);resetDesdeCli();}} onClear={()=>{setCli(null);resetDesdeCli();}}
       render={{text:c=>c, option:c=>(<div className="o1">{c}</div>),
         picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente de la novedad</div></>)}}/>
 
     {cli && (
-      <SearchSelect label="Proveedor" items={PROVEEDORES} value={prov}
+      <SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} value={prov}
         onPick={p=>{setProv(p);reset();}} onClear={()=>{setProv(null);reset();}}
         render={{text:p=>p.nombre, option:p=>(<div className="o1">{p.nombre}</div>),
           picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor de la factura/producto</div></>)}}/>
@@ -13472,7 +13509,7 @@ function Ruta({toast}){
               <div className="field"><label>Nombre del negocio</label>
                 <input value={pn.nombre} onChange={e=>setPn({...pn,nombre:e.target.value})} placeholder="Ej. Comercial Nuevo"/></div>
               <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Provincia</div>
-                <FiltroBuscador items={PROVINCIAS_EC} value={pn.prov||""}
+                <FiltroBuscador cat="provincias" items={PROVINCIAS_EC} value={pn.prov||""}
                   onPick={v=>setPn({...pn,prov:v==="__"?"":v})}
                   todos="__" etiquetaTodos="Busca la provincia…"/></div>
               <div className="field"><label>Ciudad</label>
@@ -14310,7 +14347,7 @@ function Solicitudes({toast, verCliente}){
 
           <div style={{marginTop:12}}>
             <div className="ficha-sec" style={{marginBottom:6}}>Cliente *</div>
-            <SearchSelect label="Cliente" items={CLIENTES} sinLabel value={nCli||null} multiPalabra
+            <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} sinLabel value={nCli||null} multiPalabra
               placeholder="Escribe o dicta el cliente…"
               onPick={c=>setNCli(c)}
               onClear={()=>setNCli("")}
@@ -14325,7 +14362,7 @@ function Solicitudes({toast, verCliente}){
           {nTipo==="nc" && (<>
             <div style={{marginTop:10}}>
               <div className="ficha-sec" style={{marginBottom:6}}>Motivo autorizado *</div>
-              <FiltroBuscador items={MOTIVOS_NC} value={nMotivo||""} onPick={v=>setNMotivo(v==="__"?"":v)}
+              <FiltroBuscador cat="motivosNC" items={MOTIVOS_NC} value={nMotivo||""} onPick={v=>setNMotivo(v==="__"?"":v)}
                 todos="__" etiquetaTodos="Elige un motivo…"/>
             </div>
             <div style={{background:"#FBF3DC",borderRadius:10,padding:"9px 11px",marginTop:8,
@@ -14708,7 +14745,7 @@ function Equipo({toast}){
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
       <div className="eq-filtros">
-        <FiltroBuscador items={zonas.filter(z=>z!=="Todas")} value={fZona} onPick={setFZona}
+        <FiltroBuscador cat="zonas" items={zonas.filter(z=>z!=="Todas")} value={fZona} onPick={setFZona}
           todos="Todas" etiquetaTodos="Todas las zonas" render={z=>"Zona "+z}/>
         <FiltroBuscador items={["Activos","Bloqueados"]} value={fEstado} onPick={setFEstado}
           todos="Todos" etiquetaTodos="Todos los estados"
@@ -15939,7 +15976,7 @@ function NuevaEntrega({yo, destinatarios, reenviarDe, onCancel, onCrear}){
     {envio==="courier" && (
       <div className="fcard" style={{marginBottom:12}}>
         <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Empresa de courier</div>
-          <FiltroBuscador items={COURIERS} value={courier.empresa||""}
+          <FiltroBuscador cat="couriers" items={COURIERS} value={courier.empresa||""}
             onPick={v=>setCourier({...courier,empresa:v==="__"?"":v})}
             todos="__" etiquetaTodos="Elige courier…"/></div>
         <div className="field"><label>Número de guía</label>
@@ -15951,13 +15988,13 @@ function NuevaEntrega({yo, destinatarios, reenviarDe, onCancel, onCrear}){
       <div className="ficha-sec">Agregar documento</div>
       <div className="fcard" style={{marginBottom:12}}>
         <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Tipo</div>
-          <FiltroBuscador items={TIPOS_DOC} value={d.tipo||""}
+          <FiltroBuscador cat="tiposDoc" items={TIPOS_DOC} value={d.tipo||""}
             onPick={v=>setD({...d,tipo:v==="__"?"":v})}
             todos="__" etiquetaTodos="Elige tipo…"/></div>
         <div className="field"><label>Número de documento</label>
           <input value={d.numero} onChange={e=>setD({...d,numero:e.target.value})} placeholder="Ej. CHQ-004521"/></div>
         <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Cliente</div>
-          <FiltroBuscador items={CLIENTES} value={d.cliente||""}
+          <FiltroBuscador cat="clientes" items={CLIENTES} value={d.cliente||""}
             onPick={v=>setD({...d,cliente:v==="__"?"":v})}
             todos="__" etiquetaTodos="Busca el cliente…"/></div>
         <div style={{display:"flex",gap:8}}>
@@ -15970,7 +16007,7 @@ function NuevaEntrega({yo, destinatarios, reenviarDe, onCancel, onCrear}){
         </div>
         {d.tipo==="Cheque" && (
           <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Banco</div>
-            <FiltroBuscador items={bancosOrd} value={d.banco||""}
+            <FiltroBuscador cat="bancos" items={bancosOrd} value={d.banco||""}
               onPick={v=>setD({...d,banco:v==="__"?"":v})}
               todos="__" etiquetaTodos="Busca el banco…"/></div>
         )}
