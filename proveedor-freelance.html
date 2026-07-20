@@ -530,6 +530,42 @@ const f  = n => "$"+Math.round(n).toLocaleString("es-CO");
 const fk = n => n>=1e6 ? "$"+(n/1e6).toFixed(1).replace(".0","")+"M" : n>=1e3 ? "$"+Math.round(n/1e3)+"k" : "$"+n;
 const pct= (a,b)=> b? Math.round(a/b*100):0;
 
+/* ══ NOTAS DE CRÉDITO ══
+   La factura manda, pero la NC es el único documento que puede corregirla.
+   Dos tipos, porque el negocio los trata distinto:
+   · DEVOLUCIÓN → vuelve producto: hay que saber qué y cuántos quintales, para el stock.
+   · DESCUENTO  → solo baja el monto: no vuelve nada (error de facturación, ajuste de precio).
+   En ambos casos baja la cartera del cliente y REVIERTE LA COMISIÓN en proporción:
+   si la NC es el 20% de la factura, se revierte el 20% de la comisión.
+   Si la comisión ya se pagó, el descuento va al próximo corte: nunca se pide devolución. */
+const MOTIVOS_NC_DEV = [
+  "Producto en mal estado",
+  "Producto equivocado",
+  "El cliente devolvió lo que no vendió",
+  "Ajuste de peso",
+  "Otro",
+];
+const MOTIVOS_NC_DESC = [
+  "Error de facturación",
+  "Descuento acordado después",
+  "Precio mal aplicado",
+  "Otro",
+];
+
+const NC_INI = [
+  {id:"NC-001", numero:"001-001-000088", tipo:"devolucion", factura:"001-001-000110",
+   cli:"Mayorista Santa Rosa", ruc:"0691234567001", fecha:"2026-07-17",
+   motivo:"Producto en mal estado", detalle:"3 sacos con humedad",
+   items:[{prod:"Arroz Conejo · Quintal", qq:3, precio:46.00}],
+   total:138.00, comisionRevertida:1.50, autorizacion:"1707202601069123456700100120000088",
+   confirmada:true, au:"AU-260717-1180"},
+  {id:"NC-002", numero:"001-001-000091", tipo:"descuento", factura:"001-001-000127",
+   cli:"Distribuidora Ríos", ruc:"1792345678001", fecha:"2026-07-19",
+   motivo:"Precio mal aplicado", detalle:"Se facturó a $45, el acuerdo era $43",
+   items:[], total:60.00, comisionRevertida:0.65, autorizacion:"",
+   confirmada:false, au:"AU-260719-2240"},
+];
+
 /* ══ RETENCIONES ══
    Regla sellada: las retenciones NO se registran en Cobros. Las sube el PROVEEDOR,
    que es quien las confirma en el SRI. Ajustan la cartera del cliente: bajan su saldo
@@ -579,7 +615,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"3", fecha:"20 jul 2026", desc:"Retenciones" };
+const VERSION = { n:"4", fecha:"20 jul 2026", desc:"Notas de credito" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -966,7 +1002,7 @@ function App({usuario, onSalir}){
   },[online,cola]);
 
   if(!logueado) return <Login onEntrar={()=>setLogueado(true)} />;
-  const TITULOS={inicio:"Inicio",decidir:"Por decidir",conciliacion:"Conciliación",retenciones:"Retenciones",bancos:"Mis cuentas",creditos:"Créditos",precios:"Precios",prop:"Propuestas",catalogo:"Catálogo",reportes:"Reportes",cuenta:"Acuerdos"};
+  const TITULOS={inicio:"Inicio",decidir:"Por decidir",conciliacion:"Conciliación",notas:"Notas de crédito",retenciones:"Retenciones",bancos:"Mis cuentas",creditos:"Créditos",precios:"Precios",prop:"Propuestas",catalogo:"Catálogo",reportes:"Reportes",cuenta:"Acuerdos"};
   const ctx={prop,setProp,cat,setCat,cred,setCred,contado,accion,pendientes,online};
   return (
     <div className="phone">
@@ -1024,6 +1060,7 @@ function App({usuario, onSalir}){
         {tab==="inicio"   ? <Inicio ctx={ctx} irTab={irTab} credPend={credPend} />
         : tab==="decidir" ? <Decisiones ctx={ctx} />
         : tab==="conciliacion"? <Conciliacion irTab={irTab} />
+        : tab==="notas"? <NotasCredito irTab={irTab} />
         : tab==="retenciones"? <Retenciones irTab={irTab} />
         : tab==="bancos"? <CuentasBancarias irTab={irTab} />
         : tab==="creditos"? <Creditos ctx={ctx} />
@@ -1127,6 +1164,31 @@ function Inicio({ctx,irTab,credPend}){
                     {porRevisar.length ? `${porRevisar.length} cobros por revisar` : "Cobros al día"}</div>
                   <div className="sub tiny">
                     {porRevisar.length ? `${money(monto)} · aprobar libera la comisión` : "No hay nada pendiente de conciliar"}</div>
+                </div>
+              </div>
+              <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
+            </button>
+          </>
+        );
+      })()}
+
+      {/* Notas de crédito: devoluciones y descuentos que corrigen la factura */}
+      {(()=>{
+        const sinConf = NC_INI.filter(n=>!n.confirmada).length;
+        const total = NC_INI.reduce((a,n)=>a+n.total,0);
+        return (
+          <>
+            <div className="sec-gap" style={{height:12}} />
+            <button className="card card-pad row between" style={{width:"100%",textAlign:"left",
+              borderColor:sinConf?"var(--maiz)":"var(--linea)"}}
+              onClick={()=>irTab("notas")}>
+              <div className="row" style={{gap:13}}>
+                <div className="ava ava-m">{sinConf||"✓"}</div>
+                <div>
+                  <div style={{fontWeight:600,fontSize:15}}>
+                    {sinConf ? `${sinConf} nota${sinConf!==1?"s":""} sin confirmar`
+                             : "Notas de crédito al día"}</div>
+                  <div className="sub tiny">{money(total)} emitido este mes</div>
                 </div>
               </div>
               <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
@@ -1768,6 +1830,376 @@ const COBROS_REPORTADOS = [
    nota:"En mi estado de cuenta ese número es de otro depósito.",
    verFecha:"18 jul 2026 19:15", au:"AU-260718-5520", intentos:1},
 ];
+
+function NotasCredito({irTab}){
+  const [ncs,setNcs]=useState(NC_INI);
+  const [sel,setSel]=useState(null);
+  const [nueva,setNueva]=useState(false);
+  const [paso,setPaso]=useState(1);        // 1 tipo · 2 factura · 3 detalle · 4 comprobante
+  const [tipo,setTipo]=useState("");       // devolucion | descuento
+  const [fac,setFac]=useState(null);
+  const [motivo,setMotivo]=useState("");
+  const [detalle,setDetalle]=useState("");
+  const [items,setItems]=useState([]);     // devolución: qué volvió
+  const [monto,setMonto]=useState("");     // descuento: cuánto se baja
+  const [numero,setNumero]=useState("");
+  const [autoriz,setAutoriz]=useState("");
+  const [aviso,setAviso]=useState("");
+  const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3600); };
+
+  const r2=(n)=>Math.round(n*100)/100;
+  const COMISION_QQ = 0.50;   // lo que gana el vendedor por quintal
+
+  /* El total de la NC: en devolución sale de lo que volvió; en descuento lo escribe el proveedor. */
+  const totalNC = tipo==="devolucion"
+    ? r2(items.reduce((a,i)=>a + (parseFloat(i.qq)||0) * (parseFloat(i.precio)||0), 0))
+    : r2(parseFloat(String(monto).replace(",","."))||0);
+
+  /* La comisión se revierte en proporción a lo que baja la factura. */
+  const pctNC = fac && fac.total>0 ? totalNC/fac.total : 0;
+  const comisionRev = tipo==="devolucion"
+    ? r2(items.reduce((a,i)=>a + (parseFloat(i.qq)||0) * COMISION_QQ, 0))
+    : r2(pctNC * (fac ? fac.total/100*0.5 : 0));   // demo: la comisión real llega del backend
+  const quedaFactura = fac ? r2(fac.total - totalNC) : 0;
+
+  const sinConfirmar = ncs.filter(n=>!n.confirmada);
+  const totalMes = ncs.reduce((a,n)=>a+n.total,0);
+  const fCorta=(d)=>{
+    if(!d) return "—";
+    const M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const p=String(d).slice(0,10).split("-");
+    return `${parseInt(p[2])} ${M[parseInt(p[1])-1]}`;
+  };
+  const nuevoAu=()=>"AU-260720-"+Math.floor(1000+Math.random()*9000);
+  const reset=()=>{ setNueva(false); setPaso(1); setTipo(""); setFac(null); setMotivo("");
+                    setDetalle(""); setItems([]); setMonto(""); setNumero(""); setAutoriz(""); };
+
+  const agregarItem=()=>setItems(p=>[...p,{prod:"",qq:"",precio:""}]);
+  const cambiarItem=(i,k,v)=>setItems(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const quitarItem=(i)=>setItems(p=>p.filter((_,j)=>j!==i));
+
+  const guardar=()=>{
+    if(!numero.trim()){ toast("Escribe el número de la nota de crédito"); return; }
+    const au=nuevoAu();
+    const n={ id:"NC-"+String(ncs.length+1).padStart(3,"0"), numero:numero.trim(), tipo,
+      factura:fac.num, cli:fac.cli, ruc:fac.ruc, fecha:"2026-07-20",
+      motivo, detalle:detalle.trim(),
+      items: tipo==="devolucion" ? items.filter(i=>i.prod && i.qq) : [],
+      total: totalNC, comisionRevertida: comisionRev,
+      autorizacion:autoriz.trim(), confirmada:!!autoriz.trim(), au };
+    setNcs(p=>[n,...p]);
+    reset();
+    toast(`Nota de crédito registrada · la deuda de ${n.cli} baja ${money(n.total)} · ${au}`);
+  };
+
+  const confirmarSri=(n)=>{
+    const au=nuevoAu();
+    setNcs(p=>p.map(x=>x.id===n.id ? {...x, confirmada:true, au} : x));
+    setSel(null);
+    toast(`Confirmada en el SRI · ${au}`);
+  };
+
+  const Aviso = () => aviso ? (
+    <div style={{position:"fixed",bottom:86,left:"50%",transform:"translateX(-50%)",zIndex:90,
+      background:"#1E1B14",color:"#fff",borderRadius:12,padding:"12px 18px",fontSize:13,
+      fontWeight:600,boxShadow:"0 6px 18px rgba(0,0,0,.35)",maxWidth:"88%"}}>{aviso}</div>
+  ) : null;
+
+  /* ── FICHA DE UNA NOTA DE CRÉDITO ── */
+  if(sel){
+    const n = ncs.find(x=>x.id===sel) || {};
+    const f = FACTURAS_PROV.find(x=>x.num===n.factura) || {};
+    const esDev = n.tipo==="devolucion";
+    return (<>
+      <div className="eyebrow">{esDev ? "Devolución" : "Descuento"}</div>
+      <h1 className="h1">{n.cli}</h1>
+      <div className="sub" style={{marginTop:4}}>N° {n.numero} · {fCorta(n.fecha)}</div>
+
+      <div className="sec-gap" style={{height:16}} />
+      <div className="hero">
+        <div className="lbl">Le bajas de su deuda</div>
+        <div className="big num">{money(n.total)}</div>
+        <div className="split">
+          <div><div className="k">Factura</div><div className="v num">{n.factura}</div></div>
+          <div><div className="k">Era</div><div className="v num">{money(f.total||0)}</div></div>
+          <div><div className="k">Queda en</div>
+            <div className="v num" style={{color:"var(--maiz)"}}>{money((f.total||0)-n.total)}</div></div>
+        </div>
+      </div>
+
+      <div className="sec-gap" style={{height:12}} />
+      <div className="card card-pad">
+        <div className="sub tiny">Motivo</div>
+        <div style={{fontWeight:600,fontSize:15,marginTop:2}}>{n.motivo}</div>
+        {n.detalle && <div className="sub tiny" style={{marginTop:6}}>{n.detalle}</div>}
+      </div>
+
+      {esDev && n.items && n.items.length>0 && (<>
+        <div className="sec-gap" style={{height:12}} />
+        <div className="card card-pad">
+          <div className="sub tiny" style={{marginBottom:8}}>Producto que volvió</div>
+          {n.items.map((it,i)=>(
+            <div className="row between" key={i} style={{padding:"5px 0"}}>
+              <span style={{fontSize:14}}>{it.prod}</span>
+              <span className="num" style={{fontSize:14,fontWeight:600}}>
+                {it.qq} qq · {money(it.qq*it.precio)}</span>
+            </div>
+          ))}
+          <div className="sub tiny" style={{marginTop:8,lineHeight:1.5}}>
+            Este producto vuelve a tu bodega: descuéntalo del despacho, no del stock vendido.</div>
+        </div>
+      </>)}
+
+      <div className="sec-gap" style={{height:12}} />
+      <div className="card card-pad" style={{borderColor:"var(--maiz)"}}>
+        <div className="row between" style={{padding:"4px 0"}}>
+          <span className="sub tiny">Comisión que se revierte</span>
+          <b className="num" style={{fontSize:15}}>− {money(n.comisionRevertida||0)}</b>
+        </div>
+        <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>
+          Si al vendedor ya se le pagó, se le descuenta del próximo corte. No se le pide devolver.</div>
+      </div>
+
+      <div className="sec-gap" style={{height:12}} />
+      <div className="card card-pad" style={{borderColor: n.confirmada ? "#2E7D52" : "var(--maiz)"}}>
+        <div style={{fontWeight:700,fontSize:14,color: n.confirmada ? "#2E7D52" : "var(--tinta)"}}>
+          {n.confirmada ? "✓ Confirmada en el SRI" : "Falta confirmarla en el SRI"}</div>
+        {n.confirmada && n.autorizacion
+          ? <div className="sub tiny num" style={{marginTop:6,wordBreak:"break-all"}}>
+              Autorización {n.autorizacion}</div>
+          : <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>
+              La deuda del cliente ya bajó. Confírmala cuando el SRI la autorice.</div>}
+        {n.au && <div className="sub tiny num" style={{marginTop:6}}>{n.au}</div>}
+      </div>
+
+      <div className="sec-gap" style={{height:16}} />
+      {!n.confirmada && (<>
+        <button className="btn btn-maiz" style={{width:"100%"}}
+          onClick={()=>confirmarSri(n)}>Ya está confirmada en el SRI</button>
+        <div className="sec-gap" style={{height:10}} />
+      </>)}
+      <button className="btn btn-ghost" style={{width:"100%"}} onClick={()=>setSel(null)}>Volver</button>
+      <Aviso/>
+    </>);
+  }
+
+  /* ── LISTA ── */
+  return (<>
+    <div className="eyebrow">Cuando hay que bajarle la deuda</div>
+    <h1 className="h1">Notas de crédito</h1>
+    <div className="sub" style={{marginTop:4}}>
+      Por devolución de producto o por descuento en el precio.</div>
+
+    <div className="sec-gap" style={{height:16}} />
+    <div className="hero">
+      <div className="lbl">Emitido este mes</div>
+      <div className="big num">{money(totalMes)}</div>
+      <div className="split">
+        <div><div className="k">Notas</div><div className="v num">{ncs.length}</div></div>
+        <div><div className="k">Sin confirmar</div>
+          <div className="v num" style={{color:sinConfirmar.length?"var(--maiz)":undefined}}>
+            {sinConfirmar.length}</div></div>
+      </div>
+    </div>
+
+    <div className="sec-gap" style={{height:14}} />
+    <button className="btn btn-maiz" style={{width:"100%"}} onClick={()=>{reset();setNueva(true);}}>
+      + Emitir una nota de crédito</button>
+
+    <div className="sec-gap" />
+    {ncs.length===0 && (
+      <div className="card card-pad" style={{textAlign:"center"}}>
+        <div className="sub">Aún no has emitido notas de crédito.</div>
+      </div>
+    )}
+    {ncs.map(n=>(
+      <button key={n.id} className="card card-pad" onClick={()=>setSel(n.id)}
+        style={{width:"100%",textAlign:"left",marginBottom:10,
+          borderColor:n.confirmada?"var(--linea)":"var(--maiz)"}}>
+        <div className="row between">
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontWeight:600,fontSize:15,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.cli}</div>
+            <div className="sub tiny">
+              {n.tipo==="devolucion" ? "↩ Devolución" : "% Descuento"} · factura {n.factura}</div>
+            <div className="sub tiny" style={{overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.motivo}</div>
+          </div>
+          <b className="num" style={{fontSize:16,flexShrink:0,marginLeft:10}}>{money(n.total)}</b>
+        </div>
+      </button>
+    ))}
+
+    {/* alta: cuatro pasos, uno por pantalla */}
+    {nueva && (
+      <div className="scrim" onClick={reset}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+
+          {paso===1 && (<>
+            <h3>¿Por qué le bajas la deuda?</h3>
+            <div className="sub tiny" style={{margin:"6px 0 16px"}}>
+              Se trata distinto según si vuelve producto o no.</div>
+            <button className="card card-pad" style={{width:"100%",textAlign:"left",marginBottom:10,
+              borderColor:tipo==="devolucion"?"var(--maiz)":"var(--linea)"}}
+              onClick={()=>{setTipo("devolucion");setMotivo("");}}>
+              <div style={{fontWeight:600,fontSize:15}}>↩ Devolvió producto</div>
+              <div className="sub tiny" style={{marginTop:3}}>
+                Volvió mercadería a tu bodega</div>
+            </button>
+            <button className="card card-pad" style={{width:"100%",textAlign:"left",marginBottom:10,
+              borderColor:tipo==="descuento"?"var(--maiz)":"var(--linea)"}}
+              onClick={()=>{setTipo("descuento");setMotivo("");}}>
+              <div style={{fontWeight:600,fontSize:15}}>% Descuento en el precio</div>
+              <div className="sub tiny" style={{marginTop:3}}>
+                No vuelve nada, solo baja el valor</div>
+            </button>
+            <button className="btn btn-maiz" style={{width:"100%",marginTop:8}}
+              disabled={!tipo} onClick={()=>setPaso(2)}>Continuar</button>
+            <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+              onClick={reset}>Cancelar</button>
+          </>)}
+
+          {paso===2 && (<>
+            <h3>¿De qué factura?</h3>
+            <div className="sub tiny" style={{margin:"6px 0 14px"}}>
+              La nota de crédito corrige una factura ya emitida.</div>
+            {FACTURAS_PROV.map(x=>(
+              <button key={x.num} className="card card-pad"
+                style={{width:"100%",textAlign:"left",marginBottom:8,
+                  borderColor:fac&&fac.num===x.num?"var(--maiz)":"var(--linea)"}}
+                onClick={()=>setFac(x)}>
+                <div className="row between">
+                  <div>
+                    <div style={{fontWeight:600,fontSize:14}}>{x.cli}</div>
+                    <div className="sub tiny">{x.num} · {fCorta(x.fecha)}</div>
+                  </div>
+                  <b className="num" style={{fontSize:15}}>{money(x.total)}</b>
+                </div>
+              </button>
+            ))}
+            <button className="btn btn-maiz" style={{width:"100%",marginTop:8}}
+              disabled={!fac} onClick={()=>{ setPaso(3); if(tipo==="devolucion" && items.length===0) agregarItem(); }}>
+              Continuar</button>
+            <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+              onClick={()=>setPaso(1)}>Atrás</button>
+          </>)}
+
+          {paso===3 && (<>
+            <h3>{tipo==="devolucion" ? "¿Qué te devolvió?" : "¿Cuánto le bajas?"}</h3>
+            <div className="sub tiny" style={{margin:"6px 0 14px"}}>
+              {fac.cli} · factura {fac.num} de {money(fac.total)}</div>
+
+            <div className="sub tiny" style={{marginBottom:8}}>Motivo</div>
+            {(tipo==="devolucion"?MOTIVOS_NC_DEV:MOTIVOS_NC_DESC).map(m=>(
+              <button key={m} className="btn btn-ghost"
+                style={{width:"100%",marginBottom:8,textAlign:"left",
+                  fontWeight:motivo===m?700:500,
+                  borderColor:motivo===m?"var(--maiz)":undefined}}
+                onClick={()=>setMotivo(m)}>{motivo===m?"✓ ":""}{m}</button>
+            ))}
+
+            {tipo==="devolucion" ? (<>
+              <div className="sub tiny" style={{margin:"14px 0 8px"}}>Producto que volvió</div>
+              {items.map((it,i)=>(
+                <div key={i} className="card card-pad" style={{marginBottom:8}}>
+                  <input value={it.prod} onChange={e=>cambiarItem(i,"prod",e.target.value)}
+                    placeholder="Producto · presentación"
+                    style={{width:"100%",padding:"10px 12px",borderRadius:9,
+                      border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit",marginBottom:8}}/>
+                  <div className="row" style={{gap:8}}>
+                    <input value={it.qq} inputMode="decimal"
+                      onChange={e=>cambiarItem(i,"qq",e.target.value)} placeholder="Quintales"
+                      style={{flex:1,padding:"10px 12px",borderRadius:9,
+                        border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit"}}/>
+                    <input value={it.precio} inputMode="decimal"
+                      onChange={e=>cambiarItem(i,"precio",e.target.value)} placeholder="Precio"
+                      style={{flex:1,padding:"10px 12px",borderRadius:9,
+                        border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit"}}/>
+                    {items.length>1 && (
+                      <button className="btn btn-ghost" style={{padding:"10px 14px"}}
+                        onClick={()=>quitarItem(i)}>×</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button className="btn btn-ghost" style={{width:"100%",marginBottom:14}}
+                onClick={agregarItem}>+ Otro producto</button>
+            </>) : (<>
+              <div className="sub tiny" style={{margin:"14px 0 6px"}}>Cuánto le bajas</div>
+              <input value={monto} inputMode="decimal"
+                onChange={e=>setMonto(e.target.value)} placeholder="0.00"
+                style={{width:"100%",padding:"12px 14px",borderRadius:10,
+                  border:"1px solid var(--linea)",fontSize:18,textAlign:"center",
+                  fontFamily:"inherit",marginBottom:14}}/>
+            </>)}
+
+            <div className="sub tiny" style={{marginBottom:6}}>Detalle (opcional)</div>
+            <input value={detalle} onChange={e=>setDetalle(e.target.value)}
+              placeholder="Explica brevemente qué pasó"
+              style={{width:"100%",padding:"12px 14px",borderRadius:10,
+                border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit",marginBottom:14}}/>
+
+            {totalNC>0 && (
+              <div className="card card-pad" style={{marginBottom:14,borderColor:"var(--maiz)"}}>
+                <div className="row between" style={{padding:"4px 0"}}>
+                  <span className="sub tiny">La factura era</span>
+                  <span className="num" style={{fontSize:14}}>{money(fac.total)}</span>
+                </div>
+                <div className="row between" style={{padding:"4px 0"}}>
+                  <span className="sub tiny">Le bajas</span>
+                  <span className="num" style={{fontSize:14,fontWeight:700}}>− {money(totalNC)}</span>
+                </div>
+                <div className="row between" style={{padding:"6px 0",
+                  borderTop:"1px solid var(--linea)",marginTop:4}}>
+                  <span style={{fontSize:14,fontWeight:700}}>Queda debiendo</span>
+                  <b className="num" style={{fontSize:17,color:"var(--maiz)"}}>{money(quedaFactura)}</b>
+                </div>
+                <div className="row between" style={{padding:"6px 0 0",
+                  borderTop:"1px solid var(--linea)",marginTop:4}}>
+                  <span className="sub tiny">Se revierte de comisión</span>
+                  <span className="num" style={{fontSize:14}}>− {money(comisionRev)}</span>
+                </div>
+              </div>
+            )}
+
+            <button className="btn btn-maiz" style={{width:"100%"}}
+              disabled={!motivo || totalNC<=0} onClick={()=>setPaso(4)}>Continuar</button>
+            <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+              onClick={()=>setPaso(2)}>Atrás</button>
+          </>)}
+
+          {paso===4 && (<>
+            <h3>Datos de la nota</h3>
+            <div className="sub tiny" style={{margin:"6px 0 14px"}}>
+              {fac.cli} · le bajas {money(totalNC)}</div>
+
+            <div className="sub tiny" style={{marginBottom:6}}>Número de la nota de crédito</div>
+            <input value={numero} onChange={e=>setNumero(e.target.value)}
+              placeholder="001-001-000000"
+              style={{width:"100%",padding:"12px 14px",borderRadius:10,
+                border:"1px solid var(--linea)",fontSize:15,fontFamily:"inherit",marginBottom:12}}/>
+
+            <div className="sub tiny" style={{marginBottom:6}}>Autorización del SRI (opcional)</div>
+            <input value={autoriz} onChange={e=>setAutoriz(e.target.value)}
+              placeholder="Si aún no la tienes, déjalo vacío"
+              style={{width:"100%",padding:"12px 14px",borderRadius:10,
+                border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit",marginBottom:10}}/>
+            <div className="sub tiny" style={{marginBottom:14,lineHeight:1.5}}>
+              Sin autorización queda como "falta confirmar", pero la deuda del cliente
+              baja igual desde ahora.</div>
+
+            <button className="btn btn-maiz" style={{width:"100%"}} onClick={guardar}>
+              Emitir nota de crédito</button>
+            <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+              onClick={()=>setPaso(3)}>Atrás</button>
+          </>)}
+
+        </div>
+      </div>
+    )}
+    <Aviso/>
+  </>);
+}
 
 function Retenciones({irTab}){
   const [rets,setRets]=useState(RETENCIONES_INI);
