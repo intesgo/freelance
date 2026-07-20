@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"111", fecha:"20 jul 2026", desc:"Impresora 48mm con tildes" };
+const VERSION = { n:"112", fecha:"20 jul 2026", desc:"Diagnostico de acentos en impresora" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1168,7 +1168,12 @@ function SelloLineas() {
    que es la que traen casi todas las térmicas chinas. Sin esto, "Cobré" y "Ñañay"
    salen como basura. */
 const ESC = "\x1B", GS = "\x1D";
-const ESC_INI    = ESC+"@" + ESC+"t"+"\x13" + ESC+"R"+"\x0C";  /* reiniciar + CP858 + español */
+const ESC_INI    = ESC+"@" + ESC+"R"+"\x0C";   /* reiniciar + juego español */
+/* La página de códigos se declara aparte porque cambia según el equipo. */
+function escPagina(clave){
+  const p = PAGINAS_IMP[clave] || PAGINAS_IMP.cp858;
+  return ESC+"t"+String.fromCharCode(p.n);
+}
 const ESC_CENTRO = ESC+"a"+"\x01";
 const ESC_IZQ    = ESC+"a"+"\x00";
 const ESC_GRANDE = GS+"!"+"\x11";
@@ -1179,23 +1184,49 @@ const ESC_PLANO  = ESC+"E"+"\x00";
 const ESC_FIN    = "\n\n\n\n";
 const LINEA_32   = "--------------------------------";
 
-/* Tabla CP858: del carácter que se ve al byte que entiende la impresora. */
-const CP858 = {
-  "á":0xA0,"é":0x82,"í":0xA1,"ó":0xA2,"ú":0xA3,"ü":0x81,"ñ":0xA4,
-  "Á":0xB5,"É":0x90,"Í":0xD6,"Ó":0xE0,"Ú":0xE9,"Ü":0x9A,"Ñ":0xA5,
-  "¿":0xA8,"¡":0xAD,"°":0xF8,"·":0xFA,"€":0xD5,"ª":0xA6,"º":0xA7,
+/* ══ PÁGINAS DE CÓDIGOS ══
+   Cada térmica trae su propio surtido. Las tres candidatas comparten los acentos
+   minúsculos en la misma posición (herencia de CP437), pero difieren en las
+   mayúsculas acentuadas y en símbolos como ¿ ¡ ·
+   CP437 es la que TODAS traen; CP850 y CP858 son latinas y agregan mayúsculas.
+   El número de página se declara con ESC t N. */
+const PAGINAS_IMP = {
+  cp437: { n:0,  nombre:"CP437" },
+  cp850: { n:2,  nombre:"CP850" },
+  cp858: { n:19, nombre:"CP858" },
 };
+/* Acentos minúsculos + ñ: IGUALES en las tres páginas. */
+const MAPA_BASE = {
+  "á":0xA0,"é":0x82,"í":0xA1,"ó":0xA2,"ú":0xA3,"ü":0x81,"ñ":0xA4,"Ñ":0xA5,
+  "¿":0xA8,"¡":0xAD,"ª":0xA6,"º":0xA7,"°":0xF8,
+};
+/* Mayúsculas acentuadas: solo existen en CP850/CP858. En CP437 no hay, se
+   degradan a la letra sin tilde (mejor "CANCELO" que "CANCEL?"). */
+const MAPA_LATINO = {
+  "Á":0xB5,"É":0x90,"Í":0xD6,"Ó":0xE0,"Ú":0xE9,"Ü":0x9A,"·":0xFA,
+};
+const MAPA_SIN_TILDE = {
+  "Á":0x41,"É":0x45,"Í":0x49,"Ó":0x4F,"Ú":0x55,"Ü":0x55,"·":0x2D,
+};
+/* Página activa. Se ajusta según lo que imprima bien el equipo de Richard. */
+let PAGINA_IMP = "cp858";
+function tablaImpresora(){
+  return Object.assign({}, MAPA_BASE,
+    PAGINA_IMP==="cp437" ? MAPA_SIN_TILDE : MAPA_LATINO);
+}
+const CP858 = MAPA_BASE;   /* compatibilidad */
 /* Convierte el texto a los bytes que la impresora imprime bien.
    Lo que no esté en la tabla y no sea ASCII se reemplaza por "?" en vez de
    mandar basura: es más honesto que imprimir símbolos raros. */
-function aBytesImpresora(texto){
+function aBytesImpresora(texto, tabla){
+  const T = tabla || tablaImpresora();
   const t = String(texto||"");
   const salida = new Uint8Array(t.length);
   for(let i=0;i<t.length;i++){
     const c = t[i], cod = t.charCodeAt(i);
-    if(cod < 128)          salida[i] = cod;
-    else if(CP858[c]!==undefined) salida[i] = CP858[c];
-    else                   salida[i] = 0x3F;   /* "?" */
+    if(cod < 128)        salida[i] = cod;
+    else if(T[c]!==undefined) salida[i] = T[c];
+    else                 salida[i] = 0x3F;   /* "?" */
   }
   return salida;
 }
@@ -9323,6 +9354,19 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
     setBuscandoImp(false);
   };
 
+  /* envía bytes YA codificados, en bloques pequeños */
+  const enviarBytes=async(bytes)=>{
+    if(!carImp){ toast("Conecta primero la impresora"); return false; }
+    try{
+      const TROZO=180;
+      for(let i=0;i<bytes.length;i+=TROZO){
+        await carImp.writeValue(bytes.slice(i,i+TROZO));
+        await new Promise(r=>setTimeout(r,30));
+      }
+      return true;
+    }catch(e){ toast("Se perdió la conexión con la impresora"); return false; }
+  };
+
   /* envía texto a la impresora en bloques pequeños (las térmicas no aceptan envíos grandes) */
   const enviarAImpresora=async(texto)=>{
     if(!carImp){ toast("Conecta primero la impresora"); return false; }
@@ -9339,8 +9383,32 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
     }catch(e){ toast("Se perdió la conexión con la impresora"); return false; }
   };
 
+  /* ── Diagnóstico de acentos ──
+     La PT-210 imprimió "?" con CP858: no todas las térmicas la traen. Este ticket
+     imprime la MISMA línea con las tres páginas candidatas para ver cuál sirve en
+     ESTE equipo. Se elige la que se lea bien y se deja fija. ── */
+  const probarAcentos=async()=>{
+    if(!carImp){ toast("Conecta primero la impresora"); return; }
+    const MUESTRA = "aeiou: á é í ó ú\nÑ ñ ü ¿ ¡";
+    let t = ESC_INI + ESC_CENTRO + ESC_NEGRITA + "PRUEBA DE ACENTOS\n" + ESC_PLANO
+          + "Elige la que se lea bien\n" + ESC_IZQ + LINEA_32 + "\n";
+    const ok = await enviarAImpresora(t);
+    if(!ok) return;
+    /* cada bloque va con SU página declarada justo antes */
+    for(const clave of ["cp437","cp850","cp858"]){
+      const p = PAGINAS_IMP[clave];
+      const tabla = Object.assign({}, MAPA_BASE,
+        clave==="cp437" ? MAPA_SIN_TILDE : MAPA_LATINO);
+      /* cabecera en ASCII puro: siempre se lee, sea cual sea la página */
+      await enviarAImpresora(ESC_NEGRITA + "[ " + p.nombre + " ]\n" + ESC_PLANO);
+      await enviarBytes(aBytesImpresora(MUESTRA + "\n" + LINEA_32 + "\n", tabla));
+    }
+    await enviarAImpresora(ESC_CENTRO + "Dime cual salio bien\n" + ESC_FIN);
+    toast("Ticket de acentos enviado · mira cuál se lee");
+  };
+
   const pruebaImpresion=async()=>{
-    const t = ESC_INI
+    const t = ESC_INI + escPagina(PAGINA_IMP)
       + ESC_CENTRO + ESC_GRANDE + "FREELANCE\n" + ESC_NORMAL
       + "Prueba de impresión\n"
       + LINEA_32 + "\n" + ESC_IZQ
@@ -9558,6 +9626,8 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
         ) : (<>
           <button className="ghost" style={{width:"100%",marginTop:10}} onClick={pruebaImpresion}>
             🖨️ Imprimir prueba</button>
+          <button className="ghost" style={{width:"100%",marginTop:8}} onClick={probarAcentos}>
+            🔤 Probar acentos</button>
           <button className="back" style={{width:"100%",marginTop:8,color:"var(--clay)",borderColor:"#E8C0B0"}}
             onClick={()=>{ try{ impre.gatt && impre.gatt.disconnect(); }catch(e){}
               setImpre(null); setCarImp(null); toast("Impresora desconectada"); }}>
