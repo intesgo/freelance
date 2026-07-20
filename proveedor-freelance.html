@@ -55,6 +55,47 @@ input,select,textarea{font-family:inherit;font-size:16px;}
 .top .navbtn:active{background:rgba(255,255,255,.2);}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
+.ham{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.1);color:#fff;
+  display:grid;place-items:center;font-size:19px;line-height:1;flex-shrink:0;font-weight:700;cursor:pointer;border:none;}
+.ham:active{background:rgba(255,255,255,.2);}
+.drawer-ov{position:fixed;inset:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
+  background:rgba(0,0,0,0);visibility:hidden;z-index:1400;transition:background .25s;}
+.drawer-ov.on{background:rgba(0,0,0,.45);visibility:visible;}
+.drawer{position:absolute;top:0;bottom:0;left:0;width:82%;max-width:330px;background:var(--papel);
+  transform:translateX(-100%);transition:transform .25s ease;display:flex;flex-direction:column;
+  box-shadow:2px 0 22px rgba(0,0,0,.22);}
+.drawer.on{transform:translateX(0);}
+.drawer-head{background:var(--tinta);padding:18px 16px 16px;display:flex;align-items:flex-start;
+  justify-content:space-between;gap:10px;}
+.drawer-x{background:rgba(255,255,255,.15);border:none;color:#fff;width:30px;height:30px;
+  border-radius:8px;font-size:17px;cursor:pointer;flex-shrink:0;}
+.drawer-body{flex:1;overflow-y:auto;padding:14px 13px 20px;}
+.drawer-it{width:100%;display:flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--linea);
+  border-radius:13px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-family:inherit;text-align:left;}
+.drawer-it:active{background:var(--papel);}
+.di-ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:16px;flex-shrink:0;}
+.di-t{font-size:13.5px;font-weight:700;color:var(--texto-1,#1A2620);}
+.di-s{font-size:11px;color:var(--texto-3);margin-top:1px;}
+.di-a{color:var(--texto-3);font-size:15px;flex-shrink:0;}
+.di-b{min-width:20px;height:20px;border-radius:10px;background:var(--maiz);color:var(--tinta);
+  font-size:11px;font-weight:700;display:grid;place-items:center;padding:0 5px;flex-shrink:0;}
+.drawer-salir{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;
+  background:#FBE9E4;color:#B5613C;border:1px solid #E8C0B0;border-radius:13px;padding:13px;
+  font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer;}
+/* Franja de pendientes del Inicio: 4 fichas fijas, sin scroll */
+.pend-fr{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.pend-f{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:10px 4px 9px;
+  display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;font-family:inherit;
+  min-width:0;text-align:center;}
+.pend-f:active{background:var(--papel);}
+.pend-f.hay{border-color:var(--maiz);}
+.pend-n{font-family:'Space Grotesk';font-weight:700;font-size:19px;line-height:1.1;color:var(--tinta);}
+.pend-f.hay .pend-n{color:#B07A0C;}
+.pend-l{font-size:9.5px;color:var(--texto-3);font-weight:600;line-height:1.15;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.alerta-banda{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#FCEBE7;
+  border:1px solid #E8B4A6;border-left:4px solid #B5432E;border-radius:13px;padding:11px 13px;
+  cursor:pointer;font-family:inherit;}
 .scroll{flex:1;overflow-y:auto;padding:18px 16px 110px;}
 .eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--texto-3);}
 .h1{font-family:'Space Grotesk';font-weight:700;font-size:26px;letter-spacing:-.02em;margin:2px 0 0;}
@@ -654,7 +695,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"10", fecha:"20 jul 2026", desc:"Sello de version en el encabezado" };
+const VERSION = { n:"11", fecha:"20 jul 2026", desc:"Inicio compacto + menu lateral" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -986,6 +1027,40 @@ function Decisiones({ctx}){
   );
 }
 
+/* ── Abrir el menu lateral deslizando desde el borde izquierdo ── */
+function useGestoDrawer(abrir, activo){
+  React.useEffect(()=>{
+    if(!activo) return;
+    const BORDE=20, MINIMO=60;
+    let x0=0, y0=0, valido=false;
+    const inicio=(e)=>{
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const caja=document.querySelector(".phone");
+      const izq=caja ? caja.getBoundingClientRect().left : 0;
+      valido = (t.clientX - izq) <= BORDE;
+      x0=t.clientX; y0=t.clientY;
+    };
+    const mover=(e)=>{
+      if(!valido) return;
+      const t=e.touches&&e.touches[0]; if(!t) return;
+      const dx=t.clientX-x0, dy=Math.abs(t.clientY-y0);
+      if(dx>MINIMO && dx>dy*2){ valido=false; abrir(); }
+      if(dy>28) valido=false;
+    };
+    const fin=()=>{ valido=false; };
+    document.addEventListener("touchstart", inicio, {passive:true});
+    document.addEventListener("touchmove", mover, {passive:true});
+    document.addEventListener("touchend", fin, {passive:true});
+    document.addEventListener("touchcancel", fin, {passive:true});
+    return ()=>{
+      document.removeEventListener("touchstart", inicio);
+      document.removeEventListener("touchmove", mover);
+      document.removeEventListener("touchend", fin);
+      document.removeEventListener("touchcancel", fin);
+    };
+  },[abrir,activo]);
+}
+
 function App({usuario, onSalir}){
   const [logueado,setLogueado]=useState(true); // el login lo maneja Root (PantallaLogin)
   const [tab,setTab]=useState("inicio");
@@ -1000,6 +1075,16 @@ function App({usuario, onSalir}){
   const pendientes = prop.filter(p=>p.estado==="pendiente").length;
   const preciosPend = cat.filter(p=>p.propuesto!=null).length;
   const credPend = cred.filter(c=>c.estado==="pendiente").length;
+  // menu lateral: modulos que no estan en el tablero ni en la barra
+  const [menuAbierto,setMenuAbierto]=useState(false);
+  const [confirmarSalir,setConfirmarSalir]=useState(false);
+  const abrirMenu=React.useCallback(()=>setMenuAbierto(true),[]);
+  useGestoDrawer(abrirMenu, !menuAbierto);
+  // contadores que alimentan el drawer y la franja de pendientes del Inicio
+  const cobrosPend  = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente").length;
+  const notasPend   = NC_INI.filter(n=>!n.confirmada).length;
+  const retenPend   = RETENCIONES_INI.filter(r=>!r.confirmada).length;
+  const cuentasAct  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>="2026-07-20")).length;
   // ═══ NOTIFICACIONES · tareas del rol Proveedor ═══
   const [verNotifs,setVerNotifs]=useState(false);
   const [tabNotif,setTabNotif]=useState("tareas");   // tareas | ayuda
@@ -1117,18 +1202,15 @@ const TAREAS_NOTIF=[
   return (
     <div className="phone">
       <div className="top">
+        <button className="ham" onClick={()=>setMenuAbierto(true)} aria-label="Menú">☰</button>
         {tab==="inicio"
-          ? <>
-              <div style={{width:40,height:40,borderRadius:12,background:"rgba(255,255,255,.1)",display:"grid",placeItems:"center",fontFamily:"Space Grotesk",fontWeight:700,color:"var(--maiz)"}}>DV</div>
-              <div>
-                <div className="rol">Proveedor · {PROVEEDOR.linea}</div>
-                <div className="nombre">{PROVEEDOR.nombre}</div>
-              </div>
-            </>
+          ? <div style={{minWidth:0}}>
+              <div className="rol">Proveedor · {PROVEEDOR.linea}</div>
+              <div className="nombre" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PROVEEDOR.nombre}</div>
+            </div>
           : <>
               <button className="navbtn" onClick={atras} aria-label="Atrás">‹</button>
-              <button className="navbtn" onClick={irInicio} aria-label="Inicio" title="Ir a Inicio">⌂</button>
-              <div className="nombre" style={{marginLeft:2}}>{TITULOS[tab]}</div>
+              <div className="nombre" style={{marginLeft:2,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITULOS[tab]}</div>
             </>}
         <button className="avatar" onClick={()=>irTab("cuenta")} title="Acuerdos y cuenta" aria-label="Acuerdos">
           {cola>0||!online ? <span className="num" style={{fontSize:13}}>{cola}</span> : "RM"}
@@ -1207,12 +1289,74 @@ const TAREAS_NOTIF=[
         : <Cuenta ctx={ctx} setLogueado={setLogueado} onSalir={onSalir} setOnline={setOnline} online={online} cola={cola} />}
       </div>
 
+      {/* ── Menú lateral: módulos que no están en el tablero ni en la barra ── */}
+      <div className={"drawer-ov"+(menuAbierto?" on":"")} onClick={()=>setMenuAbierto(false)}>
+        <div className={"drawer"+(menuAbierto?" on":"")} onClick={e=>e.stopPropagation()}
+          onTouchStart={e=>{ const t=e.touches[0]; e.currentTarget.dataset.x0=t.clientX; e.currentTarget.dataset.y0=t.clientY; }}
+          onTouchMove={e=>{
+            const t=e.touches[0], d=e.currentTarget.dataset;
+            if(d.x0===undefined) return;
+            const dx=t.clientX-Number(d.x0), dy=Math.abs(t.clientY-Number(d.y0));
+            if(dx < -60 && Math.abs(dx) > dy*2){ d.x0=undefined; setMenuAbierto(false); }
+          }}>
+          <div className="drawer-head">
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:11.5,color:"var(--maiz)",fontWeight:600}}>Proveedor · {PROVEEDOR.linea}</div>
+              <div style={{fontSize:16,color:"#fff",fontWeight:700,marginTop:1,
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PROVEEDOR.nombre}</div>
+            </div>
+            <button className="drawer-x" onClick={()=>setMenuAbierto(false)}>×</button>
+          </div>
+          <div className="drawer-body">
+            {[
+              ["prop","✎","#F3ECF9","Propuestas","Esperan a tu freelance",pendientes],
+              ["conciliacion","✓","#E5F0EA","Conciliación","Aprobar libera la comisión",cobrosPend],
+              ["carga","📄","#E8F0F7","Cargar factura","Sube el XML del SRI",0],
+              ["notas","↩","#F7EFE6","Notas de crédito","Devoluciones y descuentos",notasPend],
+              ["retenciones","🧾","#EDEAE0","Retenciones","Bajan la deuda del cliente",retenPend],
+              ["bancos","🏦","#E9EEE9","Mis cuentas","Dónde te pueden depositar",cuentasAct===0?"!":0],
+              ["catalogo","▤","#EFEAF7","Catálogo","Productos de tu línea",0],
+              ["cuenta","📒","#EEF1F5","Acuerdos","Tu cuenta y ajustes",0],
+            ].map(([k,ic,bg,t,sub,b])=>(
+              <button key={k} className="drawer-it" onClick={()=>{setMenuAbierto(false);irTab(k);}}>
+                <span className="di-ic" style={{background:bg}}>{ic}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div className="di-t">{t}</div>
+                  <div className="di-s" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>
+                </div>
+                {b ? <span className="di-b" style={b==="!"?{background:"#B5432E",color:"#fff"}:null}>{b}</span> : null}
+                <span className="di-a">›</span>
+              </button>
+            ))}
+
+            <button className="drawer-salir" onClick={()=>{setMenuAbierto(false);setConfirmarSalir(true);}}>
+              Cerrar sesión
+            </button>
+            <div style={{textAlign:"center",fontSize:10.5,color:"var(--texto-3)",padding:"12px 0 2px",opacity:.8}}>
+              Versión {VERSION.fecha} b{VERSION.n}</div>
+          </div>
+        </div>
+      </div>
+
+      {confirmarSalir && (
+        <div className="scrim" onClick={()=>setConfirmarSalir(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <div className="grip" />
+            <div className="h2" style={{marginBottom:6}}>¿Cerrar sesión?</div>
+            <div className="sub" style={{marginBottom:16}}>Saldrás de la app y volverás a la pantalla de ingreso.</div>
+            <button className="btn btn-maiz"
+              onClick={()=>{setConfirmarSalir(false); if(onSalir){onSalir();} else {location.reload();} }}>Sí, cerrar sesión</button>
+            <div style={{height:10}} />
+            <button className="btn btn-ghost" onClick={()=>setConfirmarSalir(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
       <nav className="nav">
         <NavBtn on={tab==="inicio"}   ico="◧" lab="Inicio"     onClick={()=>irInicio()} />
         <NavBtn on={tab==="decidir"}  ico="⚡" lab="Decidir"    badge={decidirPend} onClick={()=>irTab("decidir")} />
         <NavBtn on={tab==="creditos"} ico="✓" lab="Créditos"   badge={credPend} onClick={()=>irTab("creditos")} />
         <NavBtn on={tab==="precios"}  ico="$" lab="Precios"    badge={preciosPend} onClick={()=>irTab("precios")} />
-        <NavBtn on={tab==="prop"}     ico="✎" lab="Propuestas" badge={pendientes} onClick={()=>irTab("prop")} />
         <NavBtn on={tab==="reportes"} ico="◔" lab="Reportes"   onClick={()=>irTab("reportes")} />
       </nav>
     </div>
@@ -1261,16 +1405,35 @@ function Inicio({ctx,irTab,credPend}){
   const {pendientes}=ctx;
   const fl=FREELANCE;
   const recaudo=pct(fl.pagado,fl.pedidoMes);
+  const HOY="2026-07-20";
+  const cobrosPend = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente").length;
+  const notasPend  = NC_INI.filter(n=>!n.confirmada).length;
+  const retenPend  = RETENCIONES_INI.filter(r=>!r.confirmada).length;
+  const sinCuenta  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>=HOY)).length===0;
+  const usoCupo    = pct(fl.porCobrar,fl.cupo);
+  /* Franja de pendientes: 4 fichas fijas. Reemplaza 4 tarjetas grandes. */
+  const FICHAS=[
+    ["conciliacion", cobrosPend, "Cobros"],
+    ["creditos",     credPend,   "Créditos"],
+    ["notas",        notasPend,  "Notas"],
+    ["retenciones",  retenPend,  "Retenc."],
+  ];
   return (
     <>
-      <div style={{textAlign:"center",fontSize:10.5,color:"var(--texto-3)",
-        margin:"0 0 10px",letterSpacing:".02em"}}>
-        v{VERSION.n} · {VERSION.fecha}</div>
-      <div className="eyebrow">Tu freelance</div>
-      <h1 className="h1">{fl.nombre}</h1>
-      <div className="sub" style={{marginTop:4}}>{fl.proyecto} · {fl.zona}</div>
+      {/* Alerta roja: solo aparece si de verdad falta algo */}
+      {sinCuenta && (
+        <button className="alerta-banda" style={{marginBottom:12}} onClick={()=>irTab("bancos")}>
+          <span style={{fontSize:18,flexShrink:0}}>⚠</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:13.5,color:"#8C2E1E"}}>Sin cuentas autorizadas</div>
+            <div className="tiny" style={{color:"#A0574A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              El equipo no sabe dónde depositarte</div>
+          </div>
+          <span style={{color:"#B5432E",fontSize:20,flexShrink:0}}>›</span>
+        </button>
+      )}
 
-      <div className="sec-gap" style={{height:16}} />
+      {/* Hero: la plata del mes + el cupo, todo en un solo bloque */}
       <div className="hero">
         <div className="lbl">Pedidos de tu línea · este mes</div>
         <div className="big num">{fk(fl.pedidoMes)}</div>
@@ -1280,192 +1443,52 @@ function Inicio({ctx,irTab,credPend}){
           <div><div className="k">Recaudo</div><div className="v num">{recaudo}%</div></div>
         </div>
         <div className="hr-line" />
-        <div className="row" style={{marginTop:14,gap:18}}>
+        <div className="row between" style={{marginBottom:7}}>
+          <span className="tiny" style={{color:"rgba(255,255,255,.65)"}}>
+            Uso del cupo{fl.vencido>0 ? ` · ${fk(fl.vencido)} vencido` : ""}</span>
+          <span className="tiny num" style={{fontWeight:600,color:"#fff"}}>{fk(fl.porCobrar)} / {fk(fl.cupo)}</span>
+        </div>
+        <div className="bar" style={{background:"rgba(255,255,255,.16)"}}>
+          <i style={{width:usoCupo+"%",background:fl.vencido>0?"var(--alerta)":"#9DE3C2"}}/></div>
+        <div className="row" style={{marginTop:13,gap:18}}>
           <Mini k="Equipo del freelance" v={fl.equipo.subcomisionistas+" subcom."} />
           <Mini k="Clientes (agregado)" v={fl.equipo.clientes} />
         </div>
       </div>
 
-      {/* Cobros por conciliar — lo primero, porque aprobar libera la comisión */}
-      {(()=>{
-        const porRevisar = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente");
-        const monto = porRevisar.reduce((a,c)=>a+c.monto,0);
-        return (
-          <>
-            <div className="sec-gap" />
-            <button className="card card-pad row between" style={{width:"100%",textAlign:"left",
-              borderColor:porRevisar.length?"var(--maiz)":"var(--linea)"}}
-              onClick={()=>irTab("conciliacion")}>
-              <div className="row" style={{gap:13}}>
-                <div className="ava ava-m">{porRevisar.length||"✓"}</div>
-                <div>
-                  <div style={{fontWeight:600,fontSize:15}}>
-                    {porRevisar.length ? `${porRevisar.length} cobros por revisar` : "Cobros al día"}</div>
-                  <div className="sub tiny">
-                    {porRevisar.length ? `${money(monto)} · aprobar libera la comisión` : "No hay nada pendiente de conciliar"}</div>
-                </div>
-              </div>
-              <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-            </button>
-          </>
-        );
-      })()}
+      {/* Franja de pendientes: de un vistazo, qué te espera */}
+      <div className="sec-gap" style={{height:14}} />
+      <div className="pend-fr">
+        {FICHAS.map(([destino,n,etq])=>(
+          <button key={destino} className={"pend-f"+(n>0?" hay":"")} onClick={()=>irTab(destino)}>
+            <span className="pend-n">{n>0?n:"✓"}</span>
+            <span className="pend-l">{etq}</span>
+          </button>
+        ))}
+      </div>
 
-      {/* Cargar factura: el XML del SRI entra sin digitar */}
+      {/* Lo que se hace todos los días: cargar la factura */}
       <div className="sec-gap" style={{height:12}} />
       <button className="card card-pad row between" style={{width:"100%",textAlign:"left"}}
         onClick={()=>irTab("carga")}>
-        <div className="row" style={{gap:13}}>
-          <div className="ava ava-m">📄</div>
-          <div>
+        <div className="row" style={{gap:13,minWidth:0}}>
+          <div className="ava ava-m" style={{flexShrink:0}}>📄</div>
+          <div style={{minWidth:0}}>
             <div style={{fontWeight:600,fontSize:15}}>Cargar una factura</div>
-            <div className="sub tiny">Sube el XML del SRI · sin digitar nada</div>
+            <div className="sub tiny" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              Sube el XML del SRI · sin digitar nada</div>
           </div>
         </div>
-        <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
+        <span style={{color:"var(--texto-3)",fontSize:22,flexShrink:0}}>›</span>
       </button>
 
-      {/* Notas de crédito: devoluciones y descuentos que corrigen la factura */}
-      {(()=>{
-        const sinConf = NC_INI.filter(n=>!n.confirmada).length;
-        const total = NC_INI.reduce((a,n)=>a+n.total,0);
-        return (
-          <>
-            <div className="sec-gap" style={{height:12}} />
-            <button className="card card-pad row between" style={{width:"100%",textAlign:"left",
-              borderColor:sinConf?"var(--maiz)":"var(--linea)"}}
-              onClick={()=>irTab("notas")}>
-              <div className="row" style={{gap:13}}>
-                <div className="ava ava-m">{sinConf||"✓"}</div>
-                <div>
-                  <div style={{fontWeight:600,fontSize:15}}>
-                    {sinConf ? `${sinConf} nota${sinConf!==1?"s":""} sin confirmar`
-                             : "Notas de crédito al día"}</div>
-                  <div className="sub tiny">{money(total)} emitido este mes</div>
-                </div>
-              </div>
-              <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-            </button>
-          </>
-        );
-      })()}
-
-      {/* Retenciones: bajan la cartera del cliente sin ser un cobro */}
-      {(()=>{
-        const sinConf = RETENCIONES_INI.filter(r=>!r.confirmada).length;
-        const total = RETENCIONES_INI.reduce((a,r)=>a+r.total,0);
-        return (
-          <>
-            <div className="sec-gap" style={{height:12}} />
-            <button className="card card-pad row between" style={{width:"100%",textAlign:"left",
-              borderColor:sinConf?"var(--maiz)":"var(--linea)"}}
-              onClick={()=>irTab("retenciones")}>
-              <div className="row" style={{gap:13}}>
-                <div className="ava ava-m">{sinConf||"✓"}</div>
-                <div>
-                  <div style={{fontWeight:600,fontSize:15}}>
-                    {sinConf ? `${sinConf} retención${sinConf!==1?"es":""} sin confirmar`
-                             : "Retenciones al día"}</div>
-                  <div className="sub tiny">{money(total)} retenido este mes</div>
-                </div>
-              </div>
-              <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-            </button>
-          </>
-        );
-      })()}
-
-      {/* Cuentas donde te pueden depositar: si no hay ninguna activa, es urgente */}
-      {(()=>{
-        const HOY="2026-07-20";
-        const activas=CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>=HOY));
-        const sinCuenta=activas.length===0;
-        return (
-          <>
-            <div className="sec-gap" style={{height:12}} />
-            <button className="card card-pad row between" style={{width:"100%",textAlign:"left",
-              borderColor:sinCuenta?"#B5432E":"var(--linea)"}}
-              onClick={()=>irTab("bancos")}>
-              <div className="row" style={{gap:13}}>
-                <div className="ava ava-m">{sinCuenta?"!":activas.length}</div>
-                <div>
-                  <div style={{fontWeight:600,fontSize:15}}>
-                    {sinCuenta ? "Sin cuentas autorizadas"
-                      : `${activas.length} cuenta${activas.length!==1?"s":""} para depositarte`}</div>
-                  <div className="sub tiny">
-                    {sinCuenta ? "El equipo no sabe dónde depositarte"
-                      : activas.map(c=>c.banco).join(" · ")}</div>
-                </div>
-              </div>
-              <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-            </button>
-          </>
-        );
-      })()}
-
-      {/* Créditos por aprobar — aquí decides tú */}
-      <div className="sec-gap" />
-      <button className="card card-pad row between" style={{width:"100%",textAlign:"left",borderColor:credPend?"var(--maiz)":"var(--linea)"}} onClick={()=>irTab("creditos")}>
-        <div className="row" style={{gap:13}}>
-          <div className="ava ava-m">{credPend||"✓"}</div>
-          <div>
-            <div style={{fontWeight:600,fontSize:15}}>{credPend? `${credPend} créditos por aprobar` : "Sin créditos pendientes"}</div>
-            <div className="sub tiny">{credPend? "Clientes con documentos y cupo sugerido" : "Solicitudes de clientes al día"}</div>
-          </div>
-        </div>
-        <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-      </button>
-
-      {/* Propuestas en espera del freelance */}
-      <div className="sec-gap" style={{height:12}} />
-      <button className="card card-pad row between" style={{width:"100%",textAlign:"left",borderColor:pendientes?"var(--espera)":"var(--linea)"}} onClick={()=>irTab("prop")}>
-        <div className="row" style={{gap:13}}>
-          <div className="ava ava-m" style={{background:pendientes?"var(--espera-suave)":"var(--ok-suave)",color:pendientes?"#8A5A12":"#1E5B40"}}>{pendientes||"✓"}</div>
-          <div>
-            <div style={{fontWeight:600,fontSize:15}}>{pendientes? `${pendientes} propuestas en espera` : "Sin propuestas pendientes"}</div>
-            <div className="sub tiny">{pendientes? "Esperan aprobación de tu freelance" : "Todo resuelto con tu freelance"}</div>
-          </div>
-        </div>
-        <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-      </button>
-
-      <div className="sec-gap" />
-      <div className="h2" style={{marginBottom:10}}>Tu cuenta con el freelance</div>
-      <div className="grid2">
-        <div className="tile">
-          <div className="k">Por cobrar</div>
-          <div className="v num">{fk(fl.porCobrar)}</div>
-          <div className="d down">{fk(fl.vencido)} vencido</div>
-        </div>
-        <div className="tile">
-          <div className="k">Cupo de crédito</div>
-          <div className="v num">{fk(fl.cupo)}</div>
-          <div className="d muted">{pct(fl.porCobrar,fl.cupo)}% usado</div>
-        </div>
-      </div>
-      <div className="card card-pad" style={{marginTop:12}}>
-        <div className="row between" style={{marginBottom:8}}>
-          <span className="tiny muted">Uso del cupo</span>
-          <span className="tiny num" style={{fontWeight:600}}>{fk(fl.porCobrar)} / {fk(fl.cupo)}</span>
-        </div>
-        <div className="bar"><i style={{width:pct(fl.porCobrar,fl.cupo)+"%",background:fl.vencido>0?"var(--alerta)":"var(--ok)"}}/></div>
-      </div>
-
-      {/* Acceso a Catálogo (salió de la barra inferior) */}
-      <div className="sec-gap" />
-      <button className="card card-pad row between" style={{width:"100%",textAlign:"left"}} onClick={()=>irTab("catalogo")}>
-        <div className="row" style={{gap:13}}>
-          <div className="ava ava-m">▤</div>
-          <div>
-            <div style={{fontWeight:600,fontSize:15}}>Catálogo de tu línea</div>
-            <div className="sub tiny">Productos ofrecidos, aceptados y por ofrecer</div>
-          </div>
-        </div>
-        <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
-      </button>
+      {/* El resto de módulos vive en el menú lateral (☰) */}
+      <div className="tiny" style={{textAlign:"center",color:"var(--texto-3)",marginTop:14,opacity:.75}}>
+        Desliza desde el borde o toca ☰ para el resto de módulos</div>
     </>
   );
 }
+
 function Mini({k,v}){return <div><div style={{fontFamily:"Space Grotesk",fontWeight:600,fontSize:16}}>{v}</div><div className="tiny" style={{color:"rgba(255,255,255,.6)"}}>{k}</div></div>;}
 
 /* ====== PRECIOS · el proveedor ajusta, el freelance aprueba ====== */
