@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"95", fecha:"19 jul 2026", desc:"Pantalla final solo con el recibo y Finalizar"};
+const VERSION={n:"96", fecha:"19 jul 2026", desc:"Comprobante y estado en un solo compartir"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1852,6 +1852,37 @@ async function compartirImgEstado(d, toast){
 }
 
 /* Comparte el comprobante como imagen; si el equipo no lo permite, la descarga */
+/* Comparte comprobante y estado de cuenta EN UN SOLO GESTO.
+   navigator.share exige un toque directo del usuario: si se llama dos veces
+   con espera en medio, el navegador bloquea el segundo. Por eso van juntas. */
+async function compartirCobro(dComp, dEstado, toast){
+  const arch=[];
+  try{
+    const l1=imgComprobante(dComp);
+    const b1=await new Promise(r=>l1.toBlob(r,"image/png",0.95));
+    if(b1) arch.push(new File([b1], `Cobro_${limpiaNom(dComp.cli)}.png`, {type:"image/png"}));
+    if(dEstado){
+      const l2=imgEstadoCuenta(dEstado);
+      const b2=await new Promise(r=>l2.toBlob(r,"image/png",0.95));
+      if(b2) arch.push(new File([b2], `Estado_${limpiaNom(dEstado.cli)}.png`, {type:"image/png"}));
+    }
+    if(!arch.length){ toast && toast("No se pudo generar la imagen."); return false; }
+    if(navigator.canShare && navigator.canShare({files:arch})){
+      await navigator.share({files:arch, title:"Comprobante de cobro"});
+      return true;
+    }
+    /* sin compartir nativo: se descargan y se adjuntan a mano */
+    arch.forEach(f=>{
+      const url=URL.createObjectURL(f);
+      const a=document.createElement("a"); a.href=url; a.download=f.name; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),4000);
+    });
+    toast && toast(`${arch.length} imagen(es) descargada(s). Adjúntalas con el clip 📎.`);
+    return true;
+  }catch(e){ return false; }
+  function limpiaNom(n){ return String(n||"cliente").replace(/[^\wáéíóúñÁÉÍÓÚÑ]+/g,"_"); }
+}
+
 async function compartirImgComprobante(d, toast){
   try{
     const lienzo = imgComprobante(d);
@@ -4717,24 +4748,22 @@ function Cobros({toast}){
       ]
     };
     setEnviado(datos);
-    /* 6 · preparar el envío por WhatsApp: imagen A6, una sola copia */
-    setTimeout(async ()=>{
-      await compartirImgComprobante(datos, toast);
-      /* 7 · estado de cuenta actualizado, solo si al cliente le queda saldo */
-      if(saldoActual>0.004){
-        const rest={}; facturasRecibo.forEach(f=>{ rest[f.factura]=(f.saldoRest!=null?f.saldoRest:0); });
-        const pend=suyas
-          .map(f=>({factura:f.factura, vence:f.vence,
-                    saldo: rest[f.factura]!=null ? rest[f.factura] : f.valor}))
-          .filter(f=>f.saldo>0.004);
-        setTimeout(()=>compartirImgEstado({
-          cli, nRecibo, formato:(typeof FORMATO_EC!=="undefined" && FORMATO_EC[cli]) || "resumen",
-          facturas: pend,
-          movimientos: (typeof MOVIMIENTOS_CLIENTE!=="undefined" && MOVIMIENTOS_CLIENTE[cli]) || [],
-          saldoAnterior, pago: monto,
-        }, toast), 600);
-      }
-    }, 500);
+    /* 6 y 7 · comprobante + estado de cuenta en un SOLO gesto de compartir
+       (si queda saldo; si el cliente quedó en cero va solo el comprobante) */
+    let dEstado=null;
+    if(saldoActual>0.004){
+      const rest={}; facturasRecibo.forEach(f=>{ rest[f.factura]=(f.saldoRest!=null?f.saldoRest:0); });
+      const pend=suyas
+        .map(f=>({factura:f.factura, vence:f.vence,
+                  saldo: rest[f.factura]!=null ? rest[f.factura] : f.valor}))
+        .filter(f=>f.saldo>0.004);
+      dEstado={ cli, nRecibo,
+        formato:(typeof FORMATO_EC!=="undefined" && FORMATO_EC[cli]) || "resumen",
+        facturas: pend,
+        movimientos:(typeof MOVIMIENTOS_CLIENTE!=="undefined" && MOVIMIENTOS_CLIENTE[cli]) || [],
+        saldoAnterior, pago: monto };
+    }
+    compartirCobro(datos, dEstado, toast);
     toast(`Cobro registrado ${nRecibo} · listo para enviar`);
     setResumen(false);
   };
