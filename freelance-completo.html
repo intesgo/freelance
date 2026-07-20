@@ -4127,7 +4127,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"262", fecha:"19 jul 2026", desc:"Comprobante azul y PDF en blanco y negro"};
+const VERSION={n:"263", fecha:"19 jul 2026", desc:"Al validar solo se comparte la imagen"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5980,7 +5980,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
   const paso3Ok = restanteLineas===0 && lineas.length>0;
 
   /* Recibo impreso: PDF de 2 páginas (ORIGINAL · Cliente / COPIA · Vendedor) con firmas */
-  const pdfRecibo=(datos, virtual=false)=>{
+  const pdfRecibo=(datos, virtual=false, soloDescargar=false)=>{
     if(!window.jspdf){ toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
     const pdfTxt=t=>String(t).replace(/―/g,"-").replace(/…/g,"...").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
     const doc=new window.jspdf.jsPDF();
@@ -6036,6 +6036,11 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
       doc.addPage();
       pagina("COPIA · VENDEDOR");
     }
+    /* para imprimir solo se descarga: por WhatsApp va la IMAGEN, nunca el PDF */
+    if(soloDescargar){
+      doc.save(`Recibo ${datos.nRecibo}.pdf`);
+      return;
+    }
     const archivo=new File([doc.output("blob")],`Recibo ${datos.nRecibo}${virtual?" (copia virtual)":""}.pdf`,{type:"application/pdf"});
     if(navigator.canShare && navigator.canShare({files:[archivo]})){
       navigator.share({files:[archivo], title:`Recibo ${datos.nRecibo}`}).catch(()=>{});
@@ -6083,8 +6088,8 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     COBROS_DIA.push({nRecibo, cli, monto, hora, formas, lugar, anulado:false,
       facturas:datos.facturas, lineas, prov:prov.nombre});
     if(formas["Efectivo"]>0) EFECTIVO_PENDIENTE.push({nRecibo, cli, monto:formas["Efectivo"], limite:`hoy ${hora} + 24h`});
-    /* 5 · recibo impreso: PDF con original (cliente) + copia (vendedor) */
-    pdfRecibo(datos);
+    /* 5 · recibo impreso: PDF con original (cliente) + copia (vendedor), solo se descarga */
+    pdfRecibo(datos, false, true);
     setEnviado(datos);
     setResumen(false);
     /* 6 · envío por WhatsApp: imagen A6 de UNA sola copia, al chat del cliente */
