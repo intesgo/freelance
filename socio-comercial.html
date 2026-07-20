@@ -1275,13 +1275,14 @@ const PROVEEDORES = [
    Nada se borra: los ocultos siguen aquí, listos para encenderse.
    En Fase 4 esta lista viene de Supabase (tabla usuarios). */
 const MODULOS_PERMITIDOS = [
-  "inicio", "clientes", "pedido", "pedidos", "cobros", "cartera", "boveda", "cuenta",
+  "inicio", "clientes", "pedido", "pedidos", "cobros", "cartera", "cuenta",
   /* ocultos por ahora — los activa el sistema web:
      "portafolio", "stock", "precios", "productos", "agenda", "novedades", "comisiones" */
+  /* pendiente de construir: "boveda" (Mis cheques) */
 ];
 const puedeVer = (m) => MODULOS_PERMITIDOS.includes(m);
 
-const VERSION = { n:"1", fecha:"20 jul 2026", desc:"Modulos por permiso y letra mas grande" };
+const VERSION = { n:"2", fecha:"20 jul 2026", desc:"Pedidos en 3 estados y lenguaje del negocio" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -1789,7 +1790,7 @@ function Inicio({go}){
         <button className="proy" onClick={()=>go("cuenta")}>
           <span className="proy-ic">📈</span>
           <div style={{flex:1,textAlign:"left"}}>
-            <div className="proy-t">Proyección de comisión del mes</div>
+            <div className="proy-t">Cuánto gano este mes</div>
             <div className="proy-s">Si mantienes tu ritmo actual</div>
           </div>
           <div className="proy-v num">{money(230.00)}</div>
@@ -3461,11 +3462,18 @@ function Pedidos({irInicio}){
     return <DetallePedido p={p} volver={()=>setSel(null)}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado","Entregado","Cobrado"];
+  /* El socio no necesita los 7 estados internos del sistema. Necesita saber tres cosas:
+     si todavía se está preparando, si ya va en camino, o si ya llegó. */
+  const ESTADOS=["Todos","En preparación","En camino","Entregado"];
+  const enPalabras=(est)=>{
+    if(["Entregado","Cobrado"].includes(est)) return {k:"Entregado", ic:"✓", col:"#2E7D52", bg:"#E4F1E9"};
+    if(["Facturado","Despachado"].includes(est)) return {k:"En camino", ic:"🚚", col:"#3A6EA5", bg:"#EAF0F6"};
+    return {k:"En preparación", ic:"⏳", col:"#C77F00", bg:"#FBF0D8"};
+  };
   const lista=PEDIDOS_INI.filter(p=>{
     const t=norm(q);
     const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
-    const estOk = estado==="Todos" || p.estado===estado;
+    const estOk = estado==="Todos" || enPalabras(p.estado).k===estado;
     const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
     return txtOk && estOk && fechaOk;
   });
@@ -3513,8 +3521,8 @@ function Pedidos({irInicio}){
             <div className="meta">tu comisión</div></div>
         </div>
         <div className="row" style={{marginTop:10,alignItems:"center"}}>
-          <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
-            <span className="d"></span>{p.sync==="pend"?"Pendiente de enviar":"Sincronizado"}</span>
+          {p.sync==="pend" && <span className="chip c-sync">
+            <span className="d"></span>Falta enviar</span>}
           <span className="meta" style={{fontWeight:600,color:"var(--field)"}}>{p.estado} ›</span>
         </div>
         <Pipe n={p.etapa}/>
@@ -3571,8 +3579,8 @@ function DetallePedido({p, volver}){
           <div className="meta">tu comisión</div></div>
       </div>
       <div className="row" style={{marginTop:12,alignItems:"center"}}>
-        <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
-          <span className="d"></span>{p.sync==="pend"?"Pendiente de enviar":"Sincronizado"}</span>
+        {p.sync==="pend" && <span className="chip c-sync">
+            <span className="d"></span>Falta enviar</span>}
         <span className="meta" style={{fontWeight:600}}>{cumplidos} de {p.linea.length} pasos</span>
       </div>
     </div>
@@ -3713,7 +3721,7 @@ function Cartera({toast}){
   const nVenc=lista.filter(i=>i.v==="bad").length;
   const montoVenc=lista.filter(i=>i.v==="bad").reduce((s,i)=>s+i.saldo,0);
   return (<>
-    <div className="h1">Cartera</div>
+    <div className="h1">Lo que me deben</div>
     <div className="sub">Lo que tus clientes deben en las ventas que registraste.</div>
     <div className="hero">
       <div className="lbl">{q?`Por cobrar · ${q}`:"Total por cobrar"}</div>
