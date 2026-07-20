@@ -48,6 +48,35 @@
     position:relative;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.4)}
   @media(min-width:480px){.shell{height:100dvh}}
 
+  /* ===== Guías de remisión ===== */
+  .guia-btn{width:100%;display:flex;align-items:center;gap:11px;background:var(--card);
+    border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-bottom:14px;
+    font-family:inherit;box-shadow:var(--shadow)}
+  .guia-btn:active{background:var(--paper)}
+  .guia-alerta{display:flex;align-items:flex-start;gap:10px;background:#FCEBE7;
+    border:1px solid #E8B4A6;border-left:4px solid var(--bad,#B5432E);border-radius:12px;
+    padding:11px 13px;margin-bottom:10px;color:#8C2E1E}
+  .guia-intro{font-size:12px;color:var(--muted);line-height:1.5;margin:0 2px 14px}
+  .guia-card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:13px 14px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .guia-card.mala{border-color:#E8B4A6;border-left:4px solid var(--bad,#B5432E)}
+  .guia-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:9px}
+  .guia-num{font-family:inherit;font-size:14px;font-weight:700;color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .guia-emi{font-size:11.5px;color:var(--muted);margin-top:1px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .guia-placa{flex-shrink:0;background:var(--paper);border:1px solid var(--line);
+    border-radius:8px;padding:5px 9px;font-size:12px;font-weight:700;color:var(--field)}
+  .guia-placa.mala{background:#FCEBE7;border-color:#E8B4A6;color:#8C2E1E}
+  .guia-warn{background:#FCEBE7;border-radius:9px;padding:8px 10px;margin-bottom:9px;
+    font-size:11.5px;font-weight:600;color:#8C2E1E;line-height:1.4}
+  .guia-fila{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+    padding:4px 0;min-width:0}
+  .guia-fila>span{font-size:11.5px;color:var(--muted);flex-shrink:0}
+  .guia-fila b{font-size:12.5px;color:var(--ink);text-align:right;min-width:0;line-height:1.35}
+  .guia-item{display:flex;align-items:center;padding:6px 0;border-top:1px solid var(--line);
+    margin-top:6px;font-size:12.5px;color:var(--ink)}
+
   /* ===== Ajustes ===== */
   .pest-aj{display:flex;gap:7px;overflow-x:auto;padding:2px 0 10px;-ms-overflow-style:none;scrollbar-width:none}
   .pest-aj::-webkit-scrollbar{display:none}
@@ -437,7 +466,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"7", fecha:"20 jul 2026", desc:"Modulo de Ajustes con temas de color" };
+const VERSION = { n:"8", fecha:"20 jul 2026", desc:"Guias de remision del viaje y cruce de placa" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -611,6 +640,51 @@ let RUTAS = [
       { orden:3, piladora:"Molinos del Litoral - Austro", dir:"Vía Machángara s/n, Cuenca", prov:"Molinos del Litoral", qq:20 },
     ] },
 ];
+
+/* ══ GUÍAS DE REMISIÓN ══
+   Las emite el PROVEEDOR (factura y despacha directo al cliente); el chofer solo las
+   RECIBE. Amparan la mercadería en tránsito: si el SRI para el camión y no está, la
+   carga puede ser retenida.
+   Un viaje puede llevar VARIAS guías, una por cada proveedor emisor — la ruta de
+   Marlon carga de tres piladoras distintas, así que lleva tres guías.
+   DEMO: datos de muestra, igual que las rutas y los pedidos. En Fase 4 estas guías
+   llegan de Supabase, subidas por el proveedor desde su app. */
+const GUIAS = [
+  { numero:"001-001-000008832", emisor:"Agrícola del Valle", ruta:"R-SC",
+    placa:"GBC-7790", transportista:"Marlon Cedeño", ruc:"0991234567001",
+    partida:"Vía a Baños km 4, Riobamba", desde:"hoy", hasta:"mañana",
+    destinatario:"Comercial Mendoza", dirDestino:"Av. Daniel León Borja 24-10, Riobamba",
+    factura:"001-001-0004521", motivo:"Venta",
+    items:[{desc:"Arroz Conejo · Quintal", qq:30}] },
+  { numero:"002-001-000001204", emisor:"Ingenio San Pablo", ruta:"R-SC",
+    placa:"GBC-7790", transportista:"Marlon Cedeño", ruc:"0992345678001",
+    partida:"Panamericana Sur km 8, Riobamba", desde:"hoy", hasta:"mañana",
+    destinatario:"Tienda La Esquina", dirDestino:"Calle Primera Constituyente 18-22, Riobamba",
+    factura:"001-001-0004610", motivo:"Venta",
+    items:[{desc:"Azúcar Valdez · Saco 50 kg", qq:25}] },
+  { numero:"003-001-000000977", emisor:"Molinos del Litoral", ruta:"R-SC",
+    /* OJO: placa distinta a la del camión — dispara el aviso de cruce */
+    placa:"GBC-7791", transportista:"Marlon Cedeño", ruc:"0993456789001",
+    partida:"Av. Industrial 12-30, Ambato", desde:"hoy", hasta:"mañana",
+    destinatario:"Abarrotes Don Pepe", dirDestino:"Av. Cevallos 09-44, Ambato",
+    factura:"001-001-000160", motivo:"Venta",
+    items:[{desc:"Maíz Agripac · Saco 50 kg", qq:50}] },
+  { numero:"003-001-000000981", emisor:"Molinos del Litoral", ruta:"R-IM",
+    placa:"PXT-2231", transportista:"Wilson Brito", ruc:"0993456789001",
+    partida:"Vía Otavalo km 2, Ibarra", desde:"hoy", hasta:"mañana",
+    destinatario:"Comisariato La Y", dirDestino:"Av. Mariano Acosta 14-21, Ibarra",
+    factura:"001-001-000171", motivo:"Venta",
+    items:[{desc:"Harina Ya · Quintal", qq:18}] },
+];
+function guiasDeRuta(rutaId){ return GUIAS.filter(function(g){ return g.ruta===rutaId; }); }
+/* Guías cuya placa NO coincide con la del camión asignado: se avisa, no se bloquea.
+   Puede haber un cambio de vehículo legítimo a última hora. */
+function guiasConPlacaDistinta(r){
+  if(!r || !r.placa) return [];
+  return guiasDeRuta(r.id).filter(function(g){
+    return g.placa && g.placa.toUpperCase() !== String(r.placa).toUpperCase();
+  });
+}
 
 /* Registros que la app de logística consume (pantallas Estados / Novedades).
    En producción se envían al servidor; aquí los acumulamos para demostrar el enganche. */
@@ -1439,6 +1513,38 @@ function PantallaCarga({ r, chofer, onVolver, onSalir, onIrEntregas, refrescar }
         <div className="prog-label">Cargados {cargadoQq} de {totalQq} qq · {listos}/{pts.length} puntos listos</div>
       </div>
 
+      {/* Guías de remisión del viaje: amparan la carga ante un control del SRI.
+          Una por proveedor emisor — este viaje puede llevar varias. */}
+      {(()=>{
+        const gs = guiasDeRuta(r.id);
+        if(gs.length===0) return null;
+        const malas = guiasConPlacaDistinta(r);
+        return (<>
+          {malas.length>0 && (
+            <div className="guia-alerta">
+              <span style={{fontSize:17,flexShrink:0}}>⚠</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:13}}>
+                  {malas.length===1 ? "Una guía va a otra placa" : malas.length+" guías van a otra placa"}</div>
+                <div style={{fontSize:11.5,marginTop:2,lineHeight:1.4}}>
+                  Tu camión es {r.placa}. Avisa a logística antes de salir.</div>
+              </div>
+            </div>
+          )}
+          <button className="guia-btn" onClick={()=>setHoja({tipo:"guias"})}>
+            <span style={{fontSize:20,flexShrink:0}}>📋</span>
+            <div style={{flex:1,minWidth:0,textAlign:"left"}}>
+              <div style={{fontWeight:700,fontSize:13.5,color:"var(--field)"}}>
+                {gs.length===1 ? "1 guía de remisión" : gs.length+" guías de remisión"}</div>
+              <div style={{fontSize:11.5,color:"var(--muted)",marginTop:1,
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {gs.map(g=>g.emisor.split(" ")[0]).join(" · ")}</div>
+            </div>
+            <span style={{color:"var(--muted)",fontSize:17,flexShrink:0}}>›</span>
+          </button>
+        </>);
+      })()}
+
       <div className="sect-h">Recogida de mercadería (en orden)</div>
       {pts.map((x)=>{
         const c = cargaDe(r, x.orden);
@@ -1488,9 +1594,59 @@ function PantallaCarga({ r, chofer, onVolver, onSalir, onIrEntregas, refrescar }
         <div className="bloqueo-entregas">🔒 Las entregas se habilitan cuando salgas de todos los puntos de carga.</div>
       )}
 
-      {hoja && <HojaCarga r={r} tipo={hoja.tipo} orden={hoja.orden} chofer={chofer}
+      {hoja && hoja.tipo==="guias" && <HojaGuias r={r} onCerrar={()=>setHoja(null)} />}
+      {hoja && hoja.tipo!=="guias" && <HojaCarga r={r} tipo={hoja.tipo} orden={hoja.orden} chofer={chofer}
         onCerrar={()=>setHoja(null)} refrescar={refrescar} />}
     </Shell>
+  );
+}
+
+/* ---------- Hoja de GUÍAS DE REMISIÓN (solo lectura) ---------- */
+function HojaGuias({ r, onCerrar }){
+  const gs = guiasDeRuta(r.id);
+  const malas = guiasConPlacaDistinta(r);
+  const esMala = (g)=> malas.some(function(m){ return m.numero===g.numero; });
+  return (
+    <Hoja titulo={"Guías de remisión · "+gs.length} onCerrar={onCerrar}>
+      <div className="guia-intro">
+        Estos documentos amparan tu carga. Si el SRI para el camión, muéstralos.
+        Los emite cada proveedor, por eso llevas una por piladora.
+      </div>
+      {gs.map(function(g,i){
+        const mala = esMala(g);
+        return (
+          <div key={i} className={"guia-card"+(mala?" mala":"")}>
+            <div className="guia-top">
+              <div style={{minWidth:0,flex:1}}>
+                <div className="guia-num">{g.numero}</div>
+                <div className="guia-emi">{g.emisor}</div>
+              </div>
+              <span className={"guia-placa"+(mala?" mala":"")}>{g.placa}</span>
+            </div>
+            {mala && (
+              <div className="guia-warn">
+                ⚠ Esta guía va a la placa {g.placa} y tu camión es {r.placa}.
+              </div>
+            )}
+            <div className="guia-fila"><span>Para</span><b>{g.destinatario}</b></div>
+            <div className="guia-fila"><span>Dirección</span><b>{g.dirDestino}</b></div>
+            <div className="guia-fila"><span>Sale de</span><b>{g.partida}</b></div>
+            <div className="guia-fila"><span>Traslado</span><b>{g.desde} → {g.hasta}</b></div>
+            <div className="guia-fila"><span>Ampara</span><b>{g.factura}</b></div>
+            {g.items.map(function(it,k){
+              return (
+                <div key={k} className="guia-item">
+                  <span style={{minWidth:0,flex:1,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.desc}</span>
+                  <b className="num" style={{flexShrink:0,marginLeft:10}}>{it.qq} qq</b>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+      <button className="b-carga-accion" style={{marginTop:4}} onClick={onCerrar}>Cerrar</button>
+    </Hoja>
   );
 }
 
