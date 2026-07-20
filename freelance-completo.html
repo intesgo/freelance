@@ -3928,7 +3928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"259", fecha:"19 jul 2026", desc:"Imagen A6 igual a la vista previa"};
+const VERSION={n:"260", fecha:"19 jul 2026", desc:"VALIDAR COBRO: un boton hace todo"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5883,9 +5883,22 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     COBROS_DIA.push({nRecibo, cli, monto, hora, formas, lugar, anulado:false,
       facturas:datos.facturas, lineas, prov:prov.nombre});
     if(formas["Efectivo"]>0) EFECTIVO_PENDIENTE.push({nRecibo, cli, monto:formas["Efectivo"], limite:`hoy ${hora} + 24h`});
+    /* 5 · recibo impreso: PDF con original (cliente) + copia (vendedor) */
     pdfRecibo(datos);
     setEnviado(datos);
     setResumen(false);
+    /* 6 · envío por WhatsApp: imagen A6 de UNA sola copia, al chat del cliente */
+    setTimeout(()=>{
+      const fcl=FICHA_CLIENTE[cli]||{};
+      compartirImgComprobante({
+        ...datos,
+        ruc: fcl.ruc,
+        atendido: "Daniel Ríos · Freelance",
+        fecha: `12 jun 2026 ${hora}`,
+        obs: obsDe(datos).map(o=>OBS_TXT[o]||o),
+      }, toast);
+    }, 700);   /* deja terminar la descarga del PDF antes de abrir el menú de compartir */
+    toast(`Cobro registrado ${nRecibo} · recibo impreso y listo para enviar`);
   };
   const puedeAvanzar = paso===1?paso1Ok : paso===2?paso2Ok : paso3Ok;
 
@@ -6445,9 +6458,10 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
       </div>
 
       <button className="cta" style={{marginTop:14}} onClick={guardarTodo}>
-        💾 Guardar, imprimir y enviar</button>
-      <div className="meta" style={{textAlign:"center",margin:"8px 0 4px",fontSize:11.5}}>
-        Imprime 2 ejemplares (original + copia) y envía a todos el recibo virtual en 1 copia</div>
+        ✓ VALIDAR COBRO</button>
+      <div className="meta" style={{textAlign:"center",margin:"8px 0 4px",fontSize:11.5,lineHeight:1.6}}>
+        Registra el cobro · aplica a las facturas · actualiza saldos<br/>
+        genera el recibo · imprime 2 copias · prepara el envío por WhatsApp</div>
       <button className="ghost" style={{width:"100%"}} onClick={()=>setResumen(false)}>‹ Corregir</button>
     </>);
   }
