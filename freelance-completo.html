@@ -4158,7 +4158,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"267", fecha:"19 jul 2026", desc:"Comprobante y estado en un solo compartir"};
+const VERSION={n:"268", fecha:"19 jul 2026", desc:"Mi dia como modulo propio en el drawer"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5911,6 +5911,226 @@ async function enviarComprobante(d, texto, tel, toast, onEstado){
   toast && toast("PDF descargado. Adjúntalo con el clip 📎 en el chat de WhatsApp.");
 }
 
+/* ══ MI DÍA · cuadre de caja y cierre diario ══
+   Módulo propio: se llega desde el drawer o desde el atajo en Cobros.
+   La hora de corte se acuerda con el proveedor y se aplica en Ajustes. */
+function MiDia({toast, volver}){
+  const [tabCie,setTabCie]=useState("resumen");
+  const [expProv,setExpProv]=useState(null);
+  const [cerrando,setCerrando]=useState(false);
+  const [motivoCie,setMotivoCie]=useState("");
+  const [tick,setTick]=useState(0);
+  useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));
+  React.useEffect(()=>{  /* corte automático a la hora acordada con el proveedor */
+    const c=correrCorteAutomatico();
+    if(c.length){ setTick(t=>t+1);
+      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")} · sin confirmar por el cobrador`); }
+  },[]);
+  useRetroceso(()=>{
+    if(cerrando){ setCerrando(false); return true; }
+    return false;
+  });
+
+  const soloLect = false;
+  const dia      = {fecha:"2026-06-12", fechaTxt:"12 jun 2026", recibos:COBROS_DIA,
+                    estado:CIERRE_HOY.estado, cerradoEn:CIERRE_HOY.cerradoEn, obs:CIERRE_HOY.obs};
+  const recibos  = dia.recibos || [];
+  const activos  = recibos.filter(r=>!r.anulado);
+  const total    = activos.reduce((s,r)=>s+r.monto,0);
+  const FORMAS   = ["Transferencia","Depósito","Efectivo","Cheque"];
+  const porForma = {}; activos.forEach(r=>Object.entries(r.formas||{}).forEach(([f,v])=>{ porForma[f]=(porForma[f]||0)+v; }));
+  const efeRecib = porForma["Efectivo"]||0;
+  const efePend  = EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
+  const efeDep   = Math.max(0, efeRecib-efePend);
+  const bancar   = (porForma["Transferencia"]||0) + (porForma["Depósito"]||0) + efeDep;
+  const enManos  = efePend + (porForma["Cheque"]||0);
+  const auto     = dia.estado==="cerrado_auto";
+  const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs" || auto;
+  const confirm  = CIERRE_HOY.confirmado;
+  const estadoTxt = auto ? (confirm?"Cerrado automáticamente · confirmado":"Cerrado automáticamente · sin confirmar")
+                   : cerrado ? (dia.estado==="cerrado_obs" ? "Cerrado con pendientes" : "Cerrado")
+                   : activos.length===0 ? "En progreso"
+                   : efePend>0 ? "Pendiente de depósito" : "Listo para cerrar";
+  const tono = auto ? (confirm?"#2E7D52":"#C98A2B")
+             : cerrado ? (dia.estado==="cerrado_obs" ? "#C98A2B" : "#2E7D52")
+             : efePend>0 ? "#C98A2B" : activos.length===0 ? "#8B9490" : "#2E7D52";
+
+  const chip=(txt,color)=>(<span style={{display:"inline-block",background:color+"1A",color,fontWeight:700,
+    borderRadius:20,padding:"3px 10px",fontSize:11}}>{txt}</span>);
+  const KPI=({t,v,c})=>(
+    <div style={{background:"var(--card)",border:"1px solid var(--line)",borderRadius:14,padding:"11px 12px"}}>
+      <div className="meta" style={{fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:".03em"}}>{t}</div>
+      <div className="num" style={{fontSize:18,fontWeight:800,marginTop:3,color:c||"var(--field)"}}>{v}</div>
+    </div>
+  );
+  const cerrarJornada=(motivo)=>{
+    CIERRE_HOY.confirmado = true;
+    CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
+    CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
+    CIERRE_HOY.obs = motivo||null;
+    CIERRE_HOY.au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
+    setCerrando(false); setMotivoCie(""); setTick(t=>t+1);
+    toast(efePend>0
+      ? `Jornada cerrada CON PENDIENTES · ${money(efePend)} sin depositar · auditado ${CIERRE_HOY.au}`
+      : `Jornada cerrada sin pendientes ✓ · auditado ${CIERRE_HOY.au}`);
+  };
+
+  return (<>
+    <div className="h1">Mi día</div>
+    <div className="sub">{dia.fechaTxt} · {activos.length} recibo{activos.length!==1?"s":""} · {chip(estadoTxt,tono)}</div>
+
+    <div className="nchips" style={{flexWrap:"wrap",marginTop:12}}>
+      {[["resumen","Resumen"],["detalle","Detalle"]].map(([k,t])=>(
+        <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 45%"}}
+          onClick={()=>setTabCie(k)}>{t}</button>
+      ))}
+    </div>
+
+      {tabCie==="resumen" && (<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12}}>
+          <KPI t="Total cobrado" v={money(total)}/>
+          <KPI t="Recibos" v={String(activos.length)}/>
+          <KPI t="Ya bancarizado" v={money(bancar)} c="#2E7D52"/>
+          <KPI t="Por depositar" v={money(efePend)} c={efePend>0?"#C98A2B":"#2E7D52"}/>
+        </div>
+
+        {efePend>0 && (
+          <div style={{background:"#FDF3E2",border:"1px solid #C98A2B",borderRadius:16,padding:"14px 15px",marginBottom:14}}>
+            <div style={{fontWeight:800,fontSize:14,color:"#A06B15",marginBottom:6}}>⏱️ Efectivo pendiente por depositar</div>
+            <div className="num" style={{fontSize:24,fontWeight:800,color:"#A06B15",marginBottom:6}}>{money(efePend)}</div>
+            {(soloLect?[]:EFECTIVO_PENDIENTE).map((e,i)=>{
+              const rec=COBROS_DIA.find(c=>c.nRecibo===e.nRecibo);
+              return (<div key={e.nRecibo} className="meta" style={{fontSize:12,marginBottom:2}}>
+                {e.cli} · {rec?rec.prov:"—"} · {money(e.monto)}</div>);
+            })}
+            <div className="meta" style={{fontSize:12,margin:"6px 0 10px"}}>
+              {soloLect ? (dia.obs||"Quedó pendiente al cierre") : `${EFECTIVO_PENDIENTE.length} pendiente${EFECTIVO_PENDIENTE.length!==1?"s":""} · plazo máximo 24 horas`}
+            </div>
+          </div>
+        )}
+
+        <div className="ficha-sec">Estado del cierre</div>
+        <div className="card" style={{padding:"13px 15px"}}>
+          <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
+          <div className="meta" style={{fontSize:12.5}}>
+            {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
+             : efePend>0 ? `Pendiente: existe ${money(efePend)} en efectivo sin depositar.`
+             : activos.length===0 ? "Aún no se registran cobros hoy."
+             : "Listo para cerrar. No existen valores pendientes."}
+          </div>
+          {efePend>0 && cerrado && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700}}>
+            El efectivo pendiente no se cancela con el cierre: arrastra al día siguiente con su reloj de 24h.</div>}
+          <div className="meta" style={{marginTop:7,fontSize:11.5}}>Corte automático a las {CONFIG_CIERRE.hora} (acordado con el proveedor). Se cambia en Ajustes.</div>
+          {!soloLect && !cerrado && (
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button className="ghost" style={{flex:1,margin:0}} onClick={()=>toast("Avance guardado (en Fase 4 se guarda en la base)")}>Guardar avance</button>
+              <button className="cta" style={{flex:1,margin:0,background:efePend>0?"#C98A2B":undefined}}
+                onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>Cerrar jornada</button>
+            </div>
+          )}
+          {!soloLect && auto && !CIERRE_HOY.confirmado && (
+            <button className="cta" style={{marginTop:12}} onClick={()=>{
+              CIERRE_HOY.confirmado=true; setTick(t=>t+1);
+              toast(`Cuadre confirmado · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
+            }}>✓ Confirmar mi cuadre</button>
+          )}
+        </div>
+      </>)}
+
+      {/* ── 2 · DETALLE ── */}      {tabCie==="detalle" && (()=>{
+        const provs={};
+        activos.forEach(r=>{ const p=r.prov||"—";
+          if(!provs[p]) provs[p]={n:0,total:0,formas:{},recibos:[]};
+          provs[p].n++; provs[p].total+=r.monto; provs[p].recibos.push(r);
+          Object.entries(r.formas||{}).forEach(([f,v])=>{ provs[p].formas[f]=(provs[p].formas[f]||0)+v; });
+        });
+        const lista=Object.keys(provs).sort((a,b)=>provs[b].total-provs[a].total);
+        const pendDe=(p)=> soloLect ? 0 : EFECTIVO_PENDIENTE.filter(e=>{
+          const r=COBROS_DIA.find(c=>c.nRecibo===e.nRecibo); return r && r.prov===p; }).reduce((s,e)=>s+e.monto,0);
+        return (<>
+          <div className="ficha-sec">Por proveedor</div>
+          {lista.length===0 && <div className="ph">Sin cobros este día</div>}
+          {lista.map(p=>{
+            const d=provs[p], pend=pendDe(p), abierto=expProv===p;
+            const est = pend>0 ? ["Pendiente de depósito","#C98A2B"] : ["Completado","#2E7D52"];
+            return (
+              <div key={p} className="card" style={{padding:"13px 15px",marginBottom:9}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setExpProv(abierto?null:p)}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</div>
+                    <div className="meta" style={{fontSize:11.5,marginTop:2}}>{d.n} cobro{d.n!==1?"s":""} · {FORMAS.filter(f=>d.formas[f]>0).map(f=>`${f} ${money(d.formas[f])}`).join(" · ")}</div>
+                    <div style={{marginTop:5}}>{chip(est[0],est[1])}</div>
+                  </div>
+                  <b className="num" style={{whiteSpace:"nowrap"}}>{money(d.total)}</b>
+                  <span className="meta" style={{fontSize:15,color:"var(--muted)"}}>{abierto?"▾":"▸"}</span>
+                </div>
+                {abierto && d.recibos.map(r=>(
+                  <div key={r.nRecibo} style={{borderTop:"1px solid var(--line)",marginTop:9,paddingTop:9,
+                    display:"flex",justifyContent:"space-between",gap:8}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cli}</div>
+                      <div className="meta" style={{fontSize:11}}>{r.hora} · {r.nRecibo}</div>
+                    </div>
+                    <b className="num" style={{whiteSpace:"nowrap",fontSize:13.5}}>{money(r.monto)}</b>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+
+          <div className="ficha-sec" style={{marginTop:16}}>Por forma de pago</div>
+          <div className="card" style={{padding:"13px 15px"}}>
+            <div className="meta" style={{fontWeight:700,fontSize:11,color:"#2E7D52",marginBottom:5}}>DINERO YA BANCARIZADO</div>
+            {[["Transferencias",porForma["Transferencia"]||0],["Depósitos",porForma["Depósito"]||0],["Efectivo depositado",efeDep]].map(([t,v])=>(
+              <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
+              </div>
+            ))}
+            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
+              <span style={{fontWeight:700,fontSize:13}}>Subtotal bancarizado</span>
+              <b className="num" style={{color:"#2E7D52",fontSize:15}}>{money(bancar)}</b>
+            </div>
+            <div className="meta" style={{fontWeight:700,fontSize:11,color:"#C98A2B",margin:"11px 0 5px"}}>BAJO TU RESPONSABILIDAD</div>
+            {[["Efectivo por depositar",efePend],["Cheques en cartera",porForma["Cheque"]||0]].map(([t,v])=>(
+              <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+                <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
+              </div>
+            ))}
+            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
+              <span style={{fontWeight:700,fontSize:13}}>Subtotal en tus manos</span>
+              <b className="num" style={{color:"#C98A2B",fontSize:15}}>{money(enManos)}</b>
+            </div>
+            <div className="row" style={{justifyContent:"space-between",padding:"8px 0 0",borderTop:"1.5px solid var(--field)",marginTop:8}}>
+              <span style={{fontWeight:800,fontSize:14}}>TOTAL COBRADO</span>
+              <b className="num" style={{fontSize:19,fontWeight:800}}>{money(total)}</b>
+            </div>
+            <div className="meta" style={{marginTop:6,fontSize:11.5}}>El efectivo recibido hoy fue {money(efeRecib)}. El cheque no cuenta como bancarizado hasta efectivizarse.</div>
+          </div>
+        </>);})()}
+
+      {/* ── 3 · RECIBOS ── */}
+    {cerrando && (
+      <div className="ov" onClick={()=>setCerrando(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Cerrar con pendientes</h3>
+          <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
+            Queda {money(efePend)} en efectivo sin depositar. Explica por qué se cierra así; queda observado en la auditoría.
+          </p>
+          <div className="field"><label>Motivo</label>
+            <input value={motivoCie} onChange={e=>setMotivoCie(e.target.value)}
+              placeholder="Ej.: banco cerrado, se deposita mañana temprano"/></div>
+          <button className="cta" style={{width:"100%"}} disabled={motivoCie.trim().length<4}
+            onClick={()=>cerrarJornada(motivoCie.trim())}>Cerrar de todos modos</button>
+          <button className="back" style={{width:"100%",marginTop:10}}
+            onClick={()=>setCerrando(false)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {volver && <button className="ghost" style={{width:"100%",marginTop:14}} onClick={volver}>‹ Volver</button>}
+  </>);
+}
+
 function Cobros({toast, cobroInicial, onConsumir, go}){
   const [paso,setPaso]=useState(1);
   const [cli,setCli]=useState(null);
@@ -6292,337 +6512,6 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
   /* ══ CIERRE DIARIO DE COBROS ══  4 pestañas: Resumen · Detalle · Recibos · Historial
      Cálculos: total cobrado = recibos no anulados · bancarizado = depósitos + transferencias + efectivo
      ya depositado · pendiente = efectivo sin depositar · el cheque NO es bancarizado (título posfechado). */
-  if(verDia){
-    const soloLect = !!diaHist;                                  // el histórico es consulta, no acción
-    const dia      = diaHist || {fecha:"2026-06-12", fechaTxt:"12 jun 2026", recibos:COBROS_DIA,
-                                 estado:CIERRE_HOY.estado, cerradoEn:CIERRE_HOY.cerradoEn, obs:CIERRE_HOY.obs};
-    const recibos  = dia.recibos || [];
-    const activos  = recibos.filter(r=>!r.anulado);
-    const total    = activos.reduce((s,r)=>s+r.monto,0);
-    const FORMAS   = ["Transferencia","Depósito","Efectivo","Cheque"];
-    const porForma = {}; activos.forEach(r=>Object.entries(r.formas||{}).forEach(([f,v])=>{ porForma[f]=(porForma[f]||0)+v; }));
-    const efeRecib = porForma["Efectivo"]||0;
-    const efePend  = soloLect ? (dia.efePend||0) : EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
-    const efeDep   = Math.max(0, efeRecib-efePend);
-    const bancar   = (porForma["Transferencia"]||0) + (porForma["Depósito"]||0) + efeDep;
-    const enManos  = efePend + (porForma["Cheque"]||0);
-    const auto     = dia.estado==="cerrado_auto";
-    const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs" || auto;
-    const confirm  = soloLect ? (dia.confirmado||dia.estado==="cerrado"||dia.estado==="cerrado_obs") : CIERRE_HOY.confirmado;
-    const estadoTxt = auto ? (confirm?"Cerrado automáticamente · confirmado":"Cerrado automáticamente · sin confirmar")
-                     : cerrado ? (dia.estado==="cerrado_obs" ? "Cerrado con pendientes" : "Cerrado")
-                     : activos.length===0 ? "En progreso"
-                     : efePend>0 ? "Pendiente de depósito" : "Listo para cerrar";
-    const tono = auto ? (confirm?"#2E7D52":"#C98A2B")
-               : cerrado ? (dia.estado==="cerrado_obs" ? "#C98A2B" : "#2E7D52")
-               : efePend>0 ? "#C98A2B" : activos.length===0 ? "#8B9490" : "#2E7D52";
-
-    const chip=(txt,color)=>(<span style={{display:"inline-block",background:color+"1A",color,fontWeight:700,
-      borderRadius:20,padding:"3px 10px",fontSize:11}}>{txt}</span>);
-    const KPI=({t,v,c})=>(
-      <div style={{background:"var(--card)",border:"1px solid var(--line)",borderRadius:14,padding:"11px 12px"}}>
-        <div className="meta" style={{fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:".03em"}}>{t}</div>
-        <div className="num" style={{fontSize:18,fontWeight:800,marginTop:3,color:c||"var(--field)"}}>{v}</div>
-      </div>
-    );
-    const cerrarJornada=(motivo)=>{
-      CIERRE_HOY.confirmado = true;             /* el cobrador confirma su cuadre */
-      CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
-      CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
-      CIERRE_HOY.obs = motivo||null;
-      CIERRE_HOY.au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
-      setCerrando(false); setMotivoCie(""); setTick(t=>t+1);
-      toast(efePend>0
-        ? `Jornada cerrada CON PENDIENTES · ${money(efePend)} sin depositar · auditado ${CIERRE_HOY.au}`
-        : `Jornada cerrada sin pendientes ✓ · auditado ${CIERRE_HOY.au}`);
-    };
-    const anular=()=>{
-      if(!motivoAnu.trim()){ toast("El motivo de anulación es obligatorio"); return; }
-      anulando.anulado=true; anulando.motivo=motivoAnu.trim();
-      const i=EFECTIVO_PENDIENTE.findIndex(e=>e.nRecibo===anulando.nRecibo);
-      if(i>-1) EFECTIVO_PENDIENTE.splice(i,1);
-      toast(`Recibo ${anulando.nRecibo} anulado con autorización del Freelance · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
-      setAnulando(null); setMotivoAnu(""); setTick(t=>t+1);
-    };
-    const verRecibo=(r)=>{ setMenuRec(null); setEnviado(r); setPrevia(true); };
-    const compartirRecibo=(r)=>{ setMenuRec(null); const f=FICHA_CLIENTE[r.cli]||{}; enviarComprobante(r, textoCobroWA(r), f.tel, toast, setEnvio); };
-
-    return (<>
-      <div className="h1">Cierre diario de cobros</div>
-      <div className="sub">{dia.fechaTxt} · {activos.length} recibo{activos.length!==1?"s":""} · {chip(estadoTxt,tono)}</div>
-      {soloLect && <div className="meta" style={{margin:"8px 2px 0",color:"var(--maize-deep)"}}>Consulta del histórico: no se registran acciones sobre días cerrados.</div>}
-
-      <div className="nchips" style={{flexWrap:"wrap",marginTop:12}}>
-        {[["resumen","Resumen"],["detalle","Detalle"],["recibos","Recibos"],["hist","Historial"]].map(([k,t])=>(
-          <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 22%"}}
-            onClick={()=>{ if(k==="hist" && diaHist) setDiaHist(null); setTabCie(k); }}>{t}</button>
-        ))}
-      </div>
-
-      {/* ── 1 · RESUMEN ── */}
-      {tabCie==="resumen" && (<>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12}}>
-          <KPI t="Total cobrado" v={money(total)}/>
-          <KPI t="Recibos" v={String(activos.length)}/>
-          <KPI t="Ya bancarizado" v={money(bancar)} c="#2E7D52"/>
-          <KPI t="Por depositar" v={money(efePend)} c={efePend>0?"#C98A2B":"#2E7D52"}/>
-        </div>
-
-        {efePend>0 && (
-          <div style={{background:"#FDF3E2",border:"1px solid #C98A2B",borderRadius:16,padding:"14px 15px",marginBottom:14}}>
-            <div style={{fontWeight:800,fontSize:14,color:"#A06B15",marginBottom:6}}>⏱️ Efectivo pendiente por depositar</div>
-            <div className="num" style={{fontSize:24,fontWeight:800,color:"#A06B15",marginBottom:6}}>{money(efePend)}</div>
-            {(soloLect?[]:EFECTIVO_PENDIENTE).map((e,i)=>{
-              const rec=COBROS_DIA.find(c=>c.nRecibo===e.nRecibo);
-              return (<div key={e.nRecibo} className="meta" style={{fontSize:12,marginBottom:2}}>
-                {e.cli} · {rec?rec.prov:"—"} · {money(e.monto)}</div>);
-            })}
-            <div className="meta" style={{fontSize:12,margin:"6px 0 10px"}}>
-              {soloLect ? (dia.obs||"Quedó pendiente al cierre") : `${EFECTIVO_PENDIENTE.length} pendiente${EFECTIVO_PENDIENTE.length!==1?"s":""} · plazo máximo 24 horas`}
-            </div>
-            {!soloLect && (
-              <button className="cta" style={{margin:0,background:"#C98A2B"}}
-                onClick={()=>{ if(EFECTIVO_PENDIENTE.length===1) setDepEf(0); else { setVerDia(false); setVerEfe(true); } }}>
-                Registrar depósito</button>
-            )}
-          </div>
-        )}
-
-        <div className="ficha-sec">Estado del cierre</div>
-        <div className="card" style={{padding:"13px 15px"}}>
-          <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
-          <div className="meta" style={{fontSize:12.5}}>
-            {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
-             : efePend>0 ? `Pendiente: existe ${money(efePend)} en efectivo sin depositar.`
-             : activos.length===0 ? "Aún no se registran cobros hoy."
-             : "Listo para cerrar. No existen valores pendientes."}
-          </div>
-          {efePend>0 && cerrado && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700}}>
-            El efectivo pendiente no se cancela con el cierre: arrastra al día siguiente con su reloj de 24h.</div>}
-          <div className="meta" style={{marginTop:7,fontSize:11.5}}>Corte automático a las {CONFIG_CIERRE.hora} (acordado con el proveedor). Se cambia en Ajustes.</div>
-          {!soloLect && !cerrado && (
-            <div style={{display:"flex",gap:8,marginTop:12}}>
-              <button className="ghost" style={{flex:1,margin:0}} onClick={()=>toast("Avance guardado (en Fase 4 se guarda en la base)")}>Guardar avance</button>
-              <button className="cta" style={{flex:1,margin:0,background:efePend>0?"#C98A2B":undefined}}
-                onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>Cerrar jornada</button>
-            </div>
-          )}
-          {!soloLect && auto && !CIERRE_HOY.confirmado && (
-            <button className="cta" style={{marginTop:12}} onClick={()=>{
-              CIERRE_HOY.confirmado=true; setTick(t=>t+1);
-              toast(`Cuadre confirmado · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
-            }}>✓ Confirmar mi cuadre</button>
-          )}
-        </div>
-      </>)}
-
-      {/* ── 2 · DETALLE ── */}
-      {tabCie==="detalle" && (()=>{
-        const provs={};
-        activos.forEach(r=>{ const p=r.prov||"—";
-          if(!provs[p]) provs[p]={n:0,total:0,formas:{},recibos:[]};
-          provs[p].n++; provs[p].total+=r.monto; provs[p].recibos.push(r);
-          Object.entries(r.formas||{}).forEach(([f,v])=>{ provs[p].formas[f]=(provs[p].formas[f]||0)+v; });
-        });
-        const lista=Object.keys(provs).sort((a,b)=>provs[b].total-provs[a].total);
-        const pendDe=(p)=> soloLect ? 0 : EFECTIVO_PENDIENTE.filter(e=>{
-          const r=COBROS_DIA.find(c=>c.nRecibo===e.nRecibo); return r && r.prov===p; }).reduce((s,e)=>s+e.monto,0);
-        return (<>
-          <div className="ficha-sec">Por proveedor</div>
-          {lista.length===0 && <div className="ph">Sin cobros este día</div>}
-          {lista.map(p=>{
-            const d=provs[p], pend=pendDe(p), abierto=expProv===p;
-            const est = pend>0 ? ["Pendiente de depósito","#C98A2B"] : ["Completado","#2E7D52"];
-            return (
-              <div key={p} className="card" style={{padding:"13px 15px",marginBottom:9}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setExpProv(abierto?null:p)}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</div>
-                    <div className="meta" style={{fontSize:11.5,marginTop:2}}>{d.n} cobro{d.n!==1?"s":""} · {FORMAS.filter(f=>d.formas[f]>0).map(f=>`${f} ${money(d.formas[f])}`).join(" · ")}</div>
-                    <div style={{marginTop:5}}>{chip(est[0],est[1])}</div>
-                  </div>
-                  <b className="num" style={{whiteSpace:"nowrap"}}>{money(d.total)}</b>
-                  <span className="meta" style={{fontSize:15,color:"var(--muted)"}}>{abierto?"▾":"▸"}</span>
-                </div>
-                {abierto && d.recibos.map(r=>(
-                  <div key={r.nRecibo} style={{borderTop:"1px solid var(--line)",marginTop:9,paddingTop:9,
-                    display:"flex",justifyContent:"space-between",gap:8}}>
-                    <div style={{minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cli}</div>
-                      <div className="meta" style={{fontSize:11}}>{r.hora} · {r.nRecibo}</div>
-                    </div>
-                    <b className="num" style={{whiteSpace:"nowrap",fontSize:13.5}}>{money(r.monto)}</b>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-
-          <div className="ficha-sec" style={{marginTop:16}}>Por forma de pago</div>
-          <div className="card" style={{padding:"13px 15px"}}>
-            <div className="meta" style={{fontWeight:700,fontSize:11,color:"#2E7D52",marginBottom:5}}>DINERO YA BANCARIZADO</div>
-            {[["Transferencias",porForma["Transferencia"]||0],["Depósitos",porForma["Depósito"]||0],["Efectivo depositado",efeDep]].map(([t,v])=>(
-              <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
-                <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
-              </div>
-            ))}
-            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
-              <span style={{fontWeight:700,fontSize:13}}>Subtotal bancarizado</span>
-              <b className="num" style={{color:"#2E7D52",fontSize:15}}>{money(bancar)}</b>
-            </div>
-            <div className="meta" style={{fontWeight:700,fontSize:11,color:"#C98A2B",margin:"11px 0 5px"}}>BAJO TU RESPONSABILIDAD</div>
-            {[["Efectivo por depositar",efePend],["Cheques en cartera",porForma["Cheque"]||0]].map(([t,v])=>(
-              <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
-                <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
-              </div>
-            ))}
-            <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
-              <span style={{fontWeight:700,fontSize:13}}>Subtotal en tus manos</span>
-              <b className="num" style={{color:"#C98A2B",fontSize:15}}>{money(enManos)}</b>
-            </div>
-            <div className="row" style={{justifyContent:"space-between",padding:"8px 0 0",borderTop:"1.5px solid var(--field)",marginTop:8}}>
-              <span style={{fontWeight:800,fontSize:14}}>TOTAL COBRADO</span>
-              <b className="num" style={{fontSize:19,fontWeight:800}}>{money(total)}</b>
-            </div>
-            <div className="meta" style={{marginTop:6,fontSize:11.5}}>El efectivo recibido hoy fue {money(efeRecib)}. El cheque no cuenta como bancarizado hasta efectivizarse.</div>
-          </div>
-        </>);})()}
-
-      {/* ── 3 · RECIBOS ── */}
-      {tabCie==="recibos" && (<>
-        {recibos.length===0 && <div className="ph">Sin recibos este día</div>}
-        {recibos.slice().reverse().map(r=>{
-          const formas=Object.keys(r.formas||{}).join(" · ");
-          const pend=!soloLect && EFECTIVO_PENDIENTE.some(e=>e.nRecibo===r.nRecibo);
-          const est = r.anulado ? ["Anulado","#B5613C"] : pend ? ["Pendiente de depósito","#C98A2B"] : ["Completado","#2E7D52"];
-          return (
-            <div key={r.nRecibo} className="card" style={{padding:"13px 15px",marginBottom:9,opacity:r.anulado?.65:1,position:"relative"}}>
-              <div style={{display:"flex",alignItems:"baseline",gap:10}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-                    textDecoration:r.anulado?"line-through":"none"}}>{r.cli}</div>
-                  <div className="meta" style={{fontSize:11.5,marginTop:2}}>{r.prov} · {r.hora} · {r.nRecibo}</div>
-                  <div className="meta" style={{fontSize:11.5}}>{formas}</div>
-                </div>
-                <b className="num" style={{whiteSpace:"nowrap",textDecoration:r.anulado?"line-through":"none"}}>{money(r.monto)}</b>
-              </div>
-              <div style={{marginTop:7,display:"flex",alignItems:"center",gap:8}}>
-                {chip(est[0],est[1])}
-                <span style={{flex:1}}></span>
-                {!r.anulado && (<>
-                  <button className="lnk" onClick={()=>verRecibo(r)}>Ver</button>
-                  <button className="lnk" onClick={()=>compartirRecibo(r)}>Compartir</button>
-                  <button className="lnk" onClick={()=>pdfRecibo(r)}>Imprimir</button>
-                  {!soloLect && <button className="lnk" style={{textDecoration:"none",fontSize:17,padding:"0 2px"}}
-                    onClick={()=>setMenuRec(menuRec===r.nRecibo?null:r.nRecibo)}>⋮</button>}
-                </>)}
-              </div>
-              {r.anulado && <div className="meta" style={{marginTop:5,color:"var(--clay)",fontWeight:700}}>ANULADO · {r.motivo}</div>}
-              {menuRec===r.nRecibo && (
-                <div style={{position:"absolute",right:12,bottom:10,background:"var(--card)",border:"1px solid var(--line)",
-                  borderRadius:12,boxShadow:"0 6px 20px rgba(21,57,43,.16)",padding:6,zIndex:5}}>
-                  <button className="lnk" style={{color:"var(--clay)",textDecoration:"none",padding:"8px 14px",display:"block"}}
-                    onClick={()=>{ setMenuRec(null); setAnulando(r); setMotivoAnu(""); }}>Anular recibo</button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </>)}
-
-      {/* ── 4 · HISTORIAL ── */}
-      {tabCie==="hist" && (()=>{
-        const hoyRow={fecha:"2026-06-12", fechaTxt:"12 jun 2026", recibos:COBROS_DIA, estado:CIERRE_HOY.estado,
-                      cerradoEn:CIERRE_HOY.cerradoEn, obs:CIERRE_HOY.obs,
-                      efePend:EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0), hoy:true};
-        const todos=[hoyRow, ...CIERRES_HIST];
-        const POR_PAG=15;                               /* regla de oro: listas largas paginadas */
-        const vis=todos.slice(0, histPag*POR_PAG);
-        const totMes=todos.reduce((s,d)=>s+(d.recibos||[]).filter(r=>!r.anulado).reduce((a,r)=>a+r.monto,0),0);
-        return (<>
-          <div className="montobox" style={{margin:"4px 0 10px",padding:"11px 15px"}}>
-            <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-              <span className="meta" style={{fontWeight:700,fontSize:12.5}}>Cobrado en estos {todos.length} días</span>
-              <b className="num" style={{fontSize:18,fontWeight:800}}>{money(totMes)}</b>
-            </div>
-          </div>
-          {vis.map(d=>{
-            const act=(d.recibos||[]).filter(r=>!r.anulado);
-            const tot=act.reduce((s,r)=>s+r.monto,0);
-            const est = d.estado==="cerrado" ? ["Cerrado","#2E7D52"]
-                      : d.estado==="cerrado_obs" ? ["Cerrado con pendientes","#C98A2B"]
-                      : d.estado==="cerrado_auto" ? (d.confirmado?["Cerrado automáticamente","#2E7D52"]:["Automático · sin confirmar","#C98A2B"])
-                      : (d.efePend>0 ? ["Pendiente de depósito","#C98A2B"] : ["Sin cerrar","#8B9490"]);
-            return (
-              <div key={d.fecha} style={{borderTop:"1px solid var(--line)",padding:"12px 2px",cursor:"pointer"}}
-                onClick={()=>{ if(d.hoy){ setDiaHist(null); } else { setDiaHist(d); } setTabCie("resumen"); setExpProv(null); }}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:800,fontSize:13.5}}>{d.fechaTxt}{d.hoy?" · hoy":""}</div>
-                    <div className="meta" style={{fontSize:11.5,marginTop:2}}>{act.length} recibo{act.length!==1?"s":""}{d.cerradoEn?` · cerrado ${d.cerradoEn}`:""}</div>
-                    <div style={{marginTop:5}}>{chip(est[0],est[1])}</div>
-                  </div>
-                  <b className="num" style={{whiteSpace:"nowrap"}}>{money(tot)}</b>
-                  <span className="meta" style={{fontSize:18,color:"var(--muted)"}}>›</span>
-                </div>
-              </div>
-            );
-          })}
-          {vis.length<todos.length && (
-            <button className="ghost" style={{width:"100%",marginTop:12}} onClick={()=>setHistPag(p=>p+1)}>Ver más días</button>
-          )}
-          <div className="meta" style={{margin:"12px 2px 0",fontSize:11.5}}>Toca un día para ver su cierre completo.</div>
-        </>);})()}
-
-      <button className="ghost" style={{width:"100%",marginTop:16}}
-        onClick={()=>{ if(diaHist){ setDiaHist(null); setTabCie("hist"); } else { setVerDia(false); setTabCie("resumen"); } }}>
-        {diaHist?"‹ Volver al historial":"‹ Volver a cobros"}</button>
-
-      {/* confirmación de cierre con pendientes: exige motivo y queda auditado */}
-      {cerrando && (
-        <div className="ov" onClick={()=>setCerrando(false)}>
-          <div className="sheet" onClick={e=>e.stopPropagation()}>
-            <h3>Cerrar con pendientes</h3>
-            <div className="sh-sub">Quedan {money(efePend)} en efectivo sin depositar</div>
-            <div className="field"><label>Motivo (obligatorio)</label>
-              <input type="text" value={motivoCie} placeholder="Ej.: banco cerrado, se deposita mañana"
-                onChange={e=>setMotivoCie(e.target.value)} autoFocus/></div>
-            <div className="meta" style={{margin:"0 2px 12px"}}>🔏 El cierre con valores pendientes queda observado en la auditoría con tu autorización.</div>
-            <button className="cta" disabled={!motivoCie.trim()} onClick={()=>cerrarJornada(motivoCie.trim())}>Autorizo y cierro la jornada</button>
-            <button className="ghost" onClick={()=>setCerrando(false)}>Cancelar</button>
-          </div>
-        </div>
-      )}
-
-      {anulando && (
-        <div className="ov" onClick={()=>setAnulando(null)}>
-          <div className="sheet" onClick={e=>e.stopPropagation()}>
-            <h3>Anular recibo {anulando.nRecibo}</h3>
-            <div className="sh-sub">{anulando.cli} · {money(anulando.monto)}</div>
-            <div className="field"><label>Motivo (obligatorio)</label>
-              <input type="text" value={motivoAnu} placeholder="Ej.: valor mal digitado" onChange={e=>setMotivoAnu(e.target.value)} autoFocus/></div>
-            <div className="meta" style={{margin:"0 2px 12px"}}>🔏 La anulación requiere tu autorización como <b>Freelance</b> y queda auditada. El recibo no se borra: queda visible como anulado y la cartera se restituye.</div>
-            <button className="cta" disabled={!motivoAnu.trim()} onClick={anular}>Autorizo y anulo el recibo</button>
-            <button className="ghost" onClick={()=>setAnulando(null)}>Cancelar</button>
-          </div>
-        </div>
-      )}
-
-      {depEf!=null && (
-        <LineaPago modalidad="Depósito" restante={EFECTIVO_PENDIENTE[depEf] ? EFECTIVO_PENDIENTE[depEf].monto : 0}
-          cliente={EFECTIVO_PENDIENTE[depEf] ? EFECTIVO_PENDIENTE[depEf].cli : null}
-          onCancel={()=>setDepEf(null)}
-          onSave={l=>{
-            const e=EFECTIVO_PENDIENTE[depEf];
-            const v=parseFloat(l.monto)||0;
-            DEPOSITOS_EFECTIVO.push({nRecibo:e.nRecibo, cli:e.cli, monto:v, banco:l.banco, numero:l.numero, fecha:l.fecha, foto:l.foto});
-            toast(`Depósito de ${money(v)} registrado: efectivo de ${e.cli} conciliado ✓ (auditado)`);
-            EFECTIVO_PENDIENTE.splice(depEf,1);
-            setDepEf(null); setTick(t=>t+1);
-          }}/>
-      )}
-    </>);
-  }
 
   if(resumen){
     const facturasRev = factSel.map(f=>({
@@ -6768,7 +6657,7 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
             )}
             <button className="neu" style={{flex:1,margin:0,padding:"11px 10px",cursor:"pointer",fontFamily:"inherit",
               display:"flex",alignItems:"center",gap:9,border:"none",textAlign:"left"}}
-              onClick={()=>setVerDia(true)}>
+              onClick={()=>{ if(go) go("midia"); }}>
               <Ico n="stats" c="#2E7D52" s={19}/>
               <span style={{minWidth:0}}>
                 <span style={{display:"block",fontSize:11,fontWeight:800,color:"var(--ink)"}}>Cierre del día</span>
@@ -16040,6 +15929,7 @@ function App({usuario, onSalir}){
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
         {tab==="pedidos" && <Pedidos pedidos={pedidos} toast={show}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
+        {tab==="midia" && <MiDia toast={show} volver={()=>navegar("cobros")}/>}
         {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
         {tab==="equipo" && <Equipo toast={show}/>}
         {tab==="solicitudes" && <Solicitudes toast={show} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
@@ -16128,6 +16018,12 @@ function App({usuario, onSalir}){
             <button className={"drawer-acc"+(secMenu==="gestion"?" on":"")} onClick={()=>setSecMenu(secMenu==="gestion"?"":"gestion")}>
               <span>Gestión y supervisión</span><span className="drawer-acc-fl">{secMenu==="gestion"?"▾":"▸"}</span></button>
             {secMenu==="gestion" && (<>
+              <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("midia");}}>
+                <span className="di-ic" style={{background:"#E8F0F7",color:"#1B3A5C"}}><Ico n="stats" c="#1B3A5C" s={19}/></span>
+                <div style={{flex:1}}><div className="di-t">Mi día</div>
+                  <div className="di-s">Cuadre de caja y cierre diario</div></div>
+                <span className="di-a">›</span>
+              </button>
               <button className="drawer-it" onClick={()=>{setMenuAbierto(false);navegar("portafolio");}}>
                 <span className="di-ic" style={{background:"#FBF0D8",color:"#C77F00"}}><Ico n="docs" c="#C77F00" s={19}/></span>
                 <div style={{flex:1}}><div className="di-t">Portafolio de marcas</div>
