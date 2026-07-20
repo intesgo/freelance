@@ -2864,6 +2864,8 @@ const PENDIENTES_SYNC = [
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas.
    Norma sellada: los textos informativos no ensucian los módulos; se consultan cuando hacen falta. */
 const COMO_FUNCIONA = [
+  {mod:"Apariencia", ic:"👆", t:"Deslizar para cambiar de página",
+   d:"En las listas largas puedes arrastrar el dedo de derecha a izquierda para avanzar de página, y al revés para volver. Los botones Anterior y Siguiente siguen ahí: el gesto es solo un atajo. Los puntitos de abajo muestran en qué página estás."},
   {mod:"Clientes", ic:"↪", t:"Facturar a nombre de un tercero",
    d:"Algunos clientes piden que la factura salga a nombre de otra persona o empresa. Esos nombres quedan guardados en su ficha y puedes buscar al cliente por cualquiera de ellos."},
   {mod:"Clientes", ic:"🧾", t:"Cheques y documentos del cliente",
@@ -4538,7 +4540,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"284", fecha:"20 jul 2026", desc:"Cartera: entrada con mini-dashboard"};
+const VERSION={n:"285", fecha:"20 jul 2026", desc:"Deslizar para cambiar de pagina"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -7052,6 +7054,7 @@ function Boveda({toast, yo}){
         </div>
       </div>
 
+      <Deslizable pag={pagAct} total={totPags} onPag={setPagH}>
       {movsPag.map((t,i)=>{
         const entregue = t.de===yo;
         return (
@@ -7100,6 +7103,8 @@ function Boveda({toast, yo}){
           </div>
         );
       })}
+      </Deslizable>
+      <PuntosPag pag={pagAct} total={totPags}/>
 
       {movsFiltrados.length===0 && <div className="ph" style={{marginTop:14}}>
         Aún no hay movimientos registrados.</div>}
@@ -7627,6 +7632,7 @@ function Verificacion({toast, yo}){
         todos="__" etiquetaTodos="Todos los cobradores"/>
     </div>
 
+    <Deslizable pag={pagAct} total={totPag} onPag={setPag}>
     {lista.map(c=>(
       <button key={c.nRecibo} className="card" style={{width:"100%",padding:"12px 14px",
         marginBottom:8,border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",
@@ -7648,6 +7654,9 @@ function Verificacion({toast, yo}){
         </div>
       </button>
     ))}
+
+    </Deslizable>
+    <PuntosPag pag={pagAct} total={totPag}/>
 
     {base.length===0 && <div className="ph" style={{marginTop:14}}>
       {q||fCob!=="Todos" ? "Ningún cobro coincide." : "No hay cobros en este estado."}</div>}
@@ -7991,6 +8000,7 @@ function MiDia({toast}){
         return (<>
           <div className="meta" style={{fontSize:11.5,marginBottom:10}}>
             Cierres anteriores · consulta de solo lectura</div>
+          <Deslizable pag={pag} total={tot} onPag={setPagHist}>
           {dias.map(d=>{
             const act = (d.recibos||[]).filter(r=>!r.anulado);
             const tt = act.reduce((a,r)=>a+r.monto,0);
@@ -8015,6 +8025,8 @@ function MiDia({toast}){
               </button>
             );
           })}
+          </Deslizable>
+          <PuntosPag pag={pag} total={tot}/>
           {tot>1 && (
             <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginTop:10}}>
               <button className="back" style={{padding:"9px 14px"}} disabled={pag<=1}
@@ -9263,6 +9275,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
       </div>
     )}
 
+    <Deslizable pag={pagina} total={totalPag} onPag={setPagina}>
     {visibles.map(p=>{
       const monto=p.cant*p.precio;
       const fechaCorta=(()=>{ const d=new Date(p.fecha+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
@@ -9299,6 +9312,9 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
       );
     })}
     {ordenada.length===0 && <div className="ph">{pestana==="historial"?"Aún no tienes pedidos con comisión liberada.":"Sin pedidos que coincidan."}</div>}
+
+    </Deslizable>
+    <PuntosPag pag={pagina} total={totalPag}/>
 
     {/* paginación */}
     {totalPag>1 && (
@@ -10152,6 +10168,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       const visiblesF=listaOrd.slice((pagF-1)*POR_PAG, pagF*POR_PAG);
       return (<>
       <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
+      <Deslizable pag={pagF} total={totalPagF} onPag={setPagFac}>
       {visiblesF.map((it,i)=>{
         const colVenc = it.v==="bad"?"var(--clay)":it.v==="warn"?"#B8860B":"var(--muted)";
         /* el estado se lee de un vistazo: barra lateral + fondo suave */
@@ -10180,6 +10197,9 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
         );
       })}
       {listaOrd.length===0 && <div className="ph">Ninguna factura coincide con los filtros aplicados.</div>}
+
+      </Deslizable>
+      <PuntosPag pag={pagF} total={totalPagF}/>
 
       {totalPagF>1 && (
         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,margin:"14px 0 4px"}}>
@@ -10617,6 +10637,65 @@ function Potenciales({toast}){
 }
 
 /* ── Dictado por voz: botón de micrófono reutilizable para campos de búsqueda ── */
+/* ══ DESLIZAR PARA CAMBIAR DE PÁGINA ══
+   En el celular, arrastrar de derecha a izquierda avanza y al revés retrocede.
+   Cuidados: (1) se ignoran los 30 px de cada borde para no pelear con el gesto
+   "atrás" de Android; (2) el recorrido debe superar 60 px y ser más horizontal
+   que vertical, para no dispararse al hacer scroll normal; (3) los botones
+   Anterior/Siguiente se quedan: el gesto es un atajo, no el único camino.
+   Uso: <Deslizable pag={p} total={t} onPag={setP}> …filas… </Deslizable> */
+function Deslizable({ pag, total, onPag, children }){
+  const ini = React.useRef(null);
+  const [arrastre, setArrastre] = useState(0);   // px de desplazamiento visual
+  const BORDE = 30, MINIMO = 60;
+
+  const empezar = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    const ancho = window.innerWidth || 400;
+    if (t.clientX < BORDE || t.clientX > ancho - BORDE) { ini.current = null; return; }
+    ini.current = { x: t.clientX, y: t.clientY };
+  };
+  const mover = (e) => {
+    if (!ini.current || !total || total <= 1) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - ini.current.x, dy = t.clientY - ini.current.y;
+    if (Math.abs(dy) > Math.abs(dx)) { ini.current = null; setArrastre(0); return; }  // es scroll
+    /* no deja arrastrar más allá de la primera ni de la última */
+    const tope = (dx > 0 && pag <= 1) || (dx < 0 && pag >= total);
+    setArrastre(Math.max(-90, Math.min(90, tope ? dx * 0.25 : dx)));
+  };
+  const soltar = () => {
+    const dx = arrastre;
+    ini.current = null; setArrastre(0);
+    if (!total || total <= 1 || Math.abs(dx) < MINIMO) return;
+    if (dx < 0 && pag < total) onPag(p => Math.min(total, p + 1));
+    if (dx > 0 && pag > 1)     onPag(p => Math.max(1, p - 1));
+  };
+
+  return (
+    <div onTouchStart={empezar} onTouchMove={mover} onTouchEnd={soltar} onTouchCancel={soltar}
+      style={{ touchAction:"pan-y", transform:`translateX(${arrastre}px)`,
+        transition: arrastre ? "none" : "transform .18s ease-out" }}>
+      {children}
+    </div>
+  );
+}
+
+/* Puntitos de posición, como en una galería de fotos. */
+function PuntosPag({ pag, total }){
+  if (!total || total <= 1) return null;
+  const max = 7, desde = total <= max ? 1 : Math.max(1, Math.min(pag - 3, total - max + 1));
+  const cuantos = Math.min(max, total);
+  return (
+    <div className="row" style={{justifyContent:"center",gap:6,marginTop:10}}>
+      {Array.from({length:cuantos}, (_,i)=>desde+i).map(n=>(
+        <span key={n} style={{width: n===pag?18:6, height:6, borderRadius:99,
+          background: n===pag ? "var(--field)" : "#D9D3C4", transition:"width .18s" }}/>
+      ))}
+    </div>
+  );
+}
+
 function MicBtn({onTexto, toast}){
   const [rec,setRec]=useState(false);
   const refRec=React.useRef(null);
@@ -12488,6 +12567,7 @@ function ListaPrecios({pedirCon}){
           render={ln=>`${EMOJI_LINEA[ln]||""} ${ln}`}/>
       </div>
 
+      <Deslizable pag={pag} total={totPag} onPag={setPagHist}>
       {Object.keys(porLnH).sort().map(ln=>(
         <div key={ln} style={{marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",gap:9,margin:"0 2px 7px"}}>
@@ -12514,6 +12594,9 @@ function ListaPrecios({pedirCon}){
           ))}
         </div>
       ))}
+      </Deslizable>
+      <PuntosPag pag={pag} total={totPag}/>
+
       {filtr.length===0 && <div className="ph">Sin cambios que coincidan.</div>}
 
       {totPag>1 && (
