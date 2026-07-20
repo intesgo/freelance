@@ -4538,7 +4538,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"283", fecha:"20 jul 2026", desc:"Textos informativos a la campanilla"};
+const VERSION={n:"284", fecha:"20 jul 2026", desc:"Cartera: entrada con mini-dashboard"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -9903,16 +9903,97 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       <button className={pestana==="facturas"?"on":""} onClick={()=>setPestana("facturas")}>Facturas</button>
       </div>
 
-    {pestana==="resumen" && <div className="hero-mini" style={{marginTop:0,marginBottom:14}}>
-      <div>
-        <div className="hm-lbl">Total por cobrar</div>
-        <div className="hm-big num">{money(total)}</div>
+    {/* ENTRADA DEL MÓDULO · norma sellada: buscador arriba + mini-dashboard accionable.
+        Cada tarjeta abre la pestaña Facturas ya filtrada; la entrada nunca es solo una lista. */}
+    {pestana==="resumen" && (<>
+      <div className="ss">
+        <div className="box"><span className="mag">⌕</span>
+          <input value={q} placeholder="Buscar cliente o factura…"
+            onChange={e=>{ setQ(e.target.value); if(e.target.value) setPestana("facturas"); }}/>
+          {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
+          <MicBtn onTexto={t=>{ setQ(t); if(t) setPestana("facturas"); }} toast={toast}/></div>
       </div>
-      <div className="hm-side">
-        <div className="hm-k">Pendientes · {lista.length}</div>
-        <div className="hm-k" style={{color:nVenc>0?"#C2603A":"var(--muted)"}}>Vencidas · {nVenc} · {money(montoVenc)}</div>
+
+      <div className="ndash">
+
+        {/* 1 · Total por cobrar, con la antigüedad en barras */}
+        <div className="ncard" onClick={()=>{setFEstado("Todos");setPestana("facturas");}}>
+          <div className="nk">Total por cobrar</div>
+          <div className="nv money">{money(total)}</div>
+          <div className="nbars">
+            {tramos.filter(t=>t.monto>0).map(t=>(
+              <div key={t.k} style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:9.5,color:"var(--muted)",width:44,flexShrink:0}}>{t.k}</span>
+                <span style={{flex:1,height:6,borderRadius:4,background:"#EFEBE0",overflow:"hidden"}}>
+                  <span style={{display:"block",height:"100%",borderRadius:4,
+                    width:`${Math.round(t.monto/maxTramo*100)}%`,background:t.color}}/>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="nsub">{lista.length} factura{lista.length!==1?"s":""} pendiente{lista.length!==1?"s":""}</div>
+        </div>
+
+        {/* 2 · Vencido, con el % de morosidad */}
+        <div className="ncard" onClick={()=>{setFEstado("vencidas");setPestana("facturas");}}>
+          <div className="nk">Vencido</div>
+          <div className="nring-wrap">
+            <div className="nring" style={{background:`conic-gradient(#C2603A 0 ${morosidadPct}%, #EFEBE0 ${morosidadPct}% 100%)`}}>
+              <div className="hole"><b style={{fontSize:15}}>{morosidadPct}%</b><span>vencido</span></div>
+            </div>
+            <div className="nleg">
+              <span className="num" style={{fontSize:13,fontWeight:700,color:"#C2603A"}}>{money(montoVenc)}</span>
+              <span>{nVenc} factura{nVenc!==1?"s":""}</span>
+              {diasProm>0 && <span>{diasProm} días promedio</span>}
+            </div>
+          </div>
+          <div className="nsub">Toca para ver solo las vencidas</div>
+        </div>
+
+        {/* 3 · Lo que vence esta semana: el dato accionable */}
+        <div className="ncard" onClick={()=>{setFEstado("porvencer");setPestana("facturas");}}>
+          <div className="nk">Vence esta semana</div>
+          <div className="nv" style={{color:proximos.length>0?"#C9A227":"var(--field)"}}>{proximos.length}</div>
+          <div className="nbars">
+            {proximos.slice(0,3).map((p,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",gap:6}}>
+                <span style={{fontSize:10,color:"var(--muted)",overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
+                <span className="num" style={{fontSize:10,flexShrink:0}}>en {Math.abs(p.dias)}d</span>
+              </div>
+            ))}
+            {proximos.length===0 && <span style={{fontSize:10.5,color:"var(--muted)"}}>Nada vence en 7 días</span>}
+          </div>
+          <div className="nsub">{money(proximos.reduce((a,p)=>a+p.saldo,0))} por cobrar</div>
+        </div>
+
+        {/* 4 · Quién debe más */}
+        <div className="ncard" onClick={()=>{setFEstado("vencidas");setPestana("facturas");}}>
+          <div className="nk">Quién debe más</div>
+          <div className="nbars" style={{marginTop:4}}>
+            {topDeudores.slice(0,3).map((d,i)=>{
+              const maxD=Math.max(...topDeudores.map(x=>x.saldo),1);
+              return (
+                <div key={i}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
+                    <span style={{fontSize:10,fontWeight:600,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.cli}</span>
+                    <span className="num" style={{fontSize:10,flexShrink:0}}>{money(d.saldo)}</span>
+                  </div>
+                  <span style={{display:"block",height:5,borderRadius:3,background:"#EFEBE0",overflow:"hidden"}}>
+                    <span style={{display:"block",height:"100%",borderRadius:3,
+                      width:`${Math.round(d.saldo/maxD*100)}%`,background:"#C2603A"}}/>
+                  </span>
+                </div>
+              );
+            })}
+            {topDeudores.length===0 && <span style={{fontSize:10.5,color:"var(--muted)"}}>Sin facturas vencidas</span>}
+          </div>
+          <div className="nsub">{concentracion}% de la cartera en 2 clientes</div>
+        </div>
+
       </div>
-    </div>}
+    </>)}
 
     {pestana==="facturas" && <div className="cf-barra">
       <div className="ss" style={{flex:1,margin:0}}>
