@@ -1612,6 +1612,187 @@ function imgComprobante(d){
   }
 }
 
+/* ══ ESTADO DE CUENTA EN IMAGEN (PNG, A6) ══
+   Sale en el formato que el cliente tiene definido en su ficha (FORMATO_EC),
+   con los saldos YA actualizados tras el cobro. Solo se envía si queda saldo. */
+function imgEstadoCuenta(d){
+  const W=826, P=46;
+  const money2=n=>"$"+Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const F=(px,peso)=>`${peso||600} ${px}px Inter, system-ui, -apple-system, sans-serif`;
+  const VERDE="#15392B", MAIZ="#C77F00", CLAY="#B5613C", TINTA="#18211C", GRIS="#6F7A6F", LINEA="#E7E1D3", CREMA="#F4F0E5";
+
+  const fmt = d.formato || "resumen";
+  const fs  = (d.facturas||[]).filter(f=>(f.saldo||0)>0.004);   /* solo lo que sigue pendiente */
+  const movs= (d.movimientos||[]).slice(-8);                     /* cuenta corriente: últimos movimientos */
+  const tot = Math.round(fs.reduce((s,f)=>s+(f.saldo||0),0)*100)/100;
+
+  /* alto según el formato */
+  let filas = fmt==="cuenta" ? movs.length
+            : fmt==="simple" ? 2
+            : fmt==="resumen" ? 4
+            : fs.length;
+  let H = Math.max(1165, 420 + filas*46 + 180);
+
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const x=c.getContext("2d");
+  x.fillStyle="#F7F5EF"; x.fillRect(0,0,W,H);
+  x.fillStyle="#fff"; redonda(x,P,P,W-P*2,H-P*2,22); x.fill();
+
+  const IX=P+34, IW=W-P*2-68;
+  let y=P+58;
+
+  /* cabecera */
+  x.textAlign="center";
+  x.fillStyle=VERDE; x.font=F(21,800); x.fillText("ESTADO DE CUENTA", W/2, y);
+  y+=30; x.fillStyle=TINTA; x.font=F(19,700);
+  x.fillText(recorta(x,String(d.cli||"—"),IW), W/2, y);
+  y+=26; x.fillStyle=GRIS; x.font=F(14,500);
+  x.fillText("Actualizado" + (d.nRecibo?(" tras "+d.nRecibo):"") + " · " + (d.fecha||fechaHoy()), W/2, y);
+  x.textAlign="left";
+  y+=22; punteada(y); y+=36;
+
+  /* saldo total, siempre arriba */
+  x.fillStyle=CREMA; redonda(x,IX,y-26,IW,72,14); x.fill();
+  x.fillStyle=GRIS; x.font=F(14,700); x.fillText("SALDO PENDIENTE", IX+22, y+2);
+  x.fillStyle=tot>0?MAIZ:"#2E7D52"; x.font=F(30,800); x.textAlign="right";
+  x.fillText(money2(tot), IX+IW-22, y+24); x.textAlign="left";
+  y+=76;
+
+  if(fs.length===0 && fmt!=="cuenta"){
+    x.fillStyle="#2E7D52"; x.font=F(18,700); x.textAlign="center";
+    x.fillText("✓ Sin facturas pendientes", W/2, y+30); x.textAlign="left";
+    return c;
+  }
+
+  /* ── cada formato dibuja lo suyo ── */
+  if(fmt==="simple"){
+    sec("RESUMEN");
+    fila("Facturas pendientes", String(fs.length));
+    if(fs[0]) fila("Próximo vencimiento", money2(fs[0].saldo)+" · "+fs[0].vence);
+  }
+  else if(fmt==="calendario"){
+    sec("POR FECHA DE VENCIMIENTO");
+    cabecera("VENCE","VALOR");
+    fs.forEach(f=>{ linea(f.vence, money2(f.saldo), vencida(f.vence)); });
+    totalFila();
+  }
+  else if(fmt==="cuenta"){
+    sec("CUENTA CORRIENTE");
+    cabecera("MOVIMIENTO","DEBE / HABER");
+    let acum=0;
+    movs.forEach(m=>{
+      const v = m.debe!=null ? m.debe : -(m.haber||0);
+      acum+=v;
+      const txt = (m.debe!=null?"+":"−")+money2(Math.abs(v));
+      linea(`${m.fecha} · ${m.concepto}`, txt, m.debe==null);
+    });
+    totalFila();
+  }
+  else if(fmt==="liq"){
+    sec("LIQUIDACIÓN");
+    fila("Saldo anterior", money2(d.saldoAnterior||0));
+    fila("Pago recibido", "−"+money2(d.pago||0));
+    fila("Facturas pendientes", String(fs.length));
+    totalFila();
+  }
+  else if(fmt==="resumen"){
+    sec("RESUMEN POR ANTIGÜEDAD");
+    const venc = fs.filter(f=>vencida(f.vence));
+    const alDia= fs.filter(f=>!vencida(f.vence));
+    const sv=Math.round(venc.reduce((s,f)=>s+f.saldo,0)*100)/100;
+    const sd=Math.round(alDia.reduce((s,f)=>s+f.saldo,0)*100)/100;
+    fila(`Vencido (${venc.length})`, money2(sv), sv>0);
+    fila(`Por vencer (${alDia.length})`, money2(sd));
+    if(fs[0]) fila("Próximo vencimiento", money2(fs[0].saldo)+" · "+fs[0].vence);
+  }
+  else { /* "factura": detalle por documento */
+    sec("DETALLE POR FACTURA");
+    cabecera("FACTURA","SALDO");
+    fs.forEach(f=>{ linea(f.factura+"  ·  "+f.vence, money2(f.saldo), vencida(f.vence)); });
+    totalFila();
+  }
+
+  /* pie */
+  x.fillStyle=GRIS; x.font=F(13,500); x.textAlign="center";
+  x.fillText("Documento informativo · FREELANCE", W/2, H-P-24);
+  x.textAlign="left";
+  return c;
+
+  function sec(t){ y+=10; x.fillStyle=GRIS; x.font=F(14,700); x.fillText(t, IX, y); y+=30; }
+  function cabecera(a,b){
+    x.fillStyle=VERDE; redonda(x,IX,y-20,IW,34,8); x.fill();
+    x.fillStyle="#EAF0EA"; x.font=F(13,700);
+    x.fillText(a, IX+14, y+2);
+    x.textAlign="right"; x.fillText(b, IX+IW-14, y+2); x.textAlign="left";
+    y+=38;
+  }
+  function linea(izq, der, alerta){
+    x.strokeStyle=LINEA; x.lineWidth=1;
+    x.beginPath(); x.moveTo(IX,y+14); x.lineTo(IX+IW,y+14); x.stroke();
+    x.fillStyle=alerta?CLAY:TINTA; x.font=F(16,500);
+    x.fillText(recorta(x,String(izq),IW-200), IX+2, y);
+    x.textAlign="right"; x.font=F(17,700);
+    x.fillText(String(der), IX+IW-2, y); x.textAlign="left";
+    y+=42;
+  }
+  function fila(izq, der, alerta){
+    x.fillStyle=TINTA; x.font=F(16,500); x.fillText(recorta(x,String(izq),IW-220), IX+2, y);
+    x.fillStyle=alerta?CLAY:TINTA; x.textAlign="right"; x.font=F(17,700);
+    x.fillText(String(der), IX+IW-2, y); x.textAlign="left"; x.fillStyle=TINTA;
+    y+=40;
+  }
+  function totalFila(){
+    y+=6;
+    x.fillStyle=CREMA; redonda(x,IX,y-22,IW,44,8); x.fill();
+    x.fillStyle=TINTA; x.font=F(15,800); x.fillText("TOTAL PENDIENTE", IX+14, y+4);
+    x.textAlign="right"; x.font=F(19,800); x.fillStyle=tot>0?MAIZ:"#2E7D52";
+    x.fillText(money2(tot), IX+IW-14, y+4); x.textAlign="left";
+    y+=48;
+  }
+  function vencida(v){ return /vencid/i.test(String(v||"")); }
+  function punteada(yy){
+    x.strokeStyle=LINEA; x.lineWidth=1.5; x.setLineDash([5,5]);
+    x.beginPath(); x.moveTo(IX,yy); x.lineTo(IX+IW,yy); x.stroke(); x.setLineDash([]);
+  }
+  function redonda(ctx,a,b,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(a+r,b); ctx.lineTo(a+w-r,b); ctx.quadraticCurveTo(a+w,b,a+w,b+r);
+    ctx.lineTo(a+w,b+h-r); ctx.quadraticCurveTo(a+w,b+h,a+w-r,b+h);
+    ctx.lineTo(a+r,b+h); ctx.quadraticCurveTo(a,b+h,a,b+h-r);
+    ctx.lineTo(a,b+r); ctx.quadraticCurveTo(a,b,a+r,b); ctx.closePath();
+  }
+  function recorta(ctx,t,max){
+    t=String(t);
+    if(ctx.measureText(t).width<=max) return t;
+    let s=t;
+    while(s.length>3 && ctx.measureText(s+"…").width>max) s=s.slice(0,-1);
+    return s+"…";
+  }
+  function fechaHoy(){
+    const n=new Date(), M=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return `${String(n.getDate()).padStart(2,"0")} ${M[n.getMonth()]} ${n.getFullYear()}`;
+  }
+}
+
+/* Comparte el estado de cuenta como imagen (solo si queda saldo) */
+async function compartirImgEstado(d, toast){
+  try{
+    const lienzo = imgEstadoCuenta(d);
+    const blob = await new Promise(r=>lienzo.toBlob(r, "image/png", 0.95));
+    if(!blob) return false;
+    const nombre = `Estado_${String(d.cli||"cliente").replace(/[^\wáéíóúñÁÉÍÓÚÑ]+/g,"_")}.png`;
+    const archivo = new File([blob], nombre, {type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      await navigator.share({files:[archivo], title:"Estado de cuenta"});
+      return true;
+    }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    return true;
+  }catch(e){ return false; }
+}
+
 /* Comparte el comprobante como imagen; si el equipo no lo permite, la descarga */
 async function compartirImgComprobante(d, toast){
   try{
@@ -3928,7 +4109,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"260", fecha:"19 jul 2026", desc:"VALIDAR COBRO: un boton hace todo"};
+const VERSION={n:"261", fecha:"19 jul 2026", desc:"Estado de cuenta en imagen, 6 formatos"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5888,15 +6069,30 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
     setEnviado(datos);
     setResumen(false);
     /* 6 · envío por WhatsApp: imagen A6 de UNA sola copia, al chat del cliente */
-    setTimeout(()=>{
+    setTimeout(async ()=>{
       const fcl=FICHA_CLIENTE[cli]||{};
-      compartirImgComprobante({
+      await compartirImgComprobante({
         ...datos,
         ruc: fcl.ruc,
         atendido: "Daniel Ríos · Freelance",
         fecha: `12 jun 2026 ${hora}`,
         obs: obsDe(datos).map(o=>OBS_TXT[o]||o),
       }, toast);
+      /* 7 · estado de cuenta actualizado, solo si al cliente le queda saldo */
+      if(saldoActual>0.004){
+        const rest={}; facturasRecibo.forEach(f=>{ rest[f.factura]=(f.saldoRest!=null?f.saldoRest:0); });
+        const pend=factsDe(cli)
+          .map(f=>({factura:f.factura, vence:f.vence,
+                    saldo: rest[f.factura]!=null ? rest[f.factura] : f.valor}))
+          .filter(f=>f.saldo>0.004);
+        setTimeout(()=>compartirImgEstado({
+          cli, nRecibo, fecha:`12 jun 2026 ${hora}`,
+          formato: FORMATO_EC[cli] || "resumen",
+          facturas: pend,
+          movimientos: (typeof MOVIMIENTOS_CLIENTE!=="undefined" && MOVIMIENTOS_CLIENTE[cli]) || [],
+          saldoAnterior, pago: monto,
+        }, toast), 600);
+      }
     }, 700);   /* deja terminar la descarga del PDF antes de abrir el menú de compartir */
     toast(`Cobro registrado ${nRecibo} · recibo impreso y listo para enviar`);
   };
