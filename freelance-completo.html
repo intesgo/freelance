@@ -2013,7 +2013,7 @@ const ESTADOS_DOC=["En tránsito","Depósito solicitado","Depositado","Cobrado",
 const ESTADO_DOC_COLOR={
   "En tránsito":"#C77F00","Depósito solicitado":"#7A5BA8","Depositado":"#3A6EA5","Cobrado":"#2E7D52","Devuelto":"#B5613C","Protestado":"#9A2A2A",
 };
-const COURIERS=["Servientrega","Laar Courier","Tramaco","Urbano Express","Correos del Ecuador","Otro"];
+const COURIERS=["Servientrega","Laar Courier","Tramaco","Urbano Express","Correos del Ecuador"];
 const ENTREGAS_INI=[
   {id:"E1", de:"Daniel Ríos", deRol:"Freelance", para:"Patricia Vélez", paraRol:"Financiero/Cartera",
    fecha:"24 jun 2026", estado:"pendiente", envio:"mano", docs:[
@@ -4158,7 +4158,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"272", fecha:"19 jul 2026", desc:"Todos: la tarjeta muestra solo el tenedor"};
+const VERSION={n:"273", fecha:"19 jul 2026", desc:"Bitacora de traspasos con courier, guia y PDF"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5927,12 +5927,103 @@ const DESTINOS_CHEQUE = [
   "Ingenio San Pablo (Proveedor)",
   "Molinos del Litoral (Proveedor)",
 ];
+/* Empresas de courier: arranca con las conocidas del país y crece con lo que el usuario escriba */
+const addCourier = (nom)=>{ const n=String(nom||"").trim();
+  if(n && !COURIERS.some(c=>c.toLowerCase()===n.toLowerCase())) COURIERS.push(n); return n; };
+
 /* Traspasos en curso: esperan que el destinatario ingrese el código */
 const TRASPASOS_PEND = [];
+/* BITÁCORA de traspasos cerrados: nunca se borra, es el respaldo de la entrega */
+const TRASPASOS_HECHOS = [
+  {numero:"CHQ-008830", cli:"Comercial Mendoza", valor:700,
+   de:"Carlos Andrade (Cobrador)", para:"Patricia Vélez (Logística)", cod:"418207",
+   via:"courier", courier:"Servientrega", guia:"SRV-8841203", guiaFoto:true,
+   despacho:"2026-05-30 15:20", confirmado:"2026-05-31 09:15", au:"AU-260531-1042"},
+  {numero:"CHQ-008830", cli:"Comercial Mendoza", valor:700,
+   de:"Patricia Vélez (Logística)", para:"Daniel Ríos (Freelance)", cod:"730195",
+   via:"mano", despacho:"2026-06-01 14:10", confirmado:"2026-06-01 14:30", au:"AU-260601-2218"},
+  {numero:"CHQ-009120", cli:"Mayorista Santa Rosa", valor:1200,
+   de:"Carlos Andrade (Cobrador)", para:"Daniel Ríos (Freelance)", cod:"552881",
+   via:"courier", courier:"Laar Courier", guia:"LAR-2290117", guiaFoto:true,
+   despacho:"2026-05-19 11:40", confirmado:"2026-05-20 10:00", au:"AU-260520-3307"},
+  {numero:"CHQ-006611", cli:"Bodega El Agricultor", valor:850,
+   de:"Carlos Andrade (Cobrador)", para:"Patricia Vélez (Logística)", cod:"196340",
+   via:"mano", despacho:"2026-05-26 08:45", confirmado:"2026-05-26 09:00", au:"AU-260526-1185"},
+];
+
+/* PDF de la bitácora de traspasos (respaldo ante reclamos) */
+function pdfBitacora(filas, yo, toast){
+  if(!window.jspdf){ toast && toast("El generador de PDF aún está cargando; intenta de nuevo"); return; }
+  const P=t=>String(t==null?"":t).replace(/―/g,"-").replace(/…/g,"...")
+    .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+  const doc=new window.jspdf.jsPDF({orientation:"landscape"});
+  const VERDE=[21,57,43], GRIS=[110,120,110], CREMA=[244,240,229];
+  doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(...VERDE);
+  doc.text("FREELANCE",14,17);
+  doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRIS);
+  doc.text("Bitacora de traspaso de cheques",14,22);
+  doc.text(P(yo),283,13,{align:"right"});
+  doc.text("Emitido 19 jul 2026",283,18,{align:"right"});
+  doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30);
+  doc.text("Movimientos de cheques",14,32);
+  doc.setDrawColor(...VERDE); doc.setLineWidth(.6); doc.line(14,36,283,36);
+
+  const total = filas.reduce((s,f)=>s+(f.valor||0),0);
+  const cuerpo = filas.map(f=>[
+    P(f.numero), P(f.cli),
+    {content:money(f.valor||0), styles:{halign:"right"}},
+    P(f.de), P(f.para),
+    P(f.via==="courier" ? `${f.courier||"Courier"} · ${f.guia||"sin guia"}` : "En mano"),
+    P(f.despacho), P(f.confirmado), P(f.cod), P(f.au),
+  ]);
+  cuerpo.push([{content:"TOTAL",colSpan:2,styles:{fontStyle:"bold"}},
+    {content:money(total),styles:{halign:"right",fontStyle:"bold"}},
+    "","","","","","",""]);
+
+  doc.autoTable({ startY:41, margin:{left:14,right:14}, theme:"grid",
+    styles:{font:"helvetica",fontSize:7.4,cellPadding:2,textColor:[30,30,30],
+      lineColor:[150,150,150],lineWidth:0.3},
+    headStyles:{fillColor:VERDE,textColor:255,fontStyle:"bold",fontSize:7.4},
+    bodyStyles:{valign:"middle"},
+    head:[["CHEQUE","CLIENTE","VALOR","ENTREGA","RECIBE","VIA / GUIA","DESPACHO","CONFIRMADO","CODIGO","AUDITORIA"]],
+    body:cuerpo,
+    columnStyles:{0:{cellWidth:24},2:{cellWidth:20},6:{cellWidth:26},7:{cellWidth:26},
+      8:{cellWidth:18},9:{cellWidth:28}},
+    didParseCell:d=>{ if(d.row.index===cuerpo.length-1) d.cell.styles.fillColor=CREMA; },
+  });
+  let y=doc.lastAutoTable.finalY+8;
+  doc.setFont("helvetica","normal"); doc.setFontSize(7.2); doc.setTextColor(...GRIS);
+  doc.text("Cada traspaso se confirma con un codigo de un solo uso que ingresa quien recibe el cheque.",14,y);
+  doc.text("El courier es una empresa externa: se registra la guia como respaldo, pero no valida la entrega.",14,y+4);
+  doc.text("La responsabilidad del cheque es de quien despacha hasta que el destinatario confirma.",14,y+8);
+  return doc;
+}
+
+async function compartirBitacora(filas, yo, toast){
+  const doc = pdfBitacora(filas, yo, toast);
+  if(!doc) return;
+  const nombre = "Bitacora_cheques.pdf";
+  try{
+    const blob = doc.output("blob");
+    const archivo = new File([blob], nombre, {type:"application/pdf"});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){
+      await navigator.share({files:[archivo], title:"Bitacora de traspaso de cheques"});
+      return;
+    }
+    doc.save(nombre);
+  }catch(e){ try{ doc.save(nombre); }catch(_){ toast && toast("No se pudo compartir el PDF"); } }
+}
 
 function Boveda({toast, yo, volver}){
-  const [tabB,setTabB]=useState("mios");   // mios | todos
+  const [tabB,setTabB]=useState("mios");   // mios | todos | historial
   const [subT,setSubT]=useState("custodia"); // custodia | depositados  (dentro de "Todos")
+  const [subH,setSubH]=useState("todos");    // todos | entregados | recibidos (dentro de "Historial")
+  const [pagH,setPagH]=useState(1);          // paginación de la bitácora
+  const [via,setVia]=useState("mano");       // mano | courier
+  const [courEmp,setCourEmp]=useState("");   // empresa de courier elegida
+  const [courOtro,setCourOtro]=useState(""); // nombre nuevo escrito por el usuario
+  const [courGuia,setCourGuia]=useState(""); // número de guía
+  const [courFoto,setCourFoto]=useState(false); // foto de la guía tomada
   const [q,setQ]=useState("");
   const [qT,setQT]=useState("");
   const [sel,setSel]=useState(null);        // cheque abierto
@@ -5985,6 +6076,22 @@ function Boveda({toast, yo, volver}){
   const porEntregar = lista.filter(c=>!(c.permiso && new Date(c.permiso.vence)>=hoy));
   const quietos = lista.filter(c=>diasQuieto(c)>=DIAS_QUIETO_ALERTA);
   const paraMi = TRASPASOS_PEND.filter(t=>t.para===yo);
+  /* despachados por mí que aún nadie confirma: siguen bajo mi responsabilidad */
+  const enCamino = TRASPASOS_PEND.filter(t=>t.de===yo);
+  const horasDesde = f=>{ const d=new Date(String(f).replace(" ","T"));
+    return isNaN(d)?0:Math.max(0,Math.round((new Date("2026-07-19T12:00")-d)/3600000)); };
+  const esperaTxt = f=>{ const h=horasDesde(f);
+    return h<24 ? `${h} h esperando` : `${Math.floor(h/24)} d esperando`; };
+
+  /* ── bitácora: lo que pasó por mis manos, en las dos direcciones ── */
+  const misMovs = TRASPASOS_HECHOS.filter(t=>t.de===yo || t.para===yo)
+    .slice().sort((a,b)=>(b.confirmado||"")<(a.confirmado||"")?-1:1);
+  const movsFiltrados = subH==="entregados" ? misMovs.filter(t=>t.de===yo)
+    : subH==="recibidos" ? misMovs.filter(t=>t.para===yo) : misMovs;
+  const POR_PAG = 10;
+  const totPags = Math.max(1, Math.ceil(movsFiltrados.length/POR_PAG));
+  const pagAct = Math.min(pagH, totPags);
+  const movsPag = movsFiltrados.slice((pagAct-1)*POR_PAG, pagAct*POR_PAG);
 
   /* ── TODOS: vista global del negocio ── */
   const pendTodos = CHEQUES_POSF.filter(c=>c.estado!=="efectivizado");
@@ -5998,24 +6105,41 @@ function Boveda({toast, yo, volver}){
 
   const generarCodigo=()=>{
     if(!destino){ toast("Elige a quién entregas el cheque"); return; }
+    const empresa = via==="courier" ? (courEmp==="__otro" ? addCourier(courOtro) : courEmp) : "";
+    if(via==="courier"){
+      if(!empresa){ toast("Indica la empresa de courier"); return; }
+      if(!courGuia.trim()){ toast("Ingresa el número de guía"); return; }
+    }
     const cod = String(Math.floor(100000+Math.random()*900000));
-    TRASPASOS_PEND.push({ numero:entregando.numero, de:yo, para:destino, cod,
+    TRASPASOS_PEND.push({ numero:entregando.numero, cli:entregando.cli, valor:entregando.valor,
+      de:yo, para:destino, cod, via,
+      courier:empresa||undefined, guia:via==="courier"?courGuia.trim():undefined, guiaFoto:courFoto,
       cuando:new Date().toISOString().slice(0,16).replace("T"," ") });
     setCodigoGen(cod);
-    toast("Código generado · el cheque sigue en tus manos hasta que lo confirmen");
+    toast(via==="courier"
+      ? "Código generado · el cheque sigue bajo tu responsabilidad hasta que lo confirmen"
+      : "Código generado · el cheque sigue en tus manos hasta que lo confirmen");
   };
   const confirmarRecibo=()=>{
     const i = TRASPASOS_PEND.findIndex(t=>t.para===yo && t.cod===codigoIng.trim());
     if(i<0){ toast("Código incorrecto o no es para ti"); return; }
     const t = TRASPASOS_PEND[i];
+    const au = `AU-260719-${Math.floor(1000+Math.random()*9000)}`;
+    const ahora = new Date().toISOString().slice(0,16).replace("T"," ");
     const ch = CHEQUES_POSF.find(c=>c.numero===t.numero);
     if(ch){
       ch.tenedor = yo;
-      (ch.traza=ch.traza||[]).push({ev:"traspaso", quien:yo, f:t.cuando, d:`${t.de} → ${yo}`});
+      (ch.traza=ch.traza||[]).push({ev:"traspaso", quien:yo, f:ahora,
+        d:`${t.de} → ${yo}`, cod:t.cod, via:t.via, courier:t.courier, guia:t.guia, au});
     }
+    /* la bitácora conserva el traspaso: nunca se borra */
+    TRASPASOS_HECHOS.push({ numero:t.numero, cli:t.cli||(ch&&ch.cli)||"—",
+      valor:t.valor||(ch&&ch.valor)||0, de:t.de, para:yo, cod:t.cod, via:t.via||"mano",
+      courier:t.courier, guia:t.guia, guiaFoto:t.guiaFoto,
+      despacho:t.cuando, confirmado:ahora, au });
     TRASPASOS_PEND.splice(i,1);
     setRecibiendo(false); setCodigoIng(""); setTick(x=>x+1);
-    toast(`Cheque ${t.numero} recibido · auditado AU-260719-${Math.floor(1000+Math.random()*9000)}`);
+    toast(`Cheque ${t.numero} recibido · auditado ${au}`);
   };
 
   /* ── FICHA DE UN CHEQUE (sirve para las dos pestañas) ── */
@@ -6110,7 +6234,12 @@ function Boveda({toast, yo, volver}){
               <div className="c">
                 <div className="tt">{t.quien}</div>
                 <div className="dd">{t.d}</div>
-                <div className="ff">{fCorta(t.f)}{fHora(t.f)?" · "+fHora(t.f):""}</div>
+                {t.via==="courier" && <div className="dd" style={{fontSize:11.5}}>
+                  📦 {t.courier}{t.guia?` · guía ${t.guia}`:""}</div>}
+                {t.cod && <div className="dd" style={{fontSize:11.5}}>
+                  Código validado {t.cod}</div>}
+                <div className="ff">{fCorta(t.f)}{fHora(t.f)?" · "+fHora(t.f):""}
+                  {t.au?` · ${t.au}`:""}</div>
               </div>
             </div>
           );
@@ -6156,7 +6285,8 @@ function Boveda({toast, yo, volver}){
 
       {esMio && (
         <button className="cta" style={{marginTop:14}}
-          onClick={()=>{ setEntregando(c); setDestino(""); setCodigoGen(null); }}>
+          onClick={()=>{ setEntregando(c); setDestino(""); setCodigoGen(null);
+            setVia("mano"); setCourEmp(""); setCourOtro(""); setCourGuia(""); setCourFoto(false); }}>
           🤝 Entregar este cheque</button>
       )}
 
@@ -6168,7 +6298,7 @@ function Boveda({toast, yo, volver}){
             {!codigoGen ? (<>
               <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
                 {entregando.cli} · {money(entregando.valor)}. Elige a quién se lo entregas; el cheque
-                sigue figurando en tus manos hasta que la otra persona confirme con el código.
+                sigue bajo tu responsabilidad hasta que la otra persona confirme con el código.
               </p>
               <div className="field"><label>Entregar a</label>
                 <select className="aj-sel" style={{width:"100%",padding:"12px"}}
@@ -6177,7 +6307,52 @@ function Boveda({toast, yo, volver}){
                   {DESTINOS_CHEQUE.filter(d=>d!==yo).map(d=><option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
-              <button className="cta" style={{width:"100%"}} onClick={generarCodigo}>Generar código</button>
+
+              <div className="field" style={{marginTop:10}}><label>¿Cómo lo envías?</label>
+                <div className="row" style={{gap:8,marginTop:4}}>
+                  <button className={"back"} style={{flex:1,padding:"11px 8px",
+                    background:via==="mano"?"var(--field)":undefined,
+                    color:via==="mano"?"#EAF0EA":undefined,
+                    fontWeight:via==="mano"?800:600}}
+                    onClick={()=>setVia("mano")}>🤝 En mano</button>
+                  <button className={"back"} style={{flex:1,padding:"11px 8px",
+                    background:via==="courier"?"var(--field)":undefined,
+                    color:via==="courier"?"#EAF0EA":undefined,
+                    fontWeight:via==="courier"?800:600}}
+                    onClick={()=>setVia("courier")}>📦 Por courier</button>
+                </div>
+              </div>
+
+              {via==="courier" && (<>
+                <div className="field" style={{marginTop:10}}><label>Empresa de courier</label>
+                  <select className="aj-sel" style={{width:"100%",padding:"12px"}}
+                    value={courEmp} onChange={e=>setCourEmp(e.target.value)}>
+                    <option value="">Elige…</option>
+                    {COURIERS.map(c=><option key={c} value={c}>{c}</option>)}
+                    <option value="__otro">➕ Otra empresa…</option>
+                  </select>
+                </div>
+                {courEmp==="__otro" && (
+                  <div className="field" style={{marginTop:10}}><label>Nombre de la empresa</label>
+                    <input value={courOtro} placeholder="Ej. Envíos del Litoral"
+                      onChange={e=>setCourOtro(e.target.value)}/>
+                    <div className="meta" style={{fontSize:11,marginTop:4}}>
+                      Se guarda en la lista para las próximas entregas.</div>
+                  </div>
+                )}
+                <div className="field" style={{marginTop:10}}><label>Número de guía</label>
+                  <input value={courGuia} placeholder="Ej. SRV-8841203"
+                    onChange={e=>setCourGuia(e.target.value)}/></div>
+                <button className="back" style={{width:"100%",marginTop:10,
+                  borderLeft:courFoto?"3px solid #2E7D52":undefined}}
+                  onClick={()=>{setCourFoto(true);toast("Foto de la guía tomada");}}>
+                  {courFoto?"✓ Foto de la guía tomada":"📷 Tomar foto de la guía"}</button>
+                <div className="meta" style={{fontSize:11.5,marginTop:8}}>
+                  El courier solo transporta: no confirma la entrega. Quien recibe el cheque
+                  valida con el código.</div>
+              </>)}
+
+              <button className="cta" style={{width:"100%",marginTop:12}} onClick={generarCodigo}>Generar código</button>
             </>) : (<>
               <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 10px"}}>
                 Dile este código a <b>{destino}</b> para que confirme la recepción:
@@ -6204,6 +6379,7 @@ function Boveda({toast, yo, volver}){
     <div className="eq-tabs">
       <button className={tabB==="mios"?"on":""} onClick={()=>setTabB("mios")}>Míos</button>
       <button className={tabB==="todos"?"on":""} onClick={()=>setTabB("todos")}>Todos</button>
+      <button className={tabB==="historial"?"on":""} onClick={()=>setTabB("historial")}>Historial</button>
     </div>
 
     {tabB==="mios" && (<>
@@ -6235,6 +6411,32 @@ function Boveda({toast, yo, volver}){
             {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
         </div>
       )}
+
+      {enCamino.length>0 && (<>
+        <div className="ficha-sec" style={{marginTop:14}}>En camino · esperando confirmación</div>
+        {enCamino.map(t=>(
+          <div key={t.cod} className="card" style={{padding:"11px 13px",marginBottom:8,
+            border:"1px solid var(--line)",borderLeft:"3px solid #2B6CB0"}}>
+            <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.cli||t.numero}</div>
+                <div className="meta" style={{fontSize:11}}>Para {t.para}</div>
+              </div>
+              <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(t.valor||0)}</b>
+            </div>
+            <div className="meta" style={{fontSize:11,marginTop:4}}>
+              {t.via==="courier" ? `📦 ${t.courier} · guía ${t.guia}` : "🤝 Entregado en mano"}
+              {" · "}{esperaTxt(t.cuando)}</div>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginTop:6}}>
+              <span className="meta" style={{fontSize:11}}>Código</span>
+              <b className="num" style={{fontSize:16,letterSpacing:".08em"}}>{t.cod}</b>
+            </div>
+            <div className="meta" style={{fontSize:11,marginTop:4,color:"#C98A2B",fontWeight:700}}>
+              Sigue bajo tu responsabilidad hasta que lo confirmen</div>
+          </div>
+        ))}
+      </>)}
 
       {porEntregar.length>0 && (<>
         <div className="ficha-sec" style={{marginTop:14}}>Por entregar al proveedor</div>
@@ -6355,6 +6557,91 @@ function Boveda({toast, yo, volver}){
         ))}
         {efectivos.length===0 && <div className="ph">{qT?"Ningún cheque coincide.":"Aún no hay cheques efectivizados."}</div>}
       </>)}
+    </>)}
+
+    {tabB==="historial" && (<>
+      <div className="sub" style={{marginTop:2}}>Cheques que pasaron por tus manos</div>
+
+      <div className="tipochips" style={{marginTop:12,marginBottom:12}}>
+        {[["todos","Todos"],["entregados","Entregados"],["recibidos","Recibidos"]].map(([k,lbl])=>(
+          <button key={k} className={"tchip"+(subH===k?" on":"")}
+            onClick={()=>{setSubH(k);setPagH(1);}}>
+            <span className="tchip-nom" style={subH===k?{color:"#fff"}:{color:"var(--ink)"}}>{lbl}</span></button>
+        ))}
+      </div>
+
+      <div className="card" style={{padding:"13px 16px",marginBottom:12}}>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+          <span style={{fontWeight:800,fontSize:14}}>
+            {movsFiltrados.length} movimiento{movsFiltrados.length!==1?"s":""}</span>
+          <b className="num" style={{fontSize:20,fontWeight:800}}>
+            {money(movsFiltrados.reduce((a,t)=>a+(t.valor||0),0))}</b>
+        </div>
+      </div>
+
+      {movsPag.map((t,i)=>{
+        const entregue = t.de===yo;
+        return (
+          <div key={t.au+i} className="card" style={{padding:"12px 14px",marginBottom:8,
+            border:"1px solid var(--line)",
+            borderLeft:`3px solid ${entregue?"#C98A2B":"#2E7D52"}`}}>
+            <div className="row" style={{justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.cli}</div>
+                <div className="meta" style={{fontSize:11}}>{t.numero}</div>
+              </div>
+              <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(t.valor||0)}</b>
+            </div>
+
+            <div className="meta" style={{fontSize:11.5,marginTop:6,fontWeight:700,
+              color:entregue?"#A06B15":"#2E7D52"}}>
+              {entregue ? `↗ Entregado a ${t.para}` : `↙ Recibido de ${t.de}`}</div>
+
+            <div className="meta" style={{fontSize:11,marginTop:4,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {t.via==="courier" ? `📦 ${t.courier} · guía ${t.guia}` : "🤝 En mano"}</div>
+
+            <div style={{borderTop:"1px solid var(--line)",marginTop:8,paddingTop:7}}>
+              <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
+                <span className="meta" style={{fontSize:11}}>Despacho</span>
+                <span style={{fontSize:11.5,fontWeight:600}}>{t.despacho}</span>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
+                <span className="meta" style={{fontSize:11}}>Confirmado</span>
+                <span style={{fontSize:11.5,fontWeight:600}}>{t.confirmado}</span>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
+                <span className="meta" style={{fontSize:11}}>Código validado</span>
+                <b className="num" style={{fontSize:12.5,letterSpacing:".06em"}}>{t.cod}</b>
+              </div>
+              <div className="row" style={{justifyContent:"space-between",padding:"2px 0"}}>
+                <span className="meta" style={{fontSize:11}}>Auditoría</span>
+                <span className="num" style={{fontSize:11,color:"var(--muted)"}}>{t.au}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {movsFiltrados.length===0 && <div className="ph" style={{marginTop:14}}>
+        Aún no hay movimientos registrados.</div>}
+
+      {totPags>1 && (
+        <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+          <button className="back" style={{padding:"9px 14px"}} disabled={pagAct<=1}
+            onClick={()=>setPagH(p=>Math.max(1,p-1))}>‹ Anterior</button>
+          <span className="meta" style={{fontSize:12}}>Página {pagAct} de {totPags}</span>
+          <button className="back" style={{padding:"9px 14px"}} disabled={pagAct>=totPags}
+            onClick={()=>setPagH(p=>Math.min(totPags,p+1))}>Siguiente ›</button>
+        </div>
+      )}
+
+      {movsFiltrados.length>0 && (
+        <button className="cta" style={{marginTop:14}}
+          onClick={()=>compartirBitacora(movsFiltrados, yo, toast)}>
+          📄 Compartir bitácora en PDF</button>
+      )}
     </>)}
 
     {/* recibir: ingresa el código que le dieron */}
