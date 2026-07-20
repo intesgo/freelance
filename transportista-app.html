@@ -281,7 +281,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const VERSION = { n:"2", fecha:"20 jul 2026", desc:"Migracion a React completa" };
+const VERSION = { n:"3", fecha:"20 jul 2026", desc:"Campanilla con Como funciona" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -853,7 +853,6 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
                 style={{ border:"1.5px solid var(--ok)", color:"var(--ok)", background:"#fff", borderRadius:10, padding:"9px 11px", fontSize:12, fontWeight:700, fontFamily:"inherit", cursor:"pointer" }}>Entregué en oficina ✓</button>
             </div>
           ))}
-          <div style={{ fontSize:11.5, color:"var(--muted)", padding:"9px 0 11px" }}>Al entregarlos en oficina inician su cadena de custodia (foto del receptor en el sistema).</div>
         </div>
       </>)}
 
@@ -1594,8 +1593,33 @@ function tareasNotifDe(rutaId){
   return t.filter((x)=>PREFS_NOTIF[x.tipo]);
 }
 
+/* ══ CÓMO FUNCIONA ══
+   Norma sellada: las notas explicativas NO van sueltas en la pantalla; viven en la
+   campanilla. Los avisos contextuales (respuesta a un estado concreto) sí se quedan. */
+const COMO_FUNCIONA = [
+  {mod:"Entrega", ic:"📦", t:"Si el cliente recibe menos",
+   d:"Registra lo que realmente entregaste. Lo que sobra vuelve a logística como devolución, y la factura y la comisión se ajustan sobre lo entregado, no sobre lo despachado."},
+  {mod:"Entrega", ic:"📷", t:"La foto es tu respaldo",
+   d:"La foto de la guía firmada es lo que prueba que entregaste. Sin ella, cualquier reclamo posterior queda en tu contra."},
+  {mod:"Entrega", ic:"⚠", t:"Cuando algo sale mal",
+   d:"Si el cliente está cerrado, rechaza la mercadería o hay un problema en ruta, registra la novedad en el momento. Después es tu palabra contra la de él."},
+  {mod:"Documentos", ic:"📄", t:"Documentos que traes de vuelta",
+   d:"Guías firmadas, cheques y retenciones que te dio el cliente. Al entregarlos en oficina inician su cadena de custodia: queda foto de quién los recibió."},
+  {mod:"Carga", ic:"🚚", t:"Revisa antes de salir",
+   d:"Lo que confirmes al cargar es lo que se te asigna. Si un bulto no subió al camión, dilo ahí: después ya figura como tuyo."},
+  {mod:"Pagos", ic:"💵", t:"Flete y estibada",
+   d:"El flete se liquida por viaje entregado. La estibada depende del acuerdo: a veces la paga el proveedor, a veces el freelance, a veces el cliente."},
+  {mod:"Pagos", ic:"↩️", t:"Reposición de estibada",
+   d:"Si pagaste la estibada de tu bolsillo, pide la reposición con el respaldo. Se te devuelve en el siguiente pago."},
+  {mod:"Solicitudes", ic:"⏳", t:"Anticipos y reposiciones",
+   d:"Las revisa el área financiera. Mientras estén en revisión no se pagan; cuando se aprueban entran al siguiente corte."},
+  {mod:"Ingreso", ic:"🔒", t:"Entrar con huella",
+   d:"Actívala y la próxima vez entras con un toque. Tu biometría nunca sale del teléfono: el sistema solo recibe un sí o un no."},
+];
+
 function Campana({ rutaId, onIr }){
   const [abierta, setAbierta] = useState(false);
+  const [tab, setTab] = useState("tareas");   // tareas | ayuda
   const tareas = tareasNotifDe(rutaId);
   const total = tareas.reduce((a,x)=>a+x.n,0);
   return (<>
@@ -1608,8 +1632,32 @@ function Campana({ rutaId, onIr }){
         style={{ position:"fixed", inset:0, background:"rgba(10,20,15,.45)", zIndex:1300, display:"flex", alignItems:"flex-start", justifyContent:"flex-end", padding:"calc(env(safe-area-inset-top,0px) + 104px) 12px 0" }}>
         <div style={{ width:"min(340px,92vw)", maxHeight:"70vh", overflowY:"auto", background:"#fff", borderRadius:16, boxShadow:"0 18px 50px rgba(0,0,0,.3)" }}>
           <div style={{ padding:"14px 16px 10px", borderBottom:"1px solid #EEF2EE", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <strong style={{ fontSize:16, color:"#123B2C" }}>🔔 Tus tareas de hoy</strong></div>
-          {tareas.length===0 ? (
+            <div style={{ display:"flex", gap:6 }}>
+              <button onClick={()=>setTab("tareas")}
+                style={{ border:"none", cursor:"pointer", borderRadius:99, padding:"7px 14px",
+                  fontSize:12.5, fontWeight:700,
+                  background: tab==="tareas"?"#1E4D3A":"#F3F6F3",
+                  color: tab==="tareas"?"#fff":"#5C6B60" }}>🔔 Tus tareas</button>
+              <button onClick={()=>setTab("ayuda")}
+                style={{ border:"none", cursor:"pointer", borderRadius:99, padding:"7px 14px",
+                  fontSize:12.5, fontWeight:700,
+                  background: tab==="ayuda"?"#1E4D3A":"#F3F6F3",
+                  color: tab==="ayuda"?"#fff":"#5C6B60" }}>Cómo funciona</button>
+            </div></div>
+          {tab==="ayuda" ? COMO_FUNCIONA.map((h,i)=>(
+            <div key={i} style={{ display:"flex", gap:12, alignItems:"flex-start",
+              borderBottom:"1px solid #F3F6F3", padding:"12px 16px" }}>
+              <span style={{ fontSize:18, marginTop:1 }}>{h.ic}</span>
+              <span style={{ flex:1, minWidth:0 }}>
+                <span style={{ display:"block", fontSize:10.5, fontWeight:700, color:"#1E4D3A",
+                  textTransform:"uppercase", letterSpacing:".03em" }}>{h.mod}</span>
+                <span style={{ display:"block", fontSize:13.5, fontWeight:700, color:"#123B2C",
+                  marginTop:2 }}>{h.t}</span>
+                <span style={{ display:"block", fontSize:11.5, color:"#5C6B60",
+                  marginTop:3, lineHeight:1.45 }}>{h.d}</span>
+              </span>
+            </div>
+          )) : tareas.length===0 ? (
             <p style={{ fontSize:13, color:"#5C6B60", padding:"18px 16px", margin:0 }}>Todo al día ✨ Nada espera tu acción.</p>
           ) : tareas.map((t,i)=>(
             <button key={i} onClick={()=>{ setAbierta(false); if(t.destino && rutaId) onIr(t.destino); }}
@@ -1620,7 +1668,6 @@ function Campana({ rutaId, onIr }){
               <span style={{ minWidth:22, height:22, borderRadius:11, background:"#2E7D52", color:"#fff", fontSize:11.5, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 6px" }}>{t.n}</span>
             </button>
           ))}
-          <p style={{ fontSize:10.5, color:"#6B6455", padding:"10px 16px", margin:0, background:"#FAFBF9", borderRadius:"0 0 16px 16px" }}>👤 Qué avisos llegan aquí lo define tu freelance. Al publicar la app también aparecerán en la pantalla de tu teléfono.</p>
         </div>
       </div>
     )}
