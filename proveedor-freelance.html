@@ -1185,7 +1185,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"20", fecha:"20 jul 2026", desc:"Carga de factura por pestanas, menos scroll" };
+const VERSION = { n:"21", fecha:"20 jul 2026", desc:"Boton atras inteligente" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1517,6 +1517,45 @@ function Decisiones({ctx}){
   );
 }
 
+/* ══ BOTÓN ATRÁS INTELIGENTE (modelo de freelance-completo) ══
+   Un solo botón "Atrás" que conoce la jerarquía: primero cierra la ventana abierta,
+   luego retrocede DENTRO del módulo (sub-pantalla → ficha → entrada), y solo al final
+   sale al módulo anterior. Así no hacen falta botones "‹ Volver" repartidos por dentro.
+   Se usan PILAS y no una sola variable: con varios módulos montados, ninguno puede
+   borrar el manejador de otro. */
+const MODALES_P = [];
+function useModalP(abierto, cerrar){
+  React.useEffect(()=>{
+    if(!abierto) return;
+    const item = {cerrar};
+    MODALES_P.push(item);
+    return ()=>{ const i=MODALES_P.indexOf(item); if(i>=0) MODALES_P.splice(i,1); };
+  },[abierto,cerrar]);
+}
+function cerrarUltimoModalP(){
+  if(MODALES_P.length===0) return false;
+  const m = MODALES_P[MODALES_P.length-1];
+  try{ m.cerrar(); }catch(e){}
+  return true;
+}
+const RETROCESOS_P = [];
+function useRetrocesoP(fn){
+  const ref = React.useRef(fn);
+  ref.current = fn;
+  React.useEffect(()=>{
+    const item = { run:()=>ref.current() };
+    RETROCESOS_P.push(item);
+    return ()=>{ const i=RETROCESOS_P.indexOf(item); if(i>=0) RETROCESOS_P.splice(i,1); };
+  },[]);
+}
+/* Devuelve true si algún módulo consumió el retroceso. */
+function retrocederEnModuloP(){
+  for(let i=RETROCESOS_P.length-1;i>=0;i--){
+    try{ if(RETROCESOS_P[i].run()) return true; }catch(e){}
+  }
+  return false;
+}
+
 /* ══ NORMA DEL MENÚ LATERAL (transversal a las 5 apps) ══
    Hasta 5 módulos: lista plana. Desde 6: ACORDEÓN por grupos, igual que
    freelance-completo — un solo grupo abierto a la vez; tocar el abierto lo cierra.
@@ -1706,8 +1745,12 @@ const TAREAS_NOTIF=[
     setPila(p=>[...p,tab]);
     setTab(destino);
   };
-  // Atrás: vuelve a la última pestaña del historial
+  /* Atrás inteligente: respeta la jerarquía antes de salir del módulo.
+     1) cierra la ventana abierta · 2) retrocede dentro del módulo
+     3) recién ahí vuelve al módulo anterior. */
   const atras = ()=>{
+    if(cerrarUltimoModalP()) return;
+    if(retrocederEnModuloP()) return;
     setPila(p=>{
       if(!p.length){ setTab("inicio"); return p; }
       setTab(p[p.length-1]);
@@ -1716,6 +1759,20 @@ const TAREAS_NOTIF=[
   };
   // Inicio: salta directo y limpia el historial
   const irInicio = ()=>{ setPila([]); setTab("inicio"); };
+
+  /* Botón físico de atrás del teléfono: sigue la misma jerarquía. */
+  useEffect(()=>{
+    const alVolver=()=>{
+      if(menuAbierto){ setMenuAbierto(false); history.pushState(null,""); return; }
+      if(cerrarUltimoModalP()){ history.pushState(null,""); return; }
+      if(retrocederEnModuloP()){ history.pushState(null,""); return; }
+      if(tab!=="inicio"){ atras(); history.pushState(null,""); return; }
+      /* en Inicio: se deja salir de la app */
+    };
+    history.pushState(null,"");
+    window.addEventListener("popstate", alVolver);
+    return ()=>window.removeEventListener("popstate", alVolver);
+  },[tab,menuAbierto]);
 
   useEffect(()=>{
     if(online && cola>0){ const t=setTimeout(()=>setCola(0),1600); return ()=>clearTimeout(t); }
@@ -2275,6 +2332,8 @@ function Propuestas({ctx}){
   const [filtro,setFiltro]=useState("activas");
   const [nueva,setNueva]=useState(false);
   const [ver,setVer]=useState(null);
+  /* Atrás: cierra el alta antes de salir del módulo. */
+  useRetrocesoP(()=>{ if(nueva){ setNueva(false); return true; } return false; });
 
   const pend=prop.filter(p=>p.estado==="pendiente");
   const hist=prop.filter(p=>p.estado!=="pendiente");
@@ -2739,6 +2798,13 @@ function CargaXML({irTab}){
   const [aviso,setAviso]=useState("");
   /* pestaña de grupo; null = elige sola la accionable */
   const [grupo,setGrupo]=useState(null);
+  /* Atrás: cierra el selector de producto, luego las equivalencias, luego la factura leída. */
+  useRetrocesoP(()=>{
+    if(eligiendo){ setEligiendo(null); return true; }
+    if(verEquis){ setVerEquis(false); return true; }
+    if(xml){ setXml(null); setResuelto({}); return true; }
+    return false;
+  });
   const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3600); };
 
   const r2=(n)=>Math.round(n*100)/100;
@@ -3052,6 +3118,12 @@ function NotasCredito({irTab}){
   const [numero,setNumero]=useState("");
   const [autoriz,setAutoriz]=useState("");
   const [aviso,setAviso]=useState("");
+  /* Atrás: retrocede paso a paso dentro del alta; luego cierra el detalle. */
+  useRetrocesoP(()=>{
+    if(nueva){ if(paso>1){ setPaso(paso-1); return true; } reset(); return true; }
+    if(sel){ setSel(null); return true; }
+    return false;
+  });
   /* Carga por XML: la NC tambien es comprobante electronico del SRI.
      Digitar a mano queda de respaldo. */
   const xmlRef=React.useRef(null);
@@ -3451,6 +3523,12 @@ function Retenciones({irTab}){
   const [numero,setNumero]=useState("");
   const [autoriz,setAutoriz]=useState("");
   const [aviso,setAviso]=useState("");
+  /* Atrás: retrocede paso a paso dentro del alta; luego cierra el detalle. */
+  useRetrocesoP(()=>{
+    if(nueva){ if(paso>1){ setPaso(paso-1); return true; } reset(); return true; }
+    if(sel){ setSel(null); return true; }
+    return false;
+  });
   /* La retencion tambien es comprobante del SRI: se puede subir en vez de digitar. */
   const xmlRef=React.useRef(null);
   const alSubirRet=(e)=>{
@@ -3756,6 +3834,12 @@ function CuentasBancarias({irTab}){
   const [f,setF]=useState({banco:"",tipo:"Corriente",ult4:"",titular:PROVEEDOR.nombre,
                            ruc:"",dep:true,tra:true});
   const [aviso,setAviso]=useState("");
+  /* Atrás: cierra el alta o el detalle antes de salir del módulo. */
+  useRetrocesoP(()=>{
+    if(nueva){ setNueva(false); return true; }
+    if(sel){ setSel(null); return true; }
+    return false;
+  });
   const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3200); };
 
   const HOY="2026-07-20";
@@ -4173,6 +4257,8 @@ function GuiasRemision(){
   const [sel,setSel]=useState(null);
   const [aviso,setAviso]=useState("");
   const xmlRef=React.useRef(null);
+  /* Atrás: primero cierra el detalle de la guía, luego sale del módulo. */
+  useRetrocesoP(()=>{ if(sel){ setSel(null); return true; } return false; });
 
   const alSubirGuia=(e)=>{
     const f=e.target.files&&e.target.files[0]; e.target.value="";
@@ -4305,6 +4391,8 @@ function Conciliacion({irTab}){
   const [motivo,setMotivo]=useState("");
   const [nota,setNota]=useState("");
   const [tick,setTick]=useState(0);
+  /* Atrás: cierra el detalle del cobro antes de salir del módulo. */
+  useRetrocesoP(()=>{ if(sel){ setSel(null); return true; } return false; });
 
   const COL={pendiente:"var(--maiz)", aprobado:"#2E7D52", observado:"#C77F00", rechazado:"#B5432E"};
   const LBL={pendiente:"Por revisar", aprobado:"Aprobados", observado:"Observados", rechazado:"Rechazados"};
