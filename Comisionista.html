@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"100", fecha:"19 jul 2026", desc:"Boveda de cheques con traspaso por codigo"};
+const VERSION={n:"101", fecha:"20 jul 2026", desc:"Listas por uso y deslizar para paginar"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2239,10 +2239,39 @@ function extraerComprobante(txt){
   return {banco, numero, fecha, valor};
 }
 
-const USO_BANCOS = {
-  "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
-  "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3
+/* ══ USO DE LISTAS DESPLEGABLES ══
+   Norma sellada: toda lista desplegable se ordena por las veces que cada opción
+   fue elegida, de mayor a menor. El contador se guarda pero NUNCA se muestra en
+   pantalla. Desempate alfabético para que lo nunca usado no salga aleatorio.
+   En Fase 4 estos contadores viajan a Supabase por usuario. */
+const USOS = {
+  bancos:{ "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
+           "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3 },
+  couriers:{ "Servientrega":18, "Laar Courier":9, "Tramaco":4 },
 };
+/* categorías donde el orden propio manda: nunca se reordenan por uso */
+const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas"];
+const usoClave = it => typeof it==="string" ? it
+  : (it && (it.nombre||it.nom||it.t||it.label||it.cli||it.id)) || String(it);
+/* registra una selección */
+const regUso = (cat, it) => {
+  if(!cat || it==null) return it;
+  const k = usoClave(it); if(!k) return it;
+  (USOS[cat] = USOS[cat] || {});
+  USOS[cat][k] = (USOS[cat][k]||0) + 1;
+  return it;
+};
+/* ordena una lista por uso (mayor→menor), con desempate alfabético */
+const ordUso = (cat, lista) => {
+  if(!cat || USO_FIJO.includes(cat) || !Array.isArray(lista)) return lista;
+  const c = USOS[cat] || {};
+  return lista.slice().sort((a,b)=>{
+    const ka=usoClave(a), kb=usoClave(b);
+    return ((c[kb]||0)-(c[ka]||0)) || String(ka).localeCompare(String(kb),"es");
+  });
+};
+/* compatibilidad con el código anterior de bancos */
+const USO_BANCOS = USOS.bancos;
 
 const PEDIDOS_INI = [
   {id:1, cliId:"CLI-001", subId:"SC1", provId:"PROV-A", presId:"P-00012-03", estadoCod:"ACUERDO",
@@ -2928,6 +2957,101 @@ function useGestoDrawer(abrir, activo){
 }
 
 /* ── Dictado por voz: botón de micrófono reutilizable ── */
+/* ══ DESLIZAR PARA CAMBIAR DE PÁGINA ══
+   En el celular, arrastrar de derecha a izquierda avanza y al revés retrocede.
+   Cuidados: (1) se ignoran los 30 px de cada borde para no pelear con el gesto
+   "atrás" de Android; (2) el recorrido debe superar 60 px y ser más horizontal
+   que vertical, para no dispararse al hacer scroll normal; (3) los botones
+   Anterior/Siguiente se quedan: el gesto es un atajo, no el único camino.
+   Uso: <Deslizable pag={p} total={t} onPag={setP}> …filas… </Deslizable> */
+function Deslizable({ pag, total, onPag, children }){
+  const ini = React.useRef(null);
+  const [arrastre, setArrastre] = useState(0);   // px de desplazamiento visual
+  const [entrando, setEntrando] = useState(0);   // -1 llega de la derecha · 1 de la izquierda
+  const pagAnt = React.useRef(pag);
+  const BORDE = 30, MINIMO = 60;
+
+  /* Al cambiar de página la lista nueva ENTRA con un pequeño desplazamiento.
+     Sin esto el cambio es instantáneo y da la impresión de que no pasó nada. */
+  React.useEffect(() => {
+    if (pagAnt.current === pag) return;
+    const dir = pag > pagAnt.current ? -1 : 1;
+    pagAnt.current = pag;
+    setEntrando(dir);
+    const t = setTimeout(() => setEntrando(0), 20);   // el navegador pinta el inicio y anima al final
+    return () => clearTimeout(t);
+  }, [pag]);
+
+  const empezar = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    const ancho = window.innerWidth || 400;
+    if (t.clientX < BORDE || t.clientX > ancho - BORDE) { ini.current = null; return; }
+    ini.current = { x: t.clientX, y: t.clientY };
+  };
+  const mover = (e) => {
+    if (!ini.current || !total || total <= 1) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - ini.current.x, dy = t.clientY - ini.current.y;
+    if (Math.abs(dy) > Math.abs(dx)) { ini.current = null; setArrastre(0); return; }  // es scroll
+    /* no deja arrastrar más allá de la primera ni de la última */
+    const tope = (dx > 0 && pag <= 1) || (dx < 0 && pag >= total);
+    setArrastre(Math.max(-90, Math.min(90, tope ? dx * 0.25 : dx)));
+  };
+  const soltar = () => {
+    const dx = arrastre;
+    ini.current = null; setArrastre(0);
+    if (!total || total <= 1 || Math.abs(dx) < MINIMO) return;
+    if (dx < 0 && pag < total) onPag(p => Math.min(total, p + 1));
+    if (dx > 0 && pag > 1)     onPag(p => Math.max(1, p - 1));
+  };
+
+  /* Mientras se arrastra manda el dedo; al soltar, manda la animación de entrada. */
+  const desplaz = arrastre || entrando * 26;
+  return (
+    <div onTouchStart={empezar} onTouchMove={mover} onTouchEnd={soltar} onTouchCancel={soltar}
+      style={{ touchAction:"pan-y",
+        transform:`translateX(${desplaz}px)`,
+        opacity: entrando ? .35 : 1,
+        transition: arrastre ? "none" : "transform .26s cubic-bezier(.2,.8,.3,1), opacity .26s ease-out" }}>
+      {children}
+    </div>
+  );
+}
+
+/* Puntitos de posición, como en una galería de fotos. */
+function PuntosPag({ pag, total }){
+  const [salto, setSalto] = useState(false);
+  const ant = React.useRef(pag);
+  /* el punto activo pega un saltito al cambiar: confirma que sí se movió */
+  React.useEffect(() => {
+    if (ant.current === pag) return;
+    ant.current = pag;
+    setSalto(true);
+    const t = setTimeout(() => setSalto(false), 260);
+    return () => clearTimeout(t);
+  }, [pag]);
+
+  if (!total || total <= 1) return null;
+  const max = 7, desde = total <= max ? 1 : Math.max(1, Math.min(pag - 3, total - max + 1));
+  const cuantos = Math.min(max, total);
+  return (
+    <div className="row" style={{justifyContent:"center",gap:6,marginTop:10,alignItems:"center"}}>
+      {Array.from({length:cuantos}, (_,i)=>desde+i).map(n=>{
+        const on = n===pag;
+        return (
+          <span key={n} style={{
+            width: on ? (salto ? 26 : 18) : 6,
+            height: on && salto ? 8 : 6,
+            borderRadius:99,
+            background: on ? "var(--field)" : "#D9D3C4",
+            transition:"width .26s cubic-bezier(.2,.8,.3,1), height .26s, background .2s" }}/>
+        );
+      })}
+      <span className="num" style={{fontSize:10.5,color:"var(--muted)",marginLeft:6}}>{pag}/{total}</span>
+    </div>
+  );
+}
+
 function MicBtn({onTexto, toast}){
   const [rec,setRec]=useState(false);
   const refRec=React.useRef(null);
@@ -3015,12 +3139,13 @@ function BotonCrear({onClick, titulo}){
 }
 
 /* ── Buscador predictivo compacto para filtros (reemplaza al select nativo) ── */
-function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio}){
+function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, estilo, obligatorio, cat}){
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const txt=(it)=>render?render(it):String(it);
-  const opciones=[{__todos:true}, ...items];
+  /* norma sellada: lo más elegido va primero (el contador nunca se muestra) */
+  const opciones=[{__todos:true}, ...ordUso(cat, items)];
   const filtrados = q.trim()==="" ? opciones
     : opciones.filter(it=>it.__todos ? false
         : norm(q).split(/\s+/).filter(Boolean).every(w=>norm(txt(it)).includes(w)));
@@ -3054,7 +3179,7 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
 }
 
 // Buscador con autocompletar (cliente, proveedor, producto)
-function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel, className, onAbrir}) {
+function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel, className, onAbrir, cat}) {
   const [q,setQ]=useState("");
   const [open,setOpen]=useState(false);
   const [reabrir,setReabrir]=useState(false);   // al tocar la tarjeta: limpiar y desplegar la lista de una
@@ -3091,7 +3216,9 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
     return norm(texto).includes(norm(q));
   };
   let filtrados = q.trim()==="" ? items : items.filter(it=>coincide(render.text(it)));
+  /* norma sellada: lo más elegido va primero (el contador nunca se muestra) */
   if(sortBy) filtrados = [...filtrados].sort(sortBy);
+  else if(cat) filtrados = ordUso(cat, filtrados);
   const totalFiltrados = filtrados.length;
   const visibles = maxItems ? filtrados.slice(0, maxItems) : filtrados;
   const hayMas = maxItems ? (totalFiltrados > maxItems) : false;
@@ -3113,7 +3240,7 @@ function SearchSelect({label, hint, items, value, onPick, onClear, disabled, pla
             ? <div className="none">Sin resultados para “{q}”</div>
             : <>
               {visibles.map((it,i)=>(
-                <div className="opt" key={i} onMouseDown={e=>{e.preventDefault();onPick(it);setOpen(false);setQ("");}}>
+                <div className="opt" key={i} onMouseDown={e=>{e.preventDefault();regUso(cat,it);onPick(it);setOpen(false);setQ("");}}>
                   {render.option(it)}
                 </div>))}
               {hayMas && <div className="opt-mas">Mostrando {maxItems} de {totalFiltrados}. Escribe para buscar el que necesitas.</div>}
@@ -3907,7 +4034,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     {true && <>
     {/* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */}
     <div className="busc-cliente">
-    <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra sinLabel
+    <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra sinLabel
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
       render={{
@@ -3920,7 +4047,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     </div>
 
     {/* en cascada: el proveedor aparece cuando ya hay cliente, igual que en la app del freelance */}
-    {cli && !prod && !bloqueado && !verFact && <SearchSelect label="Proveedor" items={PROVEEDORES} sinLabel value={prov}
+    {cli && !prod && !bloqueado && !verFact && <SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -3930,7 +4057,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       }}/>}
 
     {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
-    {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto" sinLabel items={productosDelProv} value={prod} maxItems={5}
+    {prov && !bloqueado && !verFact && !prod && <SearchSelect label="Producto" sinLabel cat="productos" items={productosDelProv} value={prod} maxItems={5}
       placeholder="Producto"
       onPick={p=>{origenProd.current="nuevo";setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       render={{
@@ -4422,7 +4549,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       {tipo==="P4" && (
         <div className="field"><label>Promoción del freelance</label>
           {prod && prod.promosFreelance.length>0 ? (
-            <SearchSelect label="" items={prod.promosFreelance} value={promoF}
+            <SearchSelect label="" cat="promociones" items={prod.promosFreelance} value={promoF}
               onPick={pm=>{setPromoF(pm);setPrecio("");}} onClear={()=>{setPromoF(null);setPrecio("");}}
               render={{
                 text:pm=>pm.nombre,
@@ -5357,7 +5484,7 @@ function Cobros({toast, go}){
 
     {/* PASO 1 — cliente y proveedor */}
     {paso===1 && (<>
-      <SearchSelect className="ss-hero" onAbrir={setBuscando} label="Cliente" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
+      <SearchSelect className="ss-hero" onAbrir={setBuscando} label="Cliente" cat="clientes" items={[...new Set(COBROS_INI.map(c=>c.cli))]} value={cli} multiPalabra
         onPick={c=>{setCli(c);setProv(null);setAplic({});setLineas([]);}} onClear={()=>{setCli(null);setProv(null);setAplic({});setLineas([]);}}
         render={{
           text:c=>c,
@@ -5459,7 +5586,7 @@ function Cobros({toast, go}){
       })()}
 
       {cli && (
-        <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
+        <SearchSelect label="Proveedor" cat="proveedores" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setAplic({});setLineas([]);}} onClear={()=>{setProv(null);setAplic({});setLineas([]);}}
           hint={`${provsDelCliente.length} ${provsDelCliente.length===1?"proveedor con facturas":"proveedores con facturas"} de ${cli}`}
           render={{
@@ -5794,8 +5921,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
         )}
         {vBan && (
           <SearchSelect label="Banco" items={BANCOS} value={banco}
-            sortBy={(a,b)=>(USO_BANCOS[b]||0)-(USO_BANCOS[a]||0)}
-            onPick={b=>{setBanco(b);USO_BANCOS[b]=(USO_BANCOS[b]||0)+1;}} onClear={()=>setBanco("")}
+            cat="bancos" onPick={b=>setBanco(b)} onClear={()=>setBanco("")}
             render={{
               text:b=>b,
               option:b=>(<div className="o1">{b}</div>),
@@ -5933,6 +6059,7 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI}){
 
     <div className="meta" style={{margin:"0 2px 10px"}}>{ordenada.length} pedido(s) · {ORDEN_LBL[orden]}</div>
 
+    <Deslizable pag={pagina} total={totalPag} onPag={setPagina}>
     {visibles.map(p=>{
       /* el avance se lee de un vistazo por la barra lateral */
       const sinEnviar = p.sync==="pend";
@@ -5962,6 +6089,9 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI}){
       </div>
     );})}
     {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
+
+    </Deslizable>
+    <PuntosPag pag={pagActual} total={totalPag}/>
 
     {totalPag>1 && (
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,margin:"12px 0 4px"}}>
@@ -6117,7 +6247,7 @@ function Stock({toast}){
       )}
     </>)}
 
-    <SearchSelect label="Cliente visitado" items={CLIENTES} value={cli} multiPalabra
+    <SearchSelect label="Cliente visitado" cat="clientes" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);setProv(null);setCant({});}} onClear={()=>{setCli(null);setProv(null);setCant({});}}
       render={{
         text:c=>c,
@@ -6127,7 +6257,7 @@ function Stock({toast}){
 
     {cli && (
       provsDelCliente.length>0 ? (
-        <SearchSelect label="Proveedor" items={provsDelCliente} value={prov}
+        <SearchSelect label="Proveedor" cat="proveedores" items={provsDelCliente} value={prov}
           onPick={p=>{setProv(p);setCant({});}} onClear={()=>{setProv(null);setCant({});}}
           hint={`${provsDelCliente.length} proveedor(es) con productos que ${cli} ya ha comprado`}
           render={{
@@ -7175,7 +7305,7 @@ function Agenda({toast}){
             </div>
           </div>
 
-          <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
+          <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra
             onPick={c=>setCli(c)} onClear={()=>setCli(null)}
             render={{
               text:c=>c,
@@ -7395,13 +7525,13 @@ function Novedades({toast, go}){
     <div className="meta" style={{margin:"0 2px 12px",fontSize:11.5}}>
       Post-venta: cambios, devoluciones y notas de crédito. Elige cliente y proveedor para empezar.</div>
 
-    <SearchSelect label="Cliente" items={CLIENTES} value={cli} multiPalabra
+    <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);resetDesdeCli();}} onClear={()=>{setCli(null);resetDesdeCli();}}
       render={{text:c=>c, option:c=>(<div className="o1">{c}</div>),
         picked:c=>(<><div className="p1">{c}</div><div className="p2">Cliente de la novedad</div></>)}}/>
 
     {cli && (
-      <SearchSelect label="Proveedor" items={PROVEEDORES} value={prov}
+      <SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} value={prov}
         onPick={p=>{setProv(p);reset();}} onClear={()=>{setProv(null);reset();}}
         render={{text:p=>p.nombre, option:p=>(<div className="o1">{p.nombre}</div>),
           picked:p=>(<><div className="p1">{p.nombre}</div><div className="p2">Proveedor de la factura/producto</div></>)}}/>
