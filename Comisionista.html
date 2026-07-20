@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"103", fecha:"20 jul 2026", desc:"Mi caja con recibos, historial y anulacion"};
+const VERSION={n:"104", fecha:"20 jul 2026", desc:"Cartera con mini-dashboard de sus clientes"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -7539,6 +7539,7 @@ function Stock({toast}){
 function Cartera({toast}){
   const [q,setQ]=useState("");
   const [pestCart,setPestCart]=useState("facturas");   // facturas | cheques
+  const [fVer,setFVer]=useState("todas");             // todas | vencidas | pronto
   const [chDev,setChDev]=useState(CHEQUES_DEVUELTOS);
   const chPend=chDev.filter(c=>c.estado==="pendiente");
   const items=[
@@ -7625,21 +7626,103 @@ function Cartera({toast}){
 
     {/* ── FACTURAS ── */}
     {pestCart==="facturas" && (<>
-    {/* indicadores compactos: qué debe cobrar y qué urge */}
-    <div className="mini-kpi">
-      <button style={{cursor:"default"}}>
-        <span className="mk-v num" style={{fontSize:14}}>{money(total)}</span>
-        <span className="mk-k">Por cobrar</span></button>
-      <button style={{cursor:"default"}}>
-        <span className="mk-v num">{lista.length}</span>
-        <span className="mk-k">Facturas</span></button>
-      <button style={{cursor:"default"}}>
-        <span className="mk-v num" style={{color:nVenc>0?"#C2603A":"var(--field)"}}>{nVenc}</span>
-        <span className="mk-k">Vencidas</span></button>
-      <button style={{cursor:"default"}}>
-        <span className="mk-v num" style={{fontSize:14,color:montoVenc>0?"#C2603A":"var(--field)"}}>{money(montoVenc)}</span>
-        <span className="mk-k">Monto vencido</span></button>
-    </div>
+    {/* ENTRADA DEL MÓDULO · norma sellada: buscador + mini-dashboard accionable.
+        Es la cartera de SUS clientes: el panorama completo lo ve el Freelance. */}
+    {(()=>{
+      const alDia    = lista.filter(i=>i.v==="ok");
+      const pronto   = lista.filter(i=>i.v==="warn");
+      const vencidas = lista.filter(i=>i.v==="bad");
+      const tramos = [
+        {k:"Al día",  n:alDia.length,    monto:alDia.reduce((a,i)=>a+i.saldo,0),    color:"#2E7D52"},
+        {k:"Pronto",  n:pronto.length,   monto:pronto.reduce((a,i)=>a+i.saldo,0),   color:"#C9A227"},
+        {k:"Vencido", n:vencidas.length, monto:vencidas.reduce((a,i)=>a+i.saldo,0), color:"#C2603A"},
+      ].filter(t=>t.monto>0);
+      const maxT = Math.max(...tramos.map(t=>t.monto), 1);
+      const pctVenc = total>0 ? Math.round(montoVenc/total*100) : 0;
+      /* quién me debe más: por cliente, no por factura */
+      const porCli = Array.from(new Set(lista.map(i=>i.cli))).map(c=>({
+        cli:c, monto:lista.filter(i=>i.cli===c).reduce((a,i)=>a+i.saldo,0),
+        venc:lista.filter(i=>i.cli===c && i.v==="bad").length,
+      })).sort((a,b)=>b.monto-a.monto);
+      const maxC = Math.max(...porCli.map(c=>c.monto), 1);
+      return (
+        <div className="ndash" style={{marginTop:0,marginBottom:12}}>
+
+          <div className="ncard" onClick={()=>setFVer("todas")}
+            style={fVer==="todas"?{outline:"2px solid var(--field-700)"}:undefined}>
+            <div className="nk">Por cobrar</div>
+            <div className="nv money">{money(total)}</div>
+            <div className="nbars">
+              {tramos.map(t=>(
+                <div key={t.k} style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:9.5,color:"var(--muted)",width:42,flexShrink:0}}>{t.k}</span>
+                  <span style={{flex:1,height:6,borderRadius:4,background:"#EFEBE0",overflow:"hidden"}}>
+                    <span style={{display:"block",height:"100%",borderRadius:4,
+                      width:`${Math.round(t.monto/maxT*100)}%`,background:t.color}}/>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="nsub">{lista.length} factura{lista.length!==1?"s":""} de tus clientes</div>
+          </div>
+
+          <div className="ncard" onClick={()=>setFVer("vencidas")}
+            style={fVer==="vencidas"?{outline:"2px solid #C2603A"}:undefined}>
+            <div className="nk">Vencido</div>
+            <div className="nring-wrap">
+              <div className="nring" style={{background:`conic-gradient(#C2603A 0 ${pctVenc}%, #EFEBE0 ${pctVenc}% 100%)`}}>
+                <div className="hole"><b style={{fontSize:15}}>{pctVenc}%</b><span>vencido</span></div>
+              </div>
+              <div className="nleg">
+                <span className="num" style={{fontSize:13,fontWeight:700,color:"#C2603A"}}>{money(montoVenc)}</span>
+                <span>{nVenc} factura{nVenc!==1?"s":""}</span>
+              </div>
+            </div>
+            <div className="nsub">Toca para ver solo las vencidas</div>
+          </div>
+
+          <div className="ncard" onClick={()=>setFVer("pronto")}
+            style={fVer==="pronto"?{outline:"2px solid #C9A227"}:undefined}>
+            <div className="nk">Vence pronto</div>
+            <div className="nv" style={{color:pronto.length>0?"#C9A227":"var(--field)"}}>{pronto.length}</div>
+            <div className="nbars">
+              {pronto.slice(0,3).map((p,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",gap:6}}>
+                  <span style={{fontSize:10,color:"var(--muted)",overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
+                  <span className="num" style={{fontSize:10,flexShrink:0}}>{p.venc}</span>
+                </div>
+              ))}
+              {pronto.length===0 && <span style={{fontSize:10.5,color:"var(--muted)"}}>Nada por vencer</span>}
+            </div>
+            <div className="nsub">{money(pronto.reduce((a,p)=>a+p.saldo,0))} por cobrar</div>
+          </div>
+
+          <div className="ncard" onClick={()=>setFVer("todas")}>
+            <div className="nk">Quién debe más</div>
+            <div className="nbars" style={{marginTop:4}}>
+              {porCli.slice(0,3).map((c,i)=>(
+                <div key={i}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
+                    <span style={{fontSize:10,fontWeight:600,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</span>
+                    <span className="num" style={{fontSize:10,flexShrink:0}}>{money(c.monto)}</span>
+                  </div>
+                  <span style={{display:"block",height:5,borderRadius:3,background:"#EFEBE0",overflow:"hidden"}}>
+                    <span style={{display:"block",height:"100%",borderRadius:3,
+                      width:`${Math.round(c.monto/maxC*100)}%`,
+                      background:c.venc>0?"#C2603A":"var(--field-700)"}}/>
+                  </span>
+                </div>
+              ))}
+              {porCli.length===0 && <span style={{fontSize:10.5,color:"var(--muted)"}}>Sin facturas pendientes</span>}
+            </div>
+            <div className="nsub">{porCli.length} cliente{porCli.length!==1?"s":""} con saldo</div>
+          </div>
+
+        </div>
+      );
+    })()}
 
     <div className="ss" style={{marginBottom:12}}>
       <div className="box"><span className="mag">⌕</span>
@@ -7648,8 +7731,14 @@ function Cartera({toast}){
         {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
     </div>
 
-    <div className="sec-h"><h2>Facturas · más urgentes primero</h2><div className="grain"></div></div>
-    {listaOrd.map((it,i)=>{
+    <div className="sec-h"><h2>
+      {fVer==="vencidas" ? "Facturas vencidas" : fVer==="pronto" ? "Vencen pronto" : "Facturas · más urgentes primero"}
+      {fVer!=="todas" && <button onClick={()=>setFVer("todas")}
+        style={{marginLeft:8,border:"none",background:"none",color:"var(--muted)",
+          fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>× quitar filtro</button>}
+    </h2><div className="grain"></div></div>
+    {listaOrd.filter(it=> fVer==="todas" ? true : fVer==="vencidas" ? it.v==="bad" : it.v==="warn")
+      .map((it,i)=>{
       /* el estado se lee de un vistazo: barra lateral y fondo */
       const barra = it.v==="bad"?"#C2603A" : it.v==="warn"?"#C9A227" : "#2E7D52";
       const fondo = it.v==="bad"?"#FDF6F3" : it.v==="warn"?"#FDFAF0" : "var(--card)";
@@ -7677,7 +7766,15 @@ function Cartera({toast}){
         </div>
       </div>
     );})}
-    {listaOrd.length===0 && <div className="ph">Sin facturas que coincidan con “{q}”.</div>}
+    {(()=>{
+      const vis = listaOrd.filter(it=> fVer==="todas" ? true : fVer==="vencidas" ? it.v==="bad" : it.v==="warn");
+      if(vis.length>0) return null;
+      return <div className="ph">
+        {q ? `Sin facturas que coincidan con “${q}”.`
+           : fVer==="vencidas" ? "No tienes facturas vencidas. Cartera sana."
+           : fVer==="pronto" ? "Nada vence pronto."
+           : "Sin facturas pendientes."}</div>;
+    })()}
     </>)}
   </>);
 }
