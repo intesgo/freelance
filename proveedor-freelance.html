@@ -651,7 +651,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"7", fecha:"20 jul 2026", desc:"Precios con historial y auditoria" };
+const VERSION = { n:"8", fecha:"20 jul 2026", desc:"Buscadores, exportacion y aviso de espera" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1057,6 +1057,21 @@ const MOTIVOS_PRECIO = [
   "Corrección de un error",
   "Otro",
 ];
+
+/* Exportar a CSV: abre en Excel con acentos correctos y separador ";" */
+const exportarCsv = (nombre, cabeceras, filas, titulo) => {
+  const esc = v => { const t=String(v==null?"":v); return /[";\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t; };
+  const fila = a => a.map(esc).join(";");
+  const hoy = new Date().toISOString().slice(0,10);
+  const cuerpo = [ fila([titulo||nombre.toUpperCase(), "Generado: "+hoy]), "",
+                   fila(cabeceras), ...filas.map(fila) ].join("\n")+"\n";
+  const blob = new Blob(["\ufeff"+cuerpo], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre+"-"+hoy+".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+};
 
 const TAREAS_NOTIF=[
     {tipo:"facturar", icono:"🧾", titulo:"Pedidos por facturar", detalle:"Al facturar, el pedido entra a logística", destino:"decidir", n:FACTURAR_INI.filter(x=>x.estado==="pendiente").length},
@@ -1671,6 +1686,16 @@ function Propuestas({ctx}){
   const pend=prop.filter(p=>p.estado==="pendiente");
   const hist=prop.filter(p=>p.estado!=="pendiente");
   const lista=filtro==="activas"?pend:hist;
+  /* Cuánto lleva esperando cada propuesta: si pasa una semana, conviene insistir. */
+  const diasEspera=(f)=>{
+    if(!f || f==="Ahora") return 0;
+    const m=/Hace (\d+)/.exec(f);
+    if(m) return parseInt(m[1]);
+    if(/Hoy/i.test(f)) return 0;
+    if(/Ayer/i.test(f)) return 1;
+    return null;
+  };
+  const viejas = pend.filter(p=>{ const d=diasEspera(p.fecha); return d!==null && d>=7; });
 
   const enviar=(p)=> accion(()=>{ setProp(prev=>[{...p,id:"PR-"+(209+prev.length),fecha:"Ahora",estado:"pendiente"},...prev]); setNueva(false); });
   const retirar=(id)=> accion(()=> setProp(prev=>prev.filter(p=>p.id!==id)));
@@ -1685,6 +1710,15 @@ function Propuestas({ctx}){
         <button className={filtro==="activas"?"on":""} onClick={()=>setFiltro("activas")}>Activas · {pend.length}</button>
         <button className={filtro==="historial"?"on":""} onClick={()=>setFiltro("historial")}>Historial · {hist.length}</button>
       </div>
+
+      {viejas.length>0 && filtro==="activas" && (
+        <div className="card card-pad" style={{marginBottom:14,borderColor:"var(--maiz)"}}>
+          <div style={{fontWeight:600,fontSize:14}}>
+            {viejas.length} propuesta{viejas.length!==1?"s":""} lleva{viejas.length===1?"":"n"} más de una semana</div>
+          <div className="sub tiny" style={{marginTop:4}}>
+            Conviene que hables con {FREELANCE.nombre} para destrabarlas.</div>
+        </div>
+      )}
 
       {lista.length===0
         ? <div className="empty"><div className="ico">✎</div><div style={{marginTop:8,fontWeight:600}}>Sin propuestas {filtro==="activas"?"activas":"en historial"}</div><div className="tiny" style={{marginTop:4}}>Crea una nueva con el botón +</div></div>
@@ -1854,6 +1888,8 @@ function Catalogo({ctx,irTab}){
   const {cat,setCat,setProp,accion}=ctx;
   const [edit,setEdit]=useState(null);
   const [nuevo,setNuevo]=useState(false);
+  const [q,setQ]=useState("");
+  const [fEst,setFEst]=useState("todos");   // todos | aceptado | ofrecido | rechazado
 
   // Ofrecer un producto al freelance = crear una propuesta tipo "producto"
   const ofrecer=(p)=> accion(()=>{
@@ -1881,7 +1917,11 @@ function Catalogo({ctx,irTab}){
   });
 
   const orden={aceptado:0,ofrecido:1,rechazado:2};
-  const lista=[...cat].sort((a,b)=>orden[a.estado]-orden[b.estado]);
+  const norm=(t)=>String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const lista=[...cat]
+    .filter(p=> fEst==="todos" || p.estado===fEst)
+    .filter(p=> q.trim()==="" || norm(p.nombre+" "+p.pres).includes(norm(q)))
+    .sort((a,b)=>orden[a.estado]-orden[b.estado]);
   const cuenta=(e)=>cat.filter(p=>p.estado===e).length;
 
   return (
@@ -1892,11 +1932,26 @@ function Catalogo({ctx,irTab}){
 
       <button className="btn btn-tinta" style={{marginTop:16}} onClick={()=>setNuevo(true)}>＋ Nuevo producto</button>
 
+      {/* los chips filtran: toca uno para ver solo esos */}
       <div className="row" style={{gap:8,margin:"14px 0"}}>
-        <ResumenChip n={cuenta("aceptado")} lbl="aceptados" clase="chip-ok" />
-        <ResumenChip n={cuenta("ofrecido")} lbl="ofrecidos" clase="chip-esp" />
-        <ResumenChip n={cuenta("rechazado")} lbl="no acept." clase="chip-al" />
+        {[["aceptado","aceptados","chip-ok"],["ofrecido","ofrecidos","chip-esp"],
+          ["rechazado","no acept.","chip-al"]].map(([k,lbl,cls])=>(
+          <button key={k} onClick={()=>setFEst(fEst===k?"todos":k)}
+            style={{border:"none",background:"none",padding:0,cursor:"pointer",
+              opacity: fEst==="todos"||fEst===k ? 1 : .4}}>
+            <ResumenChip n={cuenta(k)} lbl={lbl} clase={cls} />
+          </button>
+        ))}
       </div>
+
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar producto…"
+        style={{width:"100%",padding:"12px 14px",borderRadius:10,marginBottom:14,
+          border:"1px solid var(--linea)",fontSize:14,fontFamily:"inherit"}}/>
+
+      {fEst!=="todos" && (
+        <button className="btn btn-ghost" style={{width:"100%",marginBottom:14}}
+          onClick={()=>setFEst("todos")}>Ver todos los productos</button>
+      )}
 
       <div className="list-card">
         {lista.map(p=>{
@@ -1922,6 +1977,15 @@ function Catalogo({ctx,irTab}){
           );
         })}
       </div>
+
+      {lista.length===0 && (
+        <div className="card card-pad" style={{textAlign:"center"}}>
+          <div className="sub">
+            {q ? `Ningún producto coincide con "${q}".`
+               : fEst!=="todos" ? "Sin productos en ese estado."
+               : "Tu catálogo está vacío."}</div>
+        </div>
+      )}
 
       {edit && <ProdSheet p={edit} onClose={()=>setEdit(null)}
         onOfrecer={()=>{ofrecer(edit);setEdit(null);irTab("prop");}} />}
@@ -3692,6 +3756,13 @@ function Reportes({ctx,irTab}){
   const propPend =prop.filter(p=>p.estado==="pendiente").length;
   const preciosPend=cat.filter(p=>p.propuesto!=null).length;
 
+  const exportar=()=>{
+    exportarCsv("reporte-proveedor",
+      ["Producto","Quintales","Monto"],
+      topOrden.map(p=>[p.nombre, p.qq!=null?p.qq:"", p.monto]),
+      "REPORTE · "+PROVEEDOR.nombre+" con "+fl.nombre);
+  };
+
   return (
     <>
       <div className="eyebrow">Tu desempeño con {fl.nombre}</div>
@@ -3792,6 +3863,10 @@ function Reportes({ctx,irTab}){
           </div>
           <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
         </button>}
+
+      <div className="sec-gap" style={{height:16}} />
+      <button className="btn btn-ghost" style={{width:"100%"}} onClick={exportar}>
+        ⬇ Exportar a Excel</button>
     </>
   );
 }
