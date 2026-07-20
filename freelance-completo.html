@@ -2854,9 +2854,6 @@ const COBROS_INI = [
   {id:6, cli:"Mayorista Santa Rosa", provId:"PROV-A", factura:"001-001-000110", valor:1740.00, vence:"En 6 días"},
   {id:7, cli:"Tienda La Esquina", provId:"PROV-C", factura:"001-001-000136", valor:430.00, vence:"En 20 días"},
 ];
-const EN_VALIDACION = [
-  {cli:"Comercial Mendoza", provId:"PROV-A", factura:"001-001-000124", valor:4300.00},
-];
 
 const PENDIENTES_SYNC = [
   {tipo:"Pedido", ic:"📋", cli:"Comercial Mendoza", detalle:"100 × Arroz Gustadina · Quintal", cuando:"hoy 09:14"},
@@ -4176,7 +4173,9 @@ const PAGADOR = {
   riesgoso: {t:"Pagador riesgoso",  c:"#B5613C", ic:"⚠️"},
 };
 /* Detalle del bloqueo: qué factura lo origina, cuántos días vencida, cuánto y de qué proveedor */
-/* Todo se mide en quintales: 1 qq = 100 lb ≈ 45,4 kg */
+/* Todo se mide en quintales: 1 qq = 100 lb ≈ 45,4 kg.
+   Utilidad del dominio: convierte cualquier presentación (kg, lb, saco) a qq.
+   Sin consumidor hoy; la usarán los módulos que sumen cantidades mixtas. */
 function aQuintales(nombre, cant){
   const n=String(nombre||"").toLowerCase();
   if(/\bqq\b|quintal/.test(n)) return cant;
@@ -4362,7 +4361,6 @@ const VENTAS_PROVEEDOR = {
     "PROV-C": [800, 740, 920, 850, 1000, 960, 1050, 1080, 920, 1150, 1280, 1400],
   },
 };
-const PRECIO_QQ_PROV = {"PROV-A":43, "PROV-B":48, "PROV-C":30};
 
 const UNIDADES_MEDIDA = [
   {id:"quintal", nombre:"Quintal (qq)", abrev:"qq"},
@@ -4529,7 +4527,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"281", fecha:"19 jul 2026", desc:"Un solo boton de retroceso en toda la app"};
+const VERSION={n:"282", fecha:"20 jul 2026", desc:"Limpieza de codigo muerto"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -8261,12 +8259,9 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
   const [verEfe,setVerEfe]=useState(false);         // vista enfocada: efectivo por depositar
   const [tabCie,setTabCie]=useState("resumen");     // cierre: resumen | detalle | recibos | hist
   const [diaHist,setDiaHist]=useState(null);        // cierre histórico abierto (null = hoy)
-  const [expProv,setExpProv]=useState(null);        // proveedor desplegado
   const [menuRec,setMenuRec]=useState(null);        // menú ⋮ de un recibo
   const [cerrando,setCerrando]=useState(false);
   useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));     // confirmación de cierre con pendientes
-  const [motivoCie,setMotivoCie]=useState("");
-  const [histPag,setHistPag]=useState(1);           // paginación del historial (regla de oro)
   React.useEffect(()=>{  /* corte automático a la hora acordada: nadie tiene que acordarse de cerrar */
     const c=correrCorteAutomatico();
     if(c.length){ setTick(t=>t+1);
@@ -8274,7 +8269,6 @@ function Cobros({toast, cobroInicial, onConsumir, go}){
   },[]);
   const [anulando,setAnulando]=useState(null);
   useModal(anulando, React.useCallback(()=>setAnulando(null),[]));      // recibo en proceso de anulación
-  const [motivoAnu,setMotivoAnu]=useState("");
   const [depEf,setDepEf]=useState(null);            // efectivo pendiente al que se le registra depósito
   const [previa,setPrevia]=useState(false);         // vista previa del comprobante antes de compartir
   const [envio,setEnvio]=useState(null);            // trazabilidad honesta del envío asistido
@@ -9812,7 +9806,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
   const [fAging,setFAging]=useState("Todos");      // Todos | 1-30 | 31-60 | 61-90 | +90
   const [verFiltros,setVerFiltros]=useState(false);
   useModal(verFiltros, React.useCallback(()=>setVerFiltros(false),[])); // panel de filtros plegable
-  const [secAbierta,setSecAbierta]=useState("deudores"); // sección de análisis abierta (acordeón)
   const [verAging,setVerAging]=useState(null); // tramo abierto al tocar la dona
   const [pagFac,setPagFac]=useState(1); // paginación de facturas
   /* si se abre desde la ficha de un cliente, filtra Facturas por ese cliente */
@@ -13782,7 +13775,6 @@ function Novedades({toast, go}){
   const [pestana,setPestana]=useState("recibidas"); // recibidas | enviadas
 
   const [prodSel,setProdSel]=useState(null);
-  const [prodDestino,setProdDestino]=useState(null);
   const [factSel,setFactSel]=useState(null);
   const [busca,setBusca]=useState("");
   const [montos,setMontos]=useState({});      // pid -> valor
@@ -13790,7 +13782,7 @@ function Novedades({toast, go}){
   const [llevar,setLlevar]=useState({});       // pid -> cantidad a llevar (cambio-otro)
   const [resol,setResol]=useState(null);        // resolución caso 3: cobrar | credito
 
-  const reset=()=>{setTipo(null);setPaso("menu");setProdSel(null);setProdDestino(null);setFactSel(null);setBusca("");setMontos({});setCantCambio("");setLlevar({});setResol(null);};
+  const reset=()=>{setTipo(null);setPaso("menu");setProdSel(null);setFactSel(null);setBusca("");setMontos({});setCantCambio("");setLlevar({});setResol(null);};
   const resetDesdeCli=()=>{setProv(null);reset();};
 
   const provId = prov?.id;
@@ -14132,7 +14124,6 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   const [prefSonido,setPrefSonido]=useState(true);
   const [prefVibrar,setPrefVibrar]=useState(true);
   const [formatoFecha,setFormatoFecha]=useState("dd/mm/aaaa");
-  const [idioma,setIdioma]=useState("es-EC");
   const [notif,setNotif]=useState({cobros:true, solicitudes:true, novedades:true});
   const [pestAj,setPestAj]=useState("apariencia");   // pestaña activa de Ajustes
 
@@ -17211,6 +17202,8 @@ function pdfActa(l, toast, compartir){
   doc.save(nombre);
 }
 
+/* Versión en texto plano del comprobante y del acta, para cuando el destinatario
+   no puede abrir el PDF (WhatsApp Web, teléfonos viejos). Sin consumidor hoy. */
 function textoComprobante(l){
   return `COMPROBANTE DE ENTREGA · FREELANCE\n${l.fecha}\nDe: ${l.de}\nPara: ${l.para}\n\n`+
     l.docs.map((d,i)=>`${i+1}. ${d.tipo} ${d.numero} · ${d.cliente} · ${money(d.monto)}`).join("\n")+
