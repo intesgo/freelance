@@ -651,7 +651,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"5", fecha:"20 jul 2026", desc:"Carga de facturas por XML" };
+const VERSION = { n:"6", fecha:"20 jul 2026", desc:"Campanilla con Como funciona" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -911,7 +911,6 @@ function Decisiones({ctx}){
             <button style={btnOk} onClick={()=>confirmarPago(p)}>Confirmar pago efectivo ✓ · libera {money(p.comision)} a Daniel</button>}
         </div>
       ))}
-      <div style={{fontSize:11.5,color:"#6B6455",margin:"2px 2px 0"}}>Ni el cobro al cliente ni el depósito del cheque liberan la comisión: solo tu confirmación.</div>
 
       {/* ══ 3 · SOLICITUDES ELEVADAS ══ */}
       <div style={secH}>📨 Solicitudes de Daniel {pendS.length>0 && "· "+pendS.length}</div>
@@ -1001,7 +1000,42 @@ function App({usuario, onSalir}){
   const credPend = cred.filter(c=>c.estado==="pendiente").length;
   // ═══ NOTIFICACIONES · tareas del rol Proveedor ═══
   const [verNotifs,setVerNotifs]=useState(false);
-  const TAREAS_NOTIF=[
+  const [tabNotif,setTabNotif]=useState("tareas");   // tareas | ayuda
+  /* ══ CÓMO FUNCIONA ══
+   Norma sellada: las notas explicativas NO van sueltas en la pantalla; viven en la
+   campanilla. Los avisos contextuales (respuesta a un estado concreto) sí se quedan. */
+const COMO_FUNCIONA = [
+  {mod:"Conciliación", ic:"✓", t:"Aprobar libera la comisión",
+   d:"Es la única vía. Ni el cobro al cliente ni el depósito del cheque la liberan: solo tu confirmación contra tu banco."},
+  {mod:"Conciliación", ic:"✎", t:"Observar no es rechazar",
+   d:"Si un dato no calza, observas y vuelve al cobrador para que lo corrija: él tiene la foto del comprobante. Tú no corriges."},
+  {mod:"Conciliación", ic:"⚠", t:"Rechazar es un aviso, no una anulación",
+   d:"El rechazo llega al Freelance, que decide si anula el cobro (con constancia al cliente) o lo devuelve a revisión. Tú nunca anulas."},
+  {mod:"Mis cuentas", ic:"🏦", t:"Dónde te pueden depositar",
+   d:"Los cobros de tus facturas solo pueden ir a estas cuentas, nunca a la del freelance. Si el comprobante muestra otra cuenta, el cobro sale observado."},
+  {mod:"Mis cuentas", ic:"🔒", t:"Solo los 4 últimos dígitos",
+   d:"El número completo no se guarda ni se muestra. Con los 4 dígitos basta para cruzar el comprobante que sube el cobrador."},
+  {mod:"Retenciones", ic:"🧾", t:"Bajan la deuda sin ser un cobro",
+   d:"Ese dinero se fue al Estado, no a tu caja. Una factura de $1.000 con $10 de retención se cancela con $990 en efectivo."},
+  {mod:"Retenciones", ic:"📋", t:"Puedes registrarla antes del SRI",
+   d:"Si aún no tienes la autorización, regístrala igual: la cartera del cliente baja desde ya y confirmas después."},
+  {mod:"Notas de crédito", ic:"↩", t:"Dos tipos, y se tratan distinto",
+   d:"Por DEVOLUCIÓN vuelve producto a tu bodega, así que se registra qué y cuántos quintales. Por DESCUENTO solo baja el monto: no vuelve nada."},
+  {mod:"Notas de crédito", ic:"💰", t:"Revierte la comisión en proporción",
+   d:"Si la nota es el 20% de la factura, se revierte el 20% de la comisión. Si al vendedor ya se le pagó, se le descuenta del próximo corte: nunca se le pide devolver."},
+  {mod:"Cargar factura", ic:"📄", t:"Tu código no es el del sistema",
+   d:"La primera vez hay que emparejar cada código del XML con el producto del sistema. Después se reconocen solos: el sistema aprende con cada confirmación."},
+  {mod:"Cargar factura", ic:"🔍", t:"Nada se carga adivinando",
+   d:"Si un código no se reconoce, esa línea queda pendiente hasta que tú digas a qué producto va. Ninguna venta se carga a un producto supuesto."},
+  {mod:"Precios", ic:"🏷️", t:"El precio base lo fija el freelance",
+   d:"Tú ajustas tu costo y propones; él decide el precio con el que vende su fuerza de subcomisionistas."},
+  {mod:"Créditos", ic:"✅", t:"Cómo llega un crédito hasta ti",
+   d:"El subcomisionista sube los documentos, el freelance revisa y sugiere el cupo, y tú apruebas. El cliente no compra a crédito hasta que lo autorices."},
+  {mod:"Propuestas", ic:"✎", t:"Qué son las propuestas",
+   d:"Promociones, condiciones y productos nuevos que ofreces; tu freelance los aprueba para su equipo. Los precios se gestionan aparte."},
+];
+
+const TAREAS_NOTIF=[
     {tipo:"facturar", icono:"🧾", titulo:"Pedidos por facturar", detalle:"Al facturar, el pedido entra a logística", destino:"decidir", n:FACTURAR_INI.filter(x=>x.estado==="pendiente").length},
     {tipo:"pagos", icono:"💵", titulo:"Pagos por confirmar", detalle:"Tu confirmación libera la comisión del vendedor", destino:"decidir", n:PAGOS_CONF_INI.filter(x=>x.estado==="pendiente").length},
     {tipo:"creditos", icono:"✅", titulo:"Créditos por aprobar", detalle:"Solicitudes de cupo con documentos", destino:"creditos", n:CRED_INI.filter(c=>c.estado==="pendiente").length},
@@ -1071,9 +1105,35 @@ function App({usuario, onSalir}){
           <div onClick={()=>setVerNotifs(false)} style={{position:"fixed", inset:0, background:"rgba(10,20,15,.45)", zIndex:1300, display:"flex", alignItems:"flex-start", justifyContent:"flex-end", padding:"calc(env(safe-area-inset-top,0px) + 104px) 12px 0"}}>
             <div onClick={e=>e.stopPropagation()} style={{width:"min(340px,92vw)", maxHeight:"70vh", overflowY:"auto", background:"#fff", borderRadius:16, boxShadow:"0 18px 50px rgba(0,0,0,.3)"}}>
               <div style={{padding:"14px 16px 10px", borderBottom:"1px solid #EEF2EE", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-                <strong style={{fontFamily:SERIF, fontSize:16, color:CL.tinta}}>🔔 Tus tareas de hoy</strong>
+                <div style={{display:"flex", gap:6}}>
+                  <button onClick={()=>setTabNotif("tareas")}
+                    style={{border:"none", cursor:"pointer", borderRadius:99, padding:"7px 14px",
+                      fontFamily:BODY, fontSize:12.5, fontWeight:700,
+                      background: tabNotif==="tareas"?CL.principal:"#F3F6F3",
+                      color: tabNotif==="tareas"?"#fff":CL.grisTexto}}>🔔 Tus tareas</button>
+                  <button onClick={()=>setTabNotif("ayuda")}
+                    style={{border:"none", cursor:"pointer", borderRadius:99, padding:"7px 14px",
+                      fontFamily:BODY, fontSize:12.5, fontWeight:700,
+                      background: tabNotif==="ayuda"?CL.principal:"#F3F6F3",
+                      color: tabNotif==="ayuda"?"#fff":CL.grisTexto}}>Cómo funciona</button>
+                </div>
               </div>
-              {(<>
+              {tabNotif==="ayuda" ? (<>
+                {COMO_FUNCIONA.map((h,i)=>(
+                  <div key={i} style={{display:"flex", gap:12, alignItems:"flex-start",
+                    borderBottom:"1px solid #F3F6F3", padding:"12px 16px"}}>
+                    <span style={{fontSize:18, marginTop:1}}>{h.ic}</span>
+                    <span style={{flex:1, minWidth:0}}>
+                      <span style={{display:"block", fontFamily:BODY, fontSize:10.5, fontWeight:700,
+                        color:CL.principal, textTransform:"uppercase", letterSpacing:".03em"}}>{h.mod}</span>
+                      <span style={{display:"block", fontFamily:BODY, fontSize:13.5, fontWeight:700,
+                        color:CL.tinta, marginTop:2}}>{h.t}</span>
+                      <span style={{display:"block", fontFamily:BODY, fontSize:11.5,
+                        color:CL.grisTexto, marginTop:3, lineHeight:1.45}}>{h.d}</span>
+                    </span>
+                  </div>
+                ))}
+              </>) : (<>
               {tareasActivas.length===0 && <p style={{fontFamily:BODY, fontSize:13, color:CL.grisTexto, padding:"18px 16px", margin:0}}>Todo al día ✨ Nada espera tu acción.</p>}
               {tareasActivas.map(t=>(
                 <button key={t.tipo} onClick={()=>{setVerNotifs(false); irTab(t.destino);}}
@@ -1087,7 +1147,6 @@ function App({usuario, onSalir}){
                 </button>
               ))}
               </>)}
-              <p style={{fontFamily:BODY, fontSize:10.5, color:CL.grisTenue, padding:"10px 16px", margin:0, background:"#FAFBF9", borderRadius:"0 0 16px 16px"}}>👤 Qué avisos llegan aquí lo define tu freelance. Al publicar la app también aparecerán en la pantalla de tu teléfono.</p>
             </div>
           </div>
         )}
@@ -1382,7 +1441,7 @@ function Precios({ctx,irTab}){
     <>
       <div className="eyebrow">Precio base de venta</div>
       <h1 className="h1">Precios</h1>
-      <div className="sub" style={{marginTop:4}}>Ajustas el precio base; el freelance lo aprueba y queda como el precio con el que vende su fuerza de subcomisionistas.</div>
+      <div className="sub" style={{marginTop:4}}>Tu costo por producto.</div>
 
       {pendientes.length>0 &&
         <div className="card card-pad" style={{margin:"16px 0 0",background:"var(--espera-suave)",border:"none"}}>
@@ -1488,7 +1547,7 @@ function Propuestas({ctx}){
     <>
       <div className="eyebrow">Negociación con tu freelance</div>
       <h1 className="h1">Propuestas</h1>
-      <div className="sub" style={{marginTop:4}}>Promociones, condiciones y productos nuevos que propones; tu freelance los aprueba para su equipo. Los precios se gestionan en su pestaña.</div>
+      <div className="sub" style={{marginTop:4}}>Lo que propones a tu freelance.</div>
 
       <div className="seg" style={{margin:"16px 0 14px"}}>
         <button className={filtro==="activas"?"on":""} onClick={()=>setFiltro("activas")}>Activas · {pend.length}</button>
@@ -1814,7 +1873,7 @@ function ProdSheet({p,onClose,onOfrecer}){
         {p.estado==="aceptado" &&
           <div className="card card-pad" style={{background:"var(--ok-suave)",border:"none"}}>
             <div style={{fontWeight:600,color:"#1E5B40"}}>En el catálogo de {FREELANCE.nombre}</div>
-            <div className="sub tiny" style={{marginTop:4}}>Disponible para su fuerza de subcomisionistas. Para cambiar el precio, envía una propuesta.</div>
+            <div className="sub tiny" style={{marginTop:4}}>Para cambiar el precio, envía una propuesta.</div>
           </div>}
         {p.estado==="ofrecido" &&
           <div className="card card-pad" style={{background:"var(--espera-suave)",border:"none"}}>
@@ -3269,7 +3328,7 @@ function Creditos({ctx}){
     <>
       <div className="eyebrow">Crédito de clientes</div>
       <h1 className="h1">Créditos</h1>
-      <div className="sub" style={{marginTop:4}}>El subcomisionista sube documentos y fotos, tu freelance revisa y sugiere cupo, y tú apruebas el crédito. Los clientes de contado no requieren aprobación.</div>
+      <div className="sub" style={{marginTop:4}}>Clientes que piden comprar a crédito.</div>
 
       <div className="seg" style={{margin:"16px 0 14px"}}>
         <button className={filtro==="pendientes"?"on":""} onClick={()=>setFiltro("pendientes")}>Por aprobar · {pend.length}</button>
