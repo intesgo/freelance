@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"99", fecha:"19 jul 2026", desc:"Mi dia simplificado para el vendedor"};
+const VERSION={n:"100", fecha:"19 jul 2026", desc:"Boveda de cheques con traspaso por codigo"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2289,6 +2289,54 @@ const PEDIDOS_INI = [
      {t:"Entregado", f:"06 jun · 16:40", st:"now", d:"Recibido conforme por el cliente"},
      {t:"Cliente pagó", f:"—", st:"wait", d:"Pendiente de cobro (vence en 12 días)"},
      {t:"Comisión liberada", f:"—", st:"wait", d:""},
+   ]},
+];
+/* Cheques posfechados: cada uno tiene un tenedor y su recorrido completo */
+const CHEQUES_POSF=[
+  {cli:"Distribuidora Ríos",  banco:"Banco Pichincha", numero:"CHQ-004530", valor:1500, fecha:"2026-06-20", dueno:"Marcela Ríos", estado:"custodia",
+   tenedor:"Patricia Vélez (Logística)",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-06-01 10:20", d:"Recibido del cliente"},
+     {ev:"traspaso", quien:"Patricia Vélez (Logística)", f:"2026-06-02 08:40", d:"Carlos Andrade → Patricia Vélez"},
+   ]},
+  {cli:"Distribuidora Ríos",  banco:"Produbanco",      numero:"CHQ-004531", valor:1000, fecha:"2026-07-05", dueno:"Marcela Ríos", estado:"custodia",
+   tenedor:"Carlos Andrade (Cobrador)",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-06-03 16:10", d:"Recibido del cliente"},
+   ]},
+  {cli:"Comercial Mendoza",   banco:"Banco Guayaquil", numero:"CHQ-008830", valor:700,  fecha:"2026-06-18", dueno:"Juan Mendoza", estado:"deposito",
+   tenedor:"Daniel Ríos (Freelance)", depositadoPor:"Daniel Ríos (Freelance)", bancoDeposito:"Banco Guayaquil",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-05-30 11:00", d:"Recibido del cliente"},
+     {ev:"traspaso", quien:"Patricia Vélez (Logística)", f:"2026-05-31 09:15", d:"Carlos Andrade → Patricia Vélez"},
+     {ev:"traspaso", quien:"Daniel Ríos (Freelance)", f:"2026-06-01 14:30", d:"Patricia Vélez → Daniel Ríos"},
+     {ev:"deposito", quien:"Daniel Ríos (Freelance)", f:"2026-06-12 10:05", d:"Depositado en Banco Guayaquil"},
+   ]},
+  {cli:"Comercial Mendoza",   banco:"Banco Pichincha", numero:"CHQ-008831", valor:500,  fecha:"2026-06-30", dueno:"Transportes JM (tercero)", estado:"custodia",
+   tenedor:"Carlos Andrade (Cobrador)",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-06-02 12:00", d:"Recibido del cliente (cheque de tercero)"},
+   ]},
+  {cli:"Tienda La Esquina",   banco:"Banco del Pacífico", numero:"CHQ-011204", valor:300, fecha:"2026-07-12", dueno:"Rosa Villamar", estado:"recibido",
+   tenedor:"Carlos Andrade (Cobrador)",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-06-10 15:40", d:"Recibido del cliente"},
+   ]},
+  {cli:"Bodega El Agricultor", banco:"Banco Bolivariano", numero:"CHQ-006611", valor:850, fecha:"2026-06-05", dueno:"Pedro Analuisa", estado:"efectivizado", fechaEfect:"2026-06-06",
+   depositadoPor:"Patricia Vélez (Logística)", bancoDeposito:"Banco Bolivariano",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-05-25 10:00", d:"Recibido del cliente"},
+     {ev:"traspaso", quien:"Patricia Vélez (Logística)", f:"2026-05-26 09:00", d:"Carlos Andrade → Patricia Vélez"},
+     {ev:"deposito", quien:"Patricia Vélez (Logística)", f:"2026-06-05 11:30", d:"Depositado en Banco Bolivariano"},
+     {ev:"efectivizado", quien:"Ingenio San Pablo (Proveedor)", f:"2026-06-06 08:20", d:"Pago confirmado"},
+   ]},
+  {cli:"Mayorista Santa Rosa", banco:"Banco Machala", numero:"CHQ-009120", valor:1200, fecha:"2026-05-28", dueno:"Ana Tenesaca", estado:"efectivizado", fechaEfect:"2026-05-29",
+   depositadoPor:"Daniel Ríos (Freelance)", bancoDeposito:"Banco Machala",
+   traza:[
+     {ev:"recibido", quien:"Carlos Andrade (Cobrador)", f:"2026-05-18 14:00", d:"Recibido del cliente"},
+     {ev:"traspaso", quien:"Daniel Ríos (Freelance)", f:"2026-05-20 10:00", d:"Carlos Andrade → Daniel Ríos"},
+     {ev:"deposito", quien:"Daniel Ríos (Freelance)", f:"2026-05-28 09:40", d:"Depositado en Banco Machala"},
+     {ev:"efectivizado", quien:"Molinos del Litoral (Proveedor)", f:"2026-05-29 08:00", d:"Pago confirmado"},
    ]},
 ];
 /* ══ CIERRE DIARIO DE COBROS ══
@@ -4708,6 +4756,288 @@ function NeuAnillo({pct=0, valor, etiqueta, sub, color="#2E7D52", tam=150}){
       {sub && <div className="meta" style={{fontSize:11,marginTop:4,textAlign:"center"}}>{sub}</div>}
     </div>
   );
+}
+
+/* ══ BÓVEDA DE CHEQUES ══
+   Regla sellada: todo cheque posfechado va al proveedor. La única excepción es que
+   el PROVEEDOR autorice a alguien a retenerlo para depositarlo (permiso con vigencia).
+   El traspaso exige doble confirmación: quien entrega genera un código de un solo uso,
+   quien recibe lo ingresa. Hasta entonces el cheque sigue figurando en manos del primero. */
+const DIAS_QUIETO_ALERTA = 5;   /* días sin moverse antes de avisar */
+
+/* Personas a las que se puede entregar un cheque: cualquiera puede entregar a cualquiera */
+const DESTINOS_CHEQUE = [
+  "Daniel Ríos (Freelance)",
+  "Patricia Vélez (Logística)",
+  "Carlos Andrade (Cobrador)",
+  "Agrícola del Valle (Proveedor)",
+  "Ingenio San Pablo (Proveedor)",
+  "Molinos del Litoral (Proveedor)",
+];
+/* Traspasos en curso: esperan que el destinatario ingrese el código */
+const TRASPASOS_PEND = [];
+
+function Boveda({toast, yo, volver}){
+  const [q,setQ]=useState("");
+  const [sel,setSel]=useState(null);        // cheque abierto
+  const [entregando,setEntregando]=useState(null);
+  const [destino,setDestino]=useState("");
+  const [codigoGen,setCodigoGen]=useState(null);
+  const [recibiendo,setRecibiendo]=useState(false);
+  const [codigoIng,setCodigoIng]=useState("");
+  const [tick,setTick]=useState(0);
+  useModal(!!entregando, React.useCallback(()=>{setEntregando(null);setCodigoGen(null);},[]));
+  useModal(recibiendo, React.useCallback(()=>setRecibiendo(false),[]));
+  useRetroceso(()=>{
+    if(entregando){ setEntregando(null); setCodigoGen(null); return true; }
+    if(recibiendo){ setRecibiendo(false); return true; }
+    if(sel){ setSel(null); return true; }
+    return false;
+  });
+
+  const hoy = new Date("2026-07-19");
+  const dias = (f)=>{ const d=new Date(String(f).slice(0,10)); return Math.round((hoy-d)/86400000); };
+  const ultimoMov = (c)=> (c.traza && c.traza.length) ? c.traza[c.traza.length-1].f : null;
+  const diasQuieto = (c)=>{ const f=ultimoMov(c); return f?dias(f):0; };
+  const diasParaFecha = (c)=> Math.round((new Date(c.fecha)-hoy)/86400000);
+
+  /* solo los cheques que YO tengo en la mano */
+  const mios = CHEQUES_POSF.filter(c=>c.tenedor===yo && c.estado!=="efectivizado" && c.estado!=="deposito");
+  const norm = s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const lista = q.trim()==="" ? mios
+    : mios.filter(c=>norm(c.cli+" "+c.numero+" "+c.banco).includes(norm(q)));
+  const total = lista.reduce((s,c)=>s+c.valor,0);
+  const conPermiso = lista.filter(c=>c.permiso && new Date(c.permiso.vence)>=hoy);
+  const porEntregar = lista.filter(c=>!(c.permiso && new Date(c.permiso.vence)>=hoy));
+  const quietos = lista.filter(c=>diasQuieto(c)>=DIAS_QUIETO_ALERTA);
+  /* traspasos que alguien me envió y aún no confirmo */
+  const paraMi = TRASPASOS_PEND.filter(t=>t.para===yo);
+
+  const generarCodigo=()=>{
+    if(!destino){ toast("Elige a quién entregas el cheque"); return; }
+    const cod = String(Math.floor(100000+Math.random()*900000));
+    TRASPASOS_PEND.push({ numero:entregando.numero, de:yo, para:destino, cod,
+      cuando:new Date().toISOString().slice(0,16).replace("T"," ") });
+    setCodigoGen(cod);
+    toast("Código generado · el cheque sigue en tus manos hasta que lo confirmen");
+  };
+  const confirmarRecibo=()=>{
+    const i = TRASPASOS_PEND.findIndex(t=>t.para===yo && t.cod===codigoIng.trim());
+    if(i<0){ toast("Código incorrecto o no es para ti"); return; }
+    const t = TRASPASOS_PEND[i];
+    const ch = CHEQUES_POSF.find(c=>c.numero===t.numero);
+    if(ch){
+      ch.tenedor = yo;
+      (ch.traza=ch.traza||[]).push({ev:"traspaso", quien:yo, f:t.cuando, d:`${t.de} → ${yo}`});
+    }
+    TRASPASOS_PEND.splice(i,1);
+    setRecibiendo(false); setCodigoIng(""); setTick(x=>x+1);
+    toast(`Cheque ${t.numero} recibido · auditado AU-260719-${Math.floor(1000+Math.random()*9000)}`);
+  };
+
+  /* ── ficha de un cheque ── */
+  if(sel){
+    const c = CHEQUES_POSF.find(x=>x.numero===sel) || {};
+    const permOk = c.permiso && new Date(c.permiso.vence)>=hoy;
+    const dq = diasQuieto(c);
+    return (<>
+      <div className="h1">Cheque {c.numero}</div>
+      <div className="sub">{c.cli} · {c.banco}</div>
+
+      <div className="card" style={{padding:"14px 16px",marginTop:12}}>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+          <span className="meta">Valor</span>
+          <b className="num" style={{fontSize:26,fontWeight:800}}>{money(c.valor)}</b>
+        </div>
+        <div className="row" style={{justifyContent:"space-between",padding:"5px 0"}}>
+          <span className="meta">Fecha del cheque</span>
+          <b style={{fontSize:14}}>{c.fecha}</b>
+        </div>
+        <div className="row" style={{justifyContent:"space-between",padding:"5px 0"}}>
+          <span className="meta">Dueño</span><b style={{fontSize:14}}>{c.dueno||"—"}</b>
+        </div>
+        {c.dueno && c.dueno!==c.cli && (
+          <div className="meta" style={{fontSize:11.5,color:"var(--clay)",fontWeight:700,marginTop:3}}>
+            Cheque de un tercero</div>
+        )}
+      </div>
+
+      {permOk ? (
+        <div className="card" style={{padding:"12px 15px",marginTop:10,borderLeft:"3px solid #2E7D52"}}>
+          <div style={{fontWeight:700,fontSize:13.5,color:"#2E7D52"}}>✓ Autorizado para depositar</div>
+          <div className="meta" style={{fontSize:12.5,marginTop:3}}>
+            Permiso de {c.permiso.quien} · vence {c.permiso.vence}</div>
+        </div>
+      ) : (
+        <div className="card" style={{padding:"12px 15px",marginTop:10,borderLeft:"3px solid #C98A2B"}}>
+          <div style={{fontWeight:700,fontSize:13.5,color:"#C98A2B"}}>⚠ Por entregar al proveedor</div>
+          <div className="meta" style={{fontSize:12.5,marginTop:3}}>
+            Todo cheque posfechado va al proveedor. Para retenerlo y depositarlo hace falta su autorización.</div>
+        </div>
+      )}
+
+      {dq>=DIAS_QUIETO_ALERTA && (
+        <div className="card" style={{padding:"11px 14px",marginTop:10,background:"#FDF3E2",border:"1px solid #C98A2B"}}>
+          <div style={{fontWeight:700,fontSize:13,color:"#A06B15"}}>
+            Lleva {dq} días en tus manos sin moverse</div>
+        </div>
+      )}
+
+      <div className="ficha-sec" style={{marginTop:16}}>Recorrido del cheque</div>
+      <div className="card" style={{padding:"12px 15px"}}>
+        {(c.traza||[]).map((t,i)=>(
+          <div key={i} style={{display:"flex",gap:10,padding:"7px 0",
+            borderTop:i?"1px solid var(--line)":"none"}}>
+            <span style={{fontSize:15,flexShrink:0}}>
+              {t.ev==="recibido"?"📥":t.ev==="traspaso"?"🤝":t.ev==="deposito"?"🏦":"✓"}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600}}>{t.d}</div>
+              <div className="meta" style={{fontSize:11}}>{t.quien} · {t.f}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button className="cta" style={{marginTop:14}}
+        onClick={()=>{ setEntregando(c); setDestino(""); setCodigoGen(null); }}>
+        🤝 Entregar este cheque</button>
+      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>setSel(null)}>‹ Volver</button>
+    </>);
+  }
+
+  /* ── lista: mi bóveda ── */
+  return (<>
+    <div className="h1">Mi bóveda</div>
+    <div className="sub">Cheques que tienes en tu poder</div>
+
+    <div className="card" style={{padding:"13px 16px",marginTop:12,
+      borderLeft:`4px solid ${porEntregar.length?"#C98A2B":"#2E7D52"}`}}>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"baseline"}}>
+        <span style={{fontWeight:800,fontSize:14}}>{lista.length} cheque{lista.length!==1?"s":""}</span>
+        <b className="num" style={{fontSize:24,fontWeight:800}}>{money(total)}</b>
+      </div>
+      {quietos.length>0 && (
+        <div className="meta" style={{fontSize:12,marginTop:5,color:"#C98A2B",fontWeight:700}}>
+          ⚠ {quietos.length} lleva{quietos.length!==1?"n":""} más de {DIAS_QUIETO_ALERTA} días sin moverse</div>
+      )}
+    </div>
+
+    {paraMi.length>0 && (
+      <button className="cta" style={{marginTop:12,background:"#2B6CB0"}}
+        onClick={()=>setRecibiendo(true)}>
+        📥 Recibir cheque · {paraMi.length} en camino</button>
+    )}
+
+    {lista.length>3 && (
+      <div className="field" style={{marginTop:12}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar por cliente, número o banco…"/>
+      </div>
+    )}
+
+    {porEntregar.length>0 && (<>
+      <div className="ficha-sec" style={{marginTop:14}}>Por entregar al proveedor</div>
+      {porEntregar.map(c=>{
+        const dq=diasQuieto(c), df=diasParaFecha(c);
+        return (
+          <button key={c.numero} className="card" style={{width:"100%",padding:"11px 13px",marginBottom:8,
+            border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",fontFamily:"inherit",
+            display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",
+            borderLeft:dq>=DIAS_QUIETO_ALERTA?"3px solid #C98A2B":undefined}}
+            onClick={()=>setSel(c.numero)}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
+              <div className="meta" style={{fontSize:11}}>
+                {c.numero} · {c.banco} · {df>0?`en ${df} d`:df===0?"vence hoy":`vencido ${-df} d`}</div>
+              {dq>=DIAS_QUIETO_ALERTA && <div className="meta" style={{fontSize:11,color:"#C98A2B",fontWeight:700}}>
+                {dq} días sin moverse</div>}
+            </div>
+            <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(c.valor)}</b>
+          </button>
+        );
+      })}
+    </>)}
+
+    {conPermiso.length>0 && (<>
+      <div className="ficha-sec" style={{marginTop:14}}>Autorizados para depositar</div>
+      {conPermiso.map(c=>(
+        <button key={c.numero} className="card" style={{width:"100%",padding:"11px 13px",marginBottom:8,
+          border:"1px solid var(--line)",textAlign:"left",cursor:"pointer",fontFamily:"inherit",
+          display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",
+          borderLeft:"3px solid #2E7D52"}}
+          onClick={()=>setSel(c.numero)}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cli}</div>
+            <div className="meta" style={{fontSize:11}}>{c.numero} · permiso hasta {c.permiso.vence}</div>
+          </div>
+          <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(c.valor)}</b>
+        </button>
+      ))}
+    </>)}
+
+    {lista.length===0 && <div className="ph" style={{marginTop:14}}>No tienes cheques en tu poder.</div>}
+
+    {/* entregar: genera el código que el otro debe confirmar */}
+    {entregando && (
+      <div className="ov" onClick={()=>{setEntregando(null);setCodigoGen(null);}}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Entregar cheque {entregando.numero}</h3>
+          {!codigoGen ? (<>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
+              {entregando.cli} · {money(entregando.valor)}. Elige a quién se lo entregas; el cheque
+              sigue figurando en tus manos hasta que la otra persona confirme con el código.
+            </p>
+            <div className="field"><label>Entregar a</label>
+              <select className="aj-sel" style={{width:"100%",padding:"12px"}}
+                value={destino} onChange={e=>setDestino(e.target.value)}>
+                <option value="">Elige…</option>
+                {DESTINOS_CHEQUE.filter(d=>d!==yo).map(d=><option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <button className="cta" style={{width:"100%"}} onClick={generarCodigo}>Generar código</button>
+          </>) : (<>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 10px"}}>
+              Dile este código a <b>{destino}</b> para que confirme la recepción:
+            </p>
+            <div className="montobox" style={{textAlign:"center",padding:"18px"}}>
+              <div className="num" style={{fontSize:34,fontWeight:800,letterSpacing:".12em"}}>{codigoGen}</div>
+            </div>
+            <div className="meta" style={{textAlign:"center",margin:"10px 0",fontSize:12}}>
+              El cheque sigue siendo tu responsabilidad hasta que lo confirmen.</div>
+            <button className="cta" style={{width:"100%"}}
+              onClick={()=>{setEntregando(null);setCodigoGen(null);setSel(null);}}>Entendido</button>
+          </>)}
+          <button className="back" style={{width:"100%",marginTop:10}}
+            onClick={()=>{setEntregando(null);setCodigoGen(null);}}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* recibir: ingresa el código que le dieron */}
+    {recibiendo && (
+      <div className="ov" onClick={()=>setRecibiendo(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Recibir cheque</h3>
+          <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
+            Ingresa el código de 6 dígitos que te dio quien te entrega el cheque.
+          </p>
+          {paraMi.map(t=>(
+            <div key={t.cod} className="meta" style={{fontSize:12,marginBottom:4}}>
+              {t.numero} · de {t.de}</div>
+          ))}
+          <div className="field"><label>Código</label>
+            <input className="num" inputMode="numeric" value={codigoIng}
+              style={{fontSize:22,textAlign:"center",letterSpacing:".1em"}}
+              onChange={e=>setCodigoIng(e.target.value)} placeholder="000000"/></div>
+          <button className="cta" style={{width:"100%"}} disabled={codigoIng.trim().length<6}
+            onClick={confirmarRecibo}>Confirmar recepción</button>
+          <button className="back" style={{width:"100%",marginTop:10}}
+            onClick={()=>setRecibiendo(false)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {volver && <button className="ghost" style={{width:"100%",marginTop:14}} onClick={volver}>‹ Volver</button>}
+  </>);
 }
 
 /* ══ MI DÍA · cuadre del vendedor ══
@@ -7805,7 +8135,7 @@ function App(){
     setPedidos(prev=>[...nuevos, ...prev]);   // los nuevos arriba
   };
   // pantallas secundarias (se llega desde Inicio, no están en la barra)
-  const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",comisiones:"Mis comisiones",midia:"Mi día"};
+  const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",comisiones:"Mis comisiones",midia:"Mi día",boveda:"Mi bóveda"};
   const enSub = tab in subPantallas;
 
   // contadores (badges) de la barra inferior: lo pendiente por saber en cada sección
@@ -7876,6 +8206,7 @@ function App(){
         {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar}/>}
         {tab==="midia" && <MiDia toast={show} volver={()=>navegar("cobros")}/>}
+        {tab==="boveda" && <Boveda toast={show} yo="Carlos Andrade (Cobrador)" volver={()=>navegar("inicio")}/>}
         {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)}/>}
         {tab==="ajustes" && <Ajustes toast={show} tema={tema} setTema={setTema}
           fontGrande={fontGrande} setFontGrande={setFontGrande}
@@ -7964,6 +8295,7 @@ function App(){
               ["precios","🏷️","#E5F0EA","Precios","Consulta por línea"],
               ["comisiones","💰","#F3ECF9","Comisiones","Lo que has ganado"],
               ["midia","📊","#E8F0F7","Mi día","Cuadre de caja y cierre"],
+              ["boveda","🔐","#EFEAF7","Mi bóveda","Cheques en tu poder"],
               ["cuenta","🏆","#E9EEE9","Mi cuenta","Metas y logros"],
               ["ajustes","⚙️","#EEF1F5","Ajustes","Colores, impresora y avisos"],
             ].map(([k,ic,bg,t,s])=>(
