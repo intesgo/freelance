@@ -601,6 +601,75 @@ const XML_EJEMPLO = {
   ],
 };
 
+/* ══ LECTOR DEL XML DEL SRI ══
+   El archivo autorizado del SRI viene envuelto: la raiz es <autorizacion> y adentro,
+   dentro de <comprobante>, viaja la factura como texto ESCAPADO (o en CDATA). Hay que
+   desenvolverla antes de poder leer las lineas. Si el archivo ya es la factura directa
+   (<factura> en la raiz), se lee tal cual.
+   Nunca inventamos datos: lo que no se puede leer, se avisa. */
+function textoDe(nodo, etiqueta){
+  if(!nodo) return "";
+  const e = nodo.getElementsByTagName(etiqueta)[0];
+  return e ? (e.textContent||"").trim() : "";
+}
+function leerFacturaSRI(texto){
+  const par = new DOMParser();
+  let doc;
+  try { doc = par.parseFromString(texto, "text/xml"); }
+  catch(e){ return { error:"El archivo no es un XML válido." }; }
+  if(!doc || doc.getElementsByTagName("parsererror").length)
+    return { error:"El archivo no es un XML válido." };
+
+  /* 1) desenvolver: <autorizacion><comprobante> factura escapada </comprobante> */
+  let fac = doc.getElementsByTagName("factura")[0];
+  if(!fac){
+    const comp = doc.getElementsByTagName("comprobante")[0];
+    if(comp){
+      try{
+        const dentro = par.parseFromString((comp.textContent||"").trim(), "text/xml");
+        if(!dentro.getElementsByTagName("parsererror").length)
+          fac = dentro.getElementsByTagName("factura")[0];
+      }catch(e){}
+    }
+  }
+  if(!fac) return { error:"No se encontró una factura dentro del archivo." };
+
+  const info = fac.getElementsByTagName("infoFactura")[0];
+  const trib = fac.getElementsByTagName("infoTributaria")[0];
+
+  /* 2) numero: estab-ptoEmi-secuencial */
+  const est = textoDe(trib,"estab"), pto = textoDe(trib,"ptoEmi"), sec = textoDe(trib,"secuencial");
+  const numero = (est && pto && sec) ? (est+"-"+pto+"-"+sec) : (textoDe(trib,"claveAcceso").slice(0,15) || "s/n");
+
+  /* 3) fecha: el SRI la manda dd/mm/aaaa */
+  let fecha = textoDe(info,"fechaEmision");
+  const p = fecha.split("/");
+  if(p.length===3) fecha = p[2]+"-"+p[1]+"-"+p[0];
+
+  /* 4) lineas: codigoPrincipal es el codigo DEL PROVEEDOR (el que hay que emparejar) */
+  const lineas = [];
+  const dets = fac.getElementsByTagName("detalle");
+  for(let i=0; i<dets.length; i++){
+    const d = dets[i];
+    const cod = textoDe(d,"codigoPrincipal") || textoDe(d,"codigoAuxiliar");
+    const desc = textoDe(d,"descripcion");
+    const cant = parseFloat(textoDe(d,"cantidad")) || 0;
+    const precio = parseFloat(textoDe(d,"precioUnitario")) || 0;
+    if(!cod && !desc) continue;
+    lineas.push({ codProv: cod || "SIN-CODIGO", desc, cant, precio });
+  }
+  if(!lineas.length) return { error:"La factura no trae líneas de detalle." };
+
+  return {
+    numero, fecha,
+    ruc: textoDe(trib,"ruc"),
+    cliente: textoDe(info,"razonSocialComprador") || "Cliente sin nombre",
+    clienteRuc: textoDe(info,"identificacionComprador"),
+    total: parseFloat(textoDe(info,"importeTotal")) || 0,
+    lineas,
+  };
+}
+
 /* Qué tan parecidas son dos descripciones: sirve para proponer, nunca para decidir solo. */
 const parecido = (a,b) => {
   const lim = t => String(t||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>2);
@@ -695,7 +764,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"12", fecha:"20 jul 2026", desc:"Listas por uso + textos a la campanilla" };
+const VERSION = { n:"13", fecha:"20 jul 2026", desc:"Lector real del XML del SRI" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2230,9 +2299,28 @@ function CargaXML({irTab}){
   const desconoc= lineas.filter(l=>l.grupo==="desconocido");
   const listo   = xml && desconoc.length===0 && propues.length===0;
 
-  const leerXml=()=>{
+  const archivoRef = React.useRef(null);
+  /* Lector real: abre el explorador del telefono y lee el XML de verdad.
+     Si el archivo no sirve, se avisa y NO se carga nada inventado. */
+  const elegirArchivo=()=>{ if(archivoRef.current) archivoRef.current.click(); };
+  const alElegirArchivo=(e)=>{
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";                 /* permite volver a elegir el mismo archivo */
+    if(!f) return;
+    const lector = new FileReader();
+    lector.onerror = ()=> toast("No se pudo leer el archivo. Intenta de nuevo.");
+    lector.onload = ()=>{
+      const r = leerFacturaSRI(String(lector.result||""));
+      if(r.error){ toast(r.error); return; }
+      setXml(r); setResuelto({});
+      toast(`Factura ${r.numero} leída · ${r.lineas.length} línea${r.lineas.length!==1?"s":""} · revísalas antes de cargarla`);
+    };
+    lector.readAsText(f);
+  };
+  /* Respaldo para mostrar el flujo sin un XML a mano */
+  const verEjemplo=()=>{
     setXml(XML_EJEMPLO); setResuelto({});
-    toast("Factura leída · revisa las líneas antes de cargarla");
+    toast("Ejemplo cargado · así se ve una factura leída");
   };
 
   /* Confirmar una equivalencia: se guarda y ya no vuelve a preguntar. */
@@ -2302,8 +2390,12 @@ function CargaXML({irTab}){
         <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>
           Es el archivo que te da tu sistema de facturación al autorizar la factura.</div>
         <div className="sec-gap" style={{height:16}} />
-        <button className="btn btn-maiz" style={{width:"100%"}} onClick={leerXml}>
+        <input ref={archivoRef} type="file" accept=".xml,text/xml,application/xml"
+          style={{display:"none"}} onChange={alElegirArchivo} />
+        <button className="btn btn-maiz" style={{width:"100%"}} onClick={elegirArchivo}>
           Elegir archivo</button>
+        <button className="btn btn-ghost" style={{width:"100%",marginTop:10}} onClick={verEjemplo}>
+          Ver un ejemplo</button>
       </div>
 
       <div className="sec-gap" style={{height:12}} />
