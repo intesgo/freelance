@@ -1077,7 +1077,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"115", fecha:"20 jul 2026", desc:"Imprimir recibo de cobro desde Mi caja" };
+const VERSION = { n:"116", fecha:"20 jul 2026", desc:"La impresora se reconecta sola" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1210,6 +1210,49 @@ function ticketRecibo(r, cobrador){
     + "de cobro, no una factura.\n"
     + ESC_FIN;
   return t;
+}
+
+/* ══ RECORDAR LA IMPRESORA ══
+   Web Bluetooth exige un gesto del usuario para elegir un equipo, y al recargar la
+   página se pierde el permiso. Pero Chrome guarda los equipos ya autorizados y
+   getDevices() los devuelve SIN volver a mostrar la lista.
+   Con eso la app puede reconectarse sola al abrir. Si falla (impresora apagada o
+   lejos), se calla: el usuario verá el botón de conectar como siempre. */
+const IMP_KEY = "freelance_impresora_v1";
+function recordarImpresora(disp){
+  try{
+    if(disp && disp.id) localStorage.setItem(IMP_KEY, JSON.stringify({id:disp.id, nombre:disp.name||""}));
+  }catch(e){}
+}
+function impresoraRecordada(){
+  try{ return JSON.parse(localStorage.getItem(IMP_KEY)||"null"); }catch(e){ return null; }
+}
+function olvidarImpresora(){ try{ localStorage.removeItem(IMP_KEY); }catch(e){} }
+/* Busca el canal de escritura entre los servicios del equipo. */
+async function canalDeEscritura(gatt){
+  const servicios = await gatt.getPrimaryServices();
+  for(const s of servicios){
+    const cars = await s.getCharacteristics();
+    const c = cars.find(x=>x.properties.write || x.properties.writeWithoutResponse);
+    if(c) return c;
+  }
+  return null;
+}
+/* Reconexión silenciosa: solo funciona con equipos ya autorizados antes. */
+async function reconectarImpresora(){
+  const guardada = impresoraRecordada();
+  if(!guardada || !navigator.bluetooth || !navigator.bluetooth.getDevices) return false;
+  try{
+    const equipos = await navigator.bluetooth.getDevices();
+    const disp = equipos.find(d=>d.id===guardada.id);
+    if(!disp) return false;
+    const gatt = await disp.gatt.connect();
+    const canal = await canalDeEscritura(gatt);
+    if(!canal) return false;
+    disp.addEventListener("gattserverdisconnected", ()=>fijarImpresora(null,null));
+    fijarImpresora(disp, canal);
+    return true;
+  }catch(e){ return false; }   /* apagada, lejos o sin permiso: silencio */
 }
 
 /* ══ CONEXIÓN VIVA CON LA IMPRESORA ══
@@ -9436,6 +9479,18 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
   const [impre,setImpre]=useState(null);        // dispositivo emparejado
   const [carImp,setCarImp]=useState(null);      // canal por donde se envían los datos
   const [buscandoImp,setBuscandoImp]=useState(false);
+  /* Si Root ya reconectó sola, Ajustes lo refleja al abrir. */
+  React.useEffect(()=>{
+    if(IMPRESORA.canal && !carImp){ setImpre(IMPRESORA.disp); setCarImp(IMPRESORA.canal); }
+  },[]);
+  /* Reconectar a la impresora recordada, sin volver a elegirla de la lista. */
+  const reconectar=async()=>{
+    setBuscandoImp(true);
+    const ok = await reconectarImpresora();
+    if(ok){ setImpre(IMPRESORA.disp); setCarImp(IMPRESORA.canal); toast("Impresora reconectada"); }
+    else   { toast("No respondió. Enciéndela y usa Conectar."); }
+    setBuscandoImp(false);
+  };
   const hayBluetooth=()=>typeof navigator!=="undefined" && !!navigator.bluetooth;
 
   /* servicios que usan las térmicas más comunes (GOOJPRT, Xprinter y similares) */
@@ -9465,6 +9520,7 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
         setImpre(null); setCarImp(null); fijarImpresora(null,null); });
       setImpre(disp); setCarImp(canal);
       fijarImpresora(disp, canal);   /* queda disponible para los demás módulos */
+      recordarImpresora(disp);       /* para reconectar sola la próxima vez */
       toast(`Impresora conectada: ${disp.name||"equipo"}`);
     }catch(e){
       if(e && e.name!=="NotFoundError") toast("No se pudo conectar. Revisa que esté encendida y cerca");
@@ -9746,18 +9802,23 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
         {impre && <div className="cu-line"><span>Equipo</span><b style={{fontSize:12}}>{impre.name||"Impresora térmica"}</b></div>}
         <div className="cu-line"><span>Ancho de papel</span><b style={{fontSize:12.5}}>48 mm · 32 caracteres</b></div>
 
-        {!impre ? (
-          <button className="cta" style={{width:"100%",marginTop:10}} disabled={buscandoImp}
-            onClick={conectarImpresora}>
-            {buscandoImp ? "Buscando…" : "🔗 Conectar impresora"}</button>
-        ) : (<>
+        {!impre ? (<>
+          {impresoraRecordada() && (
+            <button className="cta" style={{width:"100%",marginTop:10}} disabled={buscandoImp}
+              onClick={reconectar}>
+              {buscandoImp ? "Conectando…" : `⚡ Reconectar ${impresoraRecordada().nombre||"impresora"}`}</button>
+          )}
+          <button className={impresoraRecordada()?"ghost":"cta"} style={{width:"100%",marginTop:impresoraRecordada()?8:10}}
+            disabled={buscandoImp} onClick={conectarImpresora}>
+            {buscandoImp ? "Buscando…" : impresoraRecordada() ? "🔗 Elegir otra impresora" : "🔗 Conectar impresora"}</button>
+        </>) : (<>
           <button className="ghost" style={{width:"100%",marginTop:10}} onClick={pruebaImpresion}>
             🖨️ Imprimir prueba</button>
           <button className="ghost" style={{width:"100%",marginTop:8}} onClick={muestraRecibo}>
             🧾 Muestra de recibo</button>
           <button className="back" style={{width:"100%",marginTop:8,color:"var(--clay)",borderColor:"#E8C0B0"}}
             onClick={()=>{ try{ impre.gatt && impre.gatt.disconnect(); }catch(e){}
-              setImpre(null); setCarImp(null); fijarImpresora(null,null);
+              setImpre(null); setCarImp(null); fijarImpresora(null,null); olvidarImpresora();
               toast("Impresora desconectada"); }}>
             Desconectar</button>
         </>)}
@@ -10270,6 +10331,10 @@ function App(){
 }
 function Root(){
   const [sesion,setSesion]=useState(null);
+  /* Al entrar, intenta reconectar sola la última impresora usada. Si no puede
+     (apagada, lejos, o el navegador no lo soporta), no dice nada: el usuario
+     verá el botón de conectar como siempre. */
+  React.useEffect(()=>{ if(sesion) reconectarImpresora(); },[sesion]);
   if(!sesion) return (
     <div className="shell" style={{background:"var(--paper)"}}>
       <div style={{flex:1, display:"flex", flexDirection:"column"}}>
