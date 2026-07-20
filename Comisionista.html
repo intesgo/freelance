@@ -173,6 +173,16 @@
   .aj-pal-muestra span{width:15px;height:15px;border-radius:4px;display:block}
   .aj-pal-nom{font-size:12.5px;font-weight:600;color:var(--ink)}
   .aj-pal-check{position:absolute;top:10px;right:11px;color:var(--field);font-weight:800}
+  .cl-wrap{position:relative;margin-bottom:9px}
+  .cl-inp{width:100%;padding:12px 42px 12px 13px;border:1px solid var(--line);border-radius:12px;
+    font-family:inherit;font-size:14.5px;background:#fff;color:var(--ink)}
+  .cl-inp:focus{outline:none;border-color:var(--field)}
+  .cl-ojo{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;
+    border:none;background:transparent;font-size:15px;cursor:pointer;opacity:.6}
+  .cl-lbl{font-size:11.5px;font-weight:600;color:var(--muted);margin:0 0 5px 2px}
+  .cl-barra{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:2px 0 5px}
+  .cl-barra i{display:block;height:100%;border-radius:99px;transition:width .25s ease}
+  .cl-nota{font-size:11px;line-height:1.45;margin:0 2px 10px}
   .aj-row{display:flex;align-items:center;justify-content:space-between;gap:12px;
     background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 15px;margin-bottom:10px}
   .aj-k{font-size:14px;font-weight:600;color:var(--ink)}
@@ -1061,7 +1071,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"105", fecha:"20 jul 2026", desc:"Sello de version en el encabezado"};
+const VERSION = { n:"106", fecha:"20 jul 2026", desc:"Cambiar contrasena en Ajustes (demo)" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1135,6 +1145,54 @@ function SelloLineas() {
    · En archivo local (visor de pruebas): se conserva la simulación de siempre.
    · La verificación contra el servidor (sesión real) llega en Fase 4 con Supabase Auth;
      hoy la huella custodia la ENTRADA a la app en este equipo. */
+/* ══ CONTRASENA (modo demo, sello b106) ══
+   Reglas selladas del proyecto: la contrasena NUNCA se guarda ni se muestra en texto
+   plano; solo se guarda su HASH. Nadie puede verla, ni el Freelance. Hay historial
+   anti-repeticion por hash y el cambio queda AUDITADO (el registro guarda el evento,
+   jamas el contenido).
+   En DEMO el hash vive en memoria/localStorage y no sale del telefono. En Fase 4 el
+   cambio lo procesa Supabase Auth contra el servidor, con cifrado real. */
+const CLAVE_KEY = "freelance_clave_hist_v1";
+/* Hash simple (FNV-1a). Suficiente para la demo: sirve para comparar sin guardar el
+   texto. NO es criptografico — en Fase 4 lo reemplaza el hash del servidor. */
+function hashClave(txt){
+  let h = 2166136261;
+  const t = String(txt||"");
+  for (let i=0; i<t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16).padStart(8,"0");
+}
+function historialClaves(){
+  try { return JSON.parse(localStorage.getItem(CLAVE_KEY) || "[]"); } catch(e){ return []; }
+}
+function guardarClave(hash){
+  const h = historialClaves();
+  h.unshift(hash);
+  try { localStorage.setItem(CLAVE_KEY, JSON.stringify(h.slice(0,3))); } catch(e){}
+}
+function claveRepetida(txt){ return historialClaves().indexOf(hashClave(txt)) >= 0; }
+/* Fuerza: nivel 0-3 mas el detalle de que le falta, para guiar al vendedor. */
+function fuerzaClave(txt){
+  const t = String(txt||"");
+  const largo = t.length >= 8, letra = /[a-zA-Z]/.test(t), num = /[0-9]/.test(t);
+  const extra = t.length >= 12 && /[^a-zA-Z0-9]/.test(t);
+  const falta = [];
+  if(!largo) falta.push("8 caracteres");
+  if(!letra) falta.push("una letra");
+  if(!num)   falta.push("un número");
+  const valida = largo && letra && num;
+  let nivel = 0;
+  if(valida) nivel = extra ? 3 : (t.length >= 10 ? 2 : 1);
+  return { valida, nivel, falta,
+    texto: ["Muy débil","Aceptable","Buena","Fuerte"][nivel],
+    color: ["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
+}
+function nuevoAuClave(){
+  const d = new Date();
+  const p = (n)=>String(n).padStart(2,"0");
+  return "AU-" + String(d.getFullYear()).slice(2) + p(d.getMonth()+1) + p(d.getDate())
+    + "-" + Math.floor(1000 + Math.random()*9000);
+}
+
 const HUELLA_KEY = "freelance_huella_v1";
 const puedeHuellaReal = () => location.protocol === "https:" && !!window.PublicKeyCredential;
 function huellaGuardada(){ try { return JSON.parse(localStorage.getItem(HUELLA_KEY) || "null"); } catch(e){ return null; } }
@@ -9189,7 +9247,26 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
   const [prefVibrar,setPrefVibrar]=useState(true);
   const [formatoFecha,setFormatoFecha]=useState("dd/mm/aaaa");
   const [notif,setNotif]=useState({cobros:true, solicitudes:true, novedades:true});
-  const [pestAj,setPestAj]=useState("apariencia");   // pestaña activa de Ajustes
+  const [pestAj,setPestAj]=useState("apariencia");
+  /* cambiar contrasena (demo): nada se guarda en texto plano, solo el hash */
+  const [abrirClave,setAbrirClave]=useState(false);
+  const [clAct,setClAct]=useState("");
+  const [clNue,setClNue]=useState("");
+  const [clRep,setClRep]=useState("");
+  const [clVer,setClVer]=useState(false);
+  const fza = fuerzaClave(clNue);
+  const cerrarClave=()=>{ setAbrirClave(false); setClAct(""); setClNue(""); setClRep(""); setClVer(false); };
+  const guardarNuevaClave=()=>{
+    if(!clAct.trim()){ toast("Escribe tu contraseña actual"); return; }
+    if(!fza.valida){ toast("La nueva contraseña necesita "+fza.falta.join(", ")); return; }
+    if(clNue!==clRep){ toast("La nueva contraseña y su repetición no coinciden"); return; }
+    if(clAct===clNue){ toast("La nueva contraseña debe ser distinta a la actual"); return; }
+    if(claveRepetida(clNue)){ toast("Ya usaste esa contraseña antes. Elige una nueva."); return; }
+    guardarClave(hashClave(clNue));          // se guarda el HASH, nunca el texto
+    const au=nuevoAuClave();                  // mueve seguridad -> se audita
+    cerrarClave();
+    toast("Contraseña actualizada ✓ · "+au);
+  };   // pestaña activa de Ajustes
 
   /* ── Impresora térmica Bluetooth (ESC/POS, 58 mm) ──
      Solo funciona en Chrome de Android con la app abierta en pantalla. */
@@ -9345,11 +9422,58 @@ function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, to
         }}>
         <span className="aj-knob"></span></button>
     </div>
-    <div className="aj-row" style={{opacity:.55}}>
+    <div className="aj-row">
       <div><div className="aj-k">Cambiar contraseña</div>
-        <div className="aj-s">Disponible con el portal único de ingreso (Fase 4)</div></div>
-      <span style={{fontFamily:BODY, fontSize:16, color:CL.grisTenue}}>›</span>
+        <div className="aj-s">{abrirClave ? "Nadie puede verla, ni tu freelance" : "Cámbiala cuando quieras"}</div></div>
+      <button className="back" style={{padding:"7px 13px",fontSize:12.5}}
+        onClick={()=>abrirClave?cerrarClave():setAbrirClave(true)}>
+        {abrirClave ? "Cancelar" : "Cambiar"}</button>
     </div>
+
+    {abrirClave && (
+      <div className="fcard" style={{marginTop:4}}>
+        <div className="cl-lbl">Contraseña actual</div>
+        <div className="cl-wrap">
+          <input className="cl-inp" type={clVer?"text":"password"} value={clAct}
+            autoComplete="current-password" placeholder="Tu contraseña de ahora"
+            onChange={e=>setClAct(e.target.value)} />
+        </div>
+
+        <div className="cl-lbl">Nueva contraseña</div>
+        <div className="cl-wrap">
+          <input className="cl-inp" type={clVer?"text":"password"} value={clNue}
+            autoComplete="new-password" placeholder="Mínimo 8, con letra y número"
+            onChange={e=>setClNue(e.target.value)} />
+          <button className="cl-ojo" onClick={()=>setClVer(v=>!v)}
+            aria-label={clVer?"Ocultar":"Ver"}>{clVer?"🙈":"👁"}</button>
+        </div>
+        {clNue.length>0 && (<>
+          <div className="cl-barra">
+            <i style={{width:((fza.nivel+1)*25)+"%",background:fza.color}} /></div>
+          <div className="cl-nota" style={{color:fza.color,fontWeight:600}}>
+            {fza.texto}{fza.falta.length>0 ? " · falta "+fza.falta.join(", ") : ""}</div>
+        </>)}
+
+        <div className="cl-lbl">Repite la nueva</div>
+        <div className="cl-wrap">
+          <input className="cl-inp" type={clVer?"text":"password"} value={clRep}
+            autoComplete="new-password" placeholder="Escríbela otra vez"
+            onChange={e=>setClRep(e.target.value)}
+            style={clRep.length>0 && clRep!==clNue ? {borderColor:"#B5613C"} : null} />
+        </div>
+        {clRep.length>0 && clRep!==clNue && (
+          <div className="cl-nota" style={{color:"#B5613C",fontWeight:600}}>No coinciden todavía</div>
+        )}
+
+        <button className="cta" style={{width:"100%",marginTop:6}}
+          onClick={guardarNuevaClave}>Guardar contraseña</button>
+
+        <div className="cl-nota" style={{color:"var(--muted)",marginTop:10}}>
+          Se guarda cifrada: ni el sistema ni tu freelance pueden verla. No puedes repetir
+          tus últimas 3. El cambio queda registrado en la bitácora (solo el evento, nunca
+          la contraseña). Al conectar el sistema, este cambio viajará al servidor.</div>
+      </div>
+    )}
     </>)}
 
     {pestAj==="avisos" && (<>
