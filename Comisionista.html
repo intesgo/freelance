@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"96", fecha:"19 jul 2026", desc:"Comprobante y estado en un solo compartir"};
+const VERSION={n:"97", fecha:"19 jul 2026", desc:"Mi dia: cuadre de caja con Resumen y Detalle"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2291,6 +2291,46 @@ const PEDIDOS_INI = [
      {t:"Comisión liberada", f:"—", st:"wait", d:""},
    ]},
 ];
+/* ══ CIERRE DIARIO DE COBROS ══
+   La hora de corte la fija el FREELANCE de acuerdo con el proveedor: el comisionista
+   solo la ve y confirma su cuadre. El día cierra igual sin su confirmación. */
+const CIERRE_HOY = {estado:"abierto", cerradoEn:null, obs:null, au:null, confirmado:false};
+const CONFIG_CIERRE = {hora:"23:59", acordadoCon:"Definida por tu freelance", au:null};
+const DEPOSITOS_EFECTIVO = [];
+/* Historial de cierres (más reciente primero) */
+const CIERRES_HIST = [
+  {fecha:"2026-07-18", fechaTxt:"18 jul 2026", estado:"cerrado", cerradoEn:"18:20", efePend:0, obs:null,
+   recibos:[
+     {nRecibo:"REC-260718-0912", cli:"Comercial Nilo", prov:"Agrícola del Valle", monto:520, hora:"09:12", anulado:false,
+      formas:{Depósito:520}, lineas:[{modalidad:"Depósito",monto:"520",numero:"7742011",banco:"Banco Pichincha"}]},
+     {nRecibo:"REC-260718-1540", cli:"Tienda La Esquina", prov:"Molinos del Litoral", monto:300, hora:"15:40", anulado:false,
+      formas:{Efectivo:300}, lineas:[{modalidad:"Efectivo",monto:"300"}]},
+   ]},
+  {fecha:"2026-07-17", fechaTxt:"17 jul 2026", estado:"cerrado_auto", cerradoEn:"23:59", efePend:180, obs:null,
+   recibos:[
+     {nRecibo:"REC-260717-1105", cli:"Almacenes Fernando", prov:"Molinos del Litoral", monto:180, hora:"11:05", anulado:false,
+      formas:{Efectivo:180}, lineas:[{modalidad:"Efectivo",monto:"180"}]},
+   ]},
+];
+/* Corte automático: cierra los días vencidos y el día en curso al pasar la hora acordada */
+function correrCorteAutomatico(){
+  const cerrados=[];
+  CIERRES_HIST.forEach(d=>{
+    if(d.estado==="abierto"){
+      d.estado="cerrado_auto"; d.cerradoEn=CONFIG_CIERRE.hora;
+      d.au="AU-260719-"+Math.floor(1000+Math.random()*9000);
+      cerrados.push(d.fechaTxt);
+    }
+  });
+  const ahora=new Date().toTimeString().slice(0,5);
+  if(CIERRE_HOY.estado==="abierto" && ahora>=CONFIG_CIERRE.hora){
+    CIERRE_HOY.estado="cerrado_auto"; CIERRE_HOY.cerradoEn=CONFIG_CIERRE.hora;
+    CIERRE_HOY.au="AU-260719-"+Math.floor(1000+Math.random()*9000);
+    cerrados.push("hoy");
+  }
+  return cerrados;
+}
+
 /* ══ Cobros del día del vendedor: alimentan la meta y la evolución semanal ══ */
 const META_DIA = 900;    /* meta diaria del comisionista (demo; en Fase 4 la fija el freelance) */
 const COBROS_DIA = [     /* recibos emitidos hoy */
@@ -4681,9 +4721,21 @@ function Cobros({toast}){
   const [buscando,setBuscando]=useState(false); // buscador de cliente abierto: oculta el tablero de abajo
   const [enviado,setEnviado]=useState(null);  // datos del recibo enviado
   const [resumen,setResumen]=useState(false); // pantalla de revisión antes de guardar
+  const [verDia,setVerDia]=useState(false);   // cuadre de caja del día
+  const [tabCie,setTabCie]=useState("resumen"); // pestaña del cierre
+  const [cerrando,setCerrando]=useState(false); // confirmación de cierre con pendientes
+  const [motivoCie,setMotivoCie]=useState("");
+  const [tick,setTick]=useState(0);           // refresca tras mover registros del día
+  React.useEffect(()=>{  /* corte automático a la hora acordada con el proveedor */
+    const c=correrCorteAutomatico();
+    if(c.length){ setTick(t=>t+1);
+      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")} · sin confirmar`); }
+  },[]);
   /* botón atrás: retrocede paso a paso dentro del módulo antes de salir */
   useRetroceso(()=>{
     if(modal){ setModal(null); return true; }
+    if(cerrando){ setCerrando(false); return true; }
+    if(verDia){ setVerDia(false); setTabCie("resumen"); return true; }
     if(enviado){ setEnviado(null); reset(); return true; }
     if(resumen){ setResumen(false); return true; }
     if(paso>1){ setPaso(paso-1); return true; }
@@ -4775,6 +4827,179 @@ function Cobros({toast}){
   const puedeAvanzar = paso===1?paso1Ok : paso===2?paso2Ok : paso3Ok;
 
   // Pantalla de recibo enviado por WhatsApp
+  /* ── CIERRE DIARIO · Mi día ──
+     La hora de corte la fija el freelance con el proveedor: aquí solo se ve y se confirma. */
+  if(verDia){
+    const dia      = {fecha:"2026-07-19", fechaTxt:"19 jul 2026", recibos:COBROS_DIA,
+                      estado:CIERRE_HOY.estado, cerradoEn:CIERRE_HOY.cerradoEn, obs:CIERRE_HOY.obs};
+    const recibos  = dia.recibos || [];
+    const activos  = recibos.filter(r=>!r.anulado);
+    const total    = activos.reduce((s,r)=>s+r.monto,0);
+    const FORMAS   = ["Transferencia","Depósito","Efectivo","Cheque"];
+    const porForma = {};
+    activos.forEach(r=>{
+      const f=r.modalidad||"Efectivo";
+      porForma[f]=(porForma[f]||0)+r.monto;
+    });
+    const efeRecib = porForma["Efectivo"]||0;
+    const efePend  = EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
+    const efeDep   = Math.max(0, efeRecib-efePend);
+    const bancar   = (porForma["Transferencia"]||0) + (porForma["Depósito"]||0) + efeDep;
+    const enManos  = efePend + (porForma["Cheque"]||0);
+    const auto     = dia.estado==="cerrado_auto";
+    const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs" || auto;
+    const estadoTxt= auto ? "Automático · sin confirmar"
+                   : dia.estado==="cerrado_obs" ? "Cerrado con pendientes"
+                   : cerrado ? "Cerrado" : "Abierto";
+    const tono     = auto ? "#C98A2B" : cerrado ? "#2E7D52" : "var(--field)";
+    const chip=(t,c)=>(<span style={{display:"inline-block",background:c+"1A",color:c,
+      fontWeight:700,borderRadius:20,padding:"3px 11px",fontSize:11.5}}>{t}</span>);
+    const KPI=({t,v,c})=>(
+      <div className="card" style={{padding:"11px 13px"}}>
+        <div className="meta" style={{fontSize:11}}>{t}</div>
+        <div className="num" style={{fontSize:18,fontWeight:800,color:c||"var(--field)",marginTop:2}}>{v}</div>
+      </div>
+    );
+    const cerrarJornada=(obs)=>{
+      CIERRE_HOY.estado = obs ? "cerrado_obs" : "cerrado";
+      CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
+      CIERRE_HOY.obs = obs; CIERRE_HOY.confirmado = true;
+      CIERRE_HOY.au = "AU-260719-"+Math.floor(1000+Math.random()*9000);
+      setCerrando(false); setMotivoCie(""); setTick(t=>t+1);
+      toast(`Jornada cerrada · auditado ${CIERRE_HOY.au}`);
+    };
+
+    return (<>
+      <div className="h1">Mi día</div>
+      <div className="sub">{dia.fechaTxt} · {activos.length} recibo{activos.length!==1?"s":""} · {chip(estadoTxt,tono)}</div>
+
+      <div className="nchips" style={{flexWrap:"wrap",marginTop:12}}>
+        {[["resumen","Resumen"],["detalle","Detalle"]].map(([k,t])=>(
+          <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 45%"}}
+            onClick={()=>setTabCie(k)}>{t}</button>
+        ))}
+      </div>
+
+      {/* ── 1 · RESUMEN ── */}
+      {tabCie==="resumen" && (<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12,marginTop:12}}>
+          <KPI t="Total cobrado" v={money(total)}/>
+          <KPI t="Recibos" v={String(activos.length)}/>
+          <KPI t="Ya bancarizado" v={money(bancar)} c="#2E7D52"/>
+          <KPI t="Por depositar" v={money(efePend)} c={efePend>0?"#C98A2B":"#2E7D52"}/>
+        </div>
+
+        {efePend>0 && (
+          <div style={{background:"#FDF3E2",border:"1px solid #C98A2B",borderRadius:16,padding:"14px 15px",marginBottom:14}}>
+            <div style={{fontWeight:800,fontSize:14,color:"#A06B15",marginBottom:6}}>⏱️ Efectivo pendiente por depositar</div>
+            <div className="num" style={{fontSize:24,fontWeight:800,color:"#A06B15",marginBottom:6}}>{money(efePend)}</div>
+            {EFECTIVO_PENDIENTE.map(e=>(
+              <div key={e.nRecibo} className="meta" style={{fontSize:12,marginBottom:2}}>
+                {e.cli} · {money(e.monto)} · {e.limite}</div>
+            ))}
+            <div className="meta" style={{fontSize:12,margin:"6px 0 0"}}>
+              {EFECTIVO_PENDIENTE.length} pendiente{EFECTIVO_PENDIENTE.length!==1?"s":""} · plazo máximo 24 horas
+            </div>
+          </div>
+        )}
+
+        <div className="ficha-sec">Estado del cierre</div>
+        <div className="card" style={{padding:"13px 15px"}}>
+          <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
+          <div className="meta" style={{fontSize:12.5}}>
+            {cerrado ? `Cerrado a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
+             : efePend>0 ? `Pendiente: tienes ${money(efePend)} en efectivo sin depositar.`
+             : activos.length===0 ? "Aún no registras cobros hoy."
+             : "Listo para cerrar. No tienes valores pendientes."}
+          </div>
+          {efePend>0 && cerrado && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700}}>
+            El efectivo pendiente no se cancela con el cierre: arrastra al día siguiente con su reloj de 24h.</div>}
+          <div className="meta" style={{marginTop:7,fontSize:11.5}}>
+            Corte automático a las {CONFIG_CIERRE.hora}. La hora la define tu freelance con el proveedor.</div>
+          {!cerrado && (
+            <button className="cta" style={{marginTop:12,background:efePend>0?"#C98A2B":undefined}}
+              onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>
+              Cerrar jornada</button>
+          )}
+          {auto && !CIERRE_HOY.confirmado && (
+            <button className="cta" style={{marginTop:12}} onClick={()=>{
+              CIERRE_HOY.confirmado=true; setTick(t=>t+1);
+              toast(`Cuadre confirmado · auditado AU-260719-${Math.floor(1000+Math.random()*9000)}`);
+            }}>✓ Confirmar mi cuadre</button>
+          )}
+        </div>
+      </>)}
+
+      {/* ── 2 · DETALLE ── */}
+      {tabCie==="detalle" && (<>
+        <div className="ficha-sec" style={{marginTop:12}}>Recibos del día</div>
+        {activos.length===0 && <div className="ph">Sin cobros este día</div>}
+        {activos.map(r=>(
+          <div key={r.nRecibo} className="card" style={{padding:"11px 13px",marginBottom:8,
+            display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cli}</div>
+              <div className="meta" style={{fontSize:11}}>{r.hora} · {r.nRecibo} · {r.modalidad||"—"}</div>
+            </div>
+            <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(r.monto)}</b>
+          </div>
+        ))}
+
+        <div className="ficha-sec" style={{marginTop:16}}>Por forma de pago</div>
+        <div className="card" style={{padding:"13px 15px"}}>
+          <div className="meta" style={{fontWeight:700,fontSize:11,color:"#2E7D52",marginBottom:5}}>DINERO YA BANCARIZADO</div>
+          {[["Transferencias",porForma["Transferencia"]||0],["Depósitos",porForma["Depósito"]||0],["Efectivo depositado",efeDep]].map(([t,v])=>(
+            <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+              <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
+            </div>
+          ))}
+          <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
+            <span style={{fontWeight:700,fontSize:13}}>Subtotal bancarizado</span>
+            <b className="num" style={{color:"#2E7D52",fontSize:15}}>{money(bancar)}</b>
+          </div>
+          <div className="meta" style={{fontWeight:700,fontSize:11,color:"#C98A2B",margin:"11px 0 5px"}}>BAJO TU RESPONSABILIDAD</div>
+          {[["Efectivo por depositar",efePend],["Cheques en cartera",porForma["Cheque"]||0]].map(([t,v])=>(
+            <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+              <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
+            </div>
+          ))}
+          <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
+            <span style={{fontWeight:700,fontSize:13}}>Subtotal en tus manos</span>
+            <b className="num" style={{color:"#C98A2B",fontSize:15}}>{money(enManos)}</b>
+          </div>
+          <div className="row" style={{justifyContent:"space-between",padding:"8px 0 0",borderTop:"1.5px solid var(--field)",marginTop:8}}>
+            <span style={{fontWeight:800,fontSize:14}}>TOTAL COBRADO</span>
+            <b className="num" style={{fontSize:19,fontWeight:800}}>{money(total)}</b>
+          </div>
+          <div className="meta" style={{marginTop:6,fontSize:11.5}}>
+            El efectivo recibido hoy fue {money(efeRecib)}. El cheque no cuenta como bancarizado hasta efectivizarse.</div>
+        </div>
+      </>)}
+
+      {/* cerrar con pendientes: exige motivo y queda observado */}
+      {cerrando && (
+        <div className="ov" onClick={()=>setCerrando(false)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Cerrar con pendientes</h3>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
+              Tienes {money(efePend)} en efectivo sin depositar. Explica por qué cierras así; queda observado en la auditoría.
+            </p>
+            <div className="field"><label>Motivo</label>
+              <input value={motivoCie} onChange={e=>setMotivoCie(e.target.value)}
+                placeholder="Ej.: banco cerrado, deposito mañana temprano"/></div>
+            <button className="cta" style={{width:"100%"}} disabled={motivoCie.trim().length<4}
+              onClick={()=>cerrarJornada(motivoCie.trim())}>Cerrar de todos modos</button>
+            <button className="back" style={{width:"100%",marginTop:10}}
+              onClick={()=>setCerrando(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      <button className="ghost" style={{width:"100%",marginTop:14}}
+        onClick={()=>{setVerDia(false);setTabCie("resumen");}}>‹ Volver a cobros</button>
+    </>);
+  }
+
   /* Pantalla de revisión: se ve el recibo tal cual antes de guardarlo */
   if(resumen){
     const facturasRev = factSel.map(f=>({
@@ -4912,6 +5137,14 @@ function Cobros({toast}){
                 <span className="num" style={{flexShrink:0,fontSize:13.5,fontWeight:800,color:"#C77F00"}}>{money(efePend)}</span>
               </div>
             )}
+            {/* acceso al cuadre de caja del día */}
+            <button className="neu-in" style={{width:"100%",marginTop:9,padding:"10px 11px",display:"flex",
+              justifyContent:"space-between",alignItems:"center",gap:8,border:"none",
+              cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}
+              onClick={()=>{ setVerDia(true); setTabCie("resumen"); }}>
+              <span style={{minWidth:0,fontSize:11.5,fontWeight:700,color:"var(--ink)"}}>📊 Mi día · cuadre de caja</span>
+              <span className="meta" style={{flexShrink:0,fontSize:14}}>›</span>
+            </button>
           </div>
 
           {(()=>{
