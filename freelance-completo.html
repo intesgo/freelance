@@ -2565,6 +2565,12 @@ const COMO_FUNCIONA = [
    d:"El efectivo cobrado se deposita en máximo 24 horas. El pendiente no se cancela con el cierre del día: arrastra al siguiente."},
   {mod:"Cobros", ic:"🏦", t:"Dinero bancarizado",
    d:"Cuentan como bancarizados los depósitos, las transferencias y el efectivo ya depositado. El cheque no lo es hasta efectivizarse."},
+  {mod:"Mi caja", ic:"👐", t:"Qué es \"En tus manos\"",
+   d:"Es el dinero que aún tienes físicamente: el efectivo sin depositar más los cheques recibidos. Total cobrado = Ya bancarizado + En tus manos."},
+  {mod:"Mi caja", ic:"⏰", t:"Corte automático del día",
+   d:"El día se cierra solo a la hora acordada con el proveedor. Esa hora se cambia en Ajustes. Si el día cierra sin tu confirmación, queda como \"Automático · sin confirmar\" hasta que confirmes tu cuadre."},
+  {mod:"Mi caja", ic:"🚫", t:"Recibos anulados",
+   d:"Un recibo anulado no se borra: queda tachado en la lista con su motivo y no suma al total del día."},
   {mod:"Pedidos", ic:"🔒", t:"Tu base de precio",
    d:"Trabajas sobre tu base por tipo de precio. El costo del proveedor y el margen del freelance no son visibles para tu perfil."},
   {mod:"Pedidos", ic:"💵", t:"Precio de venta",
@@ -4193,7 +4199,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION={n:"276", fecha:"19 jul 2026", desc:"Mi caja: pestanas Recibos e Historial"};
+const VERSION={n:"277", fecha:"19 jul 2026", desc:"Mi caja: sin datos duplicados, KPI En tus manos"};
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6848,7 +6854,7 @@ function MiDia({toast, volver}){
           <KPI t="Total cobrado" v={money(total)}/>
           <KPI t="Recibos" v={String(activos.length)}/>
           <KPI t="Ya bancarizado" v={money(bancar)} c="#2E7D52"/>
-          <KPI t="Por depositar" v={money(efePend)} c={efePend>0?"#C98A2B":"#2E7D52"}/>
+          <KPI t="En tus manos" v={money(enManos)} c={enManos>0?"#C98A2B":"#2E7D52"}/>
         </div>
 
         {efePend>0 && (
@@ -6861,7 +6867,7 @@ function MiDia({toast, volver}){
                 {e.cli} · {rec?rec.prov:"—"} · {money(e.monto)}</div>);
             })}
             <div className="meta" style={{fontSize:12,margin:"6px 0 10px"}}>
-              {soloLect ? (dia.obs||"Quedó pendiente al cierre") : `${EFECTIVO_PENDIENTE.length} pendiente${EFECTIVO_PENDIENTE.length!==1?"s":""} · plazo máximo 24 horas`}
+              {soloLect ? (dia.obs||"Quedó pendiente al cierre") : `${EFECTIVO_PENDIENTE.length} pendiente${EFECTIVO_PENDIENTE.length!==1?"s":""}`}
             </div>
           </div>
         )}
@@ -6869,15 +6875,13 @@ function MiDia({toast, volver}){
         <div className="ficha-sec">Estado del cierre</div>
         <div className="card" style={{padding:"13px 15px"}}>
           <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
-          <div className="meta" style={{fontSize:12.5}}>
-            {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
-             : efePend>0 ? `Pendiente: existe ${money(efePend)} en efectivo sin depositar.`
-             : activos.length===0 ? "Aún no se registran cobros hoy."
-             : "Listo para cerrar. No existen valores pendientes."}
-          </div>
-          {efePend>0 && cerrado && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700}}>
-            El efectivo pendiente no se cancela con el cierre: arrastra al día siguiente con su reloj de 24h.</div>}
-          <div className="meta" style={{marginTop:7,fontSize:11.5}}>Corte automático a las {CONFIG_CIERRE.hora} (acordado con el proveedor). Se cambia en Ajustes.</div>
+          {(cerrado || activos.length===0 || efePend===0) && (
+            <div className="meta" style={{fontSize:12.5}}>
+              {cerrado ? `Cerrado el ${dia.fecha.split("-").reverse().join("/")} a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
+               : activos.length===0 ? "Aún no se registran cobros hoy."
+               : "Listo para cerrar. No existen valores pendientes."}
+            </div>
+          )}
           {!soloLect && !cerrado && (
             <div style={{display:"flex",gap:8,marginTop:12}}>
               <button className="ghost" style={{flex:1,margin:0}} onClick={()=>toast("Avance guardado (en Fase 4 se guarda en la base)")}>Guardar avance</button>
