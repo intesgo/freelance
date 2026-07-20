@@ -1061,7 +1061,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION={n:"98", fecha:"19 jul 2026", desc:"Mi dia como modulo propio en el drawer"};
+const VERSION={n:"99", fecha:"19 jul 2026", desc:"Mi dia simplificado para el vendedor"};
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4710,182 +4710,110 @@ function NeuAnillo({pct=0, valor, etiqueta, sub, color="#2E7D52", tam=150}){
   );
 }
 
-/* ══ MI DÍA · cuadre de caja y cierre diario ══
-   Módulo propio: se llega desde el drawer o desde el atajo en Cobros.
-   La hora de corte la fija el freelance con el proveedor; aquí solo se ve y se confirma. */
+/* ══ MI DÍA · cuadre del vendedor ══
+   Una sola pregunta: cuánto efectivo debo depositar y cuándo vence.
+   El vendedor está en la calle: nada de pestañas ni desgloses contables. */
 function MiDia({toast, volver}){
-  const [tabCie,setTabCie]=useState("resumen");
   const [cerrando,setCerrando]=useState(false);
   const [motivoCie,setMotivoCie]=useState("");
   const [tick,setTick]=useState(0);
   useModal(cerrando, React.useCallback(()=>setCerrando(false),[]));
-  React.useEffect(()=>{  /* corte automático a la hora acordada con el proveedor */
+  React.useEffect(()=>{  /* corte automático a la hora que acordó el freelance */
     const c=correrCorteAutomatico();
     if(c.length){ setTick(t=>t+1);
-      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")} · sin confirmar`); }
+      toast(`Corte automático (${CONFIG_CIERRE.hora}): se cerró ${c.join(", ")}`); }
   },[]);
   useRetroceso(()=>{
     if(cerrando){ setCerrando(false); return true; }
     return false;
   });
 
-  const dia      = {fecha:"2026-07-19", fechaTxt:"19 jul 2026", recibos:COBROS_DIA,
-                    estado:CIERRE_HOY.estado, cerradoEn:CIERRE_HOY.cerradoEn, obs:CIERRE_HOY.obs};
-  const recibos  = dia.recibos || [];
-  const activos  = recibos.filter(r=>!r.anulado);
+  const activos  = COBROS_DIA.filter(r=>!r.anulado);
   const total    = activos.reduce((s,r)=>s+r.monto,0);
-  const FORMAS   = ["Transferencia","Depósito","Efectivo","Cheque"];
-  const porForma = {};
-  activos.forEach(r=>{
-    const f=r.modalidad||"Efectivo";
-    porForma[f]=(porForma[f]||0)+r.monto;
-  });
-  const efeRecib = porForma["Efectivo"]||0;
   const efePend  = EFECTIVO_PENDIENTE.reduce((s,e)=>s+e.monto,0);
-  const efeDep   = Math.max(0, efeRecib-efePend);
-  const bancar   = (porForma["Transferencia"]||0) + (porForma["Depósito"]||0) + efeDep;
-  const enManos  = efePend + (porForma["Cheque"]||0);
-  const auto     = dia.estado==="cerrado_auto";
-  const cerrado  = dia.estado==="cerrado" || dia.estado==="cerrado_obs" || auto;
-  const estadoTxt= auto ? "Automático · sin confirmar"
-                 : dia.estado==="cerrado_obs" ? "Cerrado con pendientes"
-                 : cerrado ? "Cerrado" : "Abierto";
-  const tono     = auto ? "#C98A2B" : cerrado ? "#2E7D52" : "var(--field)";
-  const chip=(t,c)=>(<span style={{display:"inline-block",background:c+"1A",color:c,
-    fontWeight:700,borderRadius:20,padding:"3px 11px",fontSize:11.5}}>{t}</span>);
-  const KPI=({t,v,c})=>(
-    <div className="card" style={{padding:"11px 13px"}}>
-      <div className="meta" style={{fontSize:11}}>{t}</div>
-      <div className="num" style={{fontSize:18,fontWeight:800,color:c||"var(--field)",marginTop:2}}>{v}</div>
-    </div>
-  );
-  const cerrarJornada=(obs)=>{
-    CIERRE_HOY.estado = obs ? "cerrado_obs" : "cerrado";
+  const depositado = Math.max(0, total-efePend);
+  const auto     = CIERRE_HOY.estado==="cerrado_auto";
+  const cerrado  = CIERRE_HOY.estado==="cerrado" || CIERRE_HOY.estado==="cerrado_obs" || auto;
+
+  const cerrarJornada=(motivo)=>{
+    CIERRE_HOY.confirmado = true;
+    CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
     CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
-    CIERRE_HOY.obs = obs; CIERRE_HOY.confirmado = true;
+    CIERRE_HOY.obs = motivo||null;
     CIERRE_HOY.au = "AU-260719-"+Math.floor(1000+Math.random()*9000);
     setCerrando(false); setMotivoCie(""); setTick(t=>t+1);
-    toast(`Jornada cerrada · auditado ${CIERRE_HOY.au}`);
+    toast(efePend>0
+      ? `Día cerrado con ${money(efePend)} por depositar · auditado ${CIERRE_HOY.au}`
+      : `Día cerrado ✓ sin pendientes · auditado ${CIERRE_HOY.au}`);
   };
+
+  const F=(t,v,c,grande)=>(
+    <div className="row" style={{justifyContent:"space-between",alignItems:"baseline",
+      padding: grande?"10px 0 2px":"7px 0"}}>
+      <span style={{fontSize: grande?15:14, fontWeight: grande?800:500,
+        color: grande?"var(--ink)":"var(--muted)"}}>{t}</span>
+      <b className="num" style={{fontSize: grande?26:17, fontWeight:800, color:c||"var(--ink)"}}>{v}</b>
+    </div>
+  );
 
   return (<>
     <div className="h1">Mi día</div>
-    <div className="sub">{dia.fechaTxt} · {activos.length} recibo{activos.length!==1?"s":""} · {chip(estadoTxt,tono)}</div>
+    <div className="sub">19 jul 2026 · {activos.length} cobro{activos.length!==1?"s":""}</div>
 
-    <div className="nchips" style={{flexWrap:"wrap",marginTop:12}}>
-      {[["resumen","Resumen"],["detalle","Detalle"]].map(([k,t])=>(
-        <button key={k} className={"nchip"+(tabCie===k?" on":"")} style={{flex:"1 1 45%"}}
-          onClick={()=>setTabCie(k)}>{t}</button>
-      ))}
-    </div>
-
-    {/* ── 1 · RESUMEN ── */}
-    {tabCie==="resumen" && (<>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12,marginTop:12}}>
-        <KPI t="Total cobrado" v={money(total)}/>
-        <KPI t="Recibos" v={String(activos.length)}/>
-        <KPI t="Ya bancarizado" v={money(bancar)} c="#2E7D52"/>
-        <KPI t="Por depositar" v={money(efePend)} c={efePend>0?"#C98A2B":"#2E7D52"}/>
-      </div>
-
+    {/* lo único que importa: qué cobré y qué debo depositar */}
+    <div className="card" style={{padding:"14px 16px",marginTop:14,
+      borderLeft:`4px solid ${efePend>0?"#C98A2B":"#2E7D52"}`}}>
+      {F("Cobré hoy", money(total))}
+      {F("Ya depositado", money(depositado), "#2E7D52")}
+      <div style={{borderTop:"1.5px solid var(--line)",margin:"8px 0 2px"}}></div>
+      {F(efePend>0?"⏱ Debo depositar":"✓ Nada por depositar",
+         money(efePend), efePend>0?"#C98A2B":"#2E7D52", true)}
       {efePend>0 && (
-        <div style={{background:"#FDF3E2",border:"1px solid #C98A2B",borderRadius:16,padding:"14px 15px",marginBottom:14}}>
-          <div style={{fontWeight:800,fontSize:14,color:"#A06B15",marginBottom:6}}>⏱️ Efectivo pendiente por depositar</div>
-          <div className="num" style={{fontSize:24,fontWeight:800,color:"#A06B15",marginBottom:6}}>{money(efePend)}</div>
+        <div className="meta" style={{fontSize:12,marginTop:6,lineHeight:1.6}}>
           {EFECTIVO_PENDIENTE.map(e=>(
-            <div key={e.nRecibo} className="meta" style={{fontSize:12,marginBottom:2}}>
-              {e.cli} · {money(e.monto)} · {e.limite}</div>
+            <div key={e.nRecibo}>{e.cli} · {money(e.monto)} · vence {e.limite}</div>
           ))}
-          <div className="meta" style={{fontSize:12,margin:"6px 0 0"}}>
-            {EFECTIVO_PENDIENTE.length} pendiente{EFECTIVO_PENDIENTE.length!==1?"s":""} · plazo máximo 24 horas
-          </div>
         </div>
       )}
+    </div>
 
-      <div className="ficha-sec">Estado del cierre</div>
-      <div className="card" style={{padding:"13px 15px"}}>
-        <div style={{fontWeight:700,fontSize:13.5,color:tono,marginBottom:4}}>{estadoTxt}</div>
-        <div className="meta" style={{fontSize:12.5}}>
-          {cerrado ? `Cerrado a las ${dia.cerradoEn}${auto?" por corte automático":""}${dia.obs?` · ${dia.obs}`:""}`
-           : efePend>0 ? `Pendiente: tienes ${money(efePend)} en efectivo sin depositar.`
-           : activos.length===0 ? "Aún no registras cobros hoy."
-           : "Listo para cerrar. No tienes valores pendientes."}
-        </div>
-        {efePend>0 && cerrado && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700}}>
-          El efectivo pendiente no se cancela con el cierre: arrastra al día siguiente con su reloj de 24h.</div>}
-        <div className="meta" style={{marginTop:7,fontSize:11.5}}>
-          Corte automático a las {CONFIG_CIERRE.hora}. La hora la define tu freelance con el proveedor.</div>
-        {!cerrado && (
-          <button className="cta" style={{marginTop:12,background:efePend>0?"#C98A2B":undefined}}
-            onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>
-            Cerrar jornada</button>
-        )}
+    {/* estado y cierre */}
+    {cerrado ? (
+      <div className="card" style={{padding:"12px 15px",marginTop:10}}>
+        <div style={{fontWeight:700,fontSize:13.5,color:auto?"#C98A2B":"#2E7D52"}}>
+          {auto ? "Cerrado automáticamente" : "Día cerrado"}</div>
+        <div className="meta" style={{fontSize:12.5,marginTop:3}}>
+          A las {CIERRE_HOY.cerradoEn}{CIERRE_HOY.obs?` · ${CIERRE_HOY.obs}`:""}</div>
+        {efePend>0 && <div className="meta" style={{marginTop:5,color:"#C98A2B",fontWeight:700,fontSize:12}}>
+          El efectivo pendiente pasa a mañana con su reloj de 24 h.</div>}
         {auto && !CIERRE_HOY.confirmado && (
-          <button className="cta" style={{marginTop:12}} onClick={()=>{
+          <button className="cta" style={{marginTop:11}} onClick={()=>{
             CIERRE_HOY.confirmado=true; setTick(t=>t+1);
             toast(`Cuadre confirmado · auditado AU-260719-${Math.floor(1000+Math.random()*9000)}`);
           }}>✓ Confirmar mi cuadre</button>
         )}
       </div>
-    </>)}
+    ) : (
+      <button className="cta" style={{marginTop:14,background:efePend>0?"#C98A2B":undefined}}
+        onClick={()=>{ if(efePend>0) setCerrando(true); else cerrarJornada(null); }}>
+        Cerrar mi día</button>
+    )}
 
-    {/* ── 2 · DETALLE ── */}
-    {tabCie==="detalle" && (<>
-      <div className="ficha-sec" style={{marginTop:12}}>Recibos del día</div>
-      {activos.length===0 && <div className="ph">Sin cobros este día</div>}
-      {activos.map(r=>(
-        <div key={r.nRecibo} className="card" style={{padding:"11px 13px",marginBottom:8,
-          display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
-          <div style={{minWidth:0}}>
-            <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cli}</div>
-            <div className="meta" style={{fontSize:11}}>{r.hora} · {r.nRecibo} · {r.modalidad||"—"}</div>
-          </div>
-          <b className="num" style={{whiteSpace:"nowrap",fontSize:14}}>{money(r.monto)}</b>
-        </div>
-      ))}
+    <div className="meta" style={{textAlign:"center",margin:"10px 2px 0",fontSize:11.5}}>
+      Tu día se cierra solo a las {CIERRE_HOY.cerradoEn||CONFIG_CIERRE.hora} aunque no lo confirmes.
+    </div>
 
-      <div className="ficha-sec" style={{marginTop:16}}>Por forma de pago</div>
-      <div className="card" style={{padding:"13px 15px"}}>
-        <div className="meta" style={{fontWeight:700,fontSize:11,color:"#2E7D52",marginBottom:5}}>DINERO YA BANCARIZADO</div>
-        {[["Transferencias",porForma["Transferencia"]||0],["Depósitos",porForma["Depósito"]||0],["Efectivo depositado",efeDep]].map(([t,v])=>(
-          <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
-            <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
-          </div>
-        ))}
-        <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
-          <span style={{fontWeight:700,fontSize:13}}>Subtotal bancarizado</span>
-          <b className="num" style={{color:"#2E7D52",fontSize:15}}>{money(bancar)}</b>
-        </div>
-        <div className="meta" style={{fontWeight:700,fontSize:11,color:"#C98A2B",margin:"11px 0 5px"}}>BAJO TU RESPONSABILIDAD</div>
-        {[["Efectivo por depositar",efePend],["Cheques en cartera",porForma["Cheque"]||0]].map(([t,v])=>(
-          <div key={t} className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
-            <span className="meta" style={{fontSize:13}}>{t}</span><b className="num" style={{fontSize:14}}>{money(v)}</b>
-          </div>
-        ))}
-        <div className="row" style={{justifyContent:"space-between",padding:"5px 0",borderTop:"1px solid var(--line)",marginTop:4}}>
-          <span style={{fontWeight:700,fontSize:13}}>Subtotal en tus manos</span>
-          <b className="num" style={{color:"#C98A2B",fontSize:15}}>{money(enManos)}</b>
-        </div>
-        <div className="row" style={{justifyContent:"space-between",padding:"8px 0 0",borderTop:"1.5px solid var(--field)",marginTop:8}}>
-          <span style={{fontWeight:800,fontSize:14}}>TOTAL COBRADO</span>
-          <b className="num" style={{fontSize:19,fontWeight:800}}>{money(total)}</b>
-        </div>
-        <div className="meta" style={{marginTop:6,fontSize:11.5}}>
-          El efectivo recibido hoy fue {money(efeRecib)}. El cheque no cuenta como bancarizado hasta efectivizarse.</div>
-      </div>
-    </>)}
-
-    {/* cerrar con pendientes: exige motivo y queda observado */}
+    {/* cerrar con efectivo pendiente: exige motivo y queda auditado */}
     {cerrando && (
       <div className="ov" onClick={()=>setCerrando(false)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
-          <h3>Cerrar con pendientes</h3>
+          <h3>Te queda efectivo</h3>
           <p style={{fontSize:13,color:"var(--muted)",margin:"6px 0 12px"}}>
-            Tienes {money(efePend)} en efectivo sin depositar. Explica por qué cierras así; queda observado en la auditoría.
+            Tienes {money(efePend)} sin depositar. Dinos por qué cierras así; queda registrado.
           </p>
           <div className="field"><label>Motivo</label>
             <input value={motivoCie} onChange={e=>setMotivoCie(e.target.value)}
-              placeholder="Ej.: banco cerrado, deposito mañana temprano"/></div>
+              placeholder="Ej.: banco cerrado, deposito mañana"/></div>
           <button className="cta" style={{width:"100%"}} disabled={motivoCie.trim().length<4}
             onClick={()=>cerrarJornada(motivoCie.trim())}>Cerrar de todos modos</button>
           <button className="back" style={{width:"100%",marginTop:10}}
@@ -4894,10 +4822,10 @@ function MiDia({toast, volver}){
       </div>
     )}
 
-    <button className="ghost" style={{width:"100%",marginTop:14}}
-      onClick={()=>{setVerDia(false);setTabCie("resumen");}}>‹ Volver a cobros</button>
+    {volver && <button className="ghost" style={{width:"100%",marginTop:14}} onClick={volver}>‹ Volver</button>}
   </>);
 }
+
 
 function Cobros({toast, go}){
   const [paso,setPaso]=useState(1);
