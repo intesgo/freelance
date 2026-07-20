@@ -530,6 +530,42 @@ const f  = n => "$"+Math.round(n).toLocaleString("es-CO");
 const fk = n => n>=1e6 ? "$"+(n/1e6).toFixed(1).replace(".0","")+"M" : n>=1e3 ? "$"+Math.round(n/1e3)+"k" : "$"+n;
 const pct= (a,b)=> b? Math.round(a/b*100):0;
 
+/* ══ EQUIVALENCIAS DE CÓDIGOS ══
+   El proveedor factura desde SU sistema, con SU codificación. Cuando sube el XML del SRI,
+   las líneas vienen con códigos que no son los de Richard (P-00001…).
+   Esta tabla traduce: código del proveedor → producto propio.
+   Un código del proveedor apunta a UN solo producto propio, pero un producto propio puede
+   tener VARIOS códigos (uno por cada proveedor).
+   APRENDE SOLA: cada confirmación se guarda y al mes siguiente casi no hay que confirmar nada.
+   Si un código no se reconoce, la línea queda PENDIENTE: nunca se inventa. */
+const EQUIVALENCIAS = [
+  {codProv:"AC-100",  prodId:"P-00012", nombre:"Arroz Conejo",       desc:"ARROZ CONEJO QQ",       quien:"Richard", cuando:"2026-06-02"},
+  {codProv:"ACV-100", prodId:"P-00007", nombre:"Arroz Campoverde",   desc:"ARROZ CAMPOVERDE QQ",   quien:"Richard", cuando:"2026-06-02"},
+  {codProv:"ABO-100", prodId:"P-00005", nombre:"Arroz Bomba",        desc:"ARROZ BOMBA QUINTAL",   quien:"Richard", cuando:"2026-06-14"},
+];
+
+/* XML de ejemplo: así llega una factura del SRI. Tres casos a propósito:
+   dos códigos ya conocidos, uno parecido a un producto propio, y uno nunca visto. */
+const XML_EJEMPLO = {
+  numero:"001-001-000152", fecha:"2026-07-20", ruc:"0991234567001",
+  cliente:"Mayorista Santa Rosa", clienteRuc:"0691234567001", total:4310.00,
+  lineas:[
+    {codProv:"AC-100",  desc:"ARROZ CONEJO QQ",              cant:40, precio:43.00},
+    {codProv:"ACV-100", desc:"ARROZ CAMPOVERDE QQ",          cant:25, precio:42.50},
+    {codProv:"ADL-100", desc:"ARROZ DALLIS QUINTAL",         cant:20, precio:40.00},
+    {codProv:"AFL-50",  desc:"ARROZ FLOR SACO 50 KG",        cant:10, precio:23.00},
+  ],
+};
+
+/* Qué tan parecidas son dos descripciones: sirve para proponer, nunca para decidir solo. */
+const parecido = (a,b) => {
+  const lim = t => String(t||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>2);
+  const A=lim(a), B=lim(b);
+  if(!A.length || !B.length) return 0;
+  const comunes = A.filter(w=>B.includes(w)).length;
+  return Math.round(comunes / Math.max(A.length,B.length) * 100);
+};
+
 /* ══ NOTAS DE CRÉDITO ══
    La factura manda, pero la NC es el único documento que puede corregirla.
    Dos tipos, porque el negocio los trata distinto:
@@ -615,7 +651,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"4", fecha:"20 jul 2026", desc:"Notas de credito" };
+const VERSION = { n:"5", fecha:"20 jul 2026", desc:"Carga de facturas por XML" };
 
 const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1002,7 +1038,7 @@ function App({usuario, onSalir}){
   },[online,cola]);
 
   if(!logueado) return <Login onEntrar={()=>setLogueado(true)} />;
-  const TITULOS={inicio:"Inicio",decidir:"Por decidir",conciliacion:"Conciliación",notas:"Notas de crédito",retenciones:"Retenciones",bancos:"Mis cuentas",creditos:"Créditos",precios:"Precios",prop:"Propuestas",catalogo:"Catálogo",reportes:"Reportes",cuenta:"Acuerdos"};
+  const TITULOS={inicio:"Inicio",decidir:"Por decidir",conciliacion:"Conciliación",carga:"Cargar factura",notas:"Notas de crédito",retenciones:"Retenciones",bancos:"Mis cuentas",creditos:"Créditos",precios:"Precios",prop:"Propuestas",catalogo:"Catálogo",reportes:"Reportes",cuenta:"Acuerdos"};
   const ctx={prop,setProp,cat,setCat,cred,setCred,contado,accion,pendientes,online};
   return (
     <div className="phone">
@@ -1060,6 +1096,7 @@ function App({usuario, onSalir}){
         {tab==="inicio"   ? <Inicio ctx={ctx} irTab={irTab} credPend={credPend} />
         : tab==="decidir" ? <Decisiones ctx={ctx} />
         : tab==="conciliacion"? <Conciliacion irTab={irTab} />
+        : tab==="carga"? <CargaXML irTab={irTab} />
         : tab==="notas"? <NotasCredito irTab={irTab} />
         : tab==="retenciones"? <Retenciones irTab={irTab} />
         : tab==="bancos"? <CuentasBancarias irTab={irTab} />
@@ -1171,6 +1208,20 @@ function Inicio({ctx,irTab,credPend}){
           </>
         );
       })()}
+
+      {/* Cargar factura: el XML del SRI entra sin digitar */}
+      <div className="sec-gap" style={{height:12}} />
+      <button className="card card-pad row between" style={{width:"100%",textAlign:"left"}}
+        onClick={()=>irTab("carga")}>
+        <div className="row" style={{gap:13}}>
+          <div className="ava ava-m">📄</div>
+          <div>
+            <div style={{fontWeight:600,fontSize:15}}>Cargar una factura</div>
+            <div className="sub tiny">Sube el XML del SRI · sin digitar nada</div>
+          </div>
+        </div>
+        <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
+      </button>
 
       {/* Notas de crédito: devoluciones y descuentos que corrigen la factura */}
       {(()=>{
@@ -1830,6 +1881,256 @@ const COBROS_REPORTADOS = [
    nota:"En mi estado de cuenta ese número es de otro depósito.",
    verFecha:"18 jul 2026 19:15", au:"AU-260718-5520", intentos:1},
 ];
+
+function CargaXML({irTab}){
+  const [equis,setEquis]=useState(EQUIVALENCIAS);
+  const [xml,setXml]=useState(null);        // factura leída
+  const [resuelto,setResuelto]=useState({}); // codProv → prodId confirmado en esta carga
+  const [eligiendo,setEligiendo]=useState(null); // línea que se está emparejando
+  const [verEquis,setVerEquis]=useState(false);
+  const [aviso,setAviso]=useState("");
+  const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3600); };
+
+  const r2=(n)=>Math.round(n*100)/100;
+  const nuevoAu=()=>"AU-260720-"+Math.floor(1000+Math.random()*9000);
+  const buscarEq=(cod)=> equis.find(e=>e.codProv===cod);
+
+  /* Cada línea del XML cae en uno de tres grupos. Eso es lo que hace útil el módulo. */
+  const clasificar=(l)=>{
+    const eq = buscarEq(l.codProv);
+    if(eq) return {grupo:"calza", prodId:eq.prodId, nombre:eq.nombre};
+    if(resuelto[l.codProv]){
+      const p = CAT_INI.find(c=>c.prodId===resuelto[l.codProv]);
+      return {grupo:"calza", prodId:resuelto[l.codProv], nombre:p? `${p.nombre} · ${p.pres}`:""};
+    }
+    /* propuesta por parecido de descripción, con su % de confianza */
+    let mejor=null, pct=0;
+    CAT_INI.forEach(c=>{
+      const p = parecido(l.desc, c.nombre);
+      if(p>pct){ pct=p; mejor=c; }
+    });
+    if(mejor && pct>=50) return {grupo:"propuesto", prodId:mejor.prodId, pct,
+                                 nombre:`${mejor.nombre} · ${mejor.pres}`};
+    return {grupo:"desconocido"};
+  };
+
+  const lineas = xml ? xml.lineas.map(l=>({...l, ...clasificar(l)})) : [];
+  const calzan  = lineas.filter(l=>l.grupo==="calza");
+  const propues = lineas.filter(l=>l.grupo==="propuesto");
+  const desconoc= lineas.filter(l=>l.grupo==="desconocido");
+  const listo   = xml && desconoc.length===0 && propues.length===0;
+
+  const leerXml=()=>{
+    setXml(XML_EJEMPLO); setResuelto({});
+    toast("Factura leída · revisa las líneas antes de cargarla");
+  };
+
+  /* Confirmar una equivalencia: se guarda y ya no vuelve a preguntar. */
+  const emparejar=(codProv, prodId, desc)=>{
+    const p = CAT_INI.find(c=>c.prodId===prodId);
+    const au = nuevoAu();
+    setEquis(prev=>[{codProv, prodId, nombre:`${p.nombre} · ${p.pres}`,
+      desde:"2026-07-20", quien:PROVEEDOR.contacto, descOriginal:desc, au}, ...prev]);
+    setResuelto(prev=>({...prev, [codProv]:prodId}));
+    setEligiendo(null);
+    toast(`${codProv} queda vinculado · la próxima vez entra solo`);
+  };
+
+  const cargar=()=>{
+    const au=nuevoAu();
+    toast(`Factura ${xml.numero} cargada · ${lineas.length} líneas · ${au}`);
+    setXml(null); setResuelto({});
+  };
+
+  const Aviso = () => aviso ? (
+    <div style={{position:"fixed",bottom:86,left:"50%",transform:"translateX(-50%)",zIndex:90,
+      background:"#1E1B14",color:"#fff",borderRadius:12,padding:"12px 18px",fontSize:13,
+      fontWeight:600,boxShadow:"0 6px 18px rgba(0,0,0,.35)",maxWidth:"88%"}}>{aviso}</div>
+  ) : null;
+
+  /* ── EQUIVALENCIAS GUARDADAS ── */
+  if(verEquis){
+    return (<>
+      <div className="eyebrow">Tu código ↔ el del freelance</div>
+      <h1 className="h1">Equivalencias</h1>
+      <div className="sub" style={{marginTop:4}}>
+        Cada vez que confirmas una, deja de preguntarte.</div>
+
+      <div className="sec-gap" style={{height:16}} />
+      {equis.map((e,i)=>(
+        <div key={i} className="card card-pad" style={{marginBottom:10}}>
+          <div className="row between">
+            <div style={{minWidth:0,flex:1}}>
+              <div className="num" style={{fontWeight:700,fontSize:15}}>{e.codProv}</div>
+              <div className="sub tiny">↓</div>
+              <div style={{fontSize:14,fontWeight:600}}>{e.nombre}</div>
+              <div className="sub tiny" style={{marginTop:4}}>
+                Desde {e.desde} · {e.quien}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+      <div className="sec-gap" style={{height:12}} />
+      <button className="btn btn-ghost" style={{width:"100%"}}
+        onClick={()=>setVerEquis(false)}>Volver</button>
+      <Aviso/>
+    </>);
+  }
+
+  /* ── LISTA / CARGA ── */
+  return (<>
+    <div className="eyebrow">Tu factura, sin digitar</div>
+    <h1 className="h1">Cargar factura</h1>
+    <div className="sub" style={{marginTop:4}}>
+      Sube el XML del SRI y el sistema lee todo: cliente, productos y valores.</div>
+
+    {!xml && (<>
+      <div className="sec-gap" style={{height:16}} />
+      <div className="card card-pad" style={{textAlign:"center",padding:"28px 18px"}}>
+        <div style={{fontSize:40,marginBottom:10}}>📄</div>
+        <div style={{fontWeight:600,fontSize:15}}>Sube el XML del SRI</div>
+        <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>
+          Es el archivo que te da tu sistema de facturación al autorizar la factura.</div>
+        <div className="sec-gap" style={{height:16}} />
+        <button className="btn btn-maiz" style={{width:"100%"}} onClick={leerXml}>
+          Elegir archivo</button>
+      </div>
+
+      <div className="sec-gap" style={{height:12}} />
+      <button className="card card-pad row between" style={{width:"100%",textAlign:"left"}}
+        onClick={()=>setVerEquis(true)}>
+        <div>
+          <div style={{fontWeight:600,fontSize:15}}>{equis.length} equivalencias guardadas</div>
+          <div className="sub tiny">Tus códigos ya vinculados con los del freelance</div>
+        </div>
+        <span style={{color:"var(--texto-3)",fontSize:22}}>›</span>
+      </button>
+
+      <div className="sec-gap" style={{height:12}} />
+      <div className="card card-pad">
+        <div className="sub tiny" style={{lineHeight:1.55}}>
+          La primera vez confirmas a qué producto corresponde cada código tuyo.
+          De ahí en adelante entra solo: al mes siguiente casi no hay nada que confirmar.</div>
+      </div>
+    </>)}
+
+    {xml && (<>
+      <div className="sec-gap" style={{height:16}} />
+      <div className="hero">
+        <div className="lbl">Factura {xml.numero}</div>
+        <div className="big num">{money(xml.total)}</div>
+        <div className="split">
+          <div><div className="k">Cliente</div><div className="v">{xml.cliente}</div></div>
+          <div><div className="k">Fecha</div><div className="v num">{xml.fecha}</div></div>
+          <div><div className="k">Líneas</div><div className="v num">{lineas.length}</div></div>
+        </div>
+      </div>
+
+      {/* 1 · las que entran solas */}
+      {calzan.length>0 && (<>
+        <div className="sec-gap" />
+        <div className="eyebrow" style={{color:"#2E7D52"}}>✓ Entran solas · {calzan.length}</div>
+        <div className="sec-gap" style={{height:10}} />
+        {calzan.map((l,i)=>(
+          <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"#2E7D52"}}>
+            <div className="row between">
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontWeight:600,fontSize:14}}>{l.nombre}</div>
+                <div className="sub tiny num">{l.codProv} · {l.desc}</div>
+              </div>
+              <span className="num" style={{fontSize:14,flexShrink:0,marginLeft:10}}>
+                {l.cant} qq · {money(l.cant*l.precio)}</span>
+            </div>
+          </div>
+        ))}
+      </>)}
+
+      {/* 2 · las que el sistema propone */}
+      {propues.length>0 && (<>
+        <div className="sec-gap" />
+        <div className="eyebrow" style={{color:"var(--maiz)"}}>
+          Confirma si es el mismo · {propues.length}</div>
+        <div className="sec-gap" style={{height:10}} />
+        {propues.map((l,i)=>(
+          <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"var(--maiz)"}}>
+            <div className="sub tiny num">{l.codProv} · {l.desc}</div>
+            <div className="sub tiny" style={{margin:"8px 0 4px"}}>¿Es este producto?</div>
+            <div style={{fontWeight:600,fontSize:15}}>{l.nombre}</div>
+            <div className="sub tiny" style={{marginTop:2}}>Se parece un {l.pct}%</div>
+            <div className="row" style={{gap:10,marginTop:12}}>
+              <button className="btn btn-maiz" style={{flex:1}}
+                onClick={()=>emparejar(l.codProv, l.prodId, l.desc)}>Sí, es ese</button>
+              <button className="btn btn-ghost" style={{flex:1}}
+                onClick={()=>setEligiendo(l)}>Es otro</button>
+            </div>
+          </div>
+        ))}
+      </>)}
+
+      {/* 3 · las que no reconoce */}
+      {desconoc.length>0 && (<>
+        <div className="sec-gap" />
+        <div className="eyebrow" style={{color:"#B5432E"}}>
+          No los reconozco · {desconoc.length}</div>
+        <div className="sec-gap" style={{height:10}} />
+        {desconoc.map((l,i)=>(
+          <div key={i} className="card card-pad" style={{marginBottom:8,borderColor:"#B5432E"}}>
+            <div className="sub tiny num">{l.codProv}</div>
+            <div style={{fontWeight:600,fontSize:15,marginTop:2}}>{l.desc}</div>
+            <div className="sub tiny" style={{marginTop:4}}>
+              {l.cant} qq · {money(l.cant*l.precio)}</div>
+            <button className="btn btn-maiz" style={{width:"100%",marginTop:12}}
+              onClick={()=>setEligiendo(l)}>Decir a qué producto va</button>
+          </div>
+        ))}
+        <div className="card card-pad" style={{marginTop:4}}>
+          <div className="sub tiny" style={{lineHeight:1.5}}>
+            Nada entra sin estar vinculado: si no dices a qué producto va, esa línea
+            queda pendiente. El sistema nunca lo adivina por su cuenta.</div>
+        </div>
+      </>)}
+
+      <div className="sec-gap" style={{height:16}} />
+      <button className="btn btn-maiz" style={{width:"100%"}} disabled={!listo} onClick={cargar}>
+        {listo ? "Cargar la factura"
+               : `Faltan ${propues.length+desconoc.length} línea${propues.length+desconoc.length!==1?"s":""} por resolver`}</button>
+      <div className="sec-gap" style={{height:10}} />
+      <button className="btn btn-ghost" style={{width:"100%"}}
+        onClick={()=>{setXml(null);setResuelto({});}}>Cancelar</button>
+    </>)}
+
+    {/* elegir producto a mano */}
+    {eligiendo && (
+      <div className="scrim" onClick={()=>setEligiendo(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>¿A qué producto va?</h3>
+          <div className="sub tiny" style={{margin:"6px 0 4px"}}>Tu código</div>
+          <div className="num" style={{fontWeight:700,fontSize:16}}>{eligiendo.codProv}</div>
+          <div className="sub tiny" style={{marginTop:2,marginBottom:14}}>{eligiendo.desc}</div>
+
+          {CAT_INI.map(c=>(
+            <button key={c.prodId} className="card card-pad"
+              style={{width:"100%",textAlign:"left",marginBottom:8}}
+              onClick={()=>emparejar(eligiendo.codProv, c.prodId, eligiendo.desc)}>
+              <div style={{fontWeight:600,fontSize:14}}>{c.nombre}</div>
+              <div className="sub tiny num">{c.prodId} · {c.pres}</div>
+            </button>
+          ))}
+
+          <div className="card card-pad" style={{marginTop:4}}>
+            <div className="sub tiny" style={{lineHeight:1.5}}>
+              Si ninguno es, este producto todavía no está en el catálogo del freelance.
+              Créalo primero en Catálogo y vuelve a cargar la factura.</div>
+          </div>
+
+          <button className="btn btn-ghost" style={{width:"100%",marginTop:12}}
+            onClick={()=>setEligiendo(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+    <Aviso/>
+  </>);
+}
 
 function NotasCredito({irTab}){
   const [ncs,setNcs]=useState(NC_INI);
