@@ -274,11 +274,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FREELANCE">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
-<script>
-"use strict";
+<script type="text/babel">
+const VERSION = { n:"2", fecha:"20 jul 2026", desc:"Migracion a React completa" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -286,12 +289,52 @@
    =========================================================== */
 const QQ_KG = 45.4;
 const PESO_PRESENTACION = {
-  "Quintal":45.4,"Saco 50 kg":50,"Saco 25 kg":25,"Saco 10 kg":10,"Funda 5 kg":5,"Funda 2 kg":2
+  "Quintal (100 lb)":45.4,"Saco 50 kg":50,"Saco 25 kg":25,"Saco 10 kg":10,"Funda 5 kg":5,"Funda 2 kg":2
 };
 function pesoPresent(p){ return PESO_PRESENTACION[(p.split("·")[1]||"").trim()]||0; }
 function pesoLinea(it){ return pesoPresent(it.p)*it.q; }
 function pesoPedido(p){ return p.items.reduce(function(a,it){return a+pesoLinea(it);},0); }
 function qqDeKg(kg){ return kg/QQ_KG; }
+
+/* ═══════════ HUELLA REAL (WebAuthn) · el sensor del teléfono, como en la banca ═══════════
+   En HTTPS (app publicada): biometría verdadera del chofer recurrente. En archivo local: demo. */
+var HUELLA_KEY = "freelance_huella_v1";
+function puedeHuellaReal(){ return location.protocol === "https:" && !!window.PublicKeyCredential; }
+function huellaGuardada(){ try { return JSON.parse(localStorage.getItem(HUELLA_KEY) || "null"); } catch(e){ return null; } }
+function guardarHuella(d){ try { localStorage.setItem(HUELLA_KEY, JSON.stringify(d)); } catch(e){} }
+function b64h(buf){ return btoa(String.fromCharCode.apply(null, Array.prototype.slice.call(new Uint8Array(buf)))); }
+function deB64h(str){ return Uint8Array.from(atob(str), function(ch){ return ch.charCodeAt(0); }); }
+function retoAleatorio(){ var a = new Uint8Array(32); crypto.getRandomValues(a); return a; }
+function crearHuella(usuario, nombre){
+  return navigator.credentials.create({ publicKey: {
+    challenge: retoAleatorio(),
+    rp: { name: "FREELANCE", id: location.hostname },
+    user: { id: new TextEncoder().encode(usuario), name: usuario, displayName: nombre || usuario },
+    pubKeyCredParams: [{ alg:-7, type:"public-key" }, { alg:-257, type:"public-key" }],
+    authenticatorSelection: { authenticatorAttachment:"platform", userVerification:"required", residentKey:"preferred" },
+    timeout: 60000, attestation: "none",
+  }}).then(function(cred){ return cred ? b64h(cred.rawId) : null; }).catch(function(){ return null; });
+}
+function verificarHuella(credId){
+  return navigator.credentials.get({ publicKey: {
+    challenge: retoAleatorio(),
+    allowCredentials: [{ id: deB64h(credId), type:"public-key", transports:["internal"] }],
+    userVerification:"required", timeout:60000, rpId: location.hostname,
+  }}).then(function(r){ return !!r; }).catch(function(){ return false; });
+}
+/* Íconos SVG (cadena): huella con marco escáner / crestas solas / rostro Face ID */
+function svgHuella(t, color, grosor, marco){
+  var abre = '<svg width="'+t+'" height="'+t+'" viewBox="0 0 24 24" fill="none" stroke="'+color+'" stroke-width="'+grosor+'" stroke-linecap="round" stroke-linejoin="round" style="display:block">';
+  var crestasIn = '<path d="M7.3 8.1A5.7 5.7 0 0 1 16.7 8.1"/><path d="M6.9 11.5a5.1 5.1 0 0 1 10.2 0c0 2.4-.37 4.6-1.05 6.6"/><path d="M9.15 11.5a2.85 2.85 0 0 1 5.7 0c0 2.7-.4 5.1-1.15 7.3"/><path d="M11.95 11.5c.07 2.9-.3 5.6-1.05 8"/><path d="M7.45 14.6c.22 1.5.62 2.9 1.2 4.2"/>';
+  var crestasFull = '<path d="M5.2 7.1A8.6 8.6 0 0 1 18.8 7.1"/><path d="M4.6 11.9a7.4 7.4 0 0 1 14.8 0c0 2.9-.45 5.6-1.3 8.1"/><path d="M7.9 11.9a4.1 4.1 0 0 1 8.2 0c0 3.3-.5 6.3-1.4 9"/><path d="M11.9 11.9c.1 3.6-.4 6.9-1.4 9.9"/><path d="M5.4 15.8c.3 1.9.85 3.6 1.6 5.2"/>';
+  var esquinas = '<path d="M3.1 7V4.8A1.7 1.7 0 0 1 4.8 3.1H7"/><path d="M17 3.1h2.2A1.7 1.7 0 0 1 20.9 4.8V7"/><path d="M20.9 17v2.2a1.7 1.7 0 0 1-1.7 1.7H17"/><path d="M7 20.9H4.8a1.7 1.7 0 0 1-1.7-1.7V17"/><path d="M1.6 12h2.5" opacity=".8"/><path d="M19.9 12h2.5" opacity=".8"/>';
+  return abre + (marco ? (esquinas + crestasIn) : crestasFull) + '</svg>';
+}
+function svgRostro(t, color, grosor){
+  return '<svg width="'+t+'" height="'+t+'" viewBox="0 0 24 24" fill="none" stroke="'+color+'" stroke-width="'+grosor+'" stroke-linecap="round" stroke-linejoin="round" style="display:block">'
+    +'<path d="M3.1 7V4.8A1.7 1.7 0 0 1 4.8 3.1H7"/><path d="M17 3.1h2.2A1.7 1.7 0 0 1 20.9 4.8V7"/><path d="M20.9 17v2.2a1.7 1.7 0 0 1-1.7 1.7H17"/><path d="M7 20.9H4.8a1.7 1.7 0 0 1-1.7-1.7V17"/>'
+    +'<path d="M8.5 9.3v1.7"/><path d="M15.5 9.3v1.7"/><path d="M12 9.6v3.1a1.05 1.05 0 0 1-1 1.05"/><path d="M8.7 16.1a4.6 4.6 0 0 0 6.6 0"/></svg>';
+}
 
 const CHOFERES = [
   { nombre:"Marlon Cedeño", cedula:"0912543889", telefono:"099 110 2233", placas:["GBC-7790"], usuario:"marlon", clave:"1234" },
@@ -325,7 +368,7 @@ const SUB_MAESTRO = [
 function subIdPorNombre(nombre){ var s=SUB_MAESTRO.find(function(x){return x.nombre===nombre;}); return s?s.subId:null; }
 
 const PRES_POR_TEXTO = {
-  "Arroz Conejo · Quintal":"P-00012-03",
+  "Arroz Conejo · Quintal (100 lb)":"P-00012-03",
   "Arroz Conejo · Saco 25 kg":"P-00012-01",
   "Azúcar Valdez · Saco 50 kg":"P-00113-01",
   "Azúcar Valdez · Funda 5 kg":"P-00113-01"
@@ -348,13 +391,13 @@ let PEDIDOS = [
   { id:"PED-0142", cli:"Comercial Nilo", ciudad:"Riobamba",
     dir:"Av. Daniel León Borja 24-10", ref:"Junto al estadio", tel:"0991234567",
     factura:"001-001-0004521", guia:"GR-008832",
-    items:[ {p:"Arroz Conejo · Quintal", q:100, prov:"Agrícola del Valle"},
-            {p:"Arroz Económico · Quintal", q:50, prov:"Agrícola del Valle"} ],
+    items:[ {p:"Arroz Conejo · Quintal (100 lb)", q:100, prov:"Agrícola del Valle"},
+            {p:"Arroz Económico · Quintal (100 lb)", q:50, prov:"Agrícola del Valle"} ],
     estadoEntrega:"pendiente" },
   { id:"PED-0151", cli:"Almacenes Fernando", ciudad:"Riobamba",
     dir:"Calle Primera Constituyente 18-22", ref:"Local rojo, planta baja", tel:"0987654321",
     factura:"001-001-0004610", guia:"GR-009377",
-    items:[ {p:"Harina Ya · Quintal", q:80, prov:"Molinos del Litoral"} ],
+    items:[ {p:"Harina Ya · Quintal (100 lb)", q:80, prov:"Molinos del Litoral"} ],
     estadoEntrega:"pendiente" },
   { id:"PED-0153", cli:"Tienda Doña Marina", ciudad:"Riobamba",
     dir:"Av. La Prensa y García Moreno", ref:"Esquina, toldo verde", tel:"0995551122",
@@ -371,13 +414,13 @@ let PEDIDOS = [
   { id:"PED-0171", cli:"Comisariato La Y", ciudad:"Ibarra",
     dir:"Av. Mariano Acosta 14-21", ref:"Junto al parque", tel:"0981104420",
     factura:"001-001-000171", guia:"G-830",
-    items:[ {p:"Harina Ya · Quintal", q:18, prov:"Molinos del Litoral"} ],
+    items:[ {p:"Harina Ya · Quintal (100 lb)", q:18, prov:"Molinos del Litoral"} ],
     estadoEntrega:"pendiente" },
   // Pedidos de una ruta SIN chofer asignado (para probar el ingreso de transportista nuevo)
   { id:"PED-0180", cli:"Comercial Sur", ciudad:"Cuenca",
     dir:"Av. de las Américas 5-12", ref:"Frente a la gasolinera", tel:"0993338811",
     factura:"001-001-000180", guia:"G-840",
-    items:[ {p:"Arroz Conejo · Quintal", q:30, prov:"Agrícola del Valle"},
+    items:[ {p:"Arroz Conejo · Quintal (100 lb)", q:30, prov:"Agrícola del Valle"},
             {p:"Azúcar Valdez · Saco 50 kg", q:15, prov:"Ingenio San Pablo"} ],
     estadoEntrega:"pendiente" },
   { id:"PED-0181", cli:"Despensa El Vergel", ciudad:"Cuenca",
@@ -498,1102 +541,18 @@ function qqRutaCargado(r){
 // vista: "menu" (elegir tipo) | "recurrente" (lista) | "nuevo" (registro)
 // choferNuevo: datos que llena un transportista nuevo (no está en CHOFERES)
 // fase: "carga" | "entregas"  (dentro de una ruta abierta)
-const UI = { chofer:null, ruta:null, fase:"carga", sheet:null, foto:null, motivo:null, online:true,
-             entregaItems:null, vista:"menu", choferNuevo:null, recordatorios:{}, seccion:null, solTipo:null };
-
 const MIN_RECORDATORIO = 30; // minutos entre recordatorios de avance de carga
 var PREFS_NOTIF = { entregas:true, carga:true, documentos:true };  // qué llega lo define el Freelance (con Supabase, en vivo)
-var NOTIF_ABIERTA = false;
 
 function iniciales(nombre){
   var partes=(nombre||"").trim().split(" ");
   return ((partes[0]||"")[0]||"")+((partes[1]||"")[0]||"");
 }
-// Ruta lista pero todavía sin transportista asignado (la toma un chofer nuevo por link)
 function rutasSinChofer(){ return RUTAS.filter(function(r){return !r.chofer;}); }
-// Datos del chofer actual, venga de la lista (recurrente) o registrado (nuevo)
-function choferActual(){
-  if(UI.choferNuevo) return UI.choferNuevo;
-  return choferPorNombre(UI.chofer)||{nombre:UI.chofer};
-}
-
-/* ===================== RENDER ===================== */
-function tareasNotif(){
-  var t=[];
-  if(UI.ruta){
-    var r=ruta(UI.ruta);
-    if(r){
-      var pendCarga=puntosDeCarga(r).filter(function(x){ return !cargaDe(r,x.orden).salida; }).length;
-      if(pendCarga>0) t.push({tipo:"carga", icono:"📦", titulo:"Puntos de carga por completar", detalle:"La entrega se habilita al terminar la carga", n:pendCarga, destino:"carga"});
-      var pendEnt=r.pedidos.filter(function(id){return ped(id).estadoEntrega==="pendiente";}).length;
-      if(pendEnt>0 && cargaCompleta(r)) t.push({tipo:"entregas", icono:"🚚", titulo:"Entregas pendientes del viaje", detalle:"Clientes esperando en la ruta", n:pendEnt, destino:"entrega"});
-    }
-  }
-  var docs=DOCS_RETORNO.filter(function(d){return !d.entregadoOficina;}).length;
-  if(docs>0) t.push({tipo:"documentos", icono:"🧾", titulo:"Documentos por devolver a oficina", detalle:"Firmados en ruta · inician la custodia", n:docs, destino:null});
-  return t.filter(function(x){return PREFS_NOTIF[x.tipo];});
-}
-function renderCampana(){
-  var viejo=document.getElementById("campana-caja"); if(viejo) viejo.remove();
-  var tareas=tareasNotif();
-  var total=tareas.reduce(function(a,x){return a+x.n;},0);
-  var caja=document.createElement("div"); caja.id="campana-caja";
-  var html='<button id="campana-btn" style="position:fixed;top:calc(env(safe-area-inset-top,0px) + 58px);right:12px;z-index:1200;width:42px;height:42px;border-radius:21px;background:#fff;border:1px solid #E2E8E2;box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:17px;cursor:pointer">🔔'
-    + (total>0 ? '<span style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:9px;background:#C0392B;color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px">'+total+'</span>' : '')
-    + '</button>';
-  if(NOTIF_ABIERTA){
-    var cuerpo;
-    if(tareas.length===0){
-      cuerpo='<p style="font-size:13px;color:#5C6B60;padding:18px 16px;margin:0">Todo al día ✨ Nada espera tu acción.</p>';
-    } else {
-      cuerpo=tareas.map(function(t,i){
-        return '<button data-notif-ir="'+i+'" style="display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid #F3F6F3;padding:12px 16px;cursor:pointer">'
-          +'<span style="font-size:20px">'+t.icono+'</span>'
-          +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;color:#123B2C">'+t.titulo+'</span>'
-          +'<span style="display:block;font-size:11.5px;color:#5C6B60">'+t.detalle+'</span></span>'
-          +'<span style="min-width:22px;height:22px;border-radius:11px;background:#2E7D52;color:#fff;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 6px">'+t.n+'</span></button>';
-      }).join("");
-    }
-    html+='<div id="campana-velo" style="position:fixed;inset:0;background:rgba(10,20,15,.45);z-index:1300;display:flex;align-items:flex-start;justify-content:flex-end;padding:calc(env(safe-area-inset-top,0px) + 104px) 12px 0">'
-      +'<div id="campana-panel" style="width:min(340px,92vw);max-height:70vh;overflow-y:auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.3)">'
-      +'<div style="padding:14px 16px 10px;border-bottom:1px solid #EEF2EE;display:flex;justify-content:space-between;align-items:center">'
-      +'<strong style="font-size:16px;color:#123B2C">🔔 Tus tareas de hoy</strong></div>'
-      +cuerpo
-      +'<p style="font-size:10.5px;color:#6B6455;padding:10px 16px;margin:0;background:#FAFBF9;border-radius:0 0 16px 16px">👤 Qué avisos llegan aquí lo define tu freelance. Al publicar la app también aparecerán en la pantalla de tu teléfono.</p>'
-      +'</div></div>';
-  }
-  caja.innerHTML=html;
-  document.body.appendChild(caja);
-  document.getElementById("campana-btn").onclick=function(){ NOTIF_ABIERTA=true; renderCampana(); };
-  var velo=document.getElementById("campana-velo");
-  if(velo){
-    velo.onclick=function(e){ if(e.target===velo){ NOTIF_ABIERTA=false; renderCampana(); } };
-    Array.prototype.forEach.call(document.querySelectorAll("[data-notif-ir]"),function(b){
-      b.onclick=function(){
-        var t=tareasNotif()[+b.getAttribute("data-notif-ir")];
-        NOTIF_ABIERTA=false;
-        if(t && t.destino && UI.ruta){ UI.seccion=null; UI.fase=t.destino; }
-        render();
-      };
-    });
-  }
-}
-function render(){
-  if(!UI.chofer){ renderLogin(); var c=document.getElementById("campana-caja"); if(c) c.remove(); return; }
-  if(UI.seccion){ renderSeccion(); renderCampana(); return; }
-  if(!UI.ruta){ renderRutas(); renderCampana(); return; }
-  var r=ruta(UI.ruta);
-  // Si la carga aún no termina, forzamos la fase de carga (entregas bloqueadas).
-  if(!cargaCompleta(r)) UI.fase="carga";
-  if(UI.fase==="carga"){ renderCarga(); }
-  else { renderEntrega(); }
-  if(UI.sheet) renderSheet();
-  renderCampana();
-}
-
-/* ---------- Login: menú con dos caminos ---------- */
-function renderLogin(){
-  var body, subtitulo;
-  if(UI.vista==="recurrente"){
-    body = loginRecurrente(); subtitulo = "Acceso de transportista";
-  } else if(UI.vista==="nuevo"){
-    body = loginNuevo(); subtitulo = "Registro por enlace de ruta";
-  } else {
-    body = loginMenu(); subtitulo = "Conectamos el campo con tu negocio";
-  }
-  var franja =
-      '<div class="fx-entrar" style="background:linear-gradient(160deg,#15392B 0%,#1E4D3A 100%);padding:54px 26px 30px;position:relative">'
-    +   '<div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#F2A900,#7FB89A)"></div>'
-    +   '<div style="display:flex;justify-content:center;margin-bottom:12px">'
-    +     '<svg viewBox="0 0 64 64" width="84" height="84" style="display:block">'
-    +       '<rect width="64" height="64" rx="16" fill="#1E4D3A"/>'
-    +       '<rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="#fff" stroke-width="2.5"/>'
-    +       '<path d="M22 16 H45 V25 H32 V31 H42 V40 H32 V50 H22 Z" fill="#fff"/>'
-    +       '<path d="M43 9 Q54 4 56 15 Q46 19 43 9" fill="#F2A900"/>'
-    +       '<path d="M50 18 Q58 16 57 24 Q51 25 50 18" fill="#8FCBA8"/>'
-    +     '</svg></div>'
-    +   '<div style="font-size:30px;font-weight:800;color:#fff;letter-spacing:.01em;line-height:1.05;text-align:center">FREELANCE</div>'
-    +   '<div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:5px;letter-spacing:.18em;text-transform:uppercase;text-align:center">Ventas · Distribución · Cobranza</div>'
-    +   '<div style="font-style:italic;font-size:14px;color:rgba(255,255,255,.85);margin-top:10px;text-align:center">'+subtitulo+'</div>'
-    +   '<div style="width:64px;height:4px;border-radius:2px;background:#7FD69A;margin:12px auto 0"></div>'
-    + '</div>';
-  var sellos =
-      '<div style="display:flex;justify-content:space-between;gap:8px;padding:16px 6px 6px">'
-    + '<div style="text-align:center;font-size:10.5px;color:rgba(255,255,255,.55);padding:10px 0 16px">v1.0.0 · © 2026 FREELANCE</div>';
-  $("#root").innerHTML =
-    '<div class="shell" style="background:linear-gradient(180deg,#1E4D3A 0%,#15392B 100%)">'
-    + franja
-    + '<div class="body" style="background:transparent;padding:0 16px 4px">'
-    +   '<div style="background:#fff;border-radius:22px;padding:20px 18px;box-shadow:0 10px 30px rgba(0,0,0,.28)">'+body+'</div>'
-    + '</div>'
-    + sellos
-    + '</div>';
-  bindLogin();
-}
-
-function loginMenu(){
-  /* Huella = puerta principal diaria (chofer recurrente); los otros caminos quedan como secundarios */
-  return '<div style="font-size:18px;font-weight:700;color:var(--field);margin-bottom:4px">Bienvenido</div>'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Toca el sensor para ingresar</div>'
-    +'<button id="l-huella" style="width:100%;background:#123B2C;color:#fff;border:none;border-radius:11px;padding:16px;font-size:15.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:11;cursor:pointer;box-shadow:0 8px 22px rgba(18,59,44,.3);margin-bottom:16px">'
-    +'<span style="display:inline-flex;width:28px;height:28px;border-radius:14px;border:2.5px solid #F2A900;align-items:center;justify-content:center;color:#F2A900;font-size:14px">☉</span>'
-    +'Ingresar con huella dactilar</button>'
-    +'<div style="font-size:11.5px;color:var(--muted);margin:0 0 10px;text-align:center">Primera vez o nuevo equipo:</div>'
-    +'<div class="chofer-card" data-go="recurrente">'
-    +'<div class="avatar">👤</div>'
-    +'<div class="chofer-info"><div class="chofer-nom">Soy de la empresa</div>'
-    +'<div class="chofer-meta">Ingresa con tu usuario y clave</div></div>'
-    +'<div class="chofer-go">›</div></div>'
-    +'<div class="chofer-card" data-go="nuevo">'
-    +'<div class="avatar">🔗</div>'
-    +'<div class="chofer-info"><div class="chofer-nom">Tengo un link de ruta</div>'
-    +'<div class="chofer-meta">Transportista nuevo · registra tus datos</div></div>'
-    +'<div class="chofer-go">›</div></div>';
-}
-
-function loginRecurrente(){
-  return '<button class="login-back" data-volver-menu style="color:var(--field)">‹ Volver</button>'
-    +'<div style="font-size:18px;font-weight:700;color:var(--field);margin:10px 0 4px">Ingreso</div>'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:18px">Escribe tu usuario y clave</div>'
-    +'<div class="nuevo-form">'
-    +'<div class="field"><label>Usuario <span class="req">*</span></label>'
-    +'<input class="inp" id="l-user" autocapitalize="none" autocomplete="username" /></div>'
-    +'<div class="field"><label>Clave <span class="req">*</span></label>'
-    +'<input class="inp" id="l-pass" type="password" autocomplete="current-password" /></div>'
-    +'<div id="l-error" class="login-error"></div>'
-    +'<button class="b-confirm dis" id="l-entrar">Entrar</button>'
-    +'</div>'
-    +'<div class="login-demo" style="color:var(--muted)">Demo: <b>marlon</b> / <b>wilson</b> / <b>galo</b> · clave <b>1234</b></div>';
-}
-
-function loginNuevo(){
-  // En la demo: el "link" trae una ruta sin chofer asignado. En producción la ruta vendría en la URL.
-  var r = rutasSinChofer()[0];
-  if(!r){
-    return '<button class="login-back" data-volver-menu style="color:var(--field)">‹ Volver</button>'
-      +'<div style="font-size:18px;font-weight:700;color:var(--field);margin:10px 0 4px">Sin ruta disponible</div>'
-      +'<div style="font-size:13px;color:var(--muted)">No hay rutas pendientes de transportista en este momento.</div>';
-  }
-  var total=r.pedidos.length;
-  var qq=Math.round(qqDeKg(r.pedidos.reduce(function(a,id){return a+pesoPedido(ped(id));},0)));
-  return '<button class="login-back" data-volver-menu style="color:var(--field)">‹ Volver</button>'
-    +'<div style="font-size:18px;font-weight:700;color:var(--field);margin:10px 0 4px">Registro de transportista</div>'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Estás por tomar esta ruta. Completa tus datos para empezar.</div>'
-    +'<div class="ruta-link-card" style="background:rgba(242,169,0,.12);border:1px solid rgba(242,169,0,.45)">'
-    +'<div class="rl-nom" style="color:var(--maize-deep)">'+r.nombre+'</div>'
-    +'<div class="rl-meta" style="color:var(--muted)">'+total+' paradas · '+qq+' qq · '+r.fecha+'</div></div>'
-    +'<div class="nuevo-form">'
-    +'<div class="field"><label>Nombre completo <span class="req">*</span></label>'
-    +'<input class="inp" id="n-nombre" placeholder="Nombre y apellido" /></div>'
-    +'<div class="field"><label>Cédula <span class="req">*</span></label>'
-    +'<input class="inp" id="n-cedula" type="tel" inputmode="numeric" maxlength="10" placeholder="10 dígitos" /></div>'
-    +'<div class="field"><label>Teléfono <span class="req">*</span></label>'
-    +'<input class="inp" id="n-tel" type="tel" inputmode="numeric" placeholder="09xxxxxxxx" /></div>'
-    +'<div class="field"><label>Placa del vehículo <span class="req">*</span></label>'
-    +'<input class="inp" id="n-placa" maxlength="8" placeholder="ABC-1234" style="text-transform:uppercase" /></div>'
-    +'<button class="b-confirm dis" id="n-entrar" data-ruta-nueva="'+r.id+'">Entrar a la ruta</button>'
-    +'</div>';
-}
-
-function bindLogin(){
-  var g=$all("[data-go]"); g.forEach(function(el){
-    el.onclick=function(){ UI.vista=el.getAttribute("data-go"); render(); };
-  });
-  var vm=$("[data-volver-menu]"); if(vm) vm.onclick=function(){ UI.vista="menu"; render(); };
-
-  // ----- huella: puerta principal (demo: entra el chofer registrado; con WebAuthn será biometría real) -----
-  var hbtn=$("#l-huella");
-  if(hbtn){ hbtn.onclick=function(){ var c=CHOFERES[0]; UI.chofer=c.nombre; UI.choferNuevo=null; UI.ruta=null; render(); }; }
-
-  // ----- login recurrente: usuario + clave -----
-  var entrar=$("#l-entrar");
-  if(entrar){
-    var u=$("#l-user"), p=$("#l-pass");
-    function chkLogin(){
-      var ok = u.value.trim().length>=2 && p.value.length>=1;
-      entrar.className="b-confirm"+(ok?"":" dis");
-    }
-    u.oninput=chkLogin; p.oninput=chkLogin;
-    p.onkeydown=function(e){ if(e.key==="Enter") entrar.click(); };
-    entrar.onclick=function(){
-      if(entrar.classList.contains("dis")) return;
-      var c=choferPorUsuario(u.value);
-      var err=$("#l-error");
-      if(!c || c.clave!==p.value){
-        if(err) err.textContent="Usuario o clave incorrectos.";
-        p.value=""; entrar.className="b-confirm dis";
-        return;
-      }
-      UI.chofer=c.nombre; UI.choferNuevo=null; UI.ruta=null; render();
-    };
-  }
-
-  var btn=$("#n-entrar");
-  if(btn){
-    var nom=$("#n-nombre"), ced=$("#n-cedula"), tel=$("#n-tel"), pla=$("#n-placa");
-    function chkNuevo(){
-      var ok = nom.value.trim().length>=3
-        && /^[0-9]{10}$/.test(ced.value.trim())
-        && tel.value.trim().length>=7
-        && pla.value.trim().length>=5;
-      btn.className="b-confirm"+(ok?"":" dis");
-    }
-    nom.oninput=chkNuevo; ced.oninput=chkNuevo; tel.oninput=chkNuevo; pla.oninput=chkNuevo;
-    btn.onclick=function(){
-      if(btn.classList.contains("dis")) return;
-      var rid=btn.getAttribute("data-ruta-nueva");
-      var r=ruta(rid);
-      var datos={ nombre:nom.value.trim(), cedula:ced.value.trim(),
-                  telefono:tel.value.trim(), placas:[pla.value.trim().toUpperCase()],
-                  nuevo:true };
-      // Asignar el chofer nuevo a la ruta (como haría logística al recibir el registro)
-      r.chofer=datos.nombre; r.placa=datos.placas[0];
-      UI.choferNuevo=datos; UI.chofer=datos.nombre; UI.ruta=null;
-      render();
-      toast("Bienvenido, "+datos.nombre.split(" ")[0]);
-    };
-  }
-}
-
-/* ---------- Lista de rutas del chofer ---------- */
-// Una ruta está CONCLUIDA cuando salió de todos los puntos de carga
-// y todas sus paradas están resueltas (entregado/parcial/novedad).
 function rutaConcluida(r){
   if(!cargaCompleta(r)) return false;
   if(r.pedidos.length===0) return false;
   return r.pedidos.every(function(id){ return ped(id).estadoEntrega!=="pendiente"; });
-}
-
-function tarjetaRuta(r,completada){
-  var total=r.pedidos.length;
-  var hechos=r.pedidos.filter(function(id){return ped(id).estadoEntrega!=="pendiente";}).length;
-  var kg=r.pedidos.reduce(function(a,id){return a+pesoPedido(ped(id));},0);
-  var qq=Math.round(qqDeKg(kg));
-  var veh=VEHICULOS[r.placa]||{tipo:r.placa};
-  var check = completada ? '<span class="ruta-check">✓ Completada</span>' : '';
-  return '<div class="ruta-hero'+(completada?' done':'')+'" data-ruta="'+r.id+'" style="cursor:pointer">'
-    +'<div class="rh-head"><div class="rh-dest">'+r.nombre+'</div>'+check+'</div>'
-    +'<div class="rh-veh">'+r.placa+' · '+veh.tipo+'</div>'
-    +'<div class="rh-stats">'
-    +'<div class="rh-stat"><div class="v num">'+total+'</div><div class="l">paradas</div></div>'
-    +'<div class="rh-stat"><div class="v num">'+qq+'</div><div class="l">quintales</div></div>'
-    +'<div class="rh-stat"><div class="v num">'+hechos+'/'+total+'</div><div class="l">entregadas</div></div>'
-    +'</div></div>';
-}
-
-function renderRutas(){
-  var rutas = rutasDe(UI.chofer);
-  var c = choferActual();
-  var activas = rutas.filter(function(r){ return !rutaConcluida(r); });
-  var completadas = rutas.filter(function(r){ return rutaConcluida(r); });
-  var body="";
-
-  var docsPend = DOCS_RETORNO.filter(function(d){ return !d.entregadoOficina; });
-  if(docsPend.length>0){
-    body+='<div class="sect-h">📑 Documentos que llevo de vuelta · '+docsPend.length+'</div>'
-      +'<div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:4px 14px;margin-bottom:14px">'
-      +docsPend.map(function(d,i){
-        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 0;'+(i>0?'border-top:1px solid var(--line);':'')+'">'
-          +'<div><div style="font-weight:600;font-size:13.5px">'+d.tipo+'</div>'
-          +'<div style="font-size:12px;color:var(--muted)">'+d.numero+' · '+d.cliente+' · viaje '+d.viaje+'</div></div>'
-          +'<button class="b-doc-of" data-docof="'+i+'" style="border:1.5px solid var(--ok);color:var(--ok);background:#fff;border-radius:10px;padding:9px 11px;font-size:12px;font-weight:700;font-family:inherit">Entregué en oficina ✓</button>'
-          +'</div>';
-      }).join("")
-      +'<div style="font-size:11.5px;color:var(--muted);padding:9px 0 11px">Al entregarlos en oficina inician su cadena de custodia (foto del receptor en el sistema).</div>'
-      +'</div>';
-  }
-
-  if(activas.length===0 && completadas.length===0){
-    body='<div class="empty"><div class="ico">📭</div><div class="t">Sin rutas hoy</div>'
-        +'<div class="s">Cuando logística te asigne una ruta, aparecerá aquí.</div></div>';
-  } else {
-    if(activas.length>0){
-      body+='<div class="sect-h">Rutas asignadas · hoy</div>'
-        +activas.map(function(r){return tarjetaRuta(r,false);}).join("");
-    } else {
-      body+='<div class="empty" style="padding:32px 20px"><div class="ico">✅</div>'
-        +'<div class="t">No tienes rutas pendientes</div>'
-        +'<div class="s">Terminaste todas tus entregas de hoy.</div></div>';
-    }
-    if(completadas.length>0){
-      body+='<div class="sect-h" style="margin-top:18px">Completadas</div>'
-        +completadas.map(function(r){return tarjetaRuta(r,true);}).join("");
-    }
-  }
-
-  // Acciones del transportista (pagos, solicitudes, historial)
-  var ch=UI.chofer;
-  var porCobrar=fletesDe(ch).filter(function(f){return f.estado==="por_cobrar";})
-    .reduce(function(a,f){return a+f.monto;},0);
-  var solPend=solicitudesDe(ch).filter(function(s){return s.estado==="pendiente";}).length;
-  var nHist=historialDe(ch).length;
-
-  body+='<div class="sect-h" style="margin-top:20px">Mis gestiones</div>'
-    +'<div class="acc-grid">'
-    +accCard("pagos","💵","Pagos por transporte", porCobrar>0?(dineroUSD(porCobrar)+" por cobrar"):"al día")
-    +accCard("anticipo","🧾","Anticipo de estibada","pedir por adelantado")
-    +accCard("reposicion","↩️","Reposición de estibada","ya pagué, me devuelven")
-    +accCard("historial","📋","Historial de rutas", nHist+" entregada"+(nHist!==1?"s":""))
-    +'</div>';
-  if(solPend>0){
-    body+='<div class="acc-aviso">⏳ Tienes '+solPend+' solicitud'+(solPend>1?"es":"")+' en revisión por el área financiera.</div>';
-  }
-
-  $("#root").innerHTML = shell(
-    '<div class="who">Transportista · CI '+(c.cedula||'—')+'</div><div class="name">'+UI.chofer+'</div>',
-    '<button class="topbtn" data-salir>Salir</button>',
-    body);
-  bindTop();
-  $all("[data-acc]").forEach(function(el){
-    el.onclick=function(){ UI.seccion=el.getAttribute("data-acc"); render(); window.scrollTo(0,0); };
-  });
-  $all("[data-ruta]").forEach(function(el){
-    el.onclick=function(){
-      UI.ruta=el.getAttribute("data-ruta");
-      var r=ruta(UI.ruta);
-      UI.fase = cargaCompleta(r) ? "entregas" : "carga";
-      render(); window.scrollTo(0,0);
-    };
-  });
-  cablearDocsRetorno();
-}
-
-/* ---------- Tarjeta de acción del inicio ---------- */
-function cablearDocsRetorno(){
-  var pend = DOCS_RETORNO.filter(function(d){ return !d.entregadoOficina; });
-  $all("[data-docof]").forEach(function(b){
-    b.onclick=function(){
-      var d = pend[parseInt(b.getAttribute("data-docof"))];
-      if(!d) return;
-      d.entregadoOficina = true;
-      toast("Registrado ✓ El documento inicia su cadena de custodia.");
-      render(); window.scrollTo(0,0);
-    };
-  });
-}
-
-function accCard(id,ico,titulo,sub){
-  return '<button class="acc-card" data-acc="'+id+'">'
-    +'<div class="acc-ico">'+ico+'</div>'
-    +'<div class="acc-tit">'+titulo+'</div>'
-    +'<div class="acc-sub">'+sub+'</div></button>';
-}
-
-/* ---------- Secciones del inicio (pagos, solicitudes, historial) ---------- */
-function renderSeccion(){
-  var s=UI.seccion;
-  var titulos={ pagos:"Pagos por transporte", anticipo:"Anticipo de estibada",
-    reposicion:"Reposición de estibada", historial:"Historial de rutas" };
-  var body="";
-
-  if(s==="pagos"){ body=secPagos(); }
-  else if(s==="historial"){ body=secHistorial(); }
-  else { body=secSolicitud(s); } // anticipo o reposicion
-
-  $("#root").innerHTML = shell(
-    '<button class="back" data-volver-sec>‹ Inicio</button>',
-    '<span class="badge-est" style="background:rgba(255,255,255,.12);color:#EAF0EA">'+(titulos[s]||"")+'</span>',
-    body);
-  bindTop();
-  $("[data-volver-sec]").onclick=function(){ UI.seccion=null; UI.solTipo=null; render(); window.scrollTo(0,0); };
-
-  if(s==="anticipo"||s==="reposicion"){ bindSolicitud(s); }
-}
-
-/* ----- Pagos por transporte ----- */
-function secPagos(){
-  var ch=UI.chofer;
-  var fl=fletesDe(ch);
-  var porCobrar=fl.filter(function(f){return f.estado==="por_cobrar";}).reduce(function(a,f){return a+f.monto;},0);
-  var cobrado=fl.filter(function(f){return f.estado==="cobrado";}).reduce(function(a,f){return a+f.monto;},0);
-
-  var hero='<div class="ruta-hero"><div class="rh-dest">Resumen de fletes</div>'
-    +'<div class="rh-stats">'
-    +'<div class="rh-stat"><div class="v num">'+dineroUSD(porCobrar)+'</div><div class="l">por cobrar</div></div>'
-    +'<div class="rh-stat"><div class="v num">'+dineroUSD(cobrado)+'</div><div class="l">ya cobrado</div></div>'
-    +'</div></div>';
-
-  var lista=fl.map(function(f){
-    var badge = f.estado==="por_cobrar"
-      ? '<span class="badge-est be-parcial">Por cobrar</span>'
-      : '<span class="badge-est be-ok">Cobrado</span>';
-    return '<div class="pago-row">'
-      +'<div class="pago-info"><div class="pago-ruta">'+f.rutaNombre+'</div>'
-      +'<div class="pago-meta">'+f.fecha+' · '+f.ruta+'</div></div>'
-      +'<div class="pago-der"><div class="pago-monto num">'+dineroUSD(f.monto)+'</div>'+badge+'</div></div>';
-  }).join("");
-
-  return hero+'<div class="sect-h">Detalle por ruta</div>'+(lista||'<div class="empty"><div class="t">Sin fletes registrados</div></div>');
-}
-
-/* ----- Historial de rutas entregadas ----- */
-function secHistorial(){
-  var hs=historialDe(UI.chofer);
-  if(hs.length===0){
-    return '<div class="empty"><div class="ico">📋</div><div class="t">Sin rutas anteriores</div>'
-      +'<div class="s">Tus rutas entregadas en días pasados aparecerán aquí.</div></div>';
-  }
-  var lista=hs.map(function(h){
-    var resumen=[];
-    resumen.push('<span class="hi-chip be-ok">'+h.entregadas+' entregadas</span>');
-    if(h.parciales>0) resumen.push('<span class="hi-chip be-parcial">'+h.parciales+' parcial'+(h.parciales>1?"es":"")+'</span>');
-    if(h.novedades>0) resumen.push('<span class="hi-chip be-nov">'+h.novedades+' novedad'+(h.novedades>1?"es":"")+'</span>');
-    return '<div class="stop" style="cursor:default">'
-      +'<div class="stop-top"><div class="stop-cli">'
-      +'<div class="stop-nom">'+h.nombre+'</div>'
-      +'<div class="stop-dir">'+h.fecha+' · '+h.placa+' · '+h.qq+' qq · '+h.paradas+' paradas</div></div>'
-      +'<span class="stop-ciudad">✓</span></div>'
-      +'<div class="stop-carga">'+resumen.join("")+'</div></div>';
-  }).join("");
-  return '<div class="sect-h">Rutas entregadas</div>'+lista;
-}
-
-/* ----- Solicitud de anticipo / reposición ----- */
-function secSolicitud(tipo){
-  var esAnt = tipo==="anticipo";
-  var mias=solicitudesDe(UI.chofer).filter(function(x){return x.tipo===tipo;});
-  var intro = esAnt
-    ? "Pide por adelantado el dinero para pagar la estibada (carga/descarga). Se envía al área financiera."
-    : "¿Pagaste la estibada de tu bolsillo? Pide que te la repongan. Se envía al área financiera.";
-
-  var form='<div class="nuevo-form">'
-    +'<div class="aviso-parc" style="color:var(--field);border-color:var(--line);background:var(--paper)">'+intro+'</div>'
-    +'<div class="field"><label>Concepto <span class="req">*</span></label>'
-    +'<input class="inp" id="s-concepto" placeholder="'+(esAnt?"Ej: Estibada carga Sierra Centro":"Ej: Pagué estibada descarga")+'" /></div>'
-    +'<div class="field"><label>Monto (USD) <span class="req">*</span></label>'
-    +'<input class="inp" id="s-monto" type="tel" inputmode="decimal" placeholder="0.00" /></div>'
-    +'<div class="field"><label>Nota (opcional)</label>'
-    +'<textarea class="inp" id="s-nota" placeholder="Detalle para el área financiera"></textarea></div>'
-    +(esAnt?"":fotoCampo("Comprobante (opcional)","Adjunta el recibo de lo que pagaste"))
-    +'<div id="s-falta" class="falta-hint"></div>'
-    +'<button class="b-confirm dis" id="s-enviar">Enviar al área financiera</button>'
-    +'</div>';
-
-  var historial="";
-  if(mias.length>0){
-    historial='<div class="sect-h" style="margin-top:20px">Mis solicitudes</div>'+mias.map(function(x){
-      var b = x.estado==="aprobada"?'<span class="badge-est be-ok">Aprobada</span>'
-            : x.estado==="rechazada"?'<span class="badge-est be-nov">Rechazada</span>'
-            : '<span class="badge-est be-parcial">En revisión</span>';
-      return '<div class="pago-row"><div class="pago-info"><div class="pago-ruta">'+x.concepto+'</div>'
-        +'<div class="pago-meta">'+x.fecha+'</div></div>'
-        +'<div class="pago-der"><div class="pago-monto num">'+dineroUSD(x.monto)+'</div>'+b+'</div></div>';
-    }).join("");
-  }
-  return form+historial;
-}
-
-function bindSolicitud(tipo){
-  var esAnt = tipo==="anticipo";
-  if(!esAnt) bindFoto();
-  var con=$("#s-concepto"), mon=$("#s-monto"), btn=$("#s-enviar"), hint=$("#s-falta");
-  function chk(){
-    var faltan=[];
-    if(con.value.trim().length<3) faltan.push("concepto");
-    var m=parseFloat(mon.value); if(isNaN(m)||m<=0) faltan.push("monto válido");
-    var ok=faltan.length===0;
-    btn.className="b-confirm"+(ok?"":" dis");
-    if(hint){ hint.textContent= ok?"":("Falta: "+faltan.join(", ")); }
-    return ok;
-  }
-  con.oninput=chk; mon.oninput=chk; chk();
-  btn.onclick=function(){
-    if(!chk()) return;
-    var m=Math.round(parseFloat(mon.value)*100)/100;
-    var nueva={ id:"SOL-"+Math.floor(Math.random()*900+100), chofer:UI.chofer, tipo:tipo,
-      concepto:con.value.trim(), monto:m, fecha:"hoy", estado:"pendiente",
-      nota:($("#s-nota").value||"").trim(), foto:!!UI.foto, fechaISO:(new Date()).toISOString() };
-    SOLICITUDES.push(nueva);
-    REGISTROS.push({ tipo:"solicitud_"+tipo, destino:"financiero", chofer:UI.chofer,
-      concepto:nueva.concepto, monto:m, hora:ahora(), fechaISO:nueva.fechaISO });
-    UI.foto=null;
-    toast("Solicitud enviada al área financiera");
-    render(); window.scrollTo(0,0);
-  };
-}
-
-/* ---------- FASE CARGA (puntos de recogida definidos por logística) ---------- */
-function renderCarga(){
-  var r = ruta(UI.ruta);
-  var pts = puntosDeCarga(r);
-  var totalQq = qqRutaTotal(r);
-  var cargadoQq = qqRutaCargado(r);
-  var pct = totalQq? Math.round(cargadoQq/totalQq*100):0;
-  var veh=VEHICULOS[r.placa]||{tipo:r.placa};
-  var listos = pts.filter(function(x){return cargaDe(r,x.orden).salida;}).length;
-
-  var hero='<div class="ruta-hero">'
-    +'<div class="rh-dest">'+r.nombre+'</div>'
-    +'<div class="rh-veh">'+r.placa+' · '+veh.tipo+'</div>'
-    +'<div class="progbar"><i style="width:'+pct+'%"></i></div>'
-    +'<div class="prog-label">Cargados '+cargadoQq+' de '+totalQq+' qq · '+listos+'/'+pts.length+' puntos listos</div>'
-    +'</div>';
-
-  var cards = pts.map(function(x){
-    var c=cargaDe(r,x.orden);
-    var hab=puntoHabilitado(r,x.orden);
-    var ppct = x.qq? Math.round(Math.min(c.qqCargado,x.qq)/x.qq*100):0;
-    var estado = c.salida ? "salio" : c.terminado ? "term" : c.llegada ? "cargando" : (hab?"porllegar":"bloq");
-    var estTxt = c.salida ? "Salió del punto" : c.terminado ? "Carga terminada" : c.llegada ? "Cargando" : (hab?"Por llegar":"Bloqueado");
-    var estCls = c.salida ? "be-ok" : (c.terminado||c.llegada) ? "be-parcial" : "";
-
-    var inner='<div class="pil-top">'
-      +'<div class="pil-n">'+x.orden+'</div>'
-      +'<div class="pil-info"><div class="pil-nom">'+x.piladora+'</div>'
-      +'<div class="pil-dir">📍 '+x.dir+'</div>'
-      +'<div class="pil-meta">'+x.prov+' · meta <b class="num">'+x.qq+'</b> qq</div></div>'
-      +'<span class="badge-est '+estCls+'">'+estTxt+'</span></div>';
-
-    if(!hab && !c.salida){
-      inner+='<div class="pil-bloq">🔒 Primero debes salir del punto '+(x.orden-1)+'.</div>';
-    } else if(!c.llegada){
-      inner+='<button class="b-carga-accion" data-llegada="'+x.orden+'">📍 Registrar llegada</button>';
-    } else {
-      inner+='<div class="pil-prog"><div class="pil-bar"><i style="width:'+ppct+'%"></i></div>'
-        +'<div class="pil-prog-l"><span><b class="num">'+Math.min(c.qqCargado,x.qq)+'</b> / '+x.qq+' qq</span><span>'+ppct+'%</span></div></div>';
-      inner+='<div class="pil-llegada">🕒 Llegada: '+c.llegada+(c.avances.length?(' · '+c.avances.length+' avance'+(c.avances.length>1?'s':'')):'')+'</div>';
-      if(!c.salida){
-        if(!c.terminado){
-          inner+='<div class="pil-actions">'
-            +'<button class="b-carga-sec" data-avance="'+x.orden+'">+ Avance de carga</button>'
-            +'<button class="b-carga-sec" data-termina="'+x.orden+'">✓ Terminé de cargar</button>'
-            +'</div>';
-        } else {
-          inner+='<button class="b-carga-accion salir" data-salir-punto="'+x.orden+'">🚚 Salir del punto</button>';
-        }
-      }
-    }
-    return '<div class="pil-card '+estado+'">'+inner+'</div>';
-  }).join("");
-
-  var pieEntregas;
-  if(cargaCompleta(r)){
-    pieEntregas='<button class="b-ir-entregas" data-ir-entregas>Ir a las entregas →</button>';
-  } else {
-    pieEntregas='<div class="bloqueo-entregas">🔒 Las entregas se habilitan cuando salgas de todos los puntos de carga.</div>';
-  }
-
-  $("#root").innerHTML = shell(
-    '<button class="back" data-volver>‹ Mis rutas</button>',
-    '<span class="badge-est" style="background:rgba(255,255,255,.12);color:#EAF0EA">Carga</span>',
-    hero
-    +'<div class="sect-h">Recogida de mercadería (en orden)</div>'+cards
-    +'<button class="b-nov-carga" data-nov-carga>⚠️ Reportar novedad de carga</button>'
-    +pieEntregas);
-
-  bindTop();
-  $("[data-volver]").onclick=function(){ UI.ruta=null; render(); window.scrollTo(0,0); };
-  $all("[data-llegada]").forEach(function(b){ b.onclick=function(){ abrirCarga("llegada", +b.getAttribute("data-llegada")); }; });
-  $all("[data-avance]").forEach(function(b){ b.onclick=function(){ abrirCarga("avance", +b.getAttribute("data-avance")); }; });
-  $all("[data-termina]").forEach(function(b){ b.onclick=function(){ abrirCarga("termina", +b.getAttribute("data-termina")); }; });
-  $all("[data-salir-punto]").forEach(function(b){ b.onclick=function(){ salirDelPunto(+b.getAttribute("data-salir-punto")); }; });
-  var nc=$("[data-nov-carga]"); if(nc) nc.onclick=function(){ abrirCarga("novedad", null); };
-  var ie=$("[data-ir-entregas]"); if(ie) ie.onclick=function(){ UI.fase="entregas"; render(); window.scrollTo(0,0); };
-}
-
-/* ---------- Entrega (paradas de la ruta) ---------- */
-function renderEntrega(){
-  var r = ruta(UI.ruta);
-  var total=r.pedidos.length;
-  var hechos=r.pedidos.filter(function(id){return ped(id).estadoEntrega!=="pendiente";}).length;
-  var pct = total? Math.round(hechos/total*100):0;
-  var veh=VEHICULOS[r.placa]||{tipo:r.placa};
-  var kg=r.pedidos.reduce(function(a,id){return a+pesoPedido(ped(id));},0);
-
-  var hero='<div class="ruta-hero">'
-    +'<div class="rh-dest">'+r.nombre+'</div>'
-    +'<div class="rh-veh">'+r.placa+' · '+veh.tipo+'</div>'
-    +'<div class="progbar"><i style="width:'+pct+'%"></i></div>'
-    +'<div class="prog-label">'+hechos+' de '+total+' entregas · '+Math.round(qqDeKg(kg))+' qq</div>'
-    +'</div>';
-
-  var banner = "";
-  if(hechos===total && total>0){
-    var nEnt=r.pedidos.filter(function(id){return ped(id).estadoEntrega==="entregado";}).length;
-    var nParc=r.pedidos.filter(function(id){return ped(id).estadoEntrega==="parcial";}).length;
-    var nNov=r.pedidos.filter(function(id){return ped(id).estadoEntrega==="novedad";}).length;
-    banner = '<div class="done-banner"><div class="big">✅</div><div class="t">Ruta completada</div>'
-      +'<div class="s">Todas las paradas quedaron registradas. Logística ya ve el cierre.</div>'
-      +'<div class="cierre-stats">'
-      +'<div class="c"><div class="v num">'+nEnt+'</div><div class="l">completas</div></div>'
-      +'<div class="c"><div class="v num">'+nParc+'</div><div class="l">parciales</div></div>'
-      +'<div class="c"><div class="v num">'+nNov+'</div><div class="l">novedades</div></div>'
-      +'</div></div>';
-  }
-
-  var stops = r.pedidos.map(function(id,idx){
-    var p=ped(id); var n=idx+1;
-    var est=p.estadoEntrega;
-    var cls = est==="entregado"?"stop done":est==="parcial"?"stop parcial":est==="novedad"?"stop nov":"stop";
-    var icoN = est==="entregado"?"✓":est==="parcial"?"≈":est==="novedad"?"!":n;
-    var tags = '<span class="stop-tag"><b class="num">'+bultos(p)+'</b> bultos</span>'
-             +'<span class="stop-tag"><b class="num">'+Math.round(qqDeKg(pesoPedido(p)))+'</b> qq</span>'
-             +'<span class="stop-tag">Guía <b>'+p.guia+'</b></span>';
-    var html='<div class="'+cls+'">'
-      +'<div class="stop-top">'
-      +'<div class="stop-n">'+icoN+'</div>'
-      +'<div class="stop-cli"><div class="stop-nom">'+p.cli+'</div>'
-      +'<div class="stop-dir">'+p.dir+(p.ref?' · '+p.ref:'')+'</div></div>'
-      +'<div class="stop-ciudad">'+p.ciudad+'</div></div>'
-      +'<div class="stop-carga">'+tags+'</div>';
-
-    if(est==="pendiente"){
-      html+='<a class="stop-tel" href="tel:'+p.tel+'">📞 '+p.tel+'</a>'
-        +'<div class="stop-actions">'
-        +'<button class="b-entregar" data-entregar="'+p.id+'">Entregado</button>'
-        +'<button class="b-novedad" data-novedad="'+p.id+'">Novedad</button>'
-        +'</div>';
-    } else if(est==="entregado" || est==="parcial"){
-      var e=p.entrega||{};
-      var badge = est==="parcial"
-        ? '<div class="res-line"><span class="badge-est be-parcial">Entrega parcial</span></div>'
-        : '<div class="res-line"><span class="badge-est be-ok">Entrega completa</span></div>';
-      html+='<div class="stop-result">'
-        +badge
-        +'<div class="res-line"><span class="res-ico">👤</span> Recibió: <b>'+(e.recibe||"—")+'</b></div>'
-        +'<div class="res-line"><span class="res-ico">🪪</span> CI: <b>'+(e.cedula||"—")+'</b></div>'
-        +'<div class="res-line"><span class="res-ico">🕒</span> '+(e.hora||"—")+'</div>'
-        +'<div class="res-line"><span class="res-ico">📄</span> Guía firmada adjunta</div>';
-      if(est==="parcial" && e.devoluciones && e.devoluciones.length){
-        var ld = e.devoluciones.map(function(d){
-          return d.p.split("·")[0].trim()+' (<b class="num">'+d.q+'</b>)';
-        }).join(", ");
-        html+='<div class="res-saldo">↩️ Devolución: '+ld+'<br>El saldo regresa a logística.</div>';
-      }
-      html+='</div>';
-    } else {
-      var nv=p.entrega||{};
-      html+='<div class="stop-result">'
-        +'<div class="res-line"><span class="badge-est be-nov">'+(nv.motivo||"Novedad")+'</span></div>'
-        +(nv.nota?'<div class="res-line" style="margin-top:6px">'+nv.nota+'</div>':'')
-        +'<div class="res-line"><span class="res-ico">🕒</span> '+(nv.hora||"—")+'</div>'
-        +'</div>';
-    }
-    html+='</div>';
-    return html;
-  }).join("");
-
-  $("#root").innerHTML = shell(
-    '<button class="back" data-volver>‹ Mis rutas</button>',
-    '<span class="badge-est '+(hechos===total?'be-ok':'')+'" style="background:rgba(255,255,255,.12);color:#EAF0EA">'+hechos+'/'+total+'</span>',
-    hero
-    +'<button class="b-ver-carga" data-ver-carga>📦 Ver resumen de carga</button>'
-    +banner+'<div class="sect-h">Paradas (en orden de entrega)</div>'+stops);
-
-  bindTop();
-  $("[data-volver]").onclick=function(){ UI.ruta=null; render(); window.scrollTo(0,0); };
-  var vc=$("[data-ver-carga]"); if(vc) vc.onclick=function(){ UI.fase="carga"; render(); window.scrollTo(0,0); };
-  $all("[data-entregar]").forEach(function(b){ b.onclick=function(){ abrirSheet("entregar", b.getAttribute("data-entregar")); }; });
-  $all("[data-novedad]").forEach(function(b){ b.onclick=function(){ abrirSheet("novedad", b.getAttribute("data-novedad")); }; });
-}
-
-/* ---------- Acciones de carga (hoja) ---------- */
-function abrirCarga(tipo,orden){
-  UI.sheet={modo:"carga", tipo:tipo, orden:orden}; UI.foto=null; UI.motivo=null;
-  render();
-}
-function puntoPorOrden(r,orden){ return puntosDeCarga(r).find(function(x){return x.orden===orden;}); }
-
-function salirDelPunto(orden){
-  var r=ruta(UI.ruta); var c=cargaDe(r,orden); var x=puntoPorOrden(r,orden);
-  c.salida=true;
-  if(UI.recordatorios[orden]){ clearTimeout(UI.recordatorios[orden]); delete UI.recordatorios[orden]; }
-  REGISTROS.push({ tipo:"carga_salida", ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer,
-    placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, qqCargado:c.qqCargado,
-    hora:ahora(), fechaISO:(new Date()).toISOString() });
-  render();
-  toast("Salida registrada · punto "+orden);
-}
-function programarRecordatorio(orden){
-  if(UI.recordatorios[orden]) clearTimeout(UI.recordatorios[orden]);
-  UI.recordatorios[orden]=setTimeout(function(){
-    var r=ruta(UI.ruta); if(!r) return;
-    var c=cargaDe(r,orden); var x=puntoPorOrden(r,orden);
-    if(c && c.llegada && !c.terminado && !c.salida && UI.fase==="carga"){
-      toast("⏰ Recuerda registrar el avance de carga en "+(x?x.piladora.split(" ")[0]:"el punto "+orden));
-      programarRecordatorio(orden);
-    }
-  }, MIN_RECORDATORIO*60*1000);
-}
-
-function renderSheetCarga(){
-  var s=UI.sheet; var r=ruta(UI.ruta);
-  var old=$(".scrim"); if(old) old.remove();
-  var div=document.createElement("div"); div.className="scrim";
-  var orden=s.orden;
-  var x = orden ? puntoPorOrden(r,orden) : null;
-  var c = orden ? cargaDe(r,orden) : null;
-  var inner;
-
-  if(s.tipo==="llegada"){
-    inner='<div class="sheet-h"><div class="sheet-t">Llegada al punto '+orden+'</div><button class="sheet-x" data-x>×</button></div>'
-      +'<div class="sheet-b">'
-      +'<div class="field"><label>'+x.piladora+'</label>'
-      +'<div class="mini-list"><div class="row"><span>'+x.dir+'</span></div>'
-      +'<div class="row"><span>'+x.prov+'</span><b class="num">'+x.qq+' qq</b></div></div></div>'
-      +'<div class="aviso-parc" style="color:var(--field);border-color:var(--line);background:var(--paper)">Se registrará tu hora de llegada y empezará el control de carga. La app te recordará el avance cada '+MIN_RECORDATORIO+' minutos.</div>'
-      +'</div>'
-      +'<div class="sheet-foot"><button class="b-confirm" id="c-confirm">Confirmar llegada ('+ahora().replace("hoy · ","")+')</button></div>';
-  } else if(s.tipo==="avance"){
-    inner='<div class="sheet-h"><div class="sheet-t">Avance de carga</div><button class="sheet-x" data-x>×</button></div>'
-      +'<div class="sheet-b">'
-      +'<div class="field"><label>'+x.piladora+'</label></div>'
-      +'<div class="entrega-tot"><div class="et-cell et-ok"><div class="v num" id="c-prev">'+Math.min(c.qqCargado,x.qq)+'</div><div class="l">qq ya cargados</div></div>'
-      +'<div class="et-cell et-dev"><div class="v num">'+x.qq+'</div><div class="l">meta total</div></div></div>'
-      +'<div class="field"><label>¿Cuántos qq llevas cargados en total? <span class="req">*</span></label>'
-      +'<input class="inp" id="c-qq" type="tel" inputmode="numeric" placeholder="Ej: '+x.qq+'" value="'+(c.qqCargado||"")+'" /></div>'
-      +'</div>'
-      +'<div class="sheet-foot"><button class="b-confirm dis" id="c-confirm">Guardar avance</button></div>';
-  } else if(s.tipo==="termina"){
-    inner='<div class="sheet-h"><div class="sheet-t">Terminé de cargar</div><button class="sheet-x" data-x>×</button></div>'
-      +'<div class="sheet-b">'
-      +'<div class="field"><label>'+x.piladora+'</label></div>'
-      +'<div class="field"><label>Total cargado (qq) <span class="req">*</span></label>'
-      +'<input class="inp" id="c-qq" type="tel" inputmode="numeric" placeholder="Ej: '+x.qq+'" value="'+(c.qqCargado||x.qq)+'" /></div>'
-      +'<div class="aviso-parc">Al terminar, el siguiente paso será <b>salir del punto</b>. Recuerda: la salida del camión es el punto de no retorno.</div>'
-      +'</div>'
-      +'<div class="sheet-foot"><button class="b-confirm" id="c-confirm">Marcar carga terminada</button></div>';
-  } else { // novedad de carga
-    var motivos=["Falta producto","Demora en piladora","Producto en mal estado","Documentación","Otro"];
-    inner='<div class="sheet-h"><div class="sheet-t">Novedad de carga</div><button class="sheet-x" data-x>×</button></div>'
-      +'<div class="sheet-b">'
-      +'<div class="field"><label>Motivo <span class="req">*</span></label>'
-      +'<div class="motivos">'+motivos.map(function(m){return '<button class="motivo" data-motivo="'+m+'">'+m+'</button>';}).join("")+'</div></div>'
-      +'<div class="field"><label>Detalle (opcional)</label>'
-      +'<textarea class="inp" id="c-nota" placeholder="Describe el imprevisto para logística"></textarea></div>'
-      +fotoCampo("Foto (opcional)","Adjunta una foto si ayuda a explicar la novedad")
-      +'</div>'
-      +'<div class="sheet-foot"><button class="b-confirm nov dis" id="c-confirm">Enviar a logística</button></div>';
-  }
-
-  div.innerHTML='<div class="sheet">'+inner+'</div>';
-  $("#root").appendChild(div);
-  div.onclick=function(e){ if(e.target===div) cerrarSheet(); };
-  $("[data-x]").onclick=cerrarSheet;
-
-  if(s.tipo==="llegada"){
-    $("#c-confirm").onclick=function(){
-      c.llegada=ahora();
-      REGISTROS.push({ tipo:"carga_llegada", ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer,
-        placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, hora:c.llegada, fechaISO:(new Date()).toISOString() });
-      programarRecordatorio(orden);
-      cerrarSheet(); toast("Llegada registrada");
-    };
-  } else if(s.tipo==="avance"){
-    var qq=$("#c-qq");
-    function chkA(){ var v=parseInt(qq.value,10); $("#c-confirm").className="b-confirm"+((v>=0&&!isNaN(v))?"":" dis"); }
-    qq.oninput=chkA; chkA();
-    $("#c-confirm").onclick=function(){
-      if($("#c-confirm").classList.contains("dis")) return;
-      var v=Math.max(0,parseInt(qq.value,10)||0);
-      c.qqCargado=v; c.avances.push({qq:v,hora:ahora()});
-      REGISTROS.push({ tipo:"carga_avance", ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer,
-        placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, qqCargado:v, meta:x.qq, hora:ahora(), fechaISO:(new Date()).toISOString() });
-      programarRecordatorio(orden);
-      cerrarSheet(); toast("Avance guardado: "+v+" qq");
-    };
-  } else if(s.tipo==="termina"){
-    $("#c-confirm").onclick=function(){
-      var v=Math.max(0,parseInt($("#c-qq").value,10)||c.qqCargado||0);
-      c.qqCargado=v; c.terminado=true;
-      if(UI.recordatorios[orden]){ clearTimeout(UI.recordatorios[orden]); delete UI.recordatorios[orden]; }
-      REGISTROS.push({ tipo:"carga_fin", ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer,
-        placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, qqCargado:v, meta:x.qq, hora:ahora(), fechaISO:(new Date()).toISOString() });
-      cerrarSheet(); toast("Carga terminada");
-    };
-  } else { // novedad de carga
-    $all("[data-motivo]").forEach(function(b){
-      b.onclick=function(){
-        UI.motivo=b.getAttribute("data-motivo");
-        $all("[data-motivo]").forEach(function(z){z.classList.remove("sel");});
-        b.classList.add("sel");
-        $("#c-confirm").className="b-confirm nov";
-      };
-    });
-    bindFoto();
-    $("#c-confirm").onclick=function(){
-      if(!UI.motivo) return;
-      REGISTROS.push({ tipo:"novedad_carga", ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer,
-        placa:r.placa, orden:UI.sheet.orden||null, motivo:UI.motivo,
-        nota:($("#c-nota").value||"").trim(), foto:!!UI.foto, hora:ahora(), fechaISO:(new Date()).toISOString() });
-      cerrarSheet(); toast("Novedad enviada a logística");
-    };
-  }
-}
-
-/* ---------- Sheet de entrega / novedad ---------- */
-function abrirSheet(tipo,pid){
-  UI.sheet={tipo:tipo,pid:pid}; UI.foto=null; UI.motivo=null;
-  if(tipo==="entregar"){
-    // arranca con TODO entregado (cantidad pedida); el chofer baja lo que falte
-    var p=ped(pid);
-    UI.entregaItems = p.items.map(function(it){ return { p:it.p, q:it.q, qEntregada:it.q, prov:it.prov }; });
-  } else {
-    UI.entregaItems=null;
-  }
-  render();
-}
-function cerrarSheet(){ UI.sheet=null; UI.foto=null; UI.motivo=null; UI.entregaItems=null; render(); }
-
-function renderSheet(){
-  var s=UI.sheet;
-  if(s.modo==="carga"){ renderSheetCarga(); return; }
-  var p=ped(s.pid);
-  var old=$(".scrim"); if(old) old.remove();
-  var div=document.createElement("div"); div.className="scrim";
-
-  var inner;
-  if(s.tipo==="entregar"){
-    inner='<div class="sheet-h"><div class="sheet-t">Confirmar entrega</div><button class="sheet-x" data-x>×</button></div>'
-      +'<div class="sheet-b">'
-      +'<div class="field"><label>'+p.cli+' · '+p.ciudad+'</label></div>'
-      +'<div class="field"><label>Cantidad entregada por producto</label>'
-      +'<div id="items-host"></div></div>'
-      +'<div id="tot-host"></div>'
-      +'<div id="aviso-host"></div>'
-      +fotoCampo("Guía firmada","Toma la foto de la guía firmada por quien recibe")
-      +'<div class="field"><label>Nombre de quien recibe <span class="req">*</span></label>'
-      +'<input class="inp" id="f-recibe" placeholder="Nombre y apellido" /></div>'
-      +'<div class="field"><label>Cédula de quien recibe <span class="req">*</span></label>'
-      +'<input class="inp" id="f-cedula" type="tel" inputmode="numeric" maxlength="10" placeholder="10 dígitos" /></div>'
-      +'</div>'
-      +'<div class="sheet-foot"><div id="f-falta" class="falta-hint"></div><button class="b-confirm dis" id="f-confirm">Registrar entrega</button></div>';
-  } else {
-    var motivos=["Rechazo del cliente","Producto dañado","Cliente ausente","Local cerrado","Dirección errada","Otro"];
-    inner='<div class="sheet-h"><div class="sheet-t">Reportar novedad</div><button class="sheet-x" data-x>×</button></div>'
-      +'<div class="sheet-b">'
-      +'<div class="field"><label>'+p.cli+' · '+p.ciudad+'</label></div>'
-      +'<div class="field"><label>Motivo <span class="req">*</span></label>'
-      +'<div class="motivos">'+motivos.map(function(m){return '<button class="motivo" data-motivo="'+m+'">'+m+'</button>';}).join("")+'</div></div>'
-      +'<div class="field"><label>Detalle (opcional)</label>'
-      +'<textarea class="inp" id="f-nota" placeholder="Describe qué pasó"></textarea></div>'
-      +fotoCampo("Foto (opcional)","Adjunta una foto si ayuda a explicar la novedad")
-      +'</div>'
-      +'<div class="sheet-foot"><button class="b-confirm nov dis" id="f-confirm">Guardar novedad</button></div>';
-  }
-
-  div.innerHTML='<div class="sheet">'+inner+'</div>';
-  $("#root").appendChild(div);
-
-  div.onclick=function(e){ if(e.target===div) cerrarSheet(); };
-  $("[data-x]").onclick=cerrarSheet;
-  bindFoto();
-
-  if(s.tipo==="entregar"){
-    pintarItems();
-    var rec=$("#f-recibe"), ced=$("#f-cedula");
-    rec.oninput=recalcEntregar; ced.oninput=recalcEntregar;
-    $("#f-confirm").onclick=confirmarEntrega;
-    recalcEntregar();
-  } else {
-    $all("[data-motivo]").forEach(function(b){
-      b.onclick=function(){
-        UI.motivo=b.getAttribute("data-motivo");
-        $all("[data-motivo]").forEach(function(x){x.classList.remove("sel");});
-        b.classList.add("sel");
-        $("#f-confirm").className="b-confirm nov";
-      };
-    });
-    $("#f-confirm").onclick=function(){
-      if(!UI.motivo) return;
-      var r=rutaDePedido(p.id)||{};
-      p.estadoEntrega="novedad";
-      if(UI.motivo==="Producto dañado" && !UI.foto){ toast("Producto dañado exige foto de evidencia."); return; }
-      p.entrega={
-        tipo:"novedad", pedidoId:p.id, guia:p.guia, factura:p.factura,
-        viaje:r.viaje||null, quien:"App Transportista",
-        ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer, placa:r.placa,
-        motivo:UI.motivo, nota:($("#f-nota").value||"").trim(),
-        foto:!!UI.foto, hora:ahora(), fechaISO:(new Date()).toISOString()
-      };
-      REGISTROS.push(p.entrega);
-      cerrarSheet(); toast("Novedad guardada");
-      finSiRutaCompleta();
-    };
-  }
-}
-
-/* ----- items con stepper (entrega parcial) ----- */
-function pintarItems(){
-  var host=$("#items-host"); if(!host) return;
-  host.innerHTML = UI.entregaItems.map(function(it,i){
-    var falta = it.q - it.qEntregada;
-    var rcls = it.qEntregada===0 ? "item-row cero" : (falta>0 ? "item-row parc" : "item-row");
-    var flag = it.qEntregada===0
-        ? '<span class="item-flag flag-cero">No entregado</span>'
-        : (falta>0 ? '<span class="item-flag flag-parc">Faltan '+falta+'</span>' : '');
-    var nom=it.p.split("·")[0].trim();
-    var pres=(it.p.split("·")[1]||"").trim();
-    var menosDis = it.qEntregada<=0 ? " dis" : "";
-    var masDis = it.qEntregada>=it.q ? " dis" : "";
-    return '<div class="'+rcls+'">'
-      +'<div class="item-nom">'+nom+(pres?' · '+pres:'')+flag+'</div>'
-      +'<div class="item-prov">'+it.prov+'</div>'
-      +'<div class="item-ctl">'
-      +'<div class="item-ped">Pedido: <b class="num">'+it.q+'</b></div>'
-      +'<div class="stepper">'
-      +'<button class="menos'+menosDis+'" data-menos="'+i+'">−</button>'
-      +'<div class="val num">'+it.qEntregada+'</div>'
-      +'<button class="mas'+masDis+'" data-mas="'+i+'">+</button>'
-      +'</div></div></div>';
-  }).join("");
-
-  $all("[data-menos]").forEach(function(b){
-    b.onclick=function(){
-      var i=+b.getAttribute("data-menos");
-      if(UI.entregaItems[i].qEntregada>0){ UI.entregaItems[i].qEntregada--; pintarItems(); pintarTotales(); recalcEntregar(); }
-    };
-  });
-  $all("[data-mas]").forEach(function(b){
-    b.onclick=function(){
-      var i=+b.getAttribute("data-mas");
-      if(UI.entregaItems[i].qEntregada<UI.entregaItems[i].q){ UI.entregaItems[i].qEntregada++; pintarItems(); pintarTotales(); recalcEntregar(); }
-    };
-  });
-  pintarTotales();
-}
-
-function pintarTotales(){
-  var host=$("#tot-host"); if(!host) return;
-  var pedidoTot=0, entTot=0;
-  UI.entregaItems.forEach(function(it){ pedidoTot+=it.q; entTot+=it.qEntregada; });
-  var dev=pedidoTot-entTot;
-  host.innerHTML='<div class="entrega-tot">'
-    +'<div class="et-cell et-ok"><div class="v num">'+entTot+'</div><div class="l">se entrega</div></div>'
-    +'<div class="et-cell et-dev"><div class="v num">'+dev+'</div><div class="l">devolución</div></div>'
-    +'</div>';
-  var aviso=$("#aviso-host"); if(aviso){
-    aviso.innerHTML = dev>0
-      ? '<div class="aviso-parc"><b>Entrega parcial.</b> El saldo de <b class="num">'+dev+'</b> bulto(s) regresa a logística como devolución. La factura y la comisión se ajustan sobre lo realmente entregado.</div>'
-      : '';
-  }
-}
-
-function confirmarEntrega(){
-  if($("#f-confirm").classList.contains("dis")) return;
-  var p=ped(UI.sheet.pid);
-  var rec=$("#f-recibe").value.trim(), ced=$("#f-cedula").value.trim();
-  var r=rutaDePedido(p.id)||{};
-
-  var entTot=0, pedidoTot=0, devs=[];
-  var itemsReg = UI.entregaItems.map(function(it){
-    entTot+=it.qEntregada; pedidoTot+=it.q;
-    if(it.qEntregada<it.q){ devs.push({ p:it.p, q:it.q-it.qEntregada, prov:it.prov }); }
-    return { p:it.p, q:it.q, qEntregada:it.qEntregada, ok:(it.qEntregada>0), prov:it.prov };
-  });
-  var esParcial = entTot<pedidoTot;
-  p.estadoEntrega = esParcial ? "parcial" : "entregado";
-
-  p.entrega={
-    tipo:"entrega", pedidoId:p.id, guia:p.guia, factura:p.factura,
-    viaje:r.viaje||null, quien:"App Transportista",
-    ruta:r.id, rutaNombre:r.nombre, chofer:UI.chofer, placa:r.placa,
-    recibe:rec, cedula:ced, foto:true,
-    items:itemsReg, parcial:esParcial, devoluciones:devs,
-    hora:ahora(), fechaISO:(new Date()).toISOString()
-  };
-  REGISTROS.push(p.entrega);
-  // Documentos firmados que el chofer trae de vuelta → cadena de custodia
-  DOCS_RETORNO.push(
-    { tipo:"Guía de remisión firmada", numero:p.guia, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false },
-    { tipo:"Factura firmada", numero:p.factura, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false }
-  );
-  if(devs.length){
-    DEVOLUCIONES.push({ pedidoId:p.id, cli:p.cli, ciudad:p.ciudad, ruta:r.id, chofer:UI.chofer,
-      items:devs, hora:ahora(), fechaISO:(new Date()).toISOString() });
-  }
-
-  cerrarSheet();
-  toast(esParcial ? "Entrega parcial registrada" : "Entrega registrada ✓");
-  finSiRutaCompleta();
-}
-
-// Si ya no quedan paradas pendientes en la ruta, vuelve a la ventana de inicio.
-function finSiRutaCompleta(){
-  var r=ruta(UI.ruta);
-  if(r && rutaConcluida(r)){
-    setTimeout(function(){
-      UI.ruta=null; UI.fase="carga"; render(); window.scrollTo(0,0);
-      toast("Ruta completada ✓");
-    }, 900);
-  }
-}
-
-function recalcEntregar(){
-  if(!UI.sheet||UI.sheet.tipo!=="entregar") return;
-  var rec=$("#f-recibe"), ced=$("#f-cedula"); if(!rec||!ced) return;
-  var entTot=0; UI.entregaItems.forEach(function(it){ entTot+=it.qEntregada; });
-
-  var faltan=[];
-  if(!UI.foto) faltan.push("foto de la guía");
-  if(rec.value.trim().length<3) faltan.push("nombre de quien recibe");
-  if(!/^[0-9]{10}$/.test(ced.value.trim())) faltan.push("cédula de 10 dígitos");
-  if(entTot<=0) faltan.push("cantidad entregada (no puede ser 0)");
-
-  var ok = faltan.length===0;
-  $("#f-confirm").className="b-confirm"+(ok?"":" dis");
-  $("#f-confirm").textContent = (entTot>0 && entTot<sumaPedida()) ? "Registrar entrega parcial" : "Registrar entrega";
-
-  var hint=$("#f-falta");
-  if(hint){
-    hint.textContent = ok ? "" : ("Falta: "+faltan.join(", "));
-    hint.style.display = ok ? "none" : "block";
-  }
-}
-function sumaPedida(){ var t=0; (UI.entregaItems||[]).forEach(function(it){t+=it.q;}); return t; }
-
-/* ----- foto ----- */
-// Imagen de ejemplo (solo para pruebas en el visor): una "guía" simulada.
-var FOTO_DEMO = "data:image/svg+xml;base64,"+btoa(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">'
-  +'<rect width="320" height="200" fill="#F2A900"/>'
-  +'<rect x="14" y="14" width="292" height="172" rx="10" fill="#FFFFFF"/>'
-  +'<text x="160" y="70" font-family="sans-serif" font-size="20" font-weight="700" fill="#15392B" text-anchor="middle">GUIA FIRMADA</text>'
-  +'<text x="160" y="100" font-family="sans-serif" font-size="13" fill="#6F7A6F" text-anchor="middle">(foto simulada de prueba)</text>'
-  +'<path d="M70 150 q20 -25 40 0 t40 0 t40 0" stroke="#15392B" stroke-width="3" fill="none"/>'
-  +'</svg>');
-
-function fotoCampo(label,hint){
-  return '<div class="field"><label>'+label+(label==="Guía firmada"?' <span class="req">*</span>':'')+'</label>'
-    +'<div id="foto-host"></div>'
-    +'<input type="file" id="f-foto" accept="image/*" style="display:none" />'
-    +'<div style="font-size:11.5px;color:var(--muted);margin-top:6px">'+hint+'</div></div>';
-}
-function bindFoto(){
-  pintarFoto();
-  $("#f-foto").onchange=function(e){
-    var file=e.target.files&&e.target.files[0]; if(!file) return;
-    var rd=new FileReader();
-    rd.onload=function(){ UI.foto=rd.result; pintarFoto(); recalcEntregar(); };
-    rd.readAsDataURL(file);
-  };
-}
-function pintarFoto(){
-  var host=$("#foto-host"); if(!host) return;
-  if(UI.foto){
-    host.innerHTML='<div class="foto-prev"><img src="'+UI.foto+'"/>'
-      +'<button class="del" data-delfoto>×</button><span class="ok">Adjuntada ✓</span></div>';
-    $("[data-delfoto]").onclick=function(){ UI.foto=null; $("#f-foto").value=""; pintarFoto(); recalcEntregar(); };
-  } else {
-    host.innerHTML='<button class="foto-zone" data-pick><div class="foto-ico">📷</div>'
-      +'<div class="foto-txt">Tomar foto o elegir de galería</div></button>'
-      +'<button class="foto-demo" data-demo>Usar foto de prueba (para el visor)</button>';
-    $("[data-pick]").onclick=function(){ $("#f-foto").click(); };
-    var d=$("[data-demo]"); if(d) d.onclick=function(){ UI.foto=FOTO_DEMO; pintarFoto(); recalcEntregar(); };
-  }
-}
-
-/* ===================== HELPERS UI ===================== */
-function shell(topLeft,topRight,body){
-  return '<div class="shell">'
-    +'<div class="top"><div>'+topLeft+'</div><div style="display:flex;align-items:center;gap:10px">'
-    +'<span class="net"><span class="dot"></span>'+(UI.online?'En línea':'Sin red')+'</span>'+topRight+'</div></div>'
-    +'<div class="body">'+body+'</div></div>';
-}
-function bindTop(){
-  var s=$("[data-salir]"); if(s) s.onclick=function(){
-    UI.chofer=null; UI.ruta=null; UI.choferNuevo=null; UI.vista="menu"; render();
-  };
 }
 function ahora(){
   var d=new Date(); var h=d.getHours(), m=d.getMinutes();
@@ -1603,11 +562,1073 @@ function toast(msg){
   var t=document.createElement("div"); t.className="toast"; t.textContent=msg;
   document.body.appendChild(t); setTimeout(function(){ t.remove(); },2200);
 }
-function $(s){ return document.querySelector(s); }
-function $all(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); }
 
-render();
+const { useState, useRef } = React;
 
+/* Íconos biométricos: envoltura React de los dibujos SVG (mismos trazos escáner/crestas/rostro) */
+const HuellaIcono = ({ t=22, c="currentColor", g=1.7, marco=false }) =>
+  <span style={{ display:"inline-flex" }} dangerouslySetInnerHTML={{ __html: svgHuella(t, c, g, marco) }} />;
+const RostroIcono = ({ t=22, c="currentColor", g=1.7 }) =>
+  <span style={{ display:"inline-flex" }} dangerouslySetInnerHTML={{ __html: svgRostro(t, c, g) }} />;
+
+function choferActualDe(chofer, choferNuevo){
+  if (choferNuevo) return choferNuevo;
+  return choferPorNombre(chofer) || { nombre: chofer };
+}
+
+/* ---------- Franja superior del login (logo + lema) ---------- */
+function Franja({ subtitulo }){
+  return (
+    <div className="fx-entrar" style={{ background:"linear-gradient(160deg,#15392B 0%,#1E4D3A 100%)", padding:"54px 26px 30px", position:"relative" }}>
+      <div style={{ position:"absolute", left:0, right:0, bottom:0, height:3, background:"linear-gradient(90deg,#F2A900,#7FB89A)" }}></div>
+      <div style={{ display:"flex", justifyContent:"center", marginBottom:12 }}>
+        <svg viewBox="0 0 64 64" width="84" height="84" style={{ display:"block" }}>
+          <rect width="64" height="64" rx="16" fill="#1E4D3A"/>
+          <rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="#fff" strokeWidth="2.5"/>
+          <path d="M22 16 H45 V25 H32 V31 H42 V40 H32 V50 H22 Z" fill="#fff"/>
+          <path d="M43 9 Q54 4 56 15 Q46 19 43 9" fill="#F2A900"/>
+          <path d="M50 18 Q58 16 57 24 Q51 25 50 18" fill="#8FCBA8"/>
+        </svg>
+      </div>
+      <div style={{ fontSize:30, fontWeight:800, color:"#fff", letterSpacing:".01em", lineHeight:1.05, textAlign:"center" }}>FREELANCE</div>
+      <div style={{ fontSize:11, color:"rgba(255,255,255,.7)", marginTop:5, letterSpacing:".18em", textTransform:"uppercase", textAlign:"center" }}>Ventas · Distribución · Cobranza</div>
+      <div style={{ fontStyle:"italic", fontSize:14, color:"rgba(255,255,255,.85)", marginTop:10, textAlign:"center" }}>{subtitulo}</div>
+      <div style={{ width:64, height:4, borderRadius:2, background:"#7FD69A", margin:"12px auto 0" }}></div>
+    </div>
+  );
+}
+
+/* ---------- Login: 3 caras + biometría real + tarjeta banca + registro por link ---------- */
+function PantallaLogin({ onEntrar }){
+  const [vista, setVista] = useState("menu");
+  const [usr, setUsr] = useState(""); const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState("");
+  const [oferta, setOferta] = useState(null);      /* chofer validado esperando decidir biometría */
+  const [ocupado, setOcupado] = useState(false);
+  const [nom, setNom] = useState(""); const [ced, setCed] = useState("");
+  const [tel, setTel] = useState(""); const [pla, setPla] = useState("");
+  const [huellaReg, setHuellaReg] = useState(huellaGuardada());
+  const bio = puedeHuellaReal();
+
+  const subtitulo = vista==="recurrente" ? "Acceso de transportista"
+    : vista==="nuevo" ? "Registro por enlace de ruta" : "Conectamos el campo con tu negocio";
+
+  const entrarComo = (c, nuevo) => onEntrar(c.nombre, nuevo || null);
+
+  const usarBiometria = () => {
+    const reg = huellaGuardada();
+    if (bio && reg) {
+      setOcupado(true);
+      verificarHuella(reg.credId).then((ok) => {
+        setOcupado(false);
+        if (!ok) { setErr("No se pudo verificar. Intenta de nuevo o entra con tu clave."); return; }
+        const c = CHOFERES.find((x) => x.usuario === reg.usuario);
+        entrarComo(c || { nombre: reg.nombre || "Chofer" }, null);
+      });
+      return;
+    }
+    entrarComo(CHOFERES[0], null);   /* demo local: entra el primer chofer */
+  };
+
+  const entrarConClave = () => {
+    const c = choferPorUsuario(usr);
+    if (!c || c.clave !== pwd) { setErr("Usuario o clave incorrectos."); setPwd(""); return; }
+    setErr("");
+    if (bio && !huellaGuardada()) { setOferta(c); return; }   /* tarjeta banca, una sola vez */
+    entrarComo(c, null);
+  };
+
+  const activarBio = () => {
+    const c = oferta; setOcupado(true);
+    crearHuella(c.usuario, c.nombre).then((credId) => {
+      setOcupado(false);
+      if (credId) guardarHuella({ credId: credId, usuario: c.usuario, nombre: c.nombre });
+      setOferta(null); entrarComo(c, null);
+    });
+  };
+
+  const entrarNuevo = (r) => {
+    const datos = { nombre: nom.trim(), cedula: ced.trim(), telefono: tel.trim(),
+                    placas: [pla.trim().toUpperCase()], nuevo: true };
+    r.chofer = datos.nombre; r.placa = datos.placas[0];   /* como haría logística al recibir el registro */
+    onEntrar(datos.nombre, datos);
+    toast("Bienvenido, " + datos.nombre.split(" ")[0]);
+  };
+
+  const okClave = usr.trim().length >= 2 && pwd.length >= 1;
+  const okNuevo = nom.trim().length >= 3 && /^[0-9]{10}$/.test(ced.trim()) && tel.trim().length >= 7 && pla.trim().length >= 5;
+  const rLink = rutasSinChofer()[0];
+
+  return (
+    <div className="shell" style={{ background:"linear-gradient(180deg,#1E4D3A 0%,#15392B 100%)" }}>
+      <Franja subtitulo={subtitulo} />
+      <div className="body" style={{ background:"transparent", padding:"0 16px 4px" }}>
+        <div style={{ background:"#fff", borderRadius:22, padding:"20px 18px", boxShadow:"0 10px 30px rgba(0,0,0,.28)" }}>
+
+          {vista==="menu" && bio && huellaReg && (<>
+            <div style={{ display:"flex", justifyContent:"center", margin:"2px 0 10px" }}>
+              <div style={{ width:60, height:60, borderRadius:30, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <HuellaIcono t={36} c="#15181B" g={1.5} marco /></div>
+            </div>
+            <div style={{ fontSize:19, fontWeight:800, color:"var(--field)", marginBottom:3, textAlign:"center" }}>Hola, {(huellaReg.nombre||"").split(" ")[0]}</div>
+            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:14, textAlign:"center" }}>Usa tu huella o rostro para ingresar</div>
+            <button onClick={usarBiometria} disabled={ocupado}
+              style={{ width:"100%", background:"#123B2C", color:"#fff", border:"none", borderRadius:11, padding:16, fontSize:15.5, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:11, cursor:"pointer", boxShadow:"0 8px 22px rgba(18,59,44,.3)", opacity: ocupado ? .6 : 1, fontFamily:"inherit" }}>
+              <span style={{ display:"inline-flex", width:30, height:30, borderRadius:15, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:4 }}><HuellaIcono t={18} c="#F2A900" g={2} /></span>
+              {ocupado ? "Verificando…" : "Ingresar con huella o rostro"}
+            </button>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginTop:11, color:"var(--muted)" }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><HuellaIcono t={14} c="#5C6B60" g={2} /><span style={{ fontSize:11.5, fontWeight:600 }}>Huella</span></span>
+              <span style={{ fontSize:11, fontStyle:"italic", color:"#8A968D" }}>o</span>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><RostroIcono t={14} c="#5C6B60" g={2} /><span style={{ fontSize:11.5, fontWeight:600 }}>Rostro</span></span>
+            </div>
+            <div style={{ fontSize:10.5, color:"#8A968D", textAlign:"center", margin:"4px 0 12px" }}>El teléfono usa la biometría que tengas configurada.</div>
+            {err && <div className="login-error" style={{ textAlign:"center" }}>{err}</div>}
+            <div style={{ textAlign:"center" }}><button onClick={()=>{ setErr(""); setVista("recurrente"); }} style={{ background:"none", border:"none", fontSize:12.5, fontWeight:600, color:"var(--field)", textDecoration:"underline", textUnderlineOffset:3, padding:6, cursor:"pointer", fontFamily:"inherit" }}>Ingresar con usuario y clave</button></div>
+            <div style={{ textAlign:"center" }}><button onClick={()=>{ try{localStorage.removeItem(HUELLA_KEY);}catch(e){}; setHuellaReg(null); setErr(""); }} style={{ background:"none", border:"none", fontSize:11.5, fontWeight:600, color:"#8A968D", textDecoration:"underline", textUnderlineOffset:3, padding:"4px 6px", cursor:"pointer", fontFamily:"inherit" }}>¿No eres tú? Cambiar de cuenta</button></div>
+          </>)}
+
+          {vista==="menu" && !(bio && huellaReg) && (<>
+            {bio ? (<>
+              <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", marginBottom:4 }}>¿Cómo ingresas hoy?</div>
+              <div style={{ fontSize:13, color:"var(--muted)", marginBottom:18 }}>Elige una opción para continuar</div>
+            </>) : (<>
+              <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", marginBottom:4 }}>Bienvenido</div>
+              <div style={{ fontSize:13, color:"var(--muted)", marginBottom:16 }}>Usa tu huella o rostro para ingresar</div>
+              <button onClick={usarBiometria}
+                style={{ width:"100%", background:"#123B2C", color:"#fff", border:"none", borderRadius:11, padding:16, fontSize:15.5, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:11, cursor:"pointer", boxShadow:"0 8px 22px rgba(18,59,44,.3)", marginBottom:16, fontFamily:"inherit" }}>
+                <span style={{ display:"inline-flex", width:30, height:30, borderRadius:15, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:4 }}><HuellaIcono t={18} c="#F2A900" g={2} /></span>
+                Ingresar con huella o rostro
+              </button>
+              <div style={{ fontSize:11.5, color:"var(--muted)", margin:"0 0 10px", textAlign:"center" }}>Primera vez o nuevo equipo:</div>
+            </>)}
+            <div className="chofer-card" onClick={()=>setVista("recurrente")}>
+              <div className="avatar">👤</div>
+              <div className="chofer-info"><div className="chofer-nom">Soy de la empresa</div>
+                <div className="chofer-meta">Ingresa con tu usuario y clave</div></div>
+              <div className="chofer-go">›</div>
+            </div>
+            <div className="chofer-card" onClick={()=>setVista("nuevo")}>
+              <div className="avatar">🔗</div>
+              <div className="chofer-info"><div className="chofer-nom">Tengo un link de ruta</div>
+                <div className="chofer-meta">Transportista nuevo · registra tus datos</div></div>
+              <div className="chofer-go">›</div>
+            </div>
+          </>)}
+
+          {vista==="recurrente" && (<>
+            <button className="login-back" style={{ color:"var(--field)" }} onClick={()=>{ setErr(""); setVista("menu"); }}>‹ Volver</button>
+            <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", margin:"10px 0 4px" }}>Ingreso</div>
+            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:18 }}>Escribe tu usuario y clave</div>
+            <div className="nuevo-form">
+              <div className="field"><label>Usuario <span className="req">*</span></label>
+                <input className="inp" value={usr} autoCapitalize="none" autoComplete="username" onChange={(e)=>setUsr(e.target.value)} /></div>
+              <div className="field"><label>Clave <span className="req">*</span></label>
+                <input className="inp" type="password" value={pwd} autoComplete="current-password" onChange={(e)=>setPwd(e.target.value)}
+                  onKeyDown={(e)=>{ if(e.key==="Enter" && okClave) entrarConClave(); }} /></div>
+              <div className="login-error">{err}</div>
+              <button className={"b-confirm" + (okClave ? "" : " dis")} onClick={()=>{ if(okClave) entrarConClave(); }}>Entrar</button>
+            </div>
+            <div className="login-demo" style={{ color:"var(--muted)" }}>Demo: <b>marlon</b> / <b>wilson</b> / <b>galo</b> · clave <b>1234</b></div>
+          </>)}
+
+          {vista==="nuevo" && !rLink && (<>
+            <button className="login-back" style={{ color:"var(--field)" }} onClick={()=>setVista("menu")}>‹ Volver</button>
+            <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", margin:"10px 0 4px" }}>Sin ruta disponible</div>
+            <div style={{ fontSize:13, color:"var(--muted)" }}>No hay rutas pendientes de transportista en este momento.</div>
+          </>)}
+
+          {vista==="nuevo" && rLink && (<>
+            <button className="login-back" style={{ color:"var(--field)" }} onClick={()=>setVista("menu")}>‹ Volver</button>
+            <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", margin:"10px 0 4px" }}>Registro de transportista</div>
+            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:16 }}>Estás por tomar esta ruta. Completa tus datos para empezar.</div>
+            <div className="ruta-link-card" style={{ background:"rgba(242,169,0,.12)", border:"1px solid rgba(242,169,0,.45)" }}>
+              <div className="rl-nom" style={{ color:"var(--maize-deep)" }}>{rLink.nombre}</div>
+              <div className="rl-meta" style={{ color:"var(--muted)" }}>{rLink.pedidos.length} paradas · {Math.round(qqDeKg(rLink.pedidos.reduce((a,id)=>a+pesoPedido(ped(id)),0)))} qq · {rLink.fecha}</div>
+            </div>
+            <div className="nuevo-form">
+              <div className="field"><label>Nombre completo <span className="req">*</span></label>
+                <input className="inp" value={nom} placeholder="Nombre y apellido" onChange={(e)=>setNom(e.target.value)} /></div>
+              <div className="field"><label>Cédula <span className="req">*</span></label>
+                <input className="inp" value={ced} type="tel" inputMode="numeric" maxLength={10} placeholder="10 dígitos" onChange={(e)=>setCed(e.target.value)} /></div>
+              <div className="field"><label>Teléfono <span className="req">*</span></label>
+                <input className="inp" value={tel} type="tel" inputMode="numeric" placeholder="09xxxxxxxx" onChange={(e)=>setTel(e.target.value)} /></div>
+              <div className="field"><label>Placa del vehículo <span className="req">*</span></label>
+                <input className="inp" value={pla} maxLength={8} placeholder="ABC-1234" style={{ textTransform:"uppercase" }} onChange={(e)=>setPla(e.target.value)} /></div>
+              <button className={"b-confirm" + (okNuevo ? "" : " dis")} onClick={()=>{ if(okNuevo) entrarNuevo(rLink); }}>Entrar a la ruta</button>
+            </div>
+          </>)}
+
+        </div>
+      </div>
+      <div style={{ textAlign:"center", fontSize:10.5, color:"rgba(255,255,255,.55)", padding:"10px 0 16px" }}>v1.0.0 · © 2026 FREELANCE</div>
+
+      {oferta && (
+        <div style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(10,25,18,.55)", display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"26px 22px", width:"min(340px,92vw)", boxShadow:"0 20px 60px rgba(0,0,0,.35)", textAlign:"center" }}>
+            <div style={{ display:"flex", justifyContent:"center", marginBottom:12 }}>
+              <div style={{ width:74, height:74, borderRadius:37, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <HuellaIcono t={46} c="#15181B" g={1.4} marco /></div>
+            </div>
+            <div style={{ fontSize:19, fontWeight:800, color:"#123B2C", marginBottom:6 }}>Proteger tu ingreso</div>
+            <div style={{ fontSize:13, color:"#5C6B60", marginBottom:18, lineHeight:1.5 }}>Activa tu huella o rostro y la próxima vez entras con un solo toque, como en tu banca. Tu biometría nunca sale del teléfono.</div>
+            <button onClick={activarBio} disabled={ocupado}
+              style={{ width:"100%", background:"#123B2C", color:"#fff", border:"none", borderRadius:10, padding:15, fontSize:15, fontWeight:800, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10, opacity: ocupado ? .6 : 1, fontFamily:"inherit" }}>
+              <span style={{ display:"inline-flex", width:26, height:26, borderRadius:13, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:3 }}><HuellaIcono t={15} c="#F2A900" g={2} /></span>
+              {ocupado ? "Registrando…" : "Activar huella o rostro"}
+            </button>
+            <button onClick={()=>{ const c=oferta; setOferta(null); entrarComo(c, null); }}
+              style={{ background:"none", border:"none", fontSize:12.5, fontWeight:600, color:"#456", padding:"12px 6px 0", textDecoration:"underline", textUnderlineOffset:3, cursor:"pointer", fontFamily:"inherit" }}>Ahora no · continuar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Cascarón interior (barra superior + cuerpo) ---------- */
+function Shell({ who, name, onSalir, extraDer, children }){
+  return (
+    <div className="shell">
+      <div className="top">
+        <div>{typeof who === "string" ? <div className="who">{who}</div> : who}{name ? <div className="name">{name}</div> : null}</div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span className="net"><span className="dot"></span>En línea</span>
+          {extraDer ? extraDer : <button className="topbtn" onClick={onSalir}>Salir</button>}
+        </div>
+      </div>
+      <div className="body">{children}</div>
+    </div>
+  );
+}
+
+function TarjetaRuta({ r, completada, onAbrir }){
+  const total = r.pedidos.length;
+  const hechos = r.pedidos.filter((id)=>ped(id).estadoEntrega!=="pendiente").length;
+  const qq = Math.round(qqDeKg(r.pedidos.reduce((a,id)=>a+pesoPedido(ped(id)),0)));
+  const veh = VEHICULOS[r.placa] || { tipo: r.placa };
+  return (
+    <div className={"ruta-hero"+(completada?" done":"")} style={{ cursor:"pointer" }} onClick={onAbrir}>
+      <div className="rh-head"><div className="rh-dest">{r.nombre}</div>{completada && <span className="ruta-check">✓ Completada</span>}</div>
+      <div className="rh-veh">{r.placa} · {veh.tipo}</div>
+      <div className="rh-stats">
+        <div className="rh-stat"><div className="v num">{total}</div><div className="l">paradas</div></div>
+        <div className="rh-stat"><div className="v num">{qq}</div><div className="l">quintales</div></div>
+        <div className="rh-stat"><div className="v num">{hechos}/{total}</div><div className="l">entregadas</div></div>
+      </div>
+    </div>
+  );
+}
+
+const AccCard = ({ ico, titulo, sub, onClick }) => (
+  <button className="acc-card" onClick={onClick}>
+    <div className="acc-ico">{ico}</div>
+    <div className="acc-tit">{titulo}</div>
+    <div className="acc-sub">{sub}</div>
+  </button>
+);
+
+/* ---------- Rutas del día + gestiones ---------- */
+function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir }){
+  const [, refrescar] = useState(0);
+  const c = choferActualDe(chofer, choferNuevo);
+  const rutas = rutasDe(chofer);
+  const activas = rutas.filter((r)=>!rutaConcluida(r));
+  const completadas = rutas.filter((r)=>rutaConcluida(r));
+  const docsPend = DOCS_RETORNO.filter((d)=>!d.entregadoOficina);
+  const porCobrar = fletesDe(chofer).filter((f)=>f.estado==="por_cobrar").reduce((a,f)=>a+f.monto,0);
+  const solPend = solicitudesDe(chofer).filter((s)=>s.estado==="pendiente").length;
+  const nHist = historialDe(chofer).length;
+
+  return (
+    <Shell who={"Transportista · CI "+(c.cedula||"—")} name={chofer} onSalir={onSalir}>
+      {docsPend.length > 0 && (<>
+        <div className="sect-h">📑 Documentos que llevo de vuelta · {docsPend.length}</div>
+        <div style={{ background:"#fff", border:"1px solid var(--line)", borderRadius:14, padding:"4px 14px", marginBottom:14 }}>
+          {docsPend.map((d,i)=>(
+            <div key={d.numero} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"11px 0", borderTop: i>0 ? "1px solid var(--line)" : "none" }}>
+              <div><div style={{ fontWeight:600, fontSize:13.5 }}>{d.tipo}</div>
+                <div style={{ fontSize:12, color:"var(--muted)" }}>{d.numero} · {d.cliente} · viaje {d.viaje}</div></div>
+              <button onClick={()=>{ d.entregadoOficina=true; toast("Registrado ✓ El documento inicia su cadena de custodia."); refrescar((x)=>x+1); }}
+                style={{ border:"1.5px solid var(--ok)", color:"var(--ok)", background:"#fff", borderRadius:10, padding:"9px 11px", fontSize:12, fontWeight:700, fontFamily:"inherit", cursor:"pointer" }}>Entregué en oficina ✓</button>
+            </div>
+          ))}
+          <div style={{ fontSize:11.5, color:"var(--muted)", padding:"9px 0 11px" }}>Al entregarlos en oficina inician su cadena de custodia (foto del receptor en el sistema).</div>
+        </div>
+      </>)}
+
+      {activas.length===0 && completadas.length===0 ? (
+        <div className="empty"><div className="ico">📭</div><div className="t">Sin rutas hoy</div>
+          <div className="s">Cuando logística te asigne una ruta, aparecerá aquí.</div></div>
+      ) : (<>
+        {activas.length>0 ? (<>
+          <div className="sect-h">Rutas asignadas · hoy</div>
+          {activas.map((r)=><TarjetaRuta key={r.id} r={r} completada={false} onAbrir={()=>onAbrirRuta(r.id)} />)}
+        </>) : (
+          <div className="empty" style={{ padding:"32px 20px" }}><div className="ico">✅</div>
+            <div className="t">No tienes rutas pendientes</div>
+            <div className="s">Terminaste todas tus entregas de hoy.</div></div>
+        )}
+        {completadas.length>0 && (<>
+          <div className="sect-h" style={{ marginTop:18 }}>Completadas</div>
+          {completadas.map((r)=><TarjetaRuta key={r.id} r={r} completada onAbrir={()=>onAbrirRuta(r.id)} />)}
+        </>)}
+      </>)}
+
+      <div className="sect-h" style={{ marginTop:20 }}>Mis gestiones</div>
+      <div className="acc-grid">
+        <AccCard ico="💵" titulo="Pagos por transporte" sub={porCobrar>0 ? (dineroUSD(porCobrar)+" por cobrar") : "al día"} onClick={()=>onSeccion("pagos")} />
+        <AccCard ico="🧾" titulo="Anticipo de estibada" sub="pedir por adelantado" onClick={()=>onSeccion("anticipo")} />
+        <AccCard ico="↩️" titulo="Reposición de estibada" sub="ya pagué, me devuelven" onClick={()=>onSeccion("reposicion")} />
+        <AccCard ico="📋" titulo="Historial de rutas" sub={nHist+" entregada"+(nHist!==1?"s":"")} onClick={()=>onSeccion("historial")} />
+      </div>
+      {solPend>0 && <div className="acc-aviso">⏳ Tienes {solPend} solicitud{solPend>1?"es":""} en revisión por el área financiera.</div>}
+
+      {/* Sello de versión: para saber siempre qué copia se está probando */}
+      <div style={{textAlign:"center",marginTop:24,paddingTop:16,
+        borderTop:"1px solid var(--linea, #E7E1D3)",fontSize:11,color:"#8B9490",lineHeight:1.6}}>
+        Versión {VERSION.fecha} b{VERSION.n}<br/>
+        Transportista · FREELANCE</div>
+    </Shell>
+  );
+}
+
+function App(){
+  const [chofer, setChofer] = useState(null);
+  const [choferNuevo, setChoferNuevo] = useState(null);
+  const [rutaId, setRutaId] = useState(null);
+  const [seccion, setSeccion] = useState(null);
+  const [faseCampana, setFaseCampana] = useState(null);   /* la campana puede pedir carga/entregas */
+
+  const salir = () => { setChofer(null); setChoferNuevo(null); setRutaId(null); setSeccion(null); };
+  const irDesdeCampana = (destino) => {
+    setSeccion(null);
+    setFaseCampana(destino === "entrega" ? "entregas" : "carga");
+    window.scrollTo(0,0);
+  };
+
+  if (!chofer) return <PantallaLogin onEntrar={(nombre, nuevo)=>{ setChofer(nombre); setChoferNuevo(nuevo); setRutaId(null); setSeccion(null); }} />;
+
+  let pantalla;
+  if (seccion) pantalla = <PantallaSeccion seccion={seccion} chofer={chofer}
+    onVolver={()=>{ setSeccion(null); window.scrollTo(0,0); }} onSalir={salir} />;
+  else if (rutaId) pantalla = <PantallaRuta key={rutaId+":"+(faseCampana||"auto")} rutaId={rutaId} chofer={chofer}
+    faseInicial={faseCampana}
+    onVolver={()=>{ setRutaId(null); setFaseCampana(null); window.scrollTo(0,0); }} onSalir={salir} />;
+  else pantalla = <PantallaRutas chofer={chofer} choferNuevo={choferNuevo}
+    onAbrirRuta={(id)=>{ setRutaId(id); setFaseCampana(null); window.scrollTo(0,0); }}
+    onSeccion={(s)=>{ setSeccion(s); window.scrollTo(0,0); }}
+    onSalir={salir} />;
+
+  return (<>
+    {pantalla}
+    <Campana rutaId={rutaId} onIr={irDesdeCampana} />
+  </>);
+}
+
+
+
+/* ═══════════════ PARTE 2 · CARGA + ENTREGAS (migración fiel del vanilla) ═══════════════ */
+
+/* Imagen de ejemplo (solo para pruebas en el visor): una "guía" simulada. */
+var FOTO_DEMO = "data:image/svg+xml;base64,"+btoa(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">'
+  +'<rect width="320" height="200" fill="#F2A900"/>'
+  +'<rect x="14" y="14" width="292" height="172" rx="10" fill="#FFFFFF"/>'
+  +'<text x="160" y="70" font-family="sans-serif" font-size="20" font-weight="700" fill="#15392B" text-anchor="middle">GUIA FIRMADA</text>'
+  +'<text x="160" y="100" font-family="sans-serif" font-size="13" fill="#6F7A6F" text-anchor="middle">(foto simulada de prueba)</text>'
+  +'<path d="M70 150 q20 -25 40 0 t40 0 t40 0" stroke="#15392B" stroke-width="3" fill="none"/>'
+  +'</svg>');
+
+/* Recordatorios de avance de carga (temporizadores por punto) */
+var RECORDATORIOS = {};
+function programarRecordatorioR(rutaId, orden){
+  if (RECORDATORIOS[orden]) clearTimeout(RECORDATORIOS[orden]);
+  RECORDATORIOS[orden] = setTimeout(function(){
+    var r = ruta(rutaId); if(!r) return;
+    var c = cargaDe(r, orden); var x = puntosDeCarga(r).find(function(z){ return z.orden===orden; });
+    if (c && c.llegada && !c.terminado && !c.salida){
+      toast("⏰ Recuerda registrar el avance de carga en "+(x ? x.piladora.split(" ")[0] : ("el punto "+orden)));
+      programarRecordatorioR(rutaId, orden);
+    }
+  }, MIN_RECORDATORIO*60*1000);
+}
+function cancelarRecordatorio(orden){
+  if (RECORDATORIOS[orden]){ clearTimeout(RECORDATORIOS[orden]); delete RECORDATORIOS[orden]; }
+}
+
+/* ---------- Campo de foto (tomar / galería / demo del visor) ---------- */
+function CampoFoto({ label, hint, requerida, foto, setFoto }){
+  const inputRef = useRef(null);
+  const elegir = (e) => {
+    const file = e.target.files && e.target.files[0]; if(!file) return;
+    const rd = new FileReader();
+    rd.onload = () => setFoto(rd.result);
+    rd.readAsDataURL(file);
+  };
+  return (
+    <div className="field">
+      <label>{label}{requerida && <span className="req"> *</span>}</label>
+      {foto ? (
+        <div className="foto-prev">
+          <img src={foto} alt="" />
+          <button className="del" onClick={()=>{ setFoto(null); if(inputRef.current) inputRef.current.value=""; }}>×</button>
+          <span className="ok">Adjuntada ✓</span>
+        </div>
+      ) : (<>
+        <button className="foto-zone" onClick={()=>inputRef.current && inputRef.current.click()}>
+          <div className="foto-ico">📷</div>
+          <div className="foto-txt">Tomar foto o elegir de galería</div>
+        </button>
+        <button className="foto-demo" onClick={()=>setFoto(FOTO_DEMO)}>Usar foto de prueba (para el visor)</button>
+      </>)}
+      <input type="file" ref={inputRef} accept="image/*" style={{ display:"none" }} onChange={elegir} />
+      <div style={{ fontSize:11.5, color:"var(--muted)", marginTop:6 }}>{hint}</div>
+    </div>
+  );
+}
+
+/* ---------- Hoja emergente genérica ---------- */
+function Hoja({ titulo, onCerrar, children, pie }){
+  return (
+    <div className="scrim" onClick={(e)=>{ if(e.target.classList.contains("scrim")) onCerrar(); }}>
+      <div className="sheet">
+        <div className="sheet-h"><div className="sheet-t">{titulo}</div><button className="sheet-x" onClick={onCerrar}>×</button></div>
+        <div className="sheet-b">{children}</div>
+        {pie}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Botones de motivo ---------- */
+function Motivos({ lista, motivo, setMotivo }){
+  return (
+    <div className="motivos">
+      {lista.map((m)=>(
+        <button key={m} className={"motivo"+(motivo===m?" sel":"")} onClick={()=>setMotivo(m)}>{m}</button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Hojas de CARGA (llegada / avance / termina / novedad) ---------- */
+function HojaCarga({ r, tipo, orden, chofer, onCerrar, refrescar }){
+  const x = orden ? puntosDeCarga(r).find((z)=>z.orden===orden) : null;
+  const c = orden ? cargaDe(r, orden) : null;
+  const [qq, setQq] = useState(tipo==="termina" ? String(c && (c.qqCargado || x.qq)) : (c && c.qqCargado ? String(c.qqCargado) : ""));
+  const [motivo, setMotivo] = useState(null);
+  const [nota, setNota] = useState("");
+  const [foto, setFoto] = useState(null);
+
+  if (tipo === "llegada") {
+    const confirmar = () => {
+      c.llegada = ahora();
+      REGISTROS.push({ tipo:"carga_llegada", ruta:r.id, rutaNombre:r.nombre, chofer:chofer,
+        placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, hora:c.llegada, fechaISO:(new Date()).toISOString() });
+      programarRecordatorioR(r.id, orden);
+      onCerrar(); refrescar(); toast("Llegada registrada");
+    };
+    return (
+      <Hoja titulo={"Llegada al punto "+orden} onCerrar={onCerrar}
+        pie={<div className="sheet-foot"><button className="b-confirm" onClick={confirmar}>Confirmar llegada ({ahora().replace("hoy · ","")})</button></div>}>
+        <div className="field"><label>{x.piladora}</label>
+          <div className="mini-list">
+            <div className="row"><span>{x.dir}</span></div>
+            <div className="row"><span>{x.prov}</span><b className="num">{x.qq} qq</b></div>
+          </div>
+        </div>
+        <div className="aviso-parc" style={{ color:"var(--field)", borderColor:"var(--line)", background:"var(--paper)" }}>
+          Se registrará tu hora de llegada y empezará el control de carga. La app te recordará el avance cada {MIN_RECORDATORIO} minutos.</div>
+      </Hoja>
+    );
+  }
+
+  if (tipo === "avance") {
+    const v = parseInt(qq, 10);
+    const ok = !isNaN(v) && v >= 0;
+    const confirmar = () => {
+      if(!ok) return;
+      const val = Math.max(0, v);
+      c.qqCargado = val; c.avances.push({ qq: val, hora: ahora() });
+      REGISTROS.push({ tipo:"carga_avance", ruta:r.id, rutaNombre:r.nombre, chofer:chofer,
+        placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, qqCargado:val, meta:x.qq, hora:ahora(), fechaISO:(new Date()).toISOString() });
+      programarRecordatorioR(r.id, orden);
+      onCerrar(); refrescar(); toast("Avance guardado: "+val+" qq");
+    };
+    return (
+      <Hoja titulo="Avance de carga" onCerrar={onCerrar}
+        pie={<div className="sheet-foot"><button className={"b-confirm"+(ok?"":" dis")} onClick={confirmar}>Guardar avance</button></div>}>
+        <div className="field"><label>{x.piladora}</label></div>
+        <div className="entrega-tot">
+          <div className="et-cell et-ok"><div className="v num">{Math.min(c.qqCargado, x.qq)}</div><div className="l">qq ya cargados</div></div>
+          <div className="et-cell et-dev"><div className="v num">{x.qq}</div><div className="l">meta total</div></div>
+        </div>
+        <div className="field"><label>¿Cuántos qq llevas cargados en total? <span className="req">*</span></label>
+          <input className="inp" value={qq} type="tel" inputMode="numeric" placeholder={"Ej: "+x.qq} onChange={(e)=>setQq(e.target.value)} /></div>
+      </Hoja>
+    );
+  }
+
+  if (tipo === "termina") {
+    const confirmar = () => {
+      const val = Math.max(0, parseInt(qq, 10) || c.qqCargado || 0);
+      c.qqCargado = val; c.terminado = true;
+      cancelarRecordatorio(orden);
+      REGISTROS.push({ tipo:"carga_fin", ruta:r.id, rutaNombre:r.nombre, chofer:chofer,
+        placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, qqCargado:val, meta:x.qq, hora:ahora(), fechaISO:(new Date()).toISOString() });
+      onCerrar(); refrescar(); toast("Carga terminada");
+    };
+    return (
+      <Hoja titulo="Terminé de cargar" onCerrar={onCerrar}
+        pie={<div className="sheet-foot"><button className="b-confirm" onClick={confirmar}>Marcar carga terminada</button></div>}>
+        <div className="field"><label>{x.piladora}</label></div>
+        <div className="field"><label>Total cargado (qq) <span className="req">*</span></label>
+          <input className="inp" value={qq} type="tel" inputMode="numeric" placeholder={"Ej: "+x.qq} onChange={(e)=>setQq(e.target.value)} /></div>
+        <div className="aviso-parc">Al terminar, el siguiente paso será <b>salir del punto</b>. Recuerda: la salida del camión es el punto de no retorno.</div>
+      </Hoja>
+    );
+  }
+
+  /* novedad de carga */
+  const motivosCarga = ["Falta producto","Demora en piladora","Producto en mal estado","Documentación","Otro"];
+  const enviar = () => {
+    if(!motivo) return;
+    REGISTROS.push({ tipo:"novedad_carga", ruta:r.id, rutaNombre:r.nombre, chofer:chofer,
+      placa:r.placa, orden:orden||null, motivo:motivo,
+      nota:nota.trim(), foto:!!foto, hora:ahora(), fechaISO:(new Date()).toISOString() });
+    onCerrar(); refrescar(); toast("Novedad enviada a logística");
+  };
+  return (
+    <Hoja titulo="Novedad de carga" onCerrar={onCerrar}
+      pie={<div className="sheet-foot"><button className={"b-confirm nov"+(motivo?"":" dis")} onClick={enviar}>Enviar a logística</button></div>}>
+      <div className="field"><label>Motivo <span className="req">*</span></label>
+        <Motivos lista={motivosCarga} motivo={motivo} setMotivo={setMotivo} /></div>
+      <div className="field"><label>Detalle (opcional)</label>
+        <textarea className="inp" value={nota} placeholder="Describe el imprevisto para logística" onChange={(e)=>setNota(e.target.value)}></textarea></div>
+      <CampoFoto label="Foto (opcional)" hint="Adjunta una foto si ayuda a explicar la novedad" foto={foto} setFoto={setFoto} />
+    </Hoja>
+  );
+}
+
+/* ---------- FASE CARGA (puntos de recogida definidos por logística) ---------- */
+function PantallaCarga({ r, chofer, onVolver, onSalir, onIrEntregas, refrescar }){
+  const [hoja, setHoja] = useState(null);   /* {tipo, orden} */
+  const pts = puntosDeCarga(r);
+  const totalQq = qqRutaTotal(r);
+  const cargadoQq = qqRutaCargado(r);
+  const pct = totalQq ? Math.round(cargadoQq/totalQq*100) : 0;
+  const veh = VEHICULOS[r.placa] || { tipo: r.placa };
+  const listos = pts.filter((x)=>cargaDe(r,x.orden).salida).length;
+
+  const salirDelPuntoR = (orden) => {
+    const c = cargaDe(r, orden); const x = pts.find((z)=>z.orden===orden);
+    c.salida = true;
+    cancelarRecordatorio(orden);
+    REGISTROS.push({ tipo:"carga_salida", ruta:r.id, rutaNombre:r.nombre, chofer:chofer,
+      placa:r.placa, orden:orden, piladora:x.piladora, proveedor:x.prov, qqCargado:c.qqCargado,
+      hora:ahora(), fechaISO:(new Date()).toISOString() });
+    refrescar(); toast("Salida registrada · punto "+orden);
+  };
+
+  return (
+    <Shell who={<button className="back" onClick={onVolver}>‹ Mis rutas</button>} name="" onSalir={onSalir}
+      extraDer={<span className="badge-est" style={{ background:"rgba(255,255,255,.12)", color:"#EAF0EA" }}>Carga</span>}>
+      <div className="ruta-hero">
+        <div className="rh-dest">{r.nombre}</div>
+        <div className="rh-veh">{r.placa} · {veh.tipo}</div>
+        <div className="progbar"><i style={{ width: pct+"%" }}></i></div>
+        <div className="prog-label">Cargados {cargadoQq} de {totalQq} qq · {listos}/{pts.length} puntos listos</div>
+      </div>
+
+      <div className="sect-h">Recogida de mercadería (en orden)</div>
+      {pts.map((x)=>{
+        const c = cargaDe(r, x.orden);
+        const hab = puntoHabilitado(r, x.orden);
+        const ppct = x.qq ? Math.round(Math.min(c.qqCargado, x.qq)/x.qq*100) : 0;
+        const estado = c.salida ? "salio" : c.terminado ? "term" : c.llegada ? "cargando" : (hab ? "porllegar" : "bloq");
+        const estTxt = c.salida ? "Salió del punto" : c.terminado ? "Carga terminada" : c.llegada ? "Cargando" : (hab ? "Por llegar" : "Bloqueado");
+        const estCls = c.salida ? "be-ok" : (c.terminado || c.llegada) ? "be-parcial" : "";
+        return (
+          <div key={x.orden} className={"pil-card "+estado}>
+            <div className="pil-top">
+              <div className="pil-n">{x.orden}</div>
+              <div className="pil-info">
+                <div className="pil-nom">{x.piladora}</div>
+                <div className="pil-dir">📍 {x.dir}</div>
+                <div className="pil-meta">{x.prov} · meta <b className="num">{x.qq}</b> qq</div>
+              </div>
+              <span className={"badge-est "+estCls}>{estTxt}</span>
+            </div>
+            {(!hab && !c.salida) ? (
+              <div className="pil-bloq">🔒 Primero debes salir del punto {x.orden-1}.</div>
+            ) : !c.llegada ? (
+              <button className="b-carga-accion" onClick={()=>setHoja({ tipo:"llegada", orden:x.orden })}>📍 Registrar llegada</button>
+            ) : (<>
+              <div className="pil-prog">
+                <div className="pil-bar"><i style={{ width: ppct+"%" }}></i></div>
+                <div className="pil-prog-l"><span><b className="num">{Math.min(c.qqCargado, x.qq)}</b> / {x.qq} qq</span><span>{ppct}%</span></div>
+              </div>
+              <div className="pil-llegada">🕒 Llegada: {c.llegada}{c.avances.length ? (" · "+c.avances.length+" avance"+(c.avances.length>1?"s":"")) : ""}</div>
+              {!c.salida && (!c.terminado ? (
+                <div className="pil-actions">
+                  <button className="b-carga-sec" onClick={()=>setHoja({ tipo:"avance", orden:x.orden })}>+ Avance de carga</button>
+                  <button className="b-carga-sec" onClick={()=>setHoja({ tipo:"termina", orden:x.orden })}>✓ Terminé de cargar</button>
+                </div>
+              ) : (
+                <button className="b-carga-accion salir" onClick={()=>salirDelPuntoR(x.orden)}>🚚 Salir del punto</button>
+              ))}
+            </>)}
+          </div>
+        );
+      })}
+
+      <button className="b-nov-carga" onClick={()=>setHoja({ tipo:"novedad", orden:null })}>⚠️ Reportar novedad de carga</button>
+      {cargaCompleta(r) ? (
+        <button className="b-ir-entregas" onClick={onIrEntregas}>Ir a las entregas →</button>
+      ) : (
+        <div className="bloqueo-entregas">🔒 Las entregas se habilitan cuando salgas de todos los puntos de carga.</div>
+      )}
+
+      {hoja && <HojaCarga r={r} tipo={hoja.tipo} orden={hoja.orden} chofer={chofer}
+        onCerrar={()=>setHoja(null)} refrescar={refrescar} />}
+    </Shell>
+  );
+}
+
+/* ---------- Hoja de ENTREGA (stepper de parciales + guía firmada) ---------- */
+function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
+  const [items, setItems] = useState(p.items.map((it)=>({ p:it.p, q:it.q, qEntregada:it.q, prov:it.prov })));
+  const [foto, setFoto] = useState(null);
+  const [rec, setRec] = useState("");
+  const [ced, setCed] = useState("");
+
+  const pedidoTot = items.reduce((a,it)=>a+it.q, 0);
+  const entTot = items.reduce((a,it)=>a+it.qEntregada, 0);
+  const dev = pedidoTot - entTot;
+  const cambiar = (i, d) => setItems(items.map((it,ix)=> ix===i ? { ...it, qEntregada: Math.max(0, Math.min(it.q, it.qEntregada + d)) } : it));
+
+  const faltan = [];
+  if (!foto) faltan.push("foto de la guía");
+  if (rec.trim().length < 3) faltan.push("nombre de quien recibe");
+  if (!/^[0-9]{10}$/.test(ced.trim())) faltan.push("cédula de 10 dígitos");
+  if (entTot <= 0) faltan.push("cantidad entregada (no puede ser 0)");
+  const ok = faltan.length === 0;
+
+  const confirmar = () => {
+    if(!ok) return;
+    const r = rutaDePedido(p.id) || {};
+    const devs = [];
+    const itemsReg = items.map((it)=>{
+      if (it.qEntregada < it.q) devs.push({ p:it.p, q:it.q-it.qEntregada, prov:it.prov });
+      return { p:it.p, q:it.q, qEntregada:it.qEntregada, ok:(it.qEntregada>0), prov:it.prov };
+    });
+    const esParcial = entTot < pedidoTot;
+    p.estadoEntrega = esParcial ? "parcial" : "entregado";
+    p.entrega = {
+      tipo:"entrega", pedidoId:p.id, guia:p.guia, factura:p.factura,
+      viaje:r.viaje||null, quien:"App Transportista",
+      ruta:r.id, rutaNombre:r.nombre, chofer:chofer, placa:r.placa,
+      recibe:rec.trim(), cedula:ced.trim(), foto:true,
+      items:itemsReg, parcial:esParcial, devoluciones:devs,
+      hora:ahora(), fechaISO:(new Date()).toISOString()
+    };
+    REGISTROS.push(p.entrega);
+    DOCS_RETORNO.push(
+      { tipo:"Guía de remisión firmada", numero:p.guia, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false },
+      { tipo:"Factura firmada", numero:p.factura, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false }
+    );
+    if (devs.length){
+      DEVOLUCIONES.push({ pedidoId:p.id, cli:p.cli, ciudad:p.ciudad, ruta:r.id, chofer:chofer,
+        items:devs, hora:ahora(), fechaISO:(new Date()).toISOString() });
+    }
+    onCerrar(); refrescar();
+    toast(esParcial ? "Entrega parcial registrada" : "Entrega registrada ✓");
+    onRutaCompleta();
+  };
+
+  return (
+    <Hoja titulo="Confirmar entrega" onCerrar={onCerrar}
+      pie={<div className="sheet-foot">
+        <div className="falta-hint" style={{ display: ok ? "none" : "block" }}>{ok ? "" : ("Falta: "+faltan.join(", "))}</div>
+        <button className={"b-confirm"+(ok?"":" dis")} onClick={confirmar}>{(entTot>0 && entTot<pedidoTot) ? "Registrar entrega parcial" : "Registrar entrega"}</button>
+      </div>}>
+      <div className="field"><label>{p.cli} · {p.ciudad}</label></div>
+      <div className="field"><label>Cantidad entregada por producto</label>
+        {items.map((it, i)=>{
+          const falta = it.q - it.qEntregada;
+          const rcls = it.qEntregada===0 ? "item-row cero" : (falta>0 ? "item-row parc" : "item-row");
+          const nom = it.p.split("·")[0].trim();
+          const pres = (it.p.split("·")[1]||"").trim();
+          return (
+            <div key={i} className={rcls}>
+              <div className="item-nom">{nom}{pres ? " · "+pres : ""}
+                {it.qEntregada===0 ? <span className="item-flag flag-cero">No entregado</span>
+                 : falta>0 ? <span className="item-flag flag-parc">Faltan {falta}</span> : null}</div>
+              <div className="item-prov">{it.prov}</div>
+              <div className="item-ctl">
+                <div className="item-ped">Pedido: <b className="num">{it.q}</b></div>
+                <div className="stepper">
+                  <button className={"menos"+(it.qEntregada<=0?" dis":"")} onClick={()=>cambiar(i,-1)}>−</button>
+                  <div className="val num">{it.qEntregada}</div>
+                  <button className={"mas"+(it.qEntregada>=it.q?" dis":"")} onClick={()=>cambiar(i,+1)}>+</button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="entrega-tot">
+        <div className="et-cell et-ok"><div className="v num">{entTot}</div><div className="l">se entrega</div></div>
+        <div className="et-cell et-dev"><div className="v num">{dev}</div><div className="l">devolución</div></div>
+      </div>
+      {dev>0 && <div className="aviso-parc"><b>Entrega parcial.</b> El saldo de <b className="num">{dev}</b> bulto(s) regresa a logística como devolución. La factura y la comisión se ajustan sobre lo realmente entregado.</div>}
+      <CampoFoto label="Guía firmada" hint="Toma la foto de la guía firmada por quien recibe" requerida foto={foto} setFoto={setFoto} />
+      <div className="field"><label>Nombre de quien recibe <span className="req">*</span></label>
+        <input className="inp" value={rec} placeholder="Nombre y apellido" onChange={(e)=>setRec(e.target.value)} /></div>
+      <div className="field"><label>Cédula de quien recibe <span className="req">*</span></label>
+        <input className="inp" value={ced} type="tel" inputMode="numeric" maxLength={10} placeholder="10 dígitos" onChange={(e)=>setCed(e.target.value)} /></div>
+    </Hoja>
+  );
+}
+
+/* ---------- Hoja de NOVEDAD de entrega ---------- */
+function HojaNovedad({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
+  const [motivo, setMotivo] = useState(null);
+  const [nota, setNota] = useState("");
+  const [foto, setFoto] = useState(null);
+  const motivos = ["Rechazo del cliente","Producto dañado","Cliente ausente","Local cerrado","Dirección errada","Otro"];
+
+  const guardar = () => {
+    if(!motivo) return;
+    if (motivo==="Producto dañado" && !foto){ toast("Producto dañado exige foto de evidencia."); return; }
+    const r = rutaDePedido(p.id) || {};
+    p.estadoEntrega = "novedad";
+    p.entrega = {
+      tipo:"novedad", pedidoId:p.id, guia:p.guia, factura:p.factura,
+      viaje:r.viaje||null, quien:"App Transportista",
+      ruta:r.id, rutaNombre:r.nombre, chofer:chofer, placa:r.placa,
+      motivo:motivo, nota:nota.trim(),
+      foto:!!foto, hora:ahora(), fechaISO:(new Date()).toISOString()
+    };
+    REGISTROS.push(p.entrega);
+    onCerrar(); refrescar(); toast("Novedad guardada");
+    onRutaCompleta();
+  };
+
+  return (
+    <Hoja titulo="Reportar novedad" onCerrar={onCerrar}
+      pie={<div className="sheet-foot"><button className={"b-confirm nov"+(motivo?"":" dis")} onClick={guardar}>Guardar novedad</button></div>}>
+      <div className="field"><label>{p.cli} · {p.ciudad}</label></div>
+      <div className="field"><label>Motivo <span className="req">*</span></label>
+        <Motivos lista={motivos} motivo={motivo} setMotivo={setMotivo} /></div>
+      <div className="field"><label>Detalle (opcional)</label>
+        <textarea className="inp" value={nota} placeholder="Describe qué pasó" onChange={(e)=>setNota(e.target.value)}></textarea></div>
+      <CampoFoto label="Foto (opcional)" hint="Adjunta una foto si ayuda a explicar la novedad" foto={foto} setFoto={setFoto} />
+    </Hoja>
+  );
+}
+
+/* ---------- FASE ENTREGAS (paradas en orden) ---------- */
+function PantallaEntrega({ r, chofer, onVolver, onSalir, onVerCarga, onRutaCompleta, refrescar }){
+  const [hoja, setHoja] = useState(null);   /* {tipo:'entregar'|'novedad', pid} */
+  const total = r.pedidos.length;
+  const hechos = r.pedidos.filter((id)=>ped(id).estadoEntrega!=="pendiente").length;
+  const pct = total ? Math.round(hechos/total*100) : 0;
+  const veh = VEHICULOS[r.placa] || { tipo: r.placa };
+  const kg = r.pedidos.reduce((a,id)=>a+pesoPedido(ped(id)),0);
+  const nEnt = r.pedidos.filter((id)=>ped(id).estadoEntrega==="entregado").length;
+  const nParc = r.pedidos.filter((id)=>ped(id).estadoEntrega==="parcial").length;
+  const nNov = r.pedidos.filter((id)=>ped(id).estadoEntrega==="novedad").length;
+
+  return (
+    <Shell who={<button className="back" onClick={onVolver}>‹ Mis rutas</button>} name="" onSalir={onSalir}
+      extraDer={<span className={"badge-est "+(hechos===total?"be-ok":"")} style={{ background:"rgba(255,255,255,.12)", color:"#EAF0EA" }}>{hechos}/{total}</span>}>
+      <div className="ruta-hero">
+        <div className="rh-dest">{r.nombre}</div>
+        <div className="rh-veh">{r.placa} · {veh.tipo}</div>
+        <div className="progbar"><i style={{ width: pct+"%" }}></i></div>
+        <div className="prog-label">{hechos} de {total} entregas · {Math.round(qqDeKg(kg))} qq</div>
+      </div>
+
+      <button className="b-ver-carga" onClick={onVerCarga}>📦 Ver resumen de carga</button>
+
+      {hechos===total && total>0 && (
+        <div className="done-banner"><div className="big">✅</div><div className="t">Ruta completada</div>
+          <div className="s">Todas las paradas quedaron registradas. Logística ya ve el cierre.</div>
+          <div className="cierre-stats">
+            <div className="c"><div className="v num">{nEnt}</div><div className="l">completas</div></div>
+            <div className="c"><div className="v num">{nParc}</div><div className="l">parciales</div></div>
+            <div className="c"><div className="v num">{nNov}</div><div className="l">novedades</div></div>
+          </div>
+        </div>
+      )}
+
+      <div className="sect-h">Paradas (en orden de entrega)</div>
+      {r.pedidos.map((id, idx)=>{
+        const p = ped(id); const n = idx+1;
+        const est = p.estadoEntrega;
+        const cls = est==="entregado" ? "stop done" : est==="parcial" ? "stop parcial" : est==="novedad" ? "stop nov" : "stop";
+        const icoN = est==="entregado" ? "✓" : est==="parcial" ? "≈" : est==="novedad" ? "!" : n;
+        const e = p.entrega || {};
+        return (
+          <div key={p.id} className={cls}>
+            <div className="stop-top">
+              <div className="stop-n">{icoN}</div>
+              <div className="stop-cli"><div className="stop-nom">{p.cli}</div>
+                <div className="stop-dir">{p.dir}{p.ref ? " · "+p.ref : ""}</div></div>
+              <div className="stop-ciudad">{p.ciudad}</div>
+            </div>
+            <div className="stop-carga">
+              <span className="stop-tag"><b className="num">{bultos(p)}</b> bultos</span>
+              <span className="stop-tag"><b className="num">{Math.round(qqDeKg(pesoPedido(p)))}</b> qq</span>
+              <span className="stop-tag">Guía <b>{p.guia}</b></span>
+            </div>
+            {est==="pendiente" && (<>
+              <a className="stop-tel" href={"tel:"+p.tel}>📞 {p.tel}</a>
+              <div className="stop-actions">
+                <button className="b-entregar" onClick={()=>setHoja({ tipo:"entregar", pid:p.id })}>Entregado</button>
+                <button className="b-novedad" onClick={()=>setHoja({ tipo:"novedad", pid:p.id })}>Novedad</button>
+              </div>
+            </>)}
+            {(est==="entregado" || est==="parcial") && (
+              <div className="stop-result">
+                <div className="res-line">{est==="parcial"
+                  ? <span className="badge-est be-parcial">Entrega parcial</span>
+                  : <span className="badge-est be-ok">Entrega completa</span>}</div>
+                <div className="res-line"><span className="res-ico">👤</span> Recibió: <b>{e.recibe||"—"}</b></div>
+                <div className="res-line"><span className="res-ico">🪪</span> CI: <b>{e.cedula||"—"}</b></div>
+                <div className="res-line"><span className="res-ico">🕒</span> {e.hora||"—"}</div>
+                <div className="res-line"><span className="res-ico">📄</span> Guía firmada adjunta</div>
+                {est==="parcial" && e.devoluciones && e.devoluciones.length>0 && (
+                  <div className="res-saldo">↩️ Devolución: {e.devoluciones.map((d)=>d.p.split("·")[0].trim()+" ("+d.q+")").join(", ")}<br/>El saldo regresa a logística.</div>
+                )}
+              </div>
+            )}
+            {est==="novedad" && (
+              <div className="stop-result">
+                <div className="res-line"><span className="badge-est be-nov">{e.motivo||"Novedad"}</span></div>
+                {e.nota && <div className="res-line" style={{ marginTop:6 }}>{e.nota}</div>}
+                <div className="res-line"><span className="res-ico">🕒</span> {e.hora||"—"}</div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {hoja && hoja.tipo==="entregar" && <HojaEntregar p={ped(hoja.pid)} chofer={chofer}
+        onCerrar={()=>setHoja(null)} refrescar={refrescar} onRutaCompleta={onRutaCompleta} />}
+      {hoja && hoja.tipo==="novedad" && <HojaNovedad p={ped(hoja.pid)} chofer={chofer}
+        onCerrar={()=>setHoja(null)} refrescar={refrescar} onRutaCompleta={onRutaCompleta} />}
+    </Shell>
+  );
+}
+
+/* ---------- Pantalla de la RUTA: decide fase carga/entregas ---------- */
+function PantallaRuta({ rutaId, chofer, onVolver, onSalir, faseInicial }){
+  const [, tick] = useState(0);
+  const refrescar = () => tick((x)=>x+1);
+  const r = ruta(rutaId);
+  const [fase, setFase] = useState(faseInicial || (cargaCompleta(r) ? "entregas" : "carga"));
+  const faseReal = cargaCompleta(r) ? fase : "carga";   /* la carga incompleta bloquea las entregas */
+
+  const rutaCompletaQuiza = () => {
+    if (r && rutaConcluida(r)){
+      setTimeout(()=>{ onVolver(); toast("Ruta completada ✓"); }, 900);
+    }
+  };
+
+  if (faseReal === "carga"){
+    return <PantallaCarga r={r} chofer={chofer} onVolver={onVolver} onSalir={onSalir}
+      onIrEntregas={()=>{ setFase("entregas"); window.scrollTo(0,0); }} refrescar={refrescar} />;
+  }
+  return <PantallaEntrega r={r} chofer={chofer} onVolver={onVolver} onSalir={onSalir}
+    onVerCarga={()=>{ setFase("carga"); window.scrollTo(0,0); }}
+    onRutaCompleta={rutaCompletaQuiza} refrescar={refrescar} />;
+}
+
+
+/* ═══════════════ PARTE 3 · GESTIONES + CAMPANA (cierre de la migración) ═══════════════ */
+
+/* ---------- Pagos por transporte ---------- */
+function SecPagos({ chofer }){
+  const fl = fletesDe(chofer);
+  const porCobrar = fl.filter((f)=>f.estado==="por_cobrar").reduce((a,f)=>a+f.monto,0);
+  const cobrado = fl.filter((f)=>f.estado==="cobrado").reduce((a,f)=>a+f.monto,0);
+  return (<>
+    <div className="ruta-hero"><div className="rh-dest">Resumen de fletes</div>
+      <div className="rh-stats">
+        <div className="rh-stat"><div className="v num">{dineroUSD(porCobrar)}</div><div className="l">por cobrar</div></div>
+        <div className="rh-stat"><div className="v num">{dineroUSD(cobrado)}</div><div className="l">ya cobrado</div></div>
+      </div></div>
+    <div className="sect-h">Detalle por ruta</div>
+    {fl.length===0 ? <div className="empty"><div className="t">Sin fletes registrados</div></div>
+      : fl.map((f,i)=>(
+        <div key={i} className="pago-row">
+          <div className="pago-info"><div className="pago-ruta">{f.rutaNombre}</div>
+            <div className="pago-meta">{f.fecha} · {f.ruta}</div></div>
+          <div className="pago-der"><div className="pago-monto num">{dineroUSD(f.monto)}</div>
+            {f.estado==="por_cobrar"
+              ? <span className="badge-est be-parcial">Por cobrar</span>
+              : <span className="badge-est be-ok">Cobrado</span>}</div>
+        </div>
+      ))}
+  </>);
+}
+
+/* ---------- Historial de rutas entregadas ---------- */
+function SecHistorial({ chofer }){
+  const hs = historialDe(chofer);
+  if (hs.length===0){
+    return (<div className="empty"><div className="ico">📋</div><div className="t">Sin rutas anteriores</div>
+      <div className="s">Tus rutas entregadas en días pasados aparecerán aquí.</div></div>);
+  }
+  return (<>
+    <div className="sect-h">Rutas entregadas</div>
+    {hs.map((h,i)=>(
+      <div key={i} className="stop" style={{ cursor:"default" }}>
+        <div className="stop-top"><div className="stop-cli">
+          <div className="stop-nom">{h.nombre}</div>
+          <div className="stop-dir">{h.fecha} · {h.placa} · {h.qq} qq · {h.paradas} paradas</div></div>
+          <span className="stop-ciudad">✓</span></div>
+        <div className="stop-carga">
+          <span className="hi-chip be-ok">{h.entregadas} entregadas</span>
+          {h.parciales>0 && <span className="hi-chip be-parcial">{h.parciales} parcial{h.parciales>1?"es":""}</span>}
+          {h.novedades>0 && <span className="hi-chip be-nov">{h.novedades} novedad{h.novedades>1?"es":""}</span>}
+        </div>
+      </div>
+    ))}
+  </>);
+}
+
+/* ---------- Solicitud de anticipo / reposición de estibada ---------- */
+function SecSolicitud({ tipo, chofer, refrescar }){
+  const esAnt = tipo==="anticipo";
+  const [concepto, setConcepto] = useState("");
+  const [monto, setMonto] = useState("");
+  const [nota, setNota] = useState("");
+  const [foto, setFoto] = useState(null);
+  const mias = solicitudesDe(chofer).filter((x)=>x.tipo===tipo);
+  const intro = esAnt
+    ? "Pide por adelantado el dinero para pagar la estibada (carga/descarga). Se envía al área financiera."
+    : "¿Pagaste la estibada de tu bolsillo? Pide que te la repongan. Se envía al área financiera.";
+
+  const faltan = [];
+  if (concepto.trim().length < 3) faltan.push("concepto");
+  const m = parseFloat(monto); if (isNaN(m) || m <= 0) faltan.push("monto válido");
+  const ok = faltan.length === 0;
+
+  const enviar = () => {
+    if(!ok) return;
+    const val = Math.round(parseFloat(monto)*100)/100;
+    const nueva = { id:"SOL-"+Math.floor(Math.random()*900+100), chofer:chofer, tipo:tipo,
+      concepto:concepto.trim(), monto:val, fecha:"hoy", estado:"pendiente",
+      nota:nota.trim(), foto:!!foto, fechaISO:(new Date()).toISOString() };
+    SOLICITUDES.push(nueva);
+    REGISTROS.push({ tipo:"solicitud_"+tipo, destino:"financiero", chofer:chofer,
+      concepto:nueva.concepto, monto:val, hora:ahora(), fechaISO:nueva.fechaISO });
+    setConcepto(""); setMonto(""); setNota(""); setFoto(null);
+    toast("Solicitud enviada al área financiera");
+    refrescar(); window.scrollTo(0,0);
+  };
+
+  return (<>
+    <div className="nuevo-form">
+      <div className="aviso-parc" style={{ color:"var(--field)", borderColor:"var(--line)", background:"var(--paper)" }}>{intro}</div>
+      <div className="field"><label>Concepto <span className="req">*</span></label>
+        <input className="inp" value={concepto} placeholder={esAnt ? "Ej: Estibada carga Sierra Centro" : "Ej: Pagué estibada descarga"} onChange={(e)=>setConcepto(e.target.value)} /></div>
+      <div className="field"><label>Monto (USD) <span className="req">*</span></label>
+        <input className="inp" value={monto} type="tel" inputMode="decimal" placeholder="0.00" onChange={(e)=>setMonto(e.target.value)} /></div>
+      <div className="field"><label>Nota (opcional)</label>
+        <textarea className="inp" value={nota} placeholder="Detalle para el área financiera" onChange={(e)=>setNota(e.target.value)}></textarea></div>
+      {!esAnt && <CampoFoto label="Comprobante (opcional)" hint="Adjunta el recibo de lo que pagaste" foto={foto} setFoto={setFoto} />}
+      <div className="falta-hint">{ok ? "" : ("Falta: "+faltan.join(", "))}</div>
+      <button className={"b-confirm"+(ok?"":" dis")} onClick={enviar}>Enviar al área financiera</button>
+    </div>
+    {mias.length>0 && (<>
+      <div className="sect-h" style={{ marginTop:20 }}>Mis solicitudes</div>
+      {mias.map((x,i)=>(
+        <div key={x.id||i} className="pago-row">
+          <div className="pago-info"><div className="pago-ruta">{x.concepto}</div>
+            <div className="pago-meta">{x.fecha}</div></div>
+          <div className="pago-der"><div className="pago-monto num">{dineroUSD(x.monto)}</div>
+            {x.estado==="aprobada" ? <span className="badge-est be-ok">Aprobada</span>
+             : x.estado==="rechazada" ? <span className="badge-est be-nov">Rechazada</span>
+             : <span className="badge-est be-parcial">En revisión</span>}</div>
+        </div>
+      ))}
+    </>)}
+  </>);
+}
+
+/* ---------- Cascarón de sección ---------- */
+function PantallaSeccion({ seccion, chofer, onVolver, onSalir }){
+  const [, tick] = useState(0);
+  const refrescar = () => tick((x)=>x+1);
+  const titulos = { pagos:"Pagos por transporte", anticipo:"Anticipo de estibada",
+    reposicion:"Reposición de estibada", historial:"Historial de rutas" };
+  return (
+    <Shell who={<button className="back" onClick={onVolver}>‹ Inicio</button>} name="" onSalir={onSalir}
+      extraDer={<span className="badge-est" style={{ background:"rgba(255,255,255,.12)", color:"#EAF0EA" }}>{titulos[seccion]||""}</span>}>
+      {seccion==="pagos" && <SecPagos chofer={chofer} />}
+      {seccion==="historial" && <SecHistorial chofer={chofer} />}
+      {(seccion==="anticipo" || seccion==="reposicion") && <SecSolicitud tipo={seccion} chofer={chofer} refrescar={refrescar} />}
+    </Shell>
+  );
+}
+
+/* ---------- Campana de tareas (flotante) ---------- */
+function tareasNotifDe(rutaId){
+  const t = [];
+  if (rutaId){
+    const r = ruta(rutaId);
+    if (r){
+      const pendCarga = puntosDeCarga(r).filter((x)=>!cargaDe(r,x.orden).salida).length;
+      if (pendCarga>0) t.push({ tipo:"carga", icono:"📦", titulo:"Puntos de carga por completar", detalle:"La entrega se habilita al terminar la carga", n:pendCarga, destino:"carga" });
+      const pendEnt = r.pedidos.filter((id)=>ped(id).estadoEntrega==="pendiente").length;
+      if (pendEnt>0 && cargaCompleta(r)) t.push({ tipo:"entregas", icono:"🚚", titulo:"Entregas pendientes del viaje", detalle:"Clientes esperando en la ruta", n:pendEnt, destino:"entrega" });
+    }
+  }
+  const docs = DOCS_RETORNO.filter((d)=>!d.entregadoOficina).length;
+  if (docs>0) t.push({ tipo:"documentos", icono:"🧾", titulo:"Documentos por devolver a oficina", detalle:"Firmados en ruta · inician la custodia", n:docs, destino:null });
+  return t.filter((x)=>PREFS_NOTIF[x.tipo]);
+}
+
+function Campana({ rutaId, onIr }){
+  const [abierta, setAbierta] = useState(false);
+  const tareas = tareasNotifDe(rutaId);
+  const total = tareas.reduce((a,x)=>a+x.n,0);
+  return (<>
+    <button onClick={()=>setAbierta(true)}
+      style={{ position:"fixed", top:"calc(env(safe-area-inset-top,0px) + 58px)", right:12, zIndex:1200, width:42, height:42, borderRadius:21, background:"#fff", border:"1px solid #E2E8E2", boxShadow:"0 4px 14px rgba(0,0,0,.18)", fontSize:17, cursor:"pointer" }}>🔔
+      {total>0 && <span style={{ position:"absolute", top:-4, right:-4, minWidth:18, height:18, borderRadius:9, background:"#C0392B", color:"#fff", fontSize:10.5, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px" }}>{total}</span>}
+    </button>
+    {abierta && (
+      <div onClick={(e)=>{ if(e.target===e.currentTarget) setAbierta(false); }}
+        style={{ position:"fixed", inset:0, background:"rgba(10,20,15,.45)", zIndex:1300, display:"flex", alignItems:"flex-start", justifyContent:"flex-end", padding:"calc(env(safe-area-inset-top,0px) + 104px) 12px 0" }}>
+        <div style={{ width:"min(340px,92vw)", maxHeight:"70vh", overflowY:"auto", background:"#fff", borderRadius:16, boxShadow:"0 18px 50px rgba(0,0,0,.3)" }}>
+          <div style={{ padding:"14px 16px 10px", borderBottom:"1px solid #EEF2EE", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <strong style={{ fontSize:16, color:"#123B2C" }}>🔔 Tus tareas de hoy</strong></div>
+          {tareas.length===0 ? (
+            <p style={{ fontSize:13, color:"#5C6B60", padding:"18px 16px", margin:0 }}>Todo al día ✨ Nada espera tu acción.</p>
+          ) : tareas.map((t,i)=>(
+            <button key={i} onClick={()=>{ setAbierta(false); if(t.destino && rutaId) onIr(t.destino); }}
+              style={{ display:"flex", gap:12, alignItems:"center", width:"100%", textAlign:"left", background:"none", border:"none", borderBottom:"1px solid #F3F6F3", padding:"12px 16px", cursor:"pointer" }}>
+              <span style={{ fontSize:20 }}>{t.icono}</span>
+              <span style={{ flex:1, minWidth:0 }}><span style={{ display:"block", fontSize:13.5, fontWeight:700, color:"#123B2C" }}>{t.titulo}</span>
+                <span style={{ display:"block", fontSize:11.5, color:"#5C6B60" }}>{t.detalle}</span></span>
+              <span style={{ minWidth:22, height:22, borderRadius:11, background:"#2E7D52", color:"#fff", fontSize:11.5, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 6px" }}>{t.n}</span>
+            </button>
+          ))}
+          <p style={{ fontSize:10.5, color:"#6B6455", padding:"10px 16px", margin:0, background:"#FAFBF9", borderRadius:"0 0 16px 16px" }}>👤 Qué avisos llegan aquí lo define tu freelance. Al publicar la app también aparecerán en la pantalla de tu teléfono.</p>
+        </div>
+      </div>
+    )}
+  </>);
+}
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 <script>
 /* ═ Nivel 2 de notificaciones: el service worker se registra SOLO al vivir en HTTPS (GitHub Pages).
