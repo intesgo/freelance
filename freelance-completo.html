@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"315", fecha:"22 jul 2026", desc:"Cartera: los cheques ya no dicen Fact.; muestran Cheque y su distintivo Cheque devuelto en línea propia" };
+const VERSION = { n:"316", fecha:"22 jul 2026", desc:"Detalle de cheque devuelto: vista propia (banco, motivo, estado) en vez de la plantilla de factura" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -9731,6 +9731,46 @@ function DetalleFactura({it, volver, toast, onCobrar}){
   };
 
   const [vista,setVista]=useState("factura"); // factura | entrega
+
+  /* Cheque devuelto: NO es factura. Vista propia con banco, motivo, estado. */
+  if(it.chequeDevuelto){
+    const chq = (typeof CHEQUES_DEVUELTOS!=="undefined")
+      ? CHEQUES_DEVUELTOS.find(c=>c.numero===it.fac) : null;
+    return (<>
+      <div className="card" style={{padding:"16px 16px 14px",marginBottom:12,borderLeft:"4px solid var(--clay)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:17,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.cli}</div>
+            <div className="meta" style={{fontSize:11.5,marginTop:2}}>Cheque {it.fac}</div>
+            {it.vendedor && <div className="meta" style={{fontSize:11.5}}>👤 {it.vendedor}</div>}
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div className="num" style={{fontSize:22,fontWeight:800,color:"var(--clay)"}}>{money(it.saldo)}</div>
+            <div className="meta" style={{fontSize:10.5}}>por reponer</div>
+          </div>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:12}}>
+          <span className="chip c-bad"><span className="d"></span>Cheque devuelto</span>
+          <button className="mini-cta" onClick={()=>{ if(onCobrar) onCobrar(it); else toast(`Reponer ${it.cli} · ${money(it.saldo)}.`); }}>Cobrar →</button>
+        </div>
+      </div>
+
+      <div className="card" style={{padding:"4px 2px"}}>
+        <div className="cu-line"><span>Banco</span><b>{chq?chq.banco:"—"}</b></div>
+        <div className="cu-line"><span>N.º de cheque</span><b>{it.fac}</b></div>
+        <div className="cu-line"><span>Monto del cheque</span><b className="num">{money(chq?chq.monto:it.saldo)}</b></div>
+        {it.gastos>0 && <div className="cu-line"><span>Gastos por protesto</span><b className="num">{money(it.gastos)}</b></div>}
+        <div className="cu-line"><span>Motivo de la devolución</span><b style={{color:"var(--clay)"}}>{it.motivoProtesto||(chq?chq.motivo:"—")}</b></div>
+        {chq && chq.factura && <div className="cu-line"><span>Factura relacionada</span><b>{(chq.fac||"").replace(/^001-001-/,"")}</b></div>}
+        {chq && chq.fecha && <div className="cu-line"><span>Registrado</span><b>{chq.fecha}</b></div>}
+        <div className="cu-line" style={{borderTop:"1px solid var(--line)",marginTop:4,paddingTop:8}}>
+          <span style={{fontWeight:800}}>Total por reponer</span><b className="num" style={{fontSize:15}}>{money(it.saldo)}</b></div>
+      </div>
+
+      <div className="hint" style={{marginTop:12}}>Un cheque devuelto vuelve a la cartera del cliente como cargo. Debe reponerse con un nuevo pago.</div>
+    </>);
+  }
+
   return (<>
 
     {/* encabezado destacado */}
