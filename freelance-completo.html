@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"313", fecha:"22 jul 2026", desc:"Buscador de Cartera: ya no se cierra el teclado al escribir (sin salto automático de pestaña; botón Ver facturas)" };
+const VERSION = { n:"314", fecha:"22 jul 2026", desc:"Cartera: pestañas Resumen/Facturas se ocultan al buscar o filtrar (más foco en los resultados)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -9963,6 +9963,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       if(verFac){ setVerFac(null); return true; }        // cierra detalle de factura
       if(verAging){ setVerAging(null); return true; }    // cierra ventana de antigüedad
       if(verFiltros){ setVerFiltros(false); return true; } // cierra panel de filtros
+      if(q || nFiltros>0){ setQ(""); limpiarFiltros(); setPestana("resumen"); return true; } // limpia búsqueda/filtros → vuelven las pestañas
       if(pestana!=="resumen"){ setPestana("resumen"); return true; } // vuelve a Resumen
       return false;  // ya en la raíz: deja salir del módulo
     });
@@ -10032,14 +10033,16 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
 
   return (<>
     <div className="h1">Cartera</div>
-    <div className="eq-tabs">
-      <button className={pestana==="resumen"?"on":""} onClick={()=>setPestana("resumen")}>Resumen</button>
-      <button className={pestana==="facturas"?"on":""} onClick={()=>setPestana("facturas")}>Facturas</button>
+    {!(q || nFiltros>0) && (
+      <div className="eq-tabs">
+        <button className={pestana==="resumen"?"on":""} onClick={()=>setPestana("resumen")}>Resumen</button>
+        <button className={pestana==="facturas"?"on":""} onClick={()=>setPestana("facturas")}>Facturas</button>
       </div>
+    )}
 
     {/* ENTRADA DEL MÓDULO · norma sellada: buscador arriba + mini-dashboard accionable.
         Cada tarjeta abre la pestaña Facturas ya filtrada; la entrada nunca es solo una lista. */}
-    {pestana==="resumen" && (<>
+    {pestana==="resumen" && !(q || nFiltros>0) && (<>
       <div className="ss">
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Buscar cliente o factura…"
@@ -10138,7 +10141,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       </div>
     </>)}
 
-    {pestana==="facturas" && <div className="cf-barra">
+    {(pestana==="facturas" || q || nFiltros>0) && <div className="cf-barra">
       <div className="ss" style={{flex:1,margin:0}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Buscar…" onChange={e=>setQ(e.target.value)}/>
@@ -10288,7 +10291,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
       </>);
     })()}
 
-    {pestana==="facturas" && (()=>{
+    {(pestana==="facturas" || q || nFiltros>0) && (()=>{
       const POR_PAG=4;
       const totalPagF=Math.max(1,Math.ceil(listaOrd.length/POR_PAG));
       const pagF=Math.min(pagFac,totalPagF);
