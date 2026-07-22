@@ -4562,7 +4562,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"299", fecha:"21 jul 2026", desc:"Asistente: flujo directo (habla → respuesta → Ir a…), lista de 30 oculta" };
+const VERSION = { n:"300", fecha:"21 jul 2026", desc:"Asistente: por voz salta directo a la pantalla + dice la respuesta en voz alta" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11260,7 +11260,8 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, onIr, escuchaIni
         setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
         return;
       }
-      responder(p, res.dato || null);
+      /* Frase completa por voz: dice la respuesta y salta directo a la pantalla. */
+      responderYsaltar(p, res.dato || null);
     };
     r.onerror = ev=>{ setEscuchando(false); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); };
     r.onend = ()=> setEscuchando(false);
@@ -11290,6 +11291,21 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, onIr, escuchaIni
     } else {
       setCliResp(null);
     }
+  };
+  /* Solo por VOZ y con frase completa: dice la respuesta en voz alta y salta
+     directo a la pantalla solicitada, sin mostrar el panel de respuesta. */
+  const responderYsaltar = (p, valorDato) => {
+    const texto = p.responder(valorDato);
+    hablarTexto(texto);
+    let cli = null;
+    if(p.pide === "cliente" && valorDato){
+      const f = CARTERA_INI.find(x => normAsist(x.cli) === normAsist(valorDato));
+      cli = f ? f.cli : null;
+    }
+    if(p.ir && onIr){ onIr(p.ir, cli); return true; }  // saltó
+    /* Sin destino: cae al comportamiento normal (muestra respuesta en el panel). */
+    responder(p, valorDato);
+    return false;
   };
   const elegir = (p) => {
     setPreg(p); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
