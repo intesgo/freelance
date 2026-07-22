@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"306", fecha:"22 jul 2026", desc:"Asistente de voz: entiende 'cartera de [cliente]' + apagado seguro con watchdog" };
+const VERSION = { n:"307", fecha:"22 jul 2026", desc:"Asistente de voz: apagado reforzado (aborta rec previo, tope global 22s, watchdog 8s, limpieza al cerrar)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11257,6 +11257,7 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
   const refIntentos = React.useRef(0); // intentos de voz sin entender (para 1 reintento)
   const refWatchdog = React.useRef(null); // temporizador de seguridad: apaga si se queda colgada
   const refReintProg = React.useRef(false); // ¿hay un reintento por voz ya programado?
+  const refTopeGlobal = React.useRef(null); // tope duro: apaga TODO el ciclo pase lo que pase
 
   /* Escucha una frase libre e interpreta contra el catálogo (habla natural). */
   const escucharNatural = React.useCallback(()=>{
@@ -11266,25 +11267,33 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
       if(!panelVisible && onFinVoz) onFinVoz();
       return;
     }
+    /* Abortar cualquier reconocimiento anterior que haya quedado vivo (evita colgados). */
+    try{ if(refRec.current){ refRec.current.onend=null; refRec.current.onerror=null; refRec.current.onresult=null; refRec.current.abort(); } }catch(e){}
     const r = new Rec();
     r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
     let resuelto = false; // ¿este ciclo ya saltó o abrió panel?
     const marcar = ()=>{ resuelto = true; };
-    /* Apagado seguro del modo voz: limpia watchdog y avisa al padre. */
+    /* Apagado seguro del modo voz: limpia TODOS los temporizadores y avisa al padre. */
     const apagarVoz = ()=>{
       if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      try{ if(refRec.current){ refRec.current.onend=null; refRec.current.abort(); } }catch(e){}
       setEscuchando(false);
       if(!panelVisible && onFinVoz) onFinVoz();
     };
     refReintProg.current = false; // este ciclo aún no ha programado reintento
-    /* Watchdog: si en 12 s no captó nada ni reintentó, apaga para no quedar colgada. */
+    /* Tope duro global: se arma una sola vez por sesión de escucha. Pase lo que pase,
+       a los 22 s apaga TODO (cubre incluso la cadena de reintentos que se cuelgue). */
+    if(!refTopeGlobal.current){
+      refTopeGlobal.current = setTimeout(()=>{ apagarVoz(); }, 22000);
+    }
+    /* Watchdog por ciclo: si en 8 s este intento no captó nada ni reintentó, lo apaga. */
     if(refWatchdog.current){ clearTimeout(refWatchdog.current); }
     refWatchdog.current = setTimeout(()=>{
       if(!resuelto && !refReintProg.current){
-        try{ if(refRec.current) refRec.current.abort(); }catch(e){}
         apagarVoz();
       }
-    }, 12000);
+    }, 8000);
     setNoEntendi(""); setEscuchando(true);
     r.onresult = ev=>{
       const frase = ev.results[0][0].transcript.trim();
@@ -11330,8 +11339,12 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
       /* Frase completa por voz: dice la respuesta y salta directo a la pantalla. */
       marcar();
       const salto = responderYsaltar(p, res.dato || null);
-      /* Si no había pantalla destino (raro): lo dice por voz y apaga el modo voz. */
-      if(!salto && !panelVisible && onFinVoz) onFinVoz();
+      /* Éxito o no: se acabó este ciclo de voz — limpiar temporizadores y apagar la escucha.
+         (El salto ya navegó; sin destino igual se apaga sin dejar el micrófono vivo.) */
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      setEscuchando(false);
+      if(!panelVisible && onFinVoz) onFinVoz();
     };
     r.onerror = ev=>{ marcar(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); apagarVoz(); };
     r.onend = ()=>{ setEscuchando(false); /* si no resolvió y no hay reintento programado, apaga seguro */ if(!resuelto && !refReintProg.current) apagarVoz(); };
@@ -11357,6 +11370,16 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     }
     // eslint-disable-next-line
   },[abierto, escuchaInicial, panelVisible, modoLista]);
+
+  /* Al cerrarse el modo voz (abierto=false): apaga todo — nada queda vivo en segundo plano. */
+  React.useEffect(()=>{
+    if(!abierto){
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      try{ if(refRec.current){ refRec.current.onend=null; refRec.current.onerror=null; refRec.current.onresult=null; refRec.current.abort(); } }catch(e){}
+      refReintProg.current = false;
+    }
+  },[abierto]);
 
   if(!abierto) return null;
   /* Modo voz desde la burbuja: escucha sin mostrar panel (la burbuja late). */
