@@ -284,6 +284,10 @@ input,select,textarea{font-family:inherit;font-size:16px;}
   .fx-entrar{animation:fxEntrar .5s cubic-bezier(.2,.8,.2,1) both}
   button:active:not([disabled]){transform:translateY(1px)}
   @media (prefers-reduced-motion:reduce){.fx-entrar{animation:none!important}}
+  /* ── Asistente de voz ── */
+  @keyframes burbujaLatido{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+  .micb{flex-shrink:0;width:26px;height:26px;display:flex;align-items:center;justify-content:center;
+    background:none;border:none;padding:0;cursor:pointer;font-family:inherit}
 </style>
 <link rel="manifest" href="./pwa/manifest-proveedor.json">
 <meta name="theme-color" content="#123B2C">
@@ -1219,7 +1223,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"28", fecha:"21 jul 2026", desc:"Solo XML autorizado por el SRI + foto de respaldo" };
+const VERSION = { n:"29", fecha:"22 jul 2026", desc:"Asistente de voz (30 preguntas)" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1656,6 +1660,698 @@ function useGestoDrawer(abrir, activo){
   },[abrir,activo]);
 }
 
+
+/* ═══════════════ ASISTENTE DE CONSULTAS POR VOZ (sin IA) ═══════════════
+   Motor de reglas: los datos ya están en la app, solo se buscan y devuelven.
+   Molde de freelance-completo/Comisionista, con catálogo propio del PROVEEDOR
+   (conciliación, retenciones, créditos, decisiones, catálogo, cuentas).
+   El proveedor SÍ ve precio base y stock de SU mercadería (es su producto). */
+
+function MicBtnAsist({onTexto, toast}){
+  const [rec,setRec]=useState(false);
+  const refRec=React.useRef(null);
+  const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!Reconocedor) return null;
+  const dictar=()=>{
+    if(rec){ try{ refRec.current && refRec.current.stop(); }catch(e){} setRec(false); return; }
+    const r=new Reconocedor();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    r.onresult=ev=>{ const t=ev.results[0][0].transcript.trim(); if(t) onTexto(t); };
+    r.onerror=ev=>{ setRec(false); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono en el navegador para dictar"); };
+    r.onend=()=>setRec(false);
+    refRec.current=r; setRec(true);
+    try{ r.start(); }catch(e){ setRec(false); }
+  };
+  return (
+    <button type="button" className={"micb"+(rec?" rec":"")} onClick={dictar} aria-label="Buscar por voz">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+        stroke={rec?"#C2603A":"var(--texto-2)"} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"/>
+        <path d="M5.5 11a6.5 6.5 0 0013 0"/><path d="M12 17.5V21M9 21h6"/>
+      </svg>
+    </button>
+  );
+}
+
+function hablarTexto(txt){
+  try{
+    if(!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(txt);
+    u.lang = "es-EC"; u.rate = 1; u.pitch = 1;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+const normAsist = s => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+const dineroAsist = n => "$" + Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* ══ CATÁLOGO DE PREGUNTAS DEL PROVEEDOR ══ */
+const PREGUNTAS_ASIST = [
+  // ── CONCILIACIÓN ──
+  { id:"cobrosPorConciliar", cat:"Conciliación", label:"¿Cuántos cobros tengo por conciliar?", ic:"✓", pide:null, ir:"conciliacion",
+    responder:()=>{
+      const p = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente");
+      if(!p.length) return "No tienes cobros por conciliar. Todo al día.";
+      return "Tienes " + p.length + " cobro" + (p.length!==1?"s":"") + " por conciliar, por " + dineroAsist(p.reduce((a,c)=>a+(c.monto||0),0)) + ".";
+    } },
+  { id:"montoPorConciliar", cat:"Conciliación", label:"¿Cuánto suman los cobros por conciliar?", ic:"💰", pide:null, ir:"conciliacion",
+    responder:()=>{
+      const p = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente");
+      if(!p.length) return "No hay cobros pendientes de conciliar.";
+      return "Los cobros por conciliar suman " + dineroAsist(p.reduce((a,c)=>a+(c.monto||0),0)) + " en " + p.length + " recibo" + (p.length!==1?"s":"") + ".";
+    } },
+  { id:"cobrosObservados", cat:"Conciliación", label:"¿Tengo cobros observados?", ic:"✎", pide:null, ir:"conciliacion",
+    responder:()=>{
+      const o = COBROS_REPORTADOS.filter(c=>c.estado==="observado");
+      if(!o.length) return "No tienes cobros observados.";
+      return "Tienes " + o.length + " cobro" + (o.length!==1?"s":"") + " observado" + (o.length!==1?"s":"") + ", devuelto al cobrador: " + o.map(c=>c.cli).join(", ") + ".";
+    } },
+  { id:"cobrosAprobados", cat:"Conciliación", label:"¿Cuántos cobros aprobé?", ic:"✅", pide:null, ir:"conciliacion",
+    responder:()=>{
+      const a = COBROS_REPORTADOS.filter(c=>c.estado==="aprobado");
+      if(!a.length) return "Todavía no has aprobado ningún cobro.";
+      return "Has aprobado " + a.length + " cobro" + (a.length!==1?"s":"") + " por " + dineroAsist(a.reduce((x,c)=>x+(c.monto||0),0)) + ", liberando su comisión.";
+    } },
+  { id:"cobroCliente", cat:"Conciliación", label:"¿Qué cobro reportó un cliente?", ic:"🧾", pide:"cliente", ir:"conciliacion",
+    responder:(cli)=>{
+      const c = COBROS_REPORTADOS.find(x=>normAsist(x.cli)===normAsist(cli))
+             || COBROS_REPORTADOS.find(x=>{ const parts=normAsist(x.cli).split(/\s+/).filter(w=>w.length>=3); return parts.some(w=>normAsist(cli).includes(w)); });
+      if(!c) return "No encontré cobros reportados de " + cli + ".";
+      const est = c.estado==="pendiente"?"pendiente de conciliar":c.estado==="aprobado"?"aprobado":c.estado==="observado"?"observado":c.estado;
+      return c.cli + " reportó " + dineroAsist(c.monto) + " por " + c.forma + " (" + c.cobrador + "), estado: " + est + ".";
+    } },
+  // ── RETENCIONES ──
+  { id:"retenSinConfirmar", cat:"Retenciones", label:"¿Cuántas retenciones sin confirmar?", ic:"🧾", pide:null, ir:"retenciones",
+    responder:()=>{
+      const s = RETENCIONES_INI.filter(r=>!r.confirmada);
+      if(!s.length) return "No tienes retenciones pendientes de confirmar.";
+      return "Tienes " + s.length + " retención" + (s.length!==1?"es":"") + " sin confirmar en el SRI, por " + dineroAsist(s.reduce((a,r)=>a+(r.total||0),0)) + ".";
+    } },
+  { id:"retenTotal", cat:"Retenciones", label:"¿Cuánto suman las retenciones?", ic:"➖", pide:null, ir:"retenciones",
+    responder:()=>{
+      if(!RETENCIONES_INI.length) return "No hay retenciones registradas.";
+      const t = RETENCIONES_INI.reduce((a,r)=>a+(r.total||0),0);
+      return "Las retenciones registradas suman " + dineroAsist(t) + " en " + RETENCIONES_INI.length + " documento" + (RETENCIONES_INI.length!==1?"s":"") + ", que bajan la deuda del cliente.";
+    } },
+  { id:"retenCliente", cat:"Retenciones", label:"¿Qué retención tiene un cliente?", ic:"📄", pide:"cliente", ir:"retenciones",
+    responder:(cli)=>{
+      const r = RETENCIONES_INI.find(x=>normAsist(x.cli)===normAsist(cli))
+             || RETENCIONES_INI.find(x=>{ const parts=normAsist(x.cli).split(/\s+/).filter(w=>w.length>=3); return parts.some(w=>normAsist(cli).includes(w)); });
+      if(!r) return "No encontré retenciones de " + cli + ".";
+      return r.cli + " tiene una retención de " + dineroAsist(r.total) + " sobre la factura " + r.factura + (r.confirmada?", ya confirmada.":", sin confirmar aún.");
+    } },
+  // ── NOTAS DE CRÉDITO ──
+  { id:"notasSinConfirmar", cat:"Notas de crédito", label:"¿Cuántas notas de crédito sin confirmar?", ic:"↩️", pide:null, ir:"notas",
+    responder:()=>{
+      const s = NC_INI.filter(n=>!n.confirmada);
+      if(!s.length) return "No tienes notas de crédito pendientes de confirmar.";
+      return "Tienes " + s.length + " nota" + (s.length!==1?"s":"") + " de crédito sin confirmar, por " + dineroAsist(s.reduce((a,n)=>a+(n.total||0),0)) + ".";
+    } },
+  { id:"notasTotal", cat:"Notas de crédito", label:"¿Cuánto suman las notas de crédito?", ic:"📉", pide:null, ir:"notas",
+    responder:()=>{
+      if(!NC_INI.length) return "No hay notas de crédito registradas.";
+      const t = NC_INI.reduce((a,n)=>a+(n.total||0),0);
+      return "Las notas de crédito suman " + dineroAsist(t) + " en " + NC_INI.length + " documento" + (NC_INI.length!==1?"s":"") + ".";
+    } },
+  // ── CRÉDITOS ──
+  { id:"creditosPend", cat:"Créditos", label:"¿Cuántas solicitudes de crédito pendientes?", ic:"💳", pide:null, ir:"creditos",
+    responder:()=>{
+      const p = CRED_INI.filter(c=>c.estado==="pendiente");
+      if(!p.length) return "No tienes solicitudes de crédito pendientes.";
+      return "Tienes " + p.length + " solicitud" + (p.length!==1?"es":"") + " de crédito pendiente" + (p.length!==1?"s":"") + " por revisar.";
+    } },
+  { id:"cupoPedido", cat:"Créditos", label:"¿Cuánto cupo piden en créditos?", ic:"📊", pide:null, ir:"creditos",
+    responder:()=>{
+      const p = CRED_INI.filter(c=>c.estado==="pendiente");
+      if(!p.length) return "No hay solicitudes de crédito pendientes.";
+      return "Las solicitudes pendientes piden " + dineroAsist(p.reduce((a,c)=>a+(c.cupoSugerido||0),0)) + " en cupo, sugerido por tu freelance.";
+    } },
+  { id:"creditoCliente", cat:"Créditos", label:"¿Qué crédito pide un cliente?", ic:"🔍", pide:"cliente", ir:"creditos",
+    responder:(cli)=>{
+      const c = CRED_INI.find(x=>normAsist(x.cliente)===normAsist(cli))
+             || CRED_INI.find(x=>{ const parts=normAsist(x.cliente).split(/\s+/).filter(w=>w.length>=3); return parts.some(w=>normAsist(cli).includes(w)); });
+      if(!c) return "No encontré solicitudes de crédito de " + cli + ".";
+      const est = c.estado==="pendiente"?"pendiente":c.estado==="aprobada"?"aprobada":c.estado;
+      const faltan = (c.docs||[]).filter(d=>!d.ok).length;
+      return c.cliente + " pide un cupo de " + dineroAsist(c.cupoSugerido) + ", venta mensual " + dineroAsist(c.ventaMensual) + ", estado " + est + (faltan?". Le falta " + faltan + " documento" + (faltan!==1?"s":"") + ".":". Documentos completos.");
+    } },
+  { id:"contadoNuevos", cat:"Créditos", label:"¿Cuántos clientes de contado nuevos?", ic:"🆕", pide:null, ir:"creditos",
+    responder:()=>{
+      if(!CONTADO_INI.length) return "No hay clientes de contado nuevos.";
+      return "Hay " + CONTADO_INI.length + " cliente" + (CONTADO_INI.length!==1?"s":"") + " de contado nuevo" + (CONTADO_INI.length!==1?"s":"") + ", que no requieren aprobación de crédito.";
+    } },
+  // ── DECISIONES ──
+  { id:"decisionesPend", cat:"Decisiones", label:"¿Qué decisiones tengo pendientes?", ic:"⚡", pide:null, ir:"decidir",
+    responder:()=>{
+      const f = FACTURAR_INI.filter(x=>x.estado==="pendiente").length;
+      const p = PAGOS_CONF_INI.filter(x=>x.estado==="pendiente").length;
+      const s = SOLIC_PROV_INI.filter(x=>x.estado==="pendiente").length;
+      const total = f+p+s;
+      if(!total) return "No tienes decisiones pendientes.";
+      return "Tienes " + total + " decisión" + (total!==1?"es":"") + " pendiente" + (total!==1?"s":"") + ": " + f + " por facturar, " + p + " pago" + (p!==1?"s":"") + " por confirmar y " + s + " solicitud" + (s!==1?"es":"") + ".";
+    } },
+  { id:"porFacturar", cat:"Decisiones", label:"¿Cuántos pedidos por facturar?", ic:"📝", pide:null, ir:"decidir",
+    responder:()=>{
+      const f = FACTURAR_INI.filter(x=>x.estado==="pendiente");
+      if(!f.length) return "No tienes pedidos por facturar.";
+      return "Tienes " + f.length + " pedido" + (f.length!==1?"s":"") + " por facturar, por " + dineroAsist(f.reduce((a,x)=>a+(x.monto||0),0)) + ".";
+    } },
+  { id:"pagosPorConfirmar", cat:"Decisiones", label:"¿Cuántos pagos por confirmar?", ic:"💵", pide:null, ir:"decidir",
+    responder:()=>{
+      const p = PAGOS_CONF_INI.filter(x=>x.estado==="pendiente");
+      if(!p.length) return "No tienes pagos por confirmar. Recuerda: confirmar el pago libera la comisión.";
+      return "Tienes " + p.length + " pago" + (p.length!==1?"s":"") + " por confirmar, por " + dineroAsist(p.reduce((a,x)=>a+(x.monto||0),0)) + ". Confirmarlos libera la comisión.";
+    } },
+  { id:"solicitudesPend", cat:"Decisiones", label:"¿Cuántas solicitudes del freelance pendientes?", ic:"⏳", pide:null, ir:"decidir",
+    responder:()=>{
+      const s = SOLIC_PROV_INI.filter(x=>x.estado==="pendiente");
+      if(!s.length) return "No tienes solicitudes del freelance pendientes.";
+      return "Tienes " + s.length + " solicitud" + (s.length!==1?"es":"") + " del freelance pendiente" + (s.length!==1?"s":"") + ": " + s.map(x=>x.tipo.replace(/[^\wáéíóúñ ]/gi,"").trim()).join(", ") + ".";
+    } },
+  { id:"chequesAut", cat:"Decisiones", label:"¿Tengo cheques por autorizar?", ic:"🏦", pide:null, ir:"decidir",
+    responder:()=>{
+      const c = CHEQ_AUT_INI.filter(x=>x.estado==="pendiente");
+      if(!c.length) return "No tienes cheques por autorizar.";
+      return "Tienes " + c.length + " cheque" + (c.length!==1?"s":"") + " por autorizar, por " + dineroAsist(c.reduce((a,x)=>a+(x.monto||0),0)) + ".";
+    } },
+  // ── PROPUESTAS ──
+  { id:"propuestasPend", cat:"Propuestas", label:"¿Cuántas propuestas de precio pendientes?", ic:"🏷️", pide:null, ir:"prop",
+    responder:()=>{
+      const p = PROP_INI.filter(x=>x.estado==="pendiente");
+      if(!p.length) return "No tienes propuestas de precio pendientes con tu freelance.";
+      return "Tienes " + p.length + " propuesta" + (p.length!==1?"s":"") + " pendiente" + (p.length!==1?"s":"") + " con tu freelance: " + p.map(x=>x.titulo).join(", ") + ".";
+    } },
+  { id:"preciosPropuestos", cat:"Propuestas", label:"¿Cuántos precios propuestos en catálogo?", ic:"✏️", pide:null, ir:"precios",
+    responder:()=>{
+      const p = CAT_INI.filter(x=>x.propuesto!=null);
+      if(!p.length) return "No hay precios propuestos pendientes en el catálogo.";
+      return "Hay " + p.length + " precio" + (p.length!==1?"s":"") + " propuesto" + (p.length!==1?"s":"") + " pendiente" + (p.length!==1?"s":"") + " en el catálogo.";
+    } },
+  // ── CATÁLOGO ──
+  { id:"precioProd", cat:"Catálogo", label:"¿Cuál es el precio base de un producto?", ic:"💲", pide:"producto", ir:"catalogo",
+    responder:(prod)=>{
+      const p = CAT_INI.find(x=>normAsist(x.nombre)===normAsist(prod))
+             || CAT_INI.find(x=>normAsist(x.nombre).includes(normAsist(prod)));
+      if(!p) return "No encontré el producto " + prod + " en tu catálogo.";
+      return p.nombre + " (" + p.pres + ") tiene precio base " + dineroAsist(p.base) + " y sugerido " + dineroAsist(p.sugerido) + ".";
+    } },
+  { id:"stockProd", cat:"Catálogo", label:"¿Cuánto stock tengo de un producto?", ic:"📦", pide:"producto", ir:"catalogo",
+    responder:(prod)=>{
+      const p = CAT_INI.find(x=>normAsist(x.nombre)===normAsist(prod))
+             || CAT_INI.find(x=>normAsist(x.nombre).includes(normAsist(prod)));
+      if(!p) return "No encontré el producto " + prod + " en tu catálogo.";
+      if(!p.stock) return p.nombre + " está en cero, sin stock disponible.";
+      return "Tienes " + p.stock + " quintales de " + p.nombre + " en stock.";
+    } },
+  { id:"productosPromo", cat:"Catálogo", label:"¿Qué productos tengo en promoción?", ic:"🎁", pide:null, ir:"catalogo",
+    responder:()=>{
+      const pr = CAT_INI.filter(x=>x.promo);
+      if(!pr.length) return "No tienes productos en promoción ahora.";
+      return "Tienes " + pr.length + " producto" + (pr.length!==1?"s":"") + " en promoción: " + pr.map(x=>x.nombre).join(", ") + ".";
+    } },
+  { id:"productosAceptados", cat:"Catálogo", label:"¿Cuántos productos tengo aceptados?", ic:"✔️", pide:null, ir:"catalogo",
+    responder:()=>{
+      const a = CAT_INI.filter(x=>x.estado==="aceptado");
+      return "Tienes " + a.length + " producto" + (a.length!==1?"s":"") + " aceptado" + (a.length!==1?"s":"") + " por tu freelance, de " + CAT_INI.length + " en catálogo.";
+    } },
+  { id:"sinStock", cat:"Catálogo", label:"¿Qué productos están sin stock?", ic:"🚫", pide:null, ir:"catalogo",
+    responder:()=>{
+      const s = CAT_INI.filter(x=>!x.stock);
+      if(!s.length) return "Todos tus productos tienen stock disponible.";
+      return "Están sin stock: " + s.map(x=>x.nombre).join(", ") + ".";
+    } },
+  { id:"facturasEmitidas", cat:"Catálogo", label:"¿Cuántas facturas emití?", ic:"📑", pide:null, ir:null,
+    responder:()=>{
+      if(!FACTURAS_PROV.length) return "No tienes facturas emitidas registradas.";
+      const t = FACTURAS_PROV.reduce((a,f)=>a+(f.total||0),0);
+      return "Has emitido " + FACTURAS_PROV.length + " factura" + (FACTURAS_PROV.length!==1?"s":"") + " por " + dineroAsist(t) + " en total.";
+    } },
+  // ── CUENTAS ──
+  { id:"cuentasActivas", cat:"Mis cuentas", label:"¿Cuántas cuentas bancarias activas tengo?", ic:"🏦", pide:null, ir:"bancos",
+    responder:()=>{
+      const a = CUENTAS_INI.filter(c=>c.activa);
+      if(!a.length) return "No tienes cuentas bancarias activas.";
+      return "Tienes " + a.length + " cuenta" + (a.length!==1?"s":"") + " bancaria" + (a.length!==1?"s":"") + " activa" + (a.length!==1?"s":"") + ": " + a.map(c=>c.banco + " …" + c.ult4).join(", ") + ".";
+    } },
+  { id:"guiasEmitidas", cat:"Mis cuentas", label:"¿Cuántas guías de remisión tengo?", ic:"🚚", pide:null, ir:"guias",
+    responder:()=>{
+      const n = (typeof GUIAS_INI!=="undefined" ? GUIAS_INI.length : 0);
+      if(!n) return "No tienes guías de remisión registradas todavía.";
+      return "Tienes " + n + " guía" + (n!==1?"s":"") + " de remisión registrada" + (n!==1?"s":"") + ".";
+    } },
+];
+
+/* ══ CLAVES para reconocer la frase dictada ══ */
+const CLAVES_ASIST = {
+  cobrosPorConciliar:["cobros por conciliar","cuantos cobros","por conciliar","cobros pendientes","cuantos por conciliar"],
+  montoPorConciliar: ["cuanto suman los cobros","monto por conciliar","cuanto por conciliar","suma de cobros"],
+  cobrosObservados:  ["cobros observados","observado","cobro observado","tengo observados"],
+  cobrosAprobados:   ["cobros aprobe","cuantos aprobe","cobros aprobados","aprobados"],
+  cobroCliente:      ["cobro reporto","que cobro","cobro de","reporto"],
+  retenSinConfirmar: ["retenciones sin confirmar","retenciones pendientes","retencion sin confirmar","cuantas retenciones"],
+  retenTotal:        ["cuanto suman las retenciones","total de retenciones","monto retenido","suma de retenciones"],
+  retenCliente:      ["retencion de","que retencion","retencion tiene"],
+  notasSinConfirmar: ["notas de credito sin confirmar","notas sin confirmar","cuantas notas de credito","notas pendientes"],
+  notasTotal:        ["cuanto suman las notas","total de notas de credito","monto de notas"],
+  creditosPend:      ["solicitudes de credito","creditos pendientes","cuantas solicitudes de credito","solicitudes pendientes de credito"],
+  cupoPedido:        ["cuanto cupo piden","cupo piden","cupo solicitado","cuanto cupo"],
+  creditoCliente:    ["credito pide","que credito","credito de","solicitud de credito de"],
+  contadoNuevos:     ["clientes de contado","contado nuevos","cuantos de contado","clientes contado"],
+  decisionesPend:    ["decisiones pendientes","que decisiones","decisiones tengo","que tengo por decidir"],
+  porFacturar:       ["pedidos por facturar","por facturar","cuantos por facturar","facturar pendientes"],
+  pagosPorConfirmar: ["pagos por confirmar","confirmar pagos","cuantos pagos","pagos pendientes"],
+  solicitudesPend:   ["solicitudes del freelance","solicitudes pendientes","que solicitudes","solicitudes del freelance pendientes"],
+  chequesAut:        ["cheques por autorizar","autorizar cheques","cuantos cheques","cheques pendientes"],
+  propuestasPend:    ["propuestas de precio","propuestas pendientes","cuantas propuestas","propuestas con el freelance"],
+  preciosPropuestos: ["precios propuestos","precios en catalogo","precios pendientes en catalogo"],
+  precioProd:        ["precio base de","precio de","cuanto vale","a como esta","precio del producto"],
+  stockProd:         ["stock de","cuanto stock","inventario de","cuantos quintales de"],
+  productosPromo:    ["productos en promocion","que promociones","productos promo","que esta en promocion"],
+  productosAceptados:["productos aceptados","cuantos aceptados","productos aprobados por"],
+  sinStock:          ["sin stock","productos sin stock","que esta agotado","productos agotados"],
+  facturasEmitidas:  ["cuantas facturas","facturas emiti","facturas emitidas","cuantas facturas emiti"],
+  cuentasActivas:    ["cuentas activas","cuentas bancarias","cuantas cuentas","mis cuentas"],
+  guiasEmitidas:     ["guias de remision","cuantas guias","guias tengo","guias emitidas"],
+};
+
+function interpretarAsist(frase){
+  const f = normAsist(frase);
+  if(!f) return null;
+  let mejor = null, mejorLargo = 0;
+  PREGUNTAS_ASIST.forEach(p=>{
+    (CLAVES_ASIST[p.id]||[]).forEach(clave=>{
+      const c = normAsist(clave);
+      if(f.includes(c) && c.length > mejorLargo){ mejor = p; mejorLargo = c.length; }
+    });
+  });
+  if(!mejor) return null;
+  const GENERICAS = ["comercial","distribuidora","tienda","almacen","almacenes","bodega","abarrotes","despensa","comisariato","mayorista","minimercado","panaderia","kiosco","arroz","super","mini","market","el","la","los","las","de","del","y","don","doña","sr","sra"];
+  const calzaNombre = (nombre)=>{
+    const n = normAsist(nombre);
+    if(f.includes(n)) return true;
+    const parts = n.split(/\s+/).filter(w => w.length>=3 && !GENERICAS.includes(w));
+    return parts.some(w => f.includes(w));
+  };
+  let dato = null;
+  if(mejor.pide === "cliente"){
+    const nombres = [...new Set([].concat(
+      COBROS_REPORTADOS.map(x=>x.cli), RETENCIONES_INI.map(x=>x.cli), CRED_INI.map(x=>x.cliente)
+    ).filter(Boolean))];
+    dato = nombres.find(calzaNombre) || null;
+  } else if(mejor.pide === "producto"){
+    const p = CAT_INI.find(x=>calzaNombre(x.nombre));
+    dato = p ? p.nombre : null;
+  }
+  return { pregunta: mejor, dato };
+}
+
+/* ══ MOTOR DE VOZ GLOBAL ══ */
+const MotorVoz = {
+  rec: null, intentos: 0, watchdog: null, topeGlobal: null, activo: false, cb: {},
+  soportado(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); },
+  config(cb){ this.cb = cb || {}; },
+  _estado(v){ this.activo = v; if(this.cb.onEstado) this.cb.onEstado(v); },
+  _limpiarTimers(){
+    if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog = null; }
+    if(this.topeGlobal){ clearTimeout(this.topeGlobal); this.topeGlobal = null; }
+  },
+  apagar(){
+    this._limpiarTimers();
+    if(this.rec){
+      try{ this.rec.onresult=null; this.rec.onerror=null; this.rec.onend=null; this.rec.abort(); }catch(e){}
+      this.rec = null;
+    }
+    this._estado(false);
+  },
+  iniciar(){
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){ if(this.cb.toast) this.cb.toast("Tu navegador no permite dictado por voz"); return; }
+    if(this.rec){ try{ this.rec.onresult=null; this.rec.onerror=null; this.rec.onend=null; this.rec.abort(); }catch(e){} this.rec=null; }
+    if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
+    if(!this.topeGlobal){ this.topeGlobal = setTimeout(()=>{ this.apagar(); }, 22000); }
+    const r = new Rec();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    let resuelto = false;
+    this.watchdog = setTimeout(()=>{ if(!resuelto) this.apagar(); }, 8000);
+    r.onresult = (ev)=>{
+      resuelto = true;
+      if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
+      const frase = ev.results[0][0].transcript.trim();
+      const res = interpretarAsist(frase);
+      if(!res){
+        this.intentos += 1;
+        if(this.intentos < 3){
+          hablarTexto("No te entendí, por favor repite");
+          setTimeout(()=>{ this.iniciar(); }, 1700);
+        } else {
+          hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
+          this.apagar();
+        }
+        return;
+      }
+      const p = res.pregunta;
+      if(p.pide && !res.dato){
+        this.intentos += 1;
+        const que = p.pide==="cliente"?"¿De qué cliente?":p.pide==="producto"?"¿De qué producto?":"¿De qué dato?";
+        if(this.intentos < 3){
+          hablarTexto(que);
+          setTimeout(()=>{ this.iniciar(); }, 1700);
+        } else {
+          hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
+          if(this.cb.onPedirDato) this.cb.onPedirDato(p);
+          this.apagar();
+        }
+        return;
+      }
+      const texto = p.responder(res.dato || null);
+      hablarTexto(texto);
+      if(p.ir && this.cb.onIr) this.cb.onIr(p.ir, null);
+      this.apagar();
+    };
+    r.onerror = (ev)=>{
+      resuelto = true;
+      if(ev.error==="not-allowed" && this.cb.toast) this.cb.toast("Permite el micrófono para hablar");
+      this.apagar();
+    };
+    r.onend = ()=>{ if(!resuelto && this.intentos === 0){ this.apagar(); } };
+    this.rec = r;
+    this._estado(true);
+    try{ r.start(); }catch(e){ this.apagar(); }
+  },
+  alternar(){
+    if(this.activo){ this.apagar(); return; }
+    this.intentos = 0;
+    if(this.topeGlobal){ clearTimeout(this.topeGlobal); this.topeGlobal=null; }
+    this.iniciar();
+  }
+};
+
+/* ── Burbuja flotante movible ── */
+function BurbujaAsistente({ onEscuchar, escuchando }){
+  const [pos, setPos] = useState({ x: (window.innerWidth||400) - 74, y: (window.innerHeight||700) - 150 });
+  const ref = React.useRef({ arrastrando:false, movio:false, ini:null });
+  const iniciar = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    const s = ref.current;
+    s.arrastrando = true; s.movio = false;
+    s.ini = { x: t.clientX, y: t.clientY, px: pos.x, py: pos.y };
+  };
+  const mover = (e) => {
+    const s = ref.current;
+    if(!s.arrastrando || !s.ini) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - s.ini.x, dy = t.clientY - s.ini.y;
+    if(Math.abs(dx) > 6 || Math.abs(dy) > 6){ s.movio = true; }
+    if(s.movio){
+      const nx = Math.max(6, Math.min((window.innerWidth||400)-62, s.ini.px + dx));
+      const ny = Math.max(60, Math.min((window.innerHeight||700)-120, s.ini.py + dy));
+      setPos({ x:nx, y:ny });
+    }
+  };
+  const soltar = (e) => {
+    const s = ref.current;
+    if(e && e.type === "touchend" && e.cancelable){ try{ e.preventDefault(); }catch(_){} }
+    if(s.arrastrando){
+      if(!s.movio){
+        const ahora = Date.now();
+        if(!s.ultimoTap || ahora - s.ultimoTap > 400){ s.ultimoTap = ahora; onEscuchar(); }
+      } else {
+        const ancho = window.innerWidth||400;
+        setPos(p=>({ ...p, x: p.x < ancho/2 ? 6 : ancho-62 }));
+      }
+    }
+    s.arrastrando = false; s.movio = false; s.ini = null;
+  };
+  return (
+    <button
+      onMouseDown={iniciar} onMouseMove={mover} onMouseUp={soltar} onMouseLeave={soltar}
+      onTouchStart={iniciar} onTouchMove={mover} onTouchEnd={soltar}
+      aria-label="Asistente de voz"
+      style={{position:"fixed", left:pos.x, top:pos.y, zIndex:95, width:56, height:56, borderRadius:"50%",
+        border:"none", background: escuchando ? "#B5613C" : "var(--maiz, #F2A900)", color:"#fff", fontSize:24, cursor:"grab",
+        boxShadow: escuchando ? "0 0 0 6px rgba(181,97,60,.25), 0 6px 20px rgba(0,0,0,.28)" : "0 6px 20px rgba(0,0,0,.28)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        touchAction:"none", userSelect:"none",
+        animation: escuchando ? "burbujaLatido 1s ease-in-out infinite" : "none"}}>
+      {escuchando ? "●" : "🎙️"}
+    </button>
+  );
+}
+
+const ETIQUETA_IR = { conciliacion:"Conciliación", retenciones:"Retenciones", notas:"Notas", creditos:"Créditos", decidir:"Decidir", prop:"Propuestas", precios:"Precios", catalogo:"Catálogo", bancos:"Mis cuentas", guias:"Guías" };
+
+function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, onFinVoz, onNecesitaPanel, toast, onIr, escuchaInicial }){
+  const [preg, setPreg] = useState(null);
+  const [dato, setDato] = useState("");
+  const [resp, setResp] = useState("");
+  const [escuchando, setEscuchando] = useState(false);
+  const [noEntendi, setNoEntendi] = useState("");
+  const [mostrarTodas, setMostrarTodas] = useState(false);
+  const refRec = React.useRef(null);
+  const refIntentos = React.useRef(0);
+  const refWatchdog = React.useRef(null);
+  const refReintProg = React.useRef(false);
+  const refTopeGlobal = React.useRef(null);
+
+  const escucharNatural = React.useCallback(()=>{
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){
+      if(toast) toast("Tu navegador no permite dictado por voz");
+      if(!panelVisible && onFinVoz) onFinVoz();
+      return;
+    }
+    try{ if(refRec.current){ refRec.current.onend=null; refRec.current.onerror=null; refRec.current.onresult=null; refRec.current.abort(); } }catch(e){}
+    const r = new Rec();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    let resuelto = false;
+    const marcar = ()=>{ resuelto = true; };
+    const apagarVoz = ()=>{
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      try{ if(refRec.current){ refRec.current.onend=null; refRec.current.abort(); } }catch(e){}
+      setEscuchando(false);
+      if(!panelVisible && onFinVoz) onFinVoz();
+    };
+    refReintProg.current = false;
+    if(!refTopeGlobal.current){ refTopeGlobal.current = setTimeout(()=>{ apagarVoz(); }, 22000); }
+    if(refWatchdog.current){ clearTimeout(refWatchdog.current); }
+    refWatchdog.current = setTimeout(()=>{ if(!resuelto && !refReintProg.current){ apagarVoz(); } }, 8000);
+    setNoEntendi(""); setEscuchando(true);
+    r.onresult = ev=>{
+      const frase = ev.results[0][0].transcript.trim();
+      const res = interpretarAsist(frase);
+      if(!res){
+        marcar();
+        setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
+        if(!panelVisible){
+          refIntentos.current += 1;
+          if(refIntentos.current < 3){
+            refReintProg.current = true;
+            hablarTexto("No te entendí, por favor repite");
+            setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
+          } else {
+            hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
+            apagarVoz();
+          }
+        }
+        return;
+      }
+      const p = res.pregunta;
+      setPreg(p);
+      if(p.pide && !res.dato){
+        marcar();
+        setDato(""); setResp("");
+        setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
+        if(!panelVisible){
+          refIntentos.current += 1;
+          const que = p.pide==="cliente"?"¿De qué cliente?":p.pide==="producto"?"¿De qué producto?":"¿De qué dato?";
+          if(refIntentos.current < 3){
+            refReintProg.current = true;
+            hablarTexto(que);
+            setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
+          } else {
+            hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
+            apagarVoz();
+          }
+        }
+        return;
+      }
+      marcar();
+      responderYsaltar(p, res.dato || null);
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      setEscuchando(false);
+      if(!panelVisible && onFinVoz) onFinVoz();
+    };
+    r.onerror = ev=>{ marcar(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); apagarVoz(); };
+    r.onend = ()=>{ setEscuchando(false); if(!resuelto && !refReintProg.current) apagarVoz(); };
+    refRec.current = r;
+    try{ r.start(); }catch(e){ apagarVoz(); }
+  },[toast, panelVisible, onFinVoz]);
+  const reintentarVoz = React.useRef(null);
+  reintentarVoz.current = escucharNatural;
+
+  React.useEffect(()=>{
+    if(abierto){
+      setPreg(null); setDato(""); setResp(""); setNoEntendi("");
+      refIntentos.current = 0;
+      if(modoLista){ setMostrarTodas(true); } else { setMostrarTodas(false); }
+    }
+    // eslint-disable-next-line
+  },[abierto, escuchaInicial, panelVisible, modoLista]);
+
+  React.useEffect(()=>{
+    if(!abierto){
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      try{ if(refRec.current){ refRec.current.onend=null; refRec.current.onerror=null; refRec.current.onresult=null; refRec.current.abort(); } }catch(e){}
+      refReintProg.current = false;
+    }
+  },[abierto]);
+
+  if(!abierto) return null;
+  if(!panelVisible) return null;
+
+  const responder = (p, valorDato) => {
+    const texto = p.responder(valorDato);
+    setResp(texto); setNoEntendi("");
+    hablarTexto(texto);
+  };
+  const responderYsaltar = (p, valorDato) => {
+    const texto = p.responder(valorDato);
+    hablarTexto(texto);
+    if(p.ir && onIr){ onIr(p.ir, null); return true; }
+    responder(p, valorDato);
+    return false;
+  };
+  const elegir = (p) => {
+    setPreg(p); setDato(""); setResp(""); setNoEntendi("");
+    if(!p.pide) responder(p, null);
+  };
+  const confirmarDato = () => {
+    if(!preg || !dato.trim()) return;
+    responder(preg, dato.trim());
+  };
+
+  const sugerencias = preg && preg.pide === "cliente"
+    ? [...new Set([].concat(COBROS_REPORTADOS.map(x=>x.cli), RETENCIONES_INI.map(x=>x.cli), CRED_INI.map(x=>x.cliente)).filter(Boolean))]
+    : preg && preg.pide === "producto"
+      ? CAT_INI.map(p=>p.nombre)
+      : [];
+  const filtradas = dato.trim()
+    ? sugerencias.filter(s => normAsist(s).includes(normAsist(dato))).slice(0,5)
+    : [];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(15,25,20,.5)",zIndex:120,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+      onClick={onCerrar}>
+      <div style={{width:"100%",maxWidth:520,margin:0,background:"var(--papel-2)",borderRadius:"18px 18px 0 0",padding:"18px 18px 26px",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 -8px 30px rgba(0,0,0,.2)",fontFamily:"inherit"}}
+        onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:16,color:"var(--texto)"}}>🎙️ Preguntar al sistema</div>
+          <button className="micb" onClick={onCerrar} aria-label="Cerrar" style={{fontSize:18,color:"var(--texto-2)"}}>✕</button>
+        </div>
+
+        <button onClick={escucharNatural} disabled={escuchando}
+          style={{width:"100%",padding:"16px",borderRadius:12,border:"none",marginBottom:12,cursor:"pointer",fontFamily:"inherit",
+            background: escuchando?"#B5613C":"var(--tinta-2, #15392B)",color:"#fff",
+            fontSize:15.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <span style={{fontSize:22}}>{escuchando?"●":"🎤"}</span>
+          {escuchando ? "Escuchando… habla ahora" : "Habla: dime tu pregunta"}
+        </button>
+        {noEntendi && (
+          <div style={{background:"var(--maiz-suave, #FBE9C0)",borderRadius:10,padding:"10px 13px",marginBottom:12,fontSize:12.5,color:"var(--texto)",lineHeight:1.45}}>
+            {noEntendi}
+          </div>
+        )}
+
+        {!mostrarTodas && !resp && !(preg&&preg.pide) && (
+          <div style={{textAlign:"center",marginBottom:8}}>
+            <button onClick={()=>setMostrarTodas(true)}
+              style={{background:"none",border:"none",color:"var(--tinta-2, #15392B)",fontSize:12.5,fontWeight:700,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>
+              Ver todas las preguntas
+            </button>
+          </div>
+        )}
+
+        {mostrarTodas && (
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:"var(--texto)"}}>Todas las preguntas</div>
+            <button onClick={()=>setMostrarTodas(false)}
+              style={{background:"none",border:"none",color:"var(--texto-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>‹ Ocultar</button>
+          </div>
+          {[...new Set(PREGUNTAS_ASIST.map(p=>p.cat))].map(cat=>(
+            <div key={cat} style={{marginBottom:10}}>
+              <div style={{fontSize:11.5,fontWeight:800,color:"var(--texto-2)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{cat}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                {PREGUNTAS_ASIST.filter(p=>p.cat===cat).map(p=>(
+                  <button key={p.id} onClick={()=>{ elegir(p); if(p.pide) setMostrarTodas(false); }}
+                    style={{padding:"8px 12px",borderRadius:999,border:"1px solid "+(preg&&preg.id===p.id?"var(--maiz)":"var(--linea)"),
+                      background:preg&&preg.id===p.id?"var(--maiz-suave, #FBE9C0)":"var(--papel-2)",fontSize:12,fontWeight:700,cursor:"pointer",color:"var(--texto)",fontFamily:"inherit"}}>
+                    {p.ic} {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        )}
+
+        {preg && preg.pide && (
+          <div style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input value={dato} onChange={e=>setDato(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&confirmarDato()}
+                placeholder={preg.pide==="cliente"?"Nombre del cliente…":"Nombre del producto…"}
+                style={{flex:1,minWidth:0,padding:"11px 13px",borderRadius:10,border:"1px solid var(--linea)",fontSize:14,background:"var(--papel-2)",color:"var(--texto)",fontFamily:"inherit"}} />
+              <MicBtnAsist onTexto={t=>{ setDato(t); }} toast={toast} />
+              <button onClick={confirmarDato}
+                style={{padding:"11px 15px",borderRadius:10,border:"none",background:"var(--maiz)",color:"var(--tinta, #0E2A20)",fontSize:13.5,fontWeight:700,cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
+                Consultar
+              </button>
+            </div>
+            {filtradas.length>0 && (
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+                {filtradas.map(s=>(
+                  <button key={s} onClick={()=>{ setDato(s); responder(preg, s); }}
+                    style={{textAlign:"left",padding:"8px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"var(--papel-2)",fontSize:13,cursor:"pointer",color:"var(--texto)",fontFamily:"inherit"}}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {resp && (
+          <div style={{background:"var(--maiz-suave, #FBE9C0)",padding:"14px 16px",borderRadius:12}}>
+            <div style={{fontSize:14.5,fontWeight:600,lineHeight:1.5,color:"var(--texto)"}}>{resp}</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:10}}>
+              {preg && preg.ir && onIr && (
+                <button onClick={()=>onIr(preg.ir, null)}
+                  style={{padding:"9px 15px",borderRadius:8,border:"none",background:"var(--tinta-2, #15392B)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
+                  Ir a {ETIQUETA_IR[preg.ir] || "la pantalla"} ›
+                </button>
+              )}
+              <button onClick={()=>hablarTexto(resp)}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"var(--papel-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",color:"var(--texto)",fontFamily:"inherit"}}>
+                🔊 Escuchar
+              </button>
+              <button onClick={()=>{ setPreg(null); setDato(""); setResp(""); setNoEntendi(""); setMostrarTodas(false); }}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"var(--papel-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",color:"var(--texto)",fontFamily:"inherit"}}>
+                Preguntar otra
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+/* ═══════════════ FIN ASISTENTE DE VOZ ═══════════════ */
+
+
 function App({usuario, onSalir}){
   const [logueado,setLogueado]=useState(true); // el login lo maneja Root (PantallaLogin)
   const [tab,setTab]=useState("inicio");
@@ -1666,6 +2362,11 @@ function App({usuario, onSalir}){
   const [contado]=useState(CONTADO_INI);
   const [cola,setCola]=useState(0);
   const [online,setOnline]=useState(true);
+
+  /* Asistente de voz */
+  const [asistAbierto,setAsistAbierto]=useState(false);
+  const [asistVozBurbuja,setAsistVozBurbuja]=useState(false);
+  const [asistEscuchando,setAsistEscuchando]=useState(false);
 
   const pendientes = prop.filter(p=>p.estado==="pendiente").length;
   const preciosPend = cat.filter(p=>p.propuesto!=null).length;
@@ -1793,6 +2494,21 @@ const TAREAS_NOTIF=[
   };
   // Inicio: salta directo y limpia el historial
   const irInicio = ()=>{ setPila([]); setTab("inicio"); };
+
+  /* Asistente de voz: onIr solo navega. */
+  const irDesdeAsist = (destino)=>{
+    setAsistAbierto(false); setAsistVozBurbuja(false);
+    if(destino) irTab(destino);
+  };
+  React.useEffect(()=>{
+    MotorVoz.config({
+      onEstado:(v)=>setAsistEscuchando(v),
+      onIr:(dest)=>irDesdeAsist(dest),
+      onPedirDato:()=>{ setAsistVozBurbuja(false); setAsistAbierto(true); },
+      toast:(m)=>{ try{ alert(m); }catch(e){} }
+    });
+    // eslint-disable-next-line
+  },[]);
 
   /* Botón físico de atrás del teléfono: sigue la misma jerarquía. */
   useEffect(()=>{
@@ -2008,6 +2724,18 @@ const TAREAS_NOTIF=[
         </div>
       )}
 
+      {MotorVoz.soportado() && (
+        <BurbujaAsistente
+          escuchando={asistEscuchando}
+          onEscuchar={()=>{ setAsistVozBurbuja(true); MotorVoz.alternar(); }} />
+      )}
+      <AsistenteVoz
+        abierto={asistAbierto || asistVozBurbuja}
+        panelVisible={asistAbierto}
+        onCerrar={()=>{ setAsistAbierto(false); setAsistVozBurbuja(false); MotorVoz.apagar(); }}
+        onFinVoz={()=>{ setAsistVozBurbuja(false); }}
+        toast={(m)=>{ try{ alert(m); }catch(e){} }}
+        onIr={irDesdeAsist} />
       <nav className="nav">
         <NavBtn on={tab==="inicio"}   ico="◧" lab="Inicio"     onClick={()=>irInicio()} />
         <NavBtn on={tab==="decidir"}  ico="⚡" lab="Decidir"    badge={decidirPend} onClick={()=>irTab("decidir")} />
