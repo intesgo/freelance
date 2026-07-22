@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"301", fecha:"21 jul 2026", desc:"Asistente: voz sin panel (la burbuja late y escucha); panel solo por toque" };
+const VERSION = { n:"302", fecha:"21 jul 2026", desc:"Asistente: si no entiende dice 'repite' y reintenta 1 vez; busca cliente por nombre parcial" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11158,19 +11158,28 @@ function interpretarAsist(frase){
     });
   });
   if(!mejor) return null;
-  /* Paso 2 - Si pide un dato, buscarlo dentro de la frase. */
+  /* Paso 2 - Si pide un dato, buscarlo dentro de la frase.
+     Calce flexible: primero nombre completo; si no, por alguna palabra larga del nombre
+     (así "Mendoza" encuentra "Comercial Mendoza"). Se ignoran palabras genéricas. */
+  const GENERICAS = ["comercial","distribuidora","tienda","almacen","bodega","abarrotes","super","mini","market","el","la","los","las","de","del","y","don","doña","sr","sra"];
+  const calzaNombre = (nombre)=>{
+    const n = normAsist(nombre);
+    if(f.includes(n)) return true;                 // nombre completo en la frase
+    const parts = n.split(/\s+/).filter(w => w.length>=3 && !GENERICAS.includes(w));
+    return parts.some(w => f.includes(w));          // alguna palabra distintiva
+  };
   let dato = null;
   if(mejor.pide === "cliente"){
-    dato = CLIENTES.find(c => f.includes(normAsist(c)));
+    dato = CLIENTES.find(calzaNombre) || null;
   } else if(mejor.pide === "producto"){
-    const pr = PRODUCTOS.find(p => f.includes(normAsist(p.marca)));
+    const pr = PRODUCTOS.find(p => calzaNombre(p.marca));
     dato = pr ? pr.marca : null;
   } else if(mejor.pide === "vendedor"){
     const vs = [...new Set(CARTERA_INI.map(x=>x.vendedor).filter(Boolean))];
-    dato = vs.find(v => f.includes(normAsist(v)));
+    dato = vs.find(calzaNombre) || null;
   } else if(mejor.pide === "linea"){
     const ls = [...new Set(PRODUCTOS.map(p=>p.linea).filter(Boolean))];
-    dato = ls.find(l => f.includes(normAsist(l)));
+    dato = ls.find(calzaNombre) || null;
   }
   return { pregunta: mejor, dato };
 }
@@ -11245,6 +11254,7 @@ function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesi
   const [noEntendi, setNoEntendi] = useState("");
   const [mostrarTodas, setMostrarTodas] = useState(false); // lista de 30 oculta por defecto
   const refRec = React.useRef(null);
+  const refIntentos = React.useRef(0); // intentos de voz sin entender (para 1 reintento)
 
   /* Escucha una frase libre e interpreta contra el catálogo (habla natural). */
   const escucharNatural = React.useCallback(()=>{
@@ -11263,16 +11273,32 @@ function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesi
       const frase = ev.results[0][0].transcript.trim();
       const res = interpretarAsist(frase);
       if(!res){
+        marcar();
         setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
-        marcar(); if(!panelVisible && onNecesitaPanel) onNecesitaPanel(); // abrir panel para reintentar
+        /* Modo voz: 1er fallo → dice "repite" y vuelve a escuchar; 2º fallo → abre el panel. */
+        if(!panelVisible){
+          refIntentos.current += 1;
+          if(refIntentos.current < 2){
+            hablarTexto("No te entendí, por favor repite");
+            setTimeout(()=>{ escucharNatural(); }, 1600); // reintenta tras hablar
+          } else {
+            hablarTexto("No te entendí. Toca una pregunta.");
+            if(onNecesitaPanel) onNecesitaPanel();
+          }
+        }
         return;
       }
       const p = res.pregunta;
       setPreg(p);
       if(p.pide && !res.dato){
+        marcar();
         setDato(""); setResp(""); setCliResp(null);
         setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
-        marcar(); if(!panelVisible && onNecesitaPanel) onNecesitaPanel(); // abrir panel para escribir el nombre
+        if(!panelVisible){
+          const que = p.pide==="cliente"?"¿De qué cliente?":p.pide==="producto"?"¿De qué producto?":p.pide==="vendedor"?"¿De qué vendedor?":"¿De qué línea?";
+          hablarTexto(que);
+          if(onNecesitaPanel) onNecesitaPanel(); // abrir panel para completar
+        }
         return;
       }
       /* Frase completa por voz: dice la respuesta y salta directo a la pantalla. */
@@ -11292,6 +11318,7 @@ function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesi
   React.useEffect(()=>{
     if(abierto){
       setMostrarTodas(false); setPreg(null); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
+      refIntentos.current = 0; // reinicia intentos de voz
       if(escuchaInicial || !panelVisible) escucharNatural();
     }
     // eslint-disable-next-line
