@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"307", fecha:"22 jul 2026", desc:"Asistente de voz: apagado reforzado (aborta rec previo, tope global 22s, watchdog 8s, limpieza al cerrar)" };
+const VERSION = { n:"308", fecha:"22 jul 2026", desc:"Asistente de voz reescrito: motor global único (MotorVoz), toque en burbuja escucha directo y se apaga infalible" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11184,6 +11184,112 @@ function interpretarAsist(frase){
   return { pregunta: mejor, dato };
 }
 
+/* ══ MOTOR DE VOZ GLOBAL (autónomo, no depende de montar ningún panel) ══
+   Un solo lugar controla el micrófono: arranque, escucha, reintentos y apagado.
+   La burbuja solo llama a MotorVoz.iniciar(). El apagado es infalible porque
+   no depende de montar/desmontar componentes React.
+   El padre registra los callbacks con MotorVoz.config({...}) una sola vez. */
+const MotorVoz = {
+  rec: null,          // instancia de reconocimiento activa
+  intentos: 0,        // intentos sin entender (tope 3)
+  watchdog: null,     // apaga este intento si se cuelga (8s)
+  topeGlobal: null,   // apaga TODO el ciclo pase lo que pase (22s)
+  activo: false,      // ¿escuchando ahora?
+  cb: {},             // callbacks del padre: onEstado, onIr, onPedirDato, toast
+  soportado(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); },
+  config(cb){ this.cb = cb || {}; },
+  _estado(v){ this.activo = v; if(this.cb.onEstado) this.cb.onEstado(v); },
+  _limpiarTimers(){
+    if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog = null; }
+    if(this.topeGlobal){ clearTimeout(this.topeGlobal); this.topeGlobal = null; }
+  },
+  /* Apagado total: mata micrófono, timers y avisa al padre. Idempotente. */
+  apagar(){
+    this._limpiarTimers();
+    if(this.rec){
+      try{ this.rec.onresult=null; this.rec.onerror=null; this.rec.onend=null; this.rec.abort(); }catch(e){}
+      this.rec = null;
+    }
+    this._estado(false);
+  },
+  /* Inicia (o reinicia) la escucha. Se llama al tocar la burbuja y en cada reintento. */
+  iniciar(){
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){ if(this.cb.toast) this.cb.toast("Tu navegador no permite dictado por voz"); return; }
+    /* Mata cualquier reconocimiento anterior que siga vivo. */
+    if(this.rec){ try{ this.rec.onresult=null; this.rec.onerror=null; this.rec.onend=null; this.rec.abort(); }catch(e){} this.rec=null; }
+    if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
+    /* Tope global duro: se arma una sola vez por sesión de escucha (22s). */
+    if(!this.topeGlobal){ this.topeGlobal = setTimeout(()=>{ this.apagar(); }, 22000); }
+    const r = new Rec();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    let resuelto = false;
+    /* Watchdog por intento: si en 8s no captó nada, apaga. */
+    this.watchdog = setTimeout(()=>{ if(!resuelto) this.apagar(); }, 8000);
+    r.onresult = (ev)=>{
+      resuelto = true;
+      if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
+      const frase = ev.results[0][0].transcript.trim();
+      const res = interpretarAsist(frase);
+      if(!res){
+        this.intentos += 1;
+        if(this.intentos < 3){
+          hablarTexto("No te entendí, por favor repite");
+          setTimeout(()=>{ this.iniciar(); }, 1700);
+        } else {
+          hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
+          this.apagar();
+        }
+        return;
+      }
+      const p = res.pregunta;
+      /* Falta el dato (cliente/producto/vendedor/línea): lo pregunta por voz y reintenta. */
+      if(p.pide && !res.dato){
+        this.intentos += 1;
+        const que = p.pide==="cliente"?"¿De qué cliente?":p.pide==="producto"?"¿De qué producto?":p.pide==="vendedor"?"¿De qué vendedor?":"¿De qué línea?";
+        if(this.intentos < 3){
+          hablarTexto(que);
+          setTimeout(()=>{ this.iniciar(); }, 1700);
+        } else {
+          hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
+          if(this.cb.onPedirDato) this.cb.onPedirDato(p);  // abre panel para escribir
+          this.apagar();
+        }
+        return;
+      }
+      /* Frase completa: dice la respuesta y navega. */
+      const texto = p.responder(res.dato || null);
+      hablarTexto(texto);
+      let cli = null;
+      if(p.pide === "cliente" && res.dato && typeof CARTERA_INI !== "undefined"){
+        const f = CARTERA_INI.find(x => normAsist(x.cli) === normAsist(res.dato));
+        cli = f ? f.cli : res.dato;
+      }
+      if(p.ir && this.cb.onIr) this.cb.onIr(p.ir, cli);
+      this.apagar();
+    };
+    r.onerror = (ev)=>{
+      resuelto = true;
+      if(ev.error==="not-allowed" && this.cb.toast) this.cb.toast("Permite el micrófono para hablar");
+      this.apagar();
+    };
+    r.onend = ()=>{
+      /* Si terminó sin resolver y no hay reintento en camino, apaga. */
+      if(!resuelto && this.intentos === 0){ this.apagar(); }
+    };
+    this.rec = r;
+    this._estado(true);
+    try{ r.start(); }catch(e){ this.apagar(); }
+  },
+  /* Botón tocado: si ya escucha, apaga (toggle); si no, arranca de cero. */
+  alternar(){
+    if(this.activo){ this.apagar(); return; }
+    this.intentos = 0;
+    if(this.topeGlobal){ clearTimeout(this.topeGlobal); this.topeGlobal=null; }
+    this.iniciar();
+  }
+};
+
 /* ── Burbuja flotante movible del asistente ──
    Toque = abre el panel. Mantener presionada (~0.6s) = escucha directo (habla natural).
    Arrastrar = reubica; al soltar se pega al borde más cercano. */
@@ -11365,7 +11471,8 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
         setMostrarTodas(true);   // abrir directo en la lista de preguntas (desde Ajustes)
       } else {
         setMostrarTodas(false);
-        if(escuchaInicial || !panelVisible) escucharNatural();
+        /* El panel NO auto-escucha: la voz la maneja el MotorVoz global desde la
+           burbuja. El panel solo escucha si el usuario toca el micrófono interno. */
       }
     }
     // eslint-disable-next-line
@@ -19080,6 +19187,22 @@ function App({usuario, onSalir}){
   const [hist,setHist]=useState([]);
   const backHandlerRef = React.useRef(null); // retroceso interno del módulo activo (modelo: Clientes)
   const navegar=(t)=>{ if(t===tab) return; setHist(h=>[...h,tab]); setTab(t); };
+  /* Config del motor de voz: la burbuja usa MotorVoz directo; aquí le damos
+     los callbacks (prender/apagar burbuja, navegar, abrir panel si falta dato). */
+  const refNavegar = React.useRef(navegar); refNavegar.current = navegar;
+  const refShow = React.useRef(show); refShow.current = show;
+  React.useEffect(()=>{
+    MotorVoz.config({
+      onEstado:(v)=>{ setAsistVozBurbuja(v); },
+      toast:(m)=>{ if(refShow.current) refShow.current(m); },
+      onIr:(tab, cli)=>{
+        if(cli && tab==="cartera"){ setCliFicha(cli); setSecFicha("cartera"); refNavegar.current("clientes"); return; }
+        if(cli && tab==="clientes"){ setCliFicha(cli); refNavegar.current("clientes"); return; }
+        refNavegar.current(tab);
+      },
+      onPedirDato:(p)=>{ setAsistLista(false); setAsistAbierto(true); }  // abre panel para escribir el dato
+    });
+  },[]);
   const [escuchando,setEscuchando]=useState(false);
   /* navegación por voz: mapa de sinónimos hablados → módulo */
   const VOZ_MODULOS=[
@@ -19609,12 +19732,12 @@ function App({usuario, onSalir}){
       {/* Asistente de consultas por voz: burbuja movible en todas las pantallas */}
       {!asistAbierto && (
         <BurbujaAsistente escuchando={asistVozBurbuja}
-          onAbrir={()=>{ setAsistEscucha(false); setAsistVozBurbuja(false); setAsistAbierto(true); }}
-          onEscuchar={()=>{ setAsistAbierto(false); setAsistEscucha(true); setAsistVozBurbuja(true); }} />
+          onAbrir={()=>{ MotorVoz.apagar(); setAsistEscucha(false); setAsistVozBurbuja(false); setAsistAbierto(true); }}
+          onEscuchar={()=>{ setAsistAbierto(false); setAsistEscucha(false); MotorVoz.alternar(); }} />
       )}
-      <AsistenteVoz abierto={asistAbierto || asistVozBurbuja} panelVisible={asistAbierto}
+      <AsistenteVoz abierto={asistAbierto} panelVisible={asistAbierto}
         modoLista={asistLista}
-        escuchaInicial={asistEscucha}
+        escuchaInicial={false}
         onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false); setAsistLista(false); }}
         onFinVoz={()=>{ setAsistVozBurbuja(false); setAsistEscucha(false); }}
         onNecesitaPanel={()=>{ setAsistVozBurbuja(false); setAsistAbierto(true); }}
