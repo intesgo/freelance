@@ -1197,7 +1197,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"25", fecha:"21 jul 2026", desc:"Buscador del selector alineado al diseno" };
+const VERSION = { n:"26", fecha:"21 jul 2026", desc:"Ocultar presentaciones ya emparejadas" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2813,6 +2813,7 @@ function CargaXML({irTab}){
   const [ofertas,setOfertas]=useState(null);   // null=cargando, []=sin productos, [...]=lista
   const [ofertasErr,setOfertasErr]=useState(false);
   const [buscaProd,setBuscaProd]=useState("");  // texto del buscador del selector
+  const [usadas,setUsadas]=useState([]);  // claves "prodId|pres" ya emparejadas en esta carga
   React.useEffect(()=>{
     let vivo=true;
     (async()=>{
@@ -2914,12 +2915,13 @@ function CargaXML({irTab}){
   };
 
   /* Confirmar una equivalencia: se guarda y ya no vuelve a preguntar. */
-  const emparejar=(codProv, prodId, desc, nombreLinea)=>{
+  const emparejar=(codProv, prodId, desc, nombreLinea, pres)=>{
     const au = nuevoAu();
     setEquis(prev=>[{codProv, prodId, nombre:nombreLinea||prodId,
       desde:"2026-07-20", quien:PROVEEDOR.contacto, descOriginal:desc, au}, ...prev]);
     setResuelto(prev=>({...prev, [codProv]:prodId}));
     setNombresRes(prev=>({...prev, [codProv]:(nombreLinea||prodId)}));
+    if(pres) setUsadas(prev=>[...prev, prodId+"|"+pres]);
     setEligiendo(null);
     toast(`${codProv} queda vinculado · la próxima vez entra solo`);
   };
@@ -3161,18 +3163,19 @@ function CargaXML({irTab}){
           )}
           {ofertas!==null && ofertas.length>0 && (()=>{
             const q=buscaProd.trim().toLowerCase();
-            const lista=q? ofertas.filter(c=>
+            const disp=ofertas.filter(c=>!usadas.includes(c.prodId+"|"+c.pres));
+            const lista=q? disp.filter(c=>
               (c.nombre||"").toLowerCase().includes(q) ||
-              (c.prodId||"").toLowerCase().includes(q)) : ofertas;
+              (c.prodId||"").toLowerCase().includes(q)) : disp;
             if(lista.length===0) return (
               <div className="card card-pad" style={{marginBottom:8}}>
-                <div className="sub tiny">Ningún producto coincide con «{buscaProd}».</div>
+                <div className="sub tiny">{q? `Ningún producto coincide con «${buscaProd}».` : "Ya emparejaste todas las presentaciones disponibles."}</div>
               </div>
             );
             return lista.map((c,ix)=>(
               <button key={c.prodId+"-"+c.pres+"-"+ix} className="card card-pad"
                 style={{width:"100%",textAlign:"left",marginBottom:8}}
-                onClick={()=>emparejar(eligiendo.codProv, c.prodId, eligiendo.desc, `${c.nombre} · ${c.pres}`)}>
+                onClick={()=>emparejar(eligiendo.codProv, c.prodId, eligiendo.desc, `${c.nombre} · ${c.pres}`, c.pres)}>
                 <div style={{fontWeight:600,fontSize:14}}>{c.nombre}</div>
                 <div className="sub tiny num">{c.prodId} · {c.pres}</div>
               </button>
