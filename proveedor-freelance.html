@@ -917,6 +917,27 @@ function desenvolverSRI(texto){
   catch(e){ return { error:"El archivo no es un XML válido." }; }
   if(!doc || doc.getElementsByTagName("parsererror").length)
     return { error:"El archivo no es un XML válido." };
+
+  /* ══ VALIDACIÓN DE AUTORIZACIÓN DEL SRI ══
+     Solo entran comprobantes AUTORIZADOS. El archivo autorizado viene envuelto en
+     <autorizacion> con <estado>AUTORIZADO</estado>, su <numeroAutorizacion> y <fechaAutorizacion>.
+     Si el estado no es AUTORIZADO, o si el archivo viene directo (<factura> sin envoltorio,
+     es decir sin pasar por el SRI), se rechaza. La confirmación en vivo contra el SRI es Fase 4 (servidor). */
+  const nodoAut = doc.getElementsByTagName("autorizacion")[0];
+  let autorizacion = null;
+  if(nodoAut){
+    const estado = textoDe(nodoAut,"estado").toUpperCase();
+    if(estado && estado !== "AUTORIZADO")
+      return { error:"El comprobante no está AUTORIZADO por el SRI (estado: "+estado+"). Solo se aceptan documentos autorizados." };
+    autorizacion = {
+      numero: textoDe(nodoAut,"numeroAutorizacion"),
+      fecha:  textoDe(nodoAut,"fechaAutorizacion"),
+      estado: estado || "AUTORIZADO",
+    };
+  } else {
+    return { error:"El archivo no viene autorizado por el SRI (falta el bloque de autorización). Sube el XML autorizado que te devolvió el SRI, no el generado antes de enviarlo." };
+  }
+
   const buscar = (d)=>{
     for(const k in TIPOS_SRI){
       const n = d.getElementsByTagName(TIPOS_SRI[k].etiqueta)[0];
@@ -935,7 +956,7 @@ function desenvolverSRI(texto){
     }
   }
   if(!hallado) return { error:"No se reconoce el tipo de comprobante del archivo." };
-  return hallado;
+  return { ...hallado, autorizacion };
 }
 /* Datos que todos los comprobantes comparten (cabecera tributaria). */
 function cabeceraSRI(nodo){
@@ -1082,6 +1103,7 @@ function leerFacturaSRI(texto){
     cliente: textoDe(info,"razonSocialComprador") || "Cliente sin nombre",
     clienteRuc: textoDe(info,"identificacionComprador"),
     total: parseFloat(textoDe(info,"importeTotal")) || 0,
+    autorizacion: env.autorizacion,   /* estado + número + fecha de autorización del SRI */
     lineas,
   };
 }
@@ -1197,7 +1219,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"27", fecha:"21 jul 2026", desc:"Sello de version en Inicio" };
+const VERSION = { n:"28", fecha:"21 jul 2026", desc:"Solo XML autorizado por el SRI + foto de respaldo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2886,6 +2908,19 @@ function CargaXML({irTab}){
   const grupoVivo = (grupo && cuantos[grupo]) ? grupo : auto;
 
   const archivoRef = React.useRef(null);
+  /* Foto de la factura física: respaldo visual adjunto (NO reemplaza al XML, que es la verdad legal). */
+  const fotoRef = React.useRef(null);
+  const [fotoFactura, setFotoFactura] = React.useState(null);
+  const elegirFoto=()=>{ if(fotoRef.current) fotoRef.current.click(); };
+  const alTomarFoto=(e)=>{
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if(!f) return;
+    const lec = new FileReader();
+    lec.onerror = ()=> toast("No se pudo leer la foto. Intenta de nuevo.");
+    lec.onload = ()=>{ setFotoFactura(String(lec.result||"")); toast("Foto de respaldo adjunta ✓"); };
+    lec.readAsDataURL(f);
+  };
   /* Lector real: abre el explorador del telefono y lee el XML de verdad.
      Si el archivo no sirve, se avisa y NO se carga nada inventado. */
   const elegirArchivo=()=>{ if(archivoRef.current) archivoRef.current.click(); };
@@ -3003,6 +3038,21 @@ function CargaXML({irTab}){
           Elegir archivo</button>
         <button className="btn btn-ghost" style={{width:"100%",marginTop:10}} onClick={verEjemplo}>
           Ver un ejemplo</button>
+
+        <div className="sub tiny" style={{marginTop:14,paddingTop:12,borderTop:"1px solid var(--linea)",lineHeight:1.5}}>
+          ¿Tienes la factura impresa? Adjunta una foto como respaldo. El XML sigue siendo obligatorio: la foto no lo reemplaza.</div>
+        <input ref={fotoRef} type="file" accept="image/*" capture="environment"
+          style={{display:"none"}} onChange={alTomarFoto} />
+        <button className="btn btn-ghost" style={{width:"100%",marginTop:10}} onClick={elegirFoto}>
+          {fotoFactura ? "📷 Cambiar foto de respaldo" : "📷 Adjuntar foto de la factura"}</button>
+        {fotoFactura && (
+          <div style={{marginTop:10,position:"relative"}}>
+            <img src={fotoFactura} alt="Respaldo de factura" style={{width:"100%",borderRadius:10,border:"1px solid var(--linea)"}} />
+            <button className="btn btn-ghost" style={{width:"100%",marginTop:6,fontSize:13}}
+              onClick={()=>{ setFotoFactura(null); toast("Foto de respaldo quitada"); }}>
+              Quitar foto</button>
+          </div>
+        )}
       </div>
 
       <div className="sec-gap" style={{height:12}} />
