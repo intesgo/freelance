@@ -239,6 +239,7 @@
     width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--field)}
   .ptr-c.gira{animation:girar .8s linear infinite}
   @keyframes girar{to{transform:rotate(360deg)}}
+  @keyframes burbujaLatido{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
   .sync-intro{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.5}
   .sync-item{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line)}
   .sync-ic{font-size:22px;width:38px;height:38px;border-radius:10px;background:var(--paper);
@@ -4562,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"300", fecha:"21 jul 2026", desc:"Asistente: por voz salta directo a la pantalla + dice la respuesta en voz alta" };
+const VERSION = { n:"301", fecha:"21 jul 2026", desc:"Asistente: voz sin panel (la burbuja late y escucha); panel solo por toque" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11177,7 +11178,7 @@ function interpretarAsist(frase){
 /* ── Burbuja flotante movible del asistente ──
    Toque = abre el panel. Mantener presionada (~0.6s) = escucha directo (habla natural).
    Arrastrar = reubica; al soltar se pega al borde más cercano. */
-function BurbujaAsistente({ onAbrir, onEscuchar }){
+function BurbujaAsistente({ onAbrir, onEscuchar, escuchando }){
   const [pos, setPos] = useState({ x: (window.innerWidth||400) - 74, y: (window.innerHeight||700) - 150 });
   const ref = React.useRef({ arrastrando:false, movio:false, ini:null, timer:null, longpress:false });
 
@@ -11220,11 +11221,14 @@ function BurbujaAsistente({ onAbrir, onEscuchar }){
       onMouseDown={iniciar} onMouseMove={mover} onMouseUp={soltar} onMouseLeave={soltar}
       onTouchStart={iniciar} onTouchMove={mover} onTouchEnd={soltar}
       aria-label="Asistente de voz"
+      className={escuchando ? "burbuja-escucha" : ""}
       style={{position:"fixed", left:pos.x, top:pos.y, zIndex:95, width:56, height:56, borderRadius:"50%",
-        border:"none", background:"var(--maize-deep, #C9A227)", color:"#fff", fontSize:24, cursor:"grab",
-        boxShadow:"0 6px 20px rgba(0,0,0,.28)", display:"flex", alignItems:"center", justifyContent:"center",
-        touchAction:"none", userSelect:"none"}}>
-      🎙️
+        border:"none", background: escuchando ? "var(--clay, #C2603A)" : "var(--maize-deep, #C9A227)", color:"#fff", fontSize:24, cursor:"grab",
+        boxShadow: escuchando ? "0 0 0 6px rgba(194,96,58,.25), 0 6px 20px rgba(0,0,0,.28)" : "0 6px 20px rgba(0,0,0,.28)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        touchAction:"none", userSelect:"none",
+        animation: escuchando ? "burbujaLatido 1s ease-in-out infinite" : "none"}}>
+      {escuchando ? "●" : "🎙️"}
     </button>
   );
 }
@@ -11232,7 +11236,7 @@ function BurbujaAsistente({ onAbrir, onEscuchar }){
 /* Etiqueta corta del botón "Ir a…" según la tab destino de la pregunta. */
 const ETIQUETA_IR = { cartera:"Cartera", clientes:"Cliente", equipo:"Comisiones", agenda:"Agenda", productos:"Productos", cobros:"Cobros" };
 
-function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, onIr, escuchaInicial }){
+function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesitaPanel, toast, onVerCartera, onIr, escuchaInicial }){
   const [preg, setPreg] = useState(null);   // pregunta elegida
   const [dato, setDato] = useState("");      // cliente/producto escrito o dictado
   const [resp, setResp] = useState("");      // respuesta mostrada
@@ -11245,40 +11249,57 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, onIr, escuchaIni
   /* Escucha una frase libre e interpreta contra el catálogo (habla natural). */
   const escucharNatural = React.useCallback(()=>{
     const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if(!Rec){ if(toast) toast("Tu navegador no permite dictado por voz"); return; }
+    if(!Rec){
+      if(toast) toast("Tu navegador no permite dictado por voz");
+      if(!panelVisible && onFinVoz) onFinVoz();
+      return;
+    }
     const r = new Rec();
     r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    let resuelto = false; // ¿este ciclo ya saltó o abrió panel?
+    const marcar = ()=>{ resuelto = true; };
     setNoEntendi(""); setEscuchando(true);
     r.onresult = ev=>{
       const frase = ev.results[0][0].transcript.trim();
       const res = interpretarAsist(frase);
-      if(!res){ setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo."); return; }
+      if(!res){
+        setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
+        marcar(); if(!panelVisible && onNecesitaPanel) onNecesitaPanel(); // abrir panel para reintentar
+        return;
+      }
       const p = res.pregunta;
       setPreg(p);
       if(p.pide && !res.dato){
         setDato(""); setResp(""); setCliResp(null);
         setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
+        marcar(); if(!panelVisible && onNecesitaPanel) onNecesitaPanel(); // abrir panel para escribir el nombre
         return;
       }
       /* Frase completa por voz: dice la respuesta y salta directo a la pantalla. */
-      responderYsaltar(p, res.dato || null);
+      marcar();
+      const salto = responderYsaltar(p, res.dato || null);
+      /* Si no había pantalla destino, cae a mostrar respuesta: abre el panel para verla. */
+      if(!salto && !panelVisible && onNecesitaPanel) onNecesitaPanel();
     };
-    r.onerror = ev=>{ setEscuchando(false); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); };
-    r.onend = ()=> setEscuchando(false);
+    r.onerror = ev=>{ setEscuchando(false); marcar(); if(!panelVisible && onFinVoz) onFinVoz(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); };
+    r.onend = ()=>{ setEscuchando(false); if(!resuelto && !panelVisible && onFinVoz) onFinVoz(); };
     refRec.current = r;
-    try{ r.start(); }catch(e){ setEscuchando(false); }
-  },[toast]);
+    try{ r.start(); }catch(e){ setEscuchando(false); if(!panelVisible && onFinVoz) onFinVoz(); }
+  },[toast, panelVisible, onNecesitaPanel, onFinVoz]);
 
-  /* Al abrir: arranca en modo minimal (sin lista). Si vino por long-press, escucha directo. */
+  /* Al abrir: arranca en modo minimal (sin lista).
+     Si vino por voz (long-press / burbuja), escucha directo aunque el panel esté oculto. */
   React.useEffect(()=>{
     if(abierto){
       setMostrarTodas(false); setPreg(null); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
-      if(escuchaInicial) escucharNatural();
+      if(escuchaInicial || !panelVisible) escucharNatural();
     }
     // eslint-disable-next-line
-  },[abierto, escuchaInicial]);
+  },[abierto, escuchaInicial, panelVisible]);
 
   if(!abierto) return null;
+  /* Modo voz desde la burbuja: escucha sin mostrar panel (la burbuja late). */
+  if(!panelVisible) return null;
 
   const responder = (p, valorDato) => {
     const texto = p.responder(valorDato);
@@ -18880,6 +18901,7 @@ function App({usuario, onSalir}){
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
   const [asistAbierto,setAsistAbierto]=useState(false); // asistente de consultas por voz
   const [asistEscucha,setAsistEscucha]=useState(false); // abrir el asistente escuchando directo (long-press)
+  const [asistVozBurbuja,setAsistVozBurbuja]=useState(false); // escuchando por voz desde la burbuja, SIN panel
   /* deslizar desde el borde izquierdo abre el menú (no cuando ya está abierto) */
   /* el gesto acompaña al botón ☰: solo desde el inicio */
   useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto && tab==="inicio");
@@ -19490,15 +19512,19 @@ function App({usuario, onSalir}){
       )}
       {/* Asistente de consultas por voz: burbuja movible en todas las pantallas */}
       {!asistAbierto && (
-        <BurbujaAsistente
-          onAbrir={()=>{ setAsistEscucha(false); setAsistAbierto(true); }}
-          onEscuchar={()=>{ setAsistEscucha(true); setAsistAbierto(true); }} />
+        <BurbujaAsistente escuchando={asistVozBurbuja}
+          onAbrir={()=>{ setAsistEscucha(false); setAsistVozBurbuja(false); setAsistAbierto(true); }}
+          onEscuchar={()=>{ setAsistAbierto(false); setAsistEscucha(true); setAsistVozBurbuja(true); }} />
       )}
-      <AsistenteVoz abierto={asistAbierto} escuchaInicial={asistEscucha}
-        onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); }} toast={show}
+      <AsistenteVoz abierto={asistAbierto || asistVozBurbuja} panelVisible={asistAbierto}
+        escuchaInicial={asistEscucha}
+        onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false); }}
+        onFinVoz={()=>{ setAsistVozBurbuja(false); setAsistEscucha(false); }}
+        onNecesitaPanel={()=>{ setAsistVozBurbuja(false); setAsistAbierto(true); }}
+        toast={show}
         onVerCartera={(c)=>{ setCliFicha(c); setSecFicha("cartera"); navegar("clientes"); }}
         onIr={(tab, cli)=>{
-          setAsistAbierto(false); setAsistEscucha(false);
+          setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false);
           if(cli && tab==="cartera"){ setCliFicha(cli); setSecFicha("cartera"); navegar("clientes"); return; }
           if(cli && tab==="clientes"){ setCliFicha(cli); navegar("clientes"); return; }
           navegar(tab);
