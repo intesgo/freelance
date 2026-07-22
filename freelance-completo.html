@@ -4562,7 +4562,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"298", fecha:"21 jul 2026", desc:"Asistente: burbuja movible + habla natural (long-press)" };
+const VERSION = { n:"299", fecha:"21 jul 2026", desc:"Asistente: flujo directo (habla → respuesta → Ir a…), lista de 30 oculta" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10887,7 +10887,7 @@ const MES_ACTUAL_ABR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","O
    La pantalla y la voz se generan solas desde esta lista. */
 const PREGUNTAS_ASIST = [
   // ── CARTERA Y COBROS ──
-  { id:"pendiente", cat:"Cartera", label:"Valor pendiente de un cliente", ic:"💰", pide:"cliente",
+  { id:"pendiente", cat:"Cartera", label:"Valor pendiente de un cliente", ic:"💰", pide:"cliente", ir:"cartera",
     responder:(cli)=>{
       const facs = CARTERA_INI.filter(f => normAsist(f.cli) === normAsist(cli));
       if(!facs.length) return "No encontré cartera pendiente de " + cli + ".";
@@ -10896,39 +10896,39 @@ const PREGUNTAS_ASIST = [
       return cli + " tiene " + dineroAsist(total) + " pendiente en " + facs.length + " factura" + (facs.length!==1?"s":"") +
         (venc>0 ? ", de los cuales " + dineroAsist(venc) + " está vencido." : ", todo al día.");
     } },
-  { id:"vencidasCli", cat:"Cartera", label:"Facturas vencidas de un cliente", ic:"⏰", pide:"cliente",
+  { id:"vencidasCli", cat:"Cartera", label:"Facturas vencidas de un cliente", ic:"⏰", pide:"cliente", ir:"cartera",
     responder:(cli)=>{
       const venc = CARTERA_INI.filter(f => normAsist(f.cli)===normAsist(cli) && (f.dias||0)>0);
       if(!venc.length) return cli + " no tiene facturas vencidas.";
       const total = venc.reduce((a,f)=>a+(f.saldo||0),0);
       return cli + " tiene " + venc.length + " factura" + (venc.length!==1?"s":"") + " vencida" + (venc.length!==1?"s":"") + " por " + dineroAsist(total) + ".";
     } },
-  { id:"cobrosHoy", cat:"Cartera", label:"Cobros para hoy", ic:"💵", pide:null,
+  { id:"cobrosHoy", cat:"Cartera", label:"Cobros para hoy", ic:"💵", pide:null, ir:"cartera",
     responder:()=>{
       const hoy = COBROS_INI.filter(c => /hoy/i.test(c.vence));
       if(!hoy.length) return "No hay cobros que venzan hoy.";
       const total = hoy.reduce((a,c)=>a+(c.valor||0),0);
       return "Hoy vencen " + hoy.length + " cobro" + (hoy.length!==1?"s":"") + " por " + dineroAsist(total) + ": " + hoy.map(c=>c.cli).join(", ") + ".";
     } },
-  { id:"cobrosSemana", cat:"Cartera", label:"Facturas que vencen esta semana", ic:"📆", pide:null,
+  { id:"cobrosSemana", cat:"Cartera", label:"Facturas que vencen esta semana", ic:"📆", pide:null, ir:"cartera",
     responder:()=>{
       const sem = CARTERA_INI.filter(f => (f.dias||0)>=-7 && (f.dias||0)<=0);
       if(!sem.length) return "No hay facturas que venzan esta semana.";
       const total = sem.reduce((a,f)=>a+(f.saldo||0),0);
       return sem.length + " factura" + (sem.length!==1?"s":"") + " vence" + (sem.length!==1?"n":"") + " esta semana por " + dineroAsist(total) + ".";
     } },
-  { id:"carteraVencida", cat:"Cartera", label:"Total de cartera vencida", ic:"🔴", pide:null,
+  { id:"carteraVencida", cat:"Cartera", label:"Total de cartera vencida", ic:"🔴", pide:null, ir:"cartera",
     responder:()=>{
       const venc = CARTERA_INI.filter(f => (f.dias||0)>0);
       const total = venc.reduce((a,f)=>a+(f.saldo||0),0);
       return "La cartera vencida del negocio suma " + dineroAsist(total) + " en " + venc.length + " factura" + (venc.length!==1?"s":"") + ".";
     } },
-  { id:"totalPorCobrar", cat:"Cartera", label:"Total por cobrar del negocio", ic:"🏦", pide:null,
+  { id:"totalPorCobrar", cat:"Cartera", label:"Total por cobrar del negocio", ic:"🏦", pide:null, ir:"cartera",
     responder:()=>{
       const total = CARTERA_INI.reduce((a,f)=>a+(f.saldo||0),0);
       return "El total por cobrar del negocio es " + dineroAsist(total) + " en " + CARTERA_INI.length + " facturas.";
     } },
-  { id:"clienteMasDebe", cat:"Cartera", label:"Cliente que más debe", ic:"📛", pide:null,
+  { id:"clienteMasDebe", cat:"Cartera", label:"Cliente que más debe", ic:"📛", pide:null, ir:"cartera",
     responder:()=>{
       const porCli = {};
       CARTERA_INI.forEach(f=>{ porCli[f.cli]=(porCli[f.cli]||0)+(f.saldo||0); });
@@ -10936,7 +10936,7 @@ const PREGUNTAS_ASIST = [
       if(!arr.length) return "No hay cartera registrada.";
       return "El cliente que más debe es " + arr[0][0] + " con " + dineroAsist(arr[0][1]) + ".";
     } },
-  { id:"cobrosVendedor", cat:"Cartera", label:"Cartera de un vendedor", ic:"🧑‍💼", pide:"vendedor",
+  { id:"cobrosVendedor", cat:"Cartera", label:"Cartera de un vendedor", ic:"🧑‍💼", pide:"vendedor", ir:"equipo",
     responder:(v)=>{
       const facs = CARTERA_INI.filter(f => normAsist(f.vendedor||"").includes(normAsist(v)));
       if(!facs.length) return "No encontré cartera del vendedor " + v + ".";
@@ -10945,7 +10945,7 @@ const PREGUNTAS_ASIST = [
     } },
 
   // ── COMISIONES ──
-  { id:"comisiones", cat:"Comisiones", label:"Comisiones generadas este mes", ic:"📊", pide:null,
+  { id:"comisiones", cat:"Comisiones", label:"Comisiones generadas este mes", ic:"📊", pide:null, ir:"equipo",
     responder:()=>{
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
@@ -10954,7 +10954,7 @@ const PREGUNTAS_ASIST = [
       if(!hay) return "No hay comisiones registradas para " + MES_ACTUAL_ABR + " todavía.";
       return "En " + MES_ACTUAL_ABR + " se han generado " + dineroAsist(total) + " en comisiones del equipo.";
     } },
-  { id:"comLiberadas", cat:"Comisiones", label:"Comisiones liberadas del mes", ic:"✅", pide:null,
+  { id:"comLiberadas", cat:"Comisiones", label:"Comisiones liberadas del mes", ic:"✅", pide:null, ir:"equipo",
     responder:()=>{
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
@@ -10962,7 +10962,7 @@ const PREGUNTAS_ASIST = [
       Object.values(eq).forEach(sc=>{ const m=(sc.meses||[]).find(x=>x.mes===MES_ACTUAL_ABR); if(m) total+=(m.liberada||0); });
       return "En " + MES_ACTUAL_ABR + " se han liberado " + dineroAsist(total) + " en comisiones.";
     } },
-  { id:"comPendientes", cat:"Comisiones", label:"Comisiones pendientes de liberar", ic:"⌛", pide:null,
+  { id:"comPendientes", cat:"Comisiones", label:"Comisiones pendientes de liberar", ic:"⌛", pide:null, ir:"equipo",
     responder:()=>{
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
@@ -10971,7 +10971,7 @@ const PREGUNTAS_ASIST = [
       if(!ret) return "No hay comisiones pendientes de liberar en " + MES_ACTUAL_ABR + ".";
       return "Hay " + dineroAsist(ret) + " en comisiones retenidas, pendientes de liberar en " + MES_ACTUAL_ABR + ".";
     } },
-  { id:"comProveedor", cat:"Comisiones", label:"Comisión del proveedor este mes", ic:"🏭", pide:null,
+  { id:"comProveedor", cat:"Comisiones", label:"Comisión del proveedor este mes", ic:"🏭", pide:null, ir:"equipo",
     responder:()=>{
       const anio = COMISIONES_PROVEEDOR[2026] ? 2026 : Object.keys(COMISIONES_PROVEEDOR)[0];
       const provs = COMISIONES_PROVEEDOR[anio] || {};
@@ -10979,7 +10979,7 @@ const PREGUNTAS_ASIST = [
       Object.values(provs).forEach(p=>{ const m=(p.meses||[]).find(x=>x.mes===MES_ACTUAL_ABR); if(m) total+=(m.generada||0); });
       return "La comisión de proveedores en " + MES_ACTUAL_ABR + " suma " + dineroAsist(total) + ".";
     } },
-  { id:"comAnioTotal", cat:"Comisiones", label:"Comisiones acumuladas del año", ic:"📈", pide:null,
+  { id:"comAnioTotal", cat:"Comisiones", label:"Comisiones acumuladas del año", ic:"📈", pide:null, ir:"equipo",
     responder:()=>{
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
@@ -10989,15 +10989,15 @@ const PREGUNTAS_ASIST = [
     } },
 
   // ── CLIENTES ──
-  { id:"cuantosClientes", cat:"Clientes", label:"Cuántos clientes tengo", ic:"👥", pide:null,
+  { id:"cuantosClientes", cat:"Clientes", label:"Cuántos clientes tengo", ic:"👥", pide:null, ir:"clientes",
     responder:()=>{ return "Tienes " + CLIENTES.length + " clientes registrados."; } },
-  { id:"bloqueados", cat:"Clientes", label:"Clientes bloqueados", ic:"🚫", pide:null,
+  { id:"bloqueados", cat:"Clientes", label:"Clientes bloqueados", ic:"🚫", pide:null, ir:"clientes",
     responder:()=>{
       const bloq = Object.entries(RIESGO_CLIENTE).filter(([c,r])=> (r.vencidas>0 || r.protestados>0)).map(([c])=>c);
       if(!bloq.length) return "No hay clientes bloqueados.";
       return "Hay " + bloq.length + " cliente" + (bloq.length!==1?"s":"") + " bloqueado" + (bloq.length!==1?"s":"") + ": " + bloq.join(", ") + ".";
     } },
-  { id:"cupoCliente", cat:"Clientes", label:"Cupo disponible de un cliente", ic:"💳", pide:"cliente",
+  { id:"cupoCliente", cat:"Clientes", label:"Cupo disponible de un cliente", ic:"💳", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
       const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
       if(!key) return "No encontré la ficha de " + cli + ".";
@@ -11005,26 +11005,26 @@ const PREGUNTAS_ASIST = [
       const disp = (f.cupo||0) - (f.debe||0);
       return cli + " tiene un cupo de " + dineroAsist(f.cupo) + ", usa " + dineroAsist(f.debe) + " y le queda disponible " + dineroAsist(disp) + ".";
     } },
-  { id:"diasCredito", cat:"Clientes", label:"Días de crédito de un cliente", ic:"🗓️", pide:"cliente",
+  { id:"diasCredito", cat:"Clientes", label:"Días de crédito de un cliente", ic:"🗓️", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
       const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
       if(!key) return "No encontré la ficha de " + cli + ".";
       return cli + " tiene " + (FICHA_CLIENTE[key].diasCredito||0) + " días de crédito.";
     } },
-  { id:"ultimaCompra", cat:"Clientes", label:"Última compra de un cliente", ic:"🛍️", pide:"cliente",
+  { id:"ultimaCompra", cat:"Clientes", label:"Última compra de un cliente", ic:"🛍️", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
       const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
       if(!key) return "No encontré la ficha de " + cli + ".";
       return "La última compra de " + cli + " fue el " + (FICHA_CLIENTE[key].ultimaCompra||"—") + ".";
     } },
-  { id:"datosCliente", cat:"Clientes", label:"Datos de contacto de un cliente", ic:"📇", pide:"cliente",
+  { id:"datosCliente", cat:"Clientes", label:"Datos de contacto de un cliente", ic:"📇", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
       const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
       if(!key) return "No encontré la ficha de " + cli + ".";
       const f = FICHA_CLIENTE[key];
       return cli + ": contacto " + (f.contacto||"—") + ", teléfono " + (f.tel||"—") + ", en " + (f.ciudad||"—") + ".";
     } },
-  { id:"clientesVendedor", cat:"Clientes", label:"Clientes de un vendedor", ic:"🧑‍🌾", pide:"vendedor",
+  { id:"clientesVendedor", cat:"Clientes", label:"Clientes de un vendedor", ic:"🧑‍🌾", pide:"vendedor", ir:"equipo",
     responder:(v)=>{
       const set = new Set(CARTERA_INI.filter(f=>normAsist(f.vendedor||"").includes(normAsist(v))).map(f=>f.cli));
       if(!set.size) return "No encontré clientes del vendedor " + v + ".";
@@ -11032,26 +11032,26 @@ const PREGUNTAS_ASIST = [
     } },
 
   // ── VISITAS / AGENDA ──
-  { id:"visita", cat:"Visitas", label:"Próximo cliente a visitar", ic:"📍", pide:null,
+  { id:"visita", cat:"Visitas", label:"Próximo cliente a visitar", ic:"📍", pide:null, ir:"agenda",
     responder:()=>{
       const lista = clientesPorVisitar();
       if(!lista.length) return "No hay clientes urgentes por visitar ahora mismo.";
       const p = lista[0];
       return "El próximo a visitar es " + p.cli + ": le quedan cerca de " + p.dias + " día" + (p.dias!==1?"s":"") + " de stock" + (p.nivel==="rojo"?" — es urgente.":".");
     } },
-  { id:"urgentesVisita", cat:"Visitas", label:"Clientes urgentes por visitar", ic:"🚨", pide:null,
+  { id:"urgentesVisita", cat:"Visitas", label:"Clientes urgentes por visitar", ic:"🚨", pide:null, ir:"agenda",
     responder:()=>{
       const rojos = clientesPorVisitar().filter(x=>x.nivel==="rojo");
       if(!rojos.length) return "No hay clientes urgentes por visitar.";
       return "Hay " + rojos.length + " cliente" + (rojos.length!==1?"s":"") + " urgente" + (rojos.length!==1?"s":"") + " por visitar: " + rojos.map(x=>x.cli).join(", ") + ".";
     } },
-  { id:"rutaVendedor", cat:"Visitas", label:"Ruta de un vendedor", ic:"🗺️", pide:"vendedor",
+  { id:"rutaVendedor", cat:"Visitas", label:"Ruta de un vendedor", ic:"🗺️", pide:"vendedor", ir:"equipo",
     responder:(v)=>{
       const r = CLIENTES_RUTA.filter(x=>normAsist(x.vendedor||"").includes(normAsist(v)));
       if(!r.length) return "No encontré ruta para el vendedor " + v + ".";
       return "El vendedor " + v + " tiene " + r.length + " parada" + (r.length!==1?"s":"") + " en su ruta: " + r.map(x=>x.cli).join(", ") + ".";
     } },
-  { id:"cobrosRuta", cat:"Visitas", label:"Cobros pendientes en ruta", ic:"💼", pide:null,
+  { id:"cobrosRuta", cat:"Visitas", label:"Cobros pendientes en ruta", ic:"💼", pide:null, ir:"agenda",
     responder:()=>{
       const conCobro = CLIENTES_RUTA.filter(x=>(x.cobro||0)>0);
       const total = conCobro.reduce((a,x)=>a+(x.cobro||0),0);
@@ -11060,7 +11060,7 @@ const PREGUNTAS_ASIST = [
     } },
 
   // ── PRODUCTOS Y PRECIOS ──
-  { id:"precio", cat:"Productos", label:"Precio de un producto", ic:"🏷️", pide:"producto",
+  { id:"precio", cat:"Productos", label:"Precio de un producto", ic:"🏷️", pide:"producto", ir:"productos",
     responder:(prod)=>{
       const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
       if(!p) return "No encontré el producto " + prod + ".";
@@ -11068,14 +11068,14 @@ const PREGUNTAS_ASIST = [
       if(!pres.length) return p.marca + " no tiene presentaciones disponibles.";
       return p.marca + ": " + pres.map(x=>x.tam + " a " + dineroAsist(x.baseContado) + " contado").join("; ") + ".";
     } },
-  { id:"presentaciones", cat:"Productos", label:"Presentaciones de un producto", ic:"📦", pide:"producto",
+  { id:"presentaciones", cat:"Productos", label:"Presentaciones de un producto", ic:"📦", pide:"producto", ir:"productos",
     responder:(prod)=>{
       const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
       if(!p) return "No encontré el producto " + prod + ".";
       const pres = (p.presentaciones||[]).filter(x=>!x.inhabilitada).map(x=>x.tam);
       return p.marca + " tiene " + pres.length + " presentación(es): " + pres.join(", ") + ".";
     } },
-  { id:"promos", cat:"Productos", label:"Promociones de un producto", ic:"🎁", pide:"producto",
+  { id:"promos", cat:"Productos", label:"Promociones de un producto", ic:"🎁", pide:"producto", ir:"productos",
     responder:(prod)=>{
       const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
       if(!p) return "No encontré el producto " + prod + ".";
@@ -11084,7 +11084,7 @@ const PREGUNTAS_ASIST = [
       if(!promos.length) return p.marca + " no tiene promociones vigentes.";
       return p.marca + " tiene: " + promos.join("; ") + ".";
     } },
-  { id:"productosLinea", cat:"Productos", label:"Productos de una línea", ic:"🌾", pide:"linea",
+  { id:"productosLinea", cat:"Productos", label:"Productos de una línea", ic:"🌾", pide:"linea", ir:"productos",
     responder:(l)=>{
       const prods = PRODUCTOS.filter(x=>normAsist(x.linea||"").includes(normAsist(l)));
       if(!prods.length) return "No encontré productos de la línea " + l + ".";
@@ -11092,14 +11092,14 @@ const PREGUNTAS_ASIST = [
     } },
 
   // ── RESUMEN / NEGOCIO ──
-  { id:"resumenDia", cat:"Resumen", label:"Resumen del día", ic:"📋", pide:null,
+  { id:"resumenDia", cat:"Resumen", label:"Resumen del día", ic:"📋", pide:null, ir:"cobros",
     responder:()=>{
       const cobros = COBROS_INI.filter(c=>/hoy/i.test(c.vence));
       const totalC = cobros.reduce((a,c)=>a+(c.valor||0),0);
       const visitas = clientesPorVisitar();
       return "Resumen de hoy: " + cobros.length + " cobro(s) por " + dineroAsist(totalC) + " y " + visitas.length + " cliente(s) por visitar.";
     } },
-  { id:"totalRecibirMes", cat:"Resumen", label:"Total a recibir del mes", ic:"💲", pide:null,
+  { id:"totalRecibirMes", cat:"Resumen", label:"Total a recibir del mes", ic:"💲", pide:null, ir:"equipo",
     responder:()=>{
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
@@ -11229,13 +11229,17 @@ function BurbujaAsistente({ onAbrir, onEscuchar }){
   );
 }
 
-function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }){
+/* Etiqueta corta del botón "Ir a…" según la tab destino de la pregunta. */
+const ETIQUETA_IR = { cartera:"Cartera", clientes:"Cliente", equipo:"Comisiones", agenda:"Agenda", productos:"Productos", cobros:"Cobros" };
+
+function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, onIr, escuchaInicial }){
   const [preg, setPreg] = useState(null);   // pregunta elegida
   const [dato, setDato] = useState("");      // cliente/producto escrito o dictado
   const [resp, setResp] = useState("");      // respuesta mostrada
   const [cliResp, setCliResp] = useState(null); // cliente de la respuesta (para "Ver cartera")
   const [escuchando, setEscuchando] = useState(false);
   const [noEntendi, setNoEntendi] = useState("");
+  const [mostrarTodas, setMostrarTodas] = useState(false); // lista de 30 oculta por defecto
   const refRec = React.useRef(null);
 
   /* Escucha una frase libre e interpreta contra el catálogo (habla natural). */
@@ -11264,9 +11268,12 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }
     try{ r.start(); }catch(e){ setEscuchando(false); }
   },[toast]);
 
-  /* Si se abrió con long-press (escuchaInicial), arranca a escuchar directo. */
+  /* Al abrir: arranca en modo minimal (sin lista). Si vino por long-press, escucha directo. */
   React.useEffect(()=>{
-    if(abierto && escuchaInicial) escucharNatural();
+    if(abierto){
+      setMostrarTodas(false); setPreg(null); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
+      if(escuchaInicial) escucharNatural();
+    }
     // eslint-disable-next-line
   },[abierto, escuchaInicial]);
 
@@ -11316,12 +11323,12 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }
           <button className="micb" onClick={onCerrar} aria-label="Cerrar" style={{fontSize:18}}>✕</button>
         </div>
 
-        {/* Micrófono grande: habla natural */}
+        {/* Micrófono grande: habla natural (motor principal) */}
         <button onClick={escucharNatural} disabled={escuchando}
-          style={{width:"100%",padding:"14px",borderRadius:12,border:"none",marginBottom:12,cursor:"pointer",
+          style={{width:"100%",padding:"16px",borderRadius:12,border:"none",marginBottom:12,cursor:"pointer",
             background: escuchando?"var(--clay, #C2603A)":"var(--field-700, #2E7D52)",color:"#fff",
-            fontSize:14.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
-          <span style={{fontSize:20}}>{escuchando?"●":"🎤"}</span>
+            fontSize:15.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <span style={{fontSize:22}}>{escuchando?"●":"🎤"}</span>
           {escuchando ? "Escuchando… habla ahora" : "Habla: dime tu pregunta"}
         </button>
         {noEntendi && (
@@ -11330,14 +11337,30 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }
           </div>
         )}
 
-        {/* Chips de preguntas, agrupados por categoría */}
+        {/* Enlace pequeño para ver las 30 preguntas (oculto por defecto) */}
+        {!mostrarTodas && !resp && !(preg&&preg.pide) && (
+          <div style={{textAlign:"center",marginBottom:8}}>
+            <button onClick={()=>setMostrarTodas(true)}
+              style={{background:"none",border:"none",color:"var(--field-700, #2E7D52)",fontSize:12.5,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>
+              Ver todas las preguntas
+            </button>
+          </div>
+        )}
+
+        {/* Chips de preguntas, agrupados por categoría (solo si el usuario los abre) */}
+        {mostrarTodas && (
         <div style={{marginBottom:14}}>
+          <div className="row between" style={{alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:"var(--text)"}}>Todas las preguntas</div>
+            <button onClick={()=>setMostrarTodas(false)}
+              style={{background:"none",border:"none",color:"var(--muted)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>‹ Ocultar</button>
+          </div>
           {[...new Set(PREGUNTAS_ASIST.map(p=>p.cat))].map(cat=>(
             <div key={cat} style={{marginBottom:10}}>
               <div style={{fontSize:11.5,fontWeight:800,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{cat}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
                 {PREGUNTAS_ASIST.filter(p=>p.cat===cat).map(p=>(
-                  <button key={p.id} onClick={()=>elegir(p)}
+                  <button key={p.id} onClick={()=>{ elegir(p); if(p.pide) setMostrarTodas(false); }}
                     style={{padding:"8px 12px",borderRadius:999,border:"1px solid "+(preg&&preg.id===p.id?"var(--maize-deep)":"var(--linea)"),
                       background:preg&&preg.id===p.id?"var(--maize-soft, #FBF3DC)":"#fff",fontSize:12,fontWeight:700,cursor:"pointer",color:"var(--text)"}}>
                     {p.ic} {p.label}
@@ -11347,6 +11370,7 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }
             </div>
           ))}
         </div>
+        )}
 
         {/* Si la pregunta pide un dato: buscador + voz */}
         {preg && preg.pide && (
@@ -11375,28 +11399,27 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }
           </div>
         )}
 
-        {/* Respuesta */}
+        {/* Respuesta + botón "Ir a…" a la pantalla natural de la pregunta */}
         {resp && (
           <div className="card" style={{background:"var(--maize-soft, #FBF3DC)",padding:"14px 16px",borderRadius:12}}>
             <div style={{fontSize:14.5,fontWeight:600,lineHeight:1.5,color:"var(--text)"}}>{resp}</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:10}}>
-              <button onClick={()=>hablarTexto(resp)}
-                style={{padding:"7px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
-                🔊 Escuchar de nuevo
-              </button>
-              {cliResp && onVerCartera && (
-                <button onClick={()=>{ onCerrar(); onVerCartera(cliResp); }}
-                  style={{padding:"7px 12px",borderRadius:8,border:"none",background:"var(--maize-deep)",color:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
-                  📅 Ver cartera de {cliResp}
+              {/* Botón principal: llevar a la pantalla consultada */}
+              {preg && preg.ir && onIr && (
+                <button onClick={()=>onIr(preg.ir, cliResp)}
+                  style={{padding:"9px 15px",borderRadius:8,border:"none",background:"var(--field-700, #2E7D52)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                  Ir a {ETIQUETA_IR[preg.ir]==="Cliente" ? (cliResp || "Clientes") : ETIQUETA_IR[preg.ir] || "la pantalla"} ›
                 </button>
               )}
+              <button onClick={()=>hablarTexto(resp)}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+                🔊 Escuchar
+              </button>
+              <button onClick={()=>{ setPreg(null); setDato(""); setResp(""); setCliResp(null); setNoEntendi(""); setMostrarTodas(false); }}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+                Preguntar otra
+              </button>
             </div>
-          </div>
-        )}
-
-        {!preg && (
-          <div className="meta" style={{fontSize:12,lineHeight:1.5}}>
-            Toca una pregunta. La respuesta sale en pantalla y en voz alta. Se pueden agregar más preguntas cuando las necesites.
           </div>
         )}
       </div>
@@ -19457,7 +19480,13 @@ function App({usuario, onSalir}){
       )}
       <AsistenteVoz abierto={asistAbierto} escuchaInicial={asistEscucha}
         onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); }} toast={show}
-        onVerCartera={(c)=>{ setCliFicha(c); setSecFicha("cartera"); navegar("clientes"); }} />
+        onVerCartera={(c)=>{ setCliFicha(c); setSecFicha("cartera"); navegar("clientes"); }}
+        onIr={(tab, cli)=>{
+          setAsistAbierto(false); setAsistEscucha(false);
+          if(cli && tab==="cartera"){ setCliFicha(cli); setSecFicha("cartera"); navegar("clientes"); return; }
+          if(cli && tab==="clientes"){ setCliFicha(cli); navegar("clientes"); return; }
+          navegar(tab);
+        }} />
 
       <div className="nav">
         <button className={tab==="novedades"?"act":""} onClick={()=>tocarTab("novedades")}>
