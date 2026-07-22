@@ -388,6 +388,10 @@
   button:active:not([disabled]){transform:translateY(1px)}
   .chofer-card:active{transform:translateY(1px)}
   @media (prefers-reduced-motion:reduce){.fx-entrar{animation:none!important}}
+  /* ── Asistente de voz ── */
+  @keyframes burbujaLatido{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+  .micb{flex-shrink:0;width:26px;height:26px;display:flex;align-items:center;justify-content:center;
+    background:none;border:none;padding:0;cursor:pointer;font-family:inherit}
 </style>
 <link rel="manifest" href="./pwa/manifest-transportista.json">
 <meta name="theme-color" content="#123B2C">
@@ -466,7 +470,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"9", fecha:"20 jul 2026", desc:"Aviso de version nueva" };
+const VERSION = { n:"10", fecha:"22 jul 2026", desc:"Asistente de voz (15 preguntas)" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -1264,6 +1268,628 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
   );
 }
 
+
+/* ═══════════════ ASISTENTE DE CONSULTAS POR VOZ (sin IA) ═══════════════
+   Motor de reglas: los datos ya están en la app, solo se buscan y devuelven.
+   Molde de freelance-completo/Comisionista, con el catálogo propio del transportista
+   (entregas, guías, ruta, placa, carga, pagos). NO ve comisiones ni precios. */
+
+/* Chofer activo: lo fija App al entrar. Las respuestas usan "mi ruta / mis entregas". */
+var CHOFER_ACTIVO = null;
+
+function MicBtn({onTexto, toast}){
+  const [rec,setRec]=useState(false);
+  const refRec=React.useRef(null);
+  const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!Reconocedor) return null; /* navegador sin dictado: el botón no aparece */
+  const dictar=()=>{
+    if(rec){ try{ refRec.current && refRec.current.stop(); }catch(e){} setRec(false); return; }
+    const r=new Reconocedor();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    r.onresult=ev=>{ const t=ev.results[0][0].transcript.trim(); if(t) onTexto(t); };
+    r.onerror=ev=>{ setRec(false); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono en el navegador para dictar"); };
+    r.onend=()=>setRec(false);
+    refRec.current=r; setRec(true);
+    try{ r.start(); }catch(e){ setRec(false); }
+  };
+  return (
+    <button type="button" className={"micb"+(rec?" rec":"")} onClick={dictar} aria-label="Buscar por voz">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+        stroke={rec?"#C2603A":"var(--muted)"} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"/>
+        <path d="M5.5 11a6.5 6.5 0 0013 0"/><path d="M12 17.5V21M9 21h6"/>
+      </svg>
+    </button>
+  );
+}
+
+/* Lee en voz alta con la voz del navegador (gratis, sin internet). */
+function hablarTexto(txt){
+  try{
+    if(!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(txt);
+    u.lang = "es-EC"; u.rate = 1; u.pitch = 1;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+const normAsist = s => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+
+/* ── Helpers de datos del transportista para el asistente ── */
+/* Ruta activa del chofer logueado (la de hoy; la primera de sus rutas). */
+function rutaActivaAsist(){
+  if(!CHOFER_ACTIVO) return null;
+  const rs = rutasDe(CHOFER_ACTIVO);
+  return rs.length ? rs[0] : null;
+}
+/* Pedidos de la ruta activa, en orden de entrega. */
+function pedidosRutaAsist(){
+  const r = rutaActivaAsist();
+  if(!r) return [];
+  return r.pedidos.map(id=>ped(id)).filter(Boolean);
+}
+/* Cliente escrito/dictado -> pedido de mi ruta. */
+function pedidoDeClienteAsist(cli){
+  const ps = pedidosRutaAsist();
+  const n = normAsist(cli);
+  return ps.find(p=>normAsist(p.cli)===n)
+      || ps.find(p=>{ const parts=normAsist(p.cli).split(/\s+/).filter(w=>w.length>=3); return parts.some(w=>n.includes(w)); })
+      || null;
+}
+
+/* ══ CATÁLOGO DE PREGUNTAS DEL TRANSPORTISTA ══
+   Para agregar una: añade una entrada. id, cat, label, ic, pide (cliente|null), ir (sección destino), responder(dato). */
+const PREGUNTAS_ASIST = [
+  // ── ENTREGAS ──
+  { id:"faltanHoy", cat:"Entregas", label:"¿Cuántas entregas me faltan hoy?", ic:"📦", pide:null, ir:null,
+    responder:()=>{
+      const ps = pedidosRutaAsist();
+      if(!ps.length) return "No tienes una ruta activa hoy.";
+      const pend = ps.filter(p=>p.estadoEntrega==="pendiente");
+      if(!pend.length) return "Ya entregaste todo. No te falta ninguna entrega.";
+      return "Te faltan " + pend.length + " entrega" + (pend.length!==1?"s":"") + " de " + ps.length + " en total.";
+    } },
+  { id:"proximaEntrega", cat:"Entregas", label:"¿Cuál es mi próxima entrega?", ic:"➡️", pide:null, ir:null,
+    responder:()=>{
+      const pend = pedidosRutaAsist().filter(p=>p.estadoEntrega==="pendiente");
+      if(!pend.length) return "No tienes entregas pendientes.";
+      const p = pend[0];
+      return "Tu próxima entrega es " + p.cli + ", en " + p.ciudad + ": " + p.dir + (p.ref?" ("+p.ref+")":"") + ".";
+    } },
+  { id:"completadas", cat:"Entregas", label:"¿Cuántas entregas ya completé?", ic:"✅", pide:null, ir:null,
+    responder:()=>{
+      const ps = pedidosRutaAsist();
+      if(!ps.length) return "No tienes una ruta activa hoy.";
+      const hechas = ps.filter(p=>p.estadoEntrega==="entregado").length;
+      return "Ya completaste " + hechas + " de " + ps.length + " entrega" + (ps.length!==1?"s":"") + ".";
+    } },
+  { id:"conNovedad", cat:"Entregas", label:"¿Tengo entregas con novedad?", ic:"⚠️", pide:null, ir:null,
+    responder:()=>{
+      const nov = pedidosRutaAsist().filter(p=>p.estadoEntrega==="novedad"||p.estadoEntrega==="parcial");
+      if(!nov.length) return "No tienes entregas con novedad. Todo en orden.";
+      return "Tienes " + nov.length + " entrega" + (nov.length!==1?"s":"") + " con novedad: " + nov.map(p=>p.cli).join(", ") + ".";
+    } },
+  { id:"dondeCliente", cat:"Entregas", label:"¿Dónde queda la entrega de un cliente?", ic:"📍", pide:"cliente", ir:null,
+    responder:(cli)=>{
+      const p = pedidoDeClienteAsist(cli);
+      if(!p) return "No encontré a " + cli + " en tu ruta de hoy.";
+      return p.cli + " queda en " + p.ciudad + ": " + p.dir + (p.ref?", "+p.ref:"") + ".";
+    } },
+  { id:"queEntrego", cat:"Entregas", label:"¿Qué le entrego a un cliente?", ic:"📋", pide:"cliente", ir:null,
+    responder:(cli)=>{
+      const p = pedidoDeClienteAsist(cli);
+      if(!p) return "No encontré a " + cli + " en tu ruta de hoy.";
+      const items = p.items.map(i=>i.q + " de " + (i.p.split("·")[0]||i.p).trim()).join(", ");
+      return "A " + p.cli + " le entregas: " + items + ".";
+    } },
+  { id:"telCliente", cat:"Entregas", label:"¿Cuál es el teléfono de un cliente?", ic:"📞", pide:"cliente", ir:null,
+    responder:(cli)=>{
+      const p = pedidoDeClienteAsist(cli);
+      if(!p) return "No encontré a " + cli + " en tu ruta de hoy.";
+      if(!p.tel) return "No tengo el teléfono de " + p.cli + " registrado.";
+      return "El teléfono de " + p.cli + " es " + p.tel + ".";
+    } },
+  // ── RUTA Y CARGA ──
+  { id:"ciudadesRuta", cat:"Ruta", label:"¿Qué ciudades cubre mi ruta hoy?", ic:"🗺️", pide:null, ir:null,
+    responder:()=>{
+      const ps = pedidosRutaAsist();
+      if(!ps.length) return "No tienes una ruta activa hoy.";
+      const cs = [...new Set(ps.map(p=>p.ciudad))];
+      return "Tu ruta de hoy cubre " + cs.length + " ciudad" + (cs.length!==1?"es":"") + ": " + cs.join(", ") + ".";
+    } },
+  { id:"quintales", cat:"Ruta", label:"¿Cuántos quintales llevo en total?", ic:"⚖️", pide:null, ir:null,
+    responder:()=>{
+      const r = rutaActivaAsist();
+      if(!r) return "No tienes una ruta activa hoy.";
+      const qq = qqRutaTotal(r);
+      const cap = r.placa && VEHICULOS[r.placa] ? VEHICULOS[r.placa].cap : (r.capacidad||0);
+      return "Tu ruta lleva " + qq + " quintales" + (cap?" y tu vehículo aguanta " + cap + " quintales.":".");
+    } },
+  { id:"proxCarga", cat:"Ruta", label:"¿Cuál es mi próximo punto de carga?", ic:"🏭", pide:null, ir:null,
+    responder:()=>{
+      const r = rutaActivaAsist();
+      if(!r) return "No tienes una ruta activa hoy.";
+      const pts = puntosDeCarga(r);
+      if(!pts.length) return "Tu ruta no tiene puntos de carga registrados.";
+      const pend = pts.find(x=>!cargaDe(r,x.orden).salida);
+      if(!pend) return "Ya cargaste en todos los puntos. Puedes empezar las entregas.";
+      return "Tu próximo punto de carga es " + pend.piladora + ": " + pend.dir + " (" + pend.qq + " quintales).";
+    } },
+  { id:"puntosCarga", cat:"Ruta", label:"¿Cuántos puntos de carga tengo hoy?", ic:"🏭", pide:null, ir:null,
+    responder:()=>{
+      const r = rutaActivaAsist();
+      if(!r) return "No tienes una ruta activa hoy.";
+      const pts = puntosDeCarga(r);
+      if(!pts.length) return "Tu ruta no tiene puntos de carga registrados.";
+      return "Hoy cargas en " + pts.length + " punto" + (pts.length!==1?"s":"") + ": " + pts.map(x=>x.piladora).join(", ") + ".";
+    } },
+  { id:"placaHoy", cat:"Ruta", label:"¿Qué placa tengo asignada hoy?", ic:"🚚", pide:null, ir:null,
+    responder:()=>{
+      const r = rutaActivaAsist();
+      if(!r || !r.placa) return "No tienes una placa asignada hoy.";
+      const v = VEHICULOS[r.placa];
+      return "Tu placa de hoy es " + r.placa + (v?", un " + v.tipo + ".":".");
+    } },
+  { id:"guiasRuta", cat:"Ruta", label:"¿Cuántas guías llevo y de qué proveedores?", ic:"📄", pide:null, ir:"documentos",
+    responder:()=>{
+      const r = rutaActivaAsist();
+      if(!r) return "No tienes una ruta activa hoy.";
+      const gs = guiasDeRuta(r.id);
+      if(!gs.length) return "No tienes guías de remisión registradas en esta ruta.";
+      const emisores = [...new Set(gs.map(g=>g.emisor))];
+      return "Llevas " + gs.length + " guía" + (gs.length!==1?"s":"") + " de " + emisores.length + " proveedor" + (emisores.length!==1?"es":"") + ": " + emisores.join(", ") + ".";
+    } },
+  // ── PAGOS ──
+  { id:"pagosTransporte", cat:"Pagos", label:"¿Cuánto me deben por transporte?", ic:"💵", pide:null, ir:"pagos",
+    responder:()=>{
+      if(!CHOFER_ACTIVO) return "No hay un chofer activo.";
+      const porCobrar = FLETES.filter(f=>f.chofer===CHOFER_ACTIVO && f.estado==="por_cobrar");
+      if(!porCobrar.length) return "No tienes fletes por cobrar en este momento.";
+      const total = porCobrar.reduce((a,f)=>a+(f.monto||0),0);
+      return "Te deben " + dineroUSD(total) + " en " + porCobrar.length + " flete" + (porCobrar.length!==1?"s":"") + " por cobrar.";
+    } },
+  { id:"solicitudesRevision", cat:"Pagos", label:"¿Tengo anticipos o reposiciones en revisión?", ic:"⏳", pide:null, ir:"anticipo",
+    responder:()=>{
+      if(!CHOFER_ACTIVO) return "No hay un chofer activo.";
+      const pend = SOLICITUDES.filter(s=>s.chofer===CHOFER_ACTIVO && s.estado==="pendiente");
+      if(!pend.length) return "No tienes anticipos ni reposiciones en revisión.";
+      const total = pend.reduce((a,s)=>a+(s.monto||0),0);
+      return "Tienes " + pend.length + " solicitud" + (pend.length!==1?"es":"") + " en revisión por " + dineroUSD(total) + ".";
+    } },
+];
+
+/* ══ CLAVES para reconocer la frase dictada (habla natural) ══ */
+const CLAVES_ASIST = {
+  faltanHoy:        ["entregas me faltan","cuantas entregas faltan","me faltan entregas","cuantas faltan","entregas pendientes","faltan por entregar"],
+  proximaEntrega:   ["proxima entrega","siguiente entrega","cual es mi proxima","a donde voy","cual sigue"],
+  completadas:      ["ya complete","entregas complete","cuantas complete","ya entregue","entregas hechas","cuantas hechas"],
+  conNovedad:       ["novedad","con problema","entregas con novedad","rechazada","tengo novedades"],
+  dondeCliente:     ["donde queda","direccion de","como llego a","ubicacion de"],
+  queEntrego:       ["que le entrego","que entrego a","que lleva","que pedido","que productos entrego"],
+  telCliente:       ["telefono de","numero de","celular de","contacto de"],
+  ciudadesRuta:     ["que ciudades","ciudades cubre","ciudades de mi ruta","por que ciudades"],
+  quintales:        ["cuantos quintales","quintales llevo","cuanta carga","quintales en total","cuanto peso"],
+  proxCarga:        ["proximo punto de carga","siguiente carga","donde cargo","proxima carga","siguiente piladora"],
+  puntosCarga:      ["cuantos puntos de carga","puntos de carga","cuantas piladoras","donde tengo que cargar"],
+  placaHoy:         ["que placa","mi placa","placa asignada","que camion","que vehiculo"],
+  guiasRuta:        ["cuantas guias","que guias","guias llevo","guias de remision","guias tengo"],
+  pagosTransporte:  ["cuanto me deben","me deben por transporte","fletes por cobrar","cuanto por cobrar","pago de transporte","mi flete"],
+  solicitudesRevision:["anticipo en revision","reposicion en revision","solicitud en revision","anticipos pendientes","mis solicitudes","reposicion pendiente"],
+};
+
+function interpretarAsist(frase){
+  const f = normAsist(frase);
+  if(!f) return null;
+  let mejor = null, mejorLargo = 0;
+  PREGUNTAS_ASIST.forEach(p=>{
+    (CLAVES_ASIST[p.id]||[]).forEach(clave=>{
+      const c = normAsist(clave);
+      if(f.includes(c) && c.length > mejorLargo){ mejor = p; mejorLargo = c.length; }
+    });
+  });
+  if(!mejor) return null;
+  const GENERICAS = ["comercial","distribuidora","tienda","almacen","almacenes","bodega","abarrotes","despensa","comisariato","mayorista","super","mini","market","el","la","los","las","de","del","y","don","doña","sr","sra"];
+  const calzaNombre = (nombre)=>{
+    const n = normAsist(nombre);
+    if(f.includes(n)) return true;
+    const parts = n.split(/\s+/).filter(w => w.length>=3 && !GENERICAS.includes(w));
+    return parts.some(w => f.includes(w));
+  };
+  let dato = null;
+  if(mejor.pide === "cliente"){
+    const ps = pedidosRutaAsist();
+    const p = ps.find(x=>calzaNombre(x.cli));
+    dato = p ? p.cli : null;
+  }
+  return { pregunta: mejor, dato };
+}
+
+/* ══ MOTOR DE VOZ GLOBAL (autónomo) ══ */
+const MotorVoz = {
+  rec: null, intentos: 0, watchdog: null, topeGlobal: null, activo: false, cb: {},
+  soportado(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); },
+  config(cb){ this.cb = cb || {}; },
+  _estado(v){ this.activo = v; if(this.cb.onEstado) this.cb.onEstado(v); },
+  _limpiarTimers(){
+    if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog = null; }
+    if(this.topeGlobal){ clearTimeout(this.topeGlobal); this.topeGlobal = null; }
+  },
+  apagar(){
+    this._limpiarTimers();
+    if(this.rec){
+      try{ this.rec.onresult=null; this.rec.onerror=null; this.rec.onend=null; this.rec.abort(); }catch(e){}
+      this.rec = null;
+    }
+    this._estado(false);
+  },
+  iniciar(){
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){ if(this.cb.toast) this.cb.toast("Tu navegador no permite dictado por voz"); return; }
+    if(this.rec){ try{ this.rec.onresult=null; this.rec.onerror=null; this.rec.onend=null; this.rec.abort(); }catch(e){} this.rec=null; }
+    if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
+    if(!this.topeGlobal){ this.topeGlobal = setTimeout(()=>{ this.apagar(); }, 22000); }
+    const r = new Rec();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    let resuelto = false;
+    this.watchdog = setTimeout(()=>{ if(!resuelto) this.apagar(); }, 8000);
+    r.onresult = (ev)=>{
+      resuelto = true;
+      if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
+      const frase = ev.results[0][0].transcript.trim();
+      const res = interpretarAsist(frase);
+      if(!res){
+        this.intentos += 1;
+        if(this.intentos < 3){
+          hablarTexto("No te entendí, por favor repite");
+          setTimeout(()=>{ this.iniciar(); }, 1700);
+        } else {
+          hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
+          this.apagar();
+        }
+        return;
+      }
+      const p = res.pregunta;
+      if(p.pide && !res.dato){
+        this.intentos += 1;
+        const que = p.pide==="cliente"?"¿De qué cliente?":"¿De qué dato?";
+        if(this.intentos < 3){
+          hablarTexto(que);
+          setTimeout(()=>{ this.iniciar(); }, 1700);
+        } else {
+          hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
+          if(this.cb.onPedirDato) this.cb.onPedirDato(p);
+          this.apagar();
+        }
+        return;
+      }
+      const texto = p.responder(res.dato || null);
+      hablarTexto(texto);
+      if(p.ir && this.cb.onIr) this.cb.onIr(p.ir, null);
+      this.apagar();
+    };
+    r.onerror = (ev)=>{
+      resuelto = true;
+      if(ev.error==="not-allowed" && this.cb.toast) this.cb.toast("Permite el micrófono para hablar");
+      this.apagar();
+    };
+    r.onend = ()=>{ if(!resuelto && this.intentos === 0){ this.apagar(); } };
+    this.rec = r;
+    this._estado(true);
+    try{ r.start(); }catch(e){ this.apagar(); }
+  },
+  alternar(){
+    if(this.activo){ this.apagar(); return; }
+    this.intentos = 0;
+    if(this.topeGlobal){ clearTimeout(this.topeGlobal); this.topeGlobal=null; }
+    this.iniciar();
+  }
+};
+
+/* ── Burbuja flotante movible del asistente ── */
+function BurbujaAsistente({ onEscuchar, escuchando }){
+  const [pos, setPos] = useState({ x: (window.innerWidth||400) - 74, y: (window.innerHeight||700) - 150 });
+  const ref = React.useRef({ arrastrando:false, movio:false, ini:null });
+  const iniciar = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    const s = ref.current;
+    s.arrastrando = true; s.movio = false;
+    s.ini = { x: t.clientX, y: t.clientY, px: pos.x, py: pos.y };
+  };
+  const mover = (e) => {
+    const s = ref.current;
+    if(!s.arrastrando || !s.ini) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - s.ini.x, dy = t.clientY - s.ini.y;
+    if(Math.abs(dx) > 6 || Math.abs(dy) > 6){ s.movio = true; }
+    if(s.movio){
+      const nx = Math.max(6, Math.min((window.innerWidth||400)-62, s.ini.px + dx));
+      const ny = Math.max(60, Math.min((window.innerHeight||700)-120, s.ini.py + dy));
+      setPos({ x:nx, y:ny });
+    }
+  };
+  const soltar = (e) => {
+    const s = ref.current;
+    if(e && e.type === "touchend" && e.cancelable){ try{ e.preventDefault(); }catch(_){} }
+    if(s.arrastrando){
+      if(!s.movio){
+        const ahora = Date.now();
+        if(!s.ultimoTap || ahora - s.ultimoTap > 400){ s.ultimoTap = ahora; onEscuchar(); }
+      } else {
+        const ancho = window.innerWidth||400;
+        setPos(p=>({ ...p, x: p.x < ancho/2 ? 6 : ancho-62 }));
+      }
+    }
+    s.arrastrando = false; s.movio = false; s.ini = null;
+  };
+  return (
+    <button
+      onMouseDown={iniciar} onMouseMove={mover} onMouseUp={soltar} onMouseLeave={soltar}
+      onTouchStart={iniciar} onTouchMove={mover} onTouchEnd={soltar}
+      aria-label="Asistente de voz"
+      style={{position:"fixed", left:pos.x, top:pos.y, zIndex:95, width:56, height:56, borderRadius:"50%",
+        border:"none", background: escuchando ? "var(--clay, #B5613C)" : "var(--maize-deep, #C77F00)", color:"#fff", fontSize:24, cursor:"grab",
+        boxShadow: escuchando ? "0 0 0 6px rgba(181,97,60,.25), 0 6px 20px rgba(0,0,0,.28)" : "0 6px 20px rgba(0,0,0,.28)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        touchAction:"none", userSelect:"none",
+        animation: escuchando ? "burbujaLatido 1s ease-in-out infinite" : "none"}}>
+      {escuchando ? "●" : "🎙️"}
+    </button>
+  );
+}
+
+/* Etiqueta corta del botón "Ir a…" según la sección destino. */
+const ETIQUETA_IR = { documentos:"Documentos", pagos:"Pagos", anticipo:"Anticipos" };
+
+function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, onFinVoz, onNecesitaPanel, toast, onIr, escuchaInicial }){
+  const [preg, setPreg] = useState(null);
+  const [dato, setDato] = useState("");
+  const [resp, setResp] = useState("");
+  const [escuchando, setEscuchando] = useState(false);
+  const [noEntendi, setNoEntendi] = useState("");
+  const [mostrarTodas, setMostrarTodas] = useState(false);
+  const refRec = React.useRef(null);
+  const refIntentos = React.useRef(0);
+  const refWatchdog = React.useRef(null);
+  const refReintProg = React.useRef(false);
+  const refTopeGlobal = React.useRef(null);
+
+  const escucharNatural = React.useCallback(()=>{
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){
+      if(toast) toast("Tu navegador no permite dictado por voz");
+      if(!panelVisible && onFinVoz) onFinVoz();
+      return;
+    }
+    try{ if(refRec.current){ refRec.current.onend=null; refRec.current.onerror=null; refRec.current.onresult=null; refRec.current.abort(); } }catch(e){}
+    const r = new Rec();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    let resuelto = false;
+    const marcar = ()=>{ resuelto = true; };
+    const apagarVoz = ()=>{
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      try{ if(refRec.current){ refRec.current.onend=null; refRec.current.abort(); } }catch(e){}
+      setEscuchando(false);
+      if(!panelVisible && onFinVoz) onFinVoz();
+    };
+    refReintProg.current = false;
+    if(!refTopeGlobal.current){ refTopeGlobal.current = setTimeout(()=>{ apagarVoz(); }, 22000); }
+    if(refWatchdog.current){ clearTimeout(refWatchdog.current); }
+    refWatchdog.current = setTimeout(()=>{ if(!resuelto && !refReintProg.current){ apagarVoz(); } }, 8000);
+    setNoEntendi(""); setEscuchando(true);
+    r.onresult = ev=>{
+      const frase = ev.results[0][0].transcript.trim();
+      const res = interpretarAsist(frase);
+      if(!res){
+        marcar();
+        setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
+        if(!panelVisible){
+          refIntentos.current += 1;
+          if(refIntentos.current < 3){
+            refReintProg.current = true;
+            hablarTexto("No te entendí, por favor repite");
+            setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
+          } else {
+            hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
+            apagarVoz();
+          }
+        }
+        return;
+      }
+      const p = res.pregunta;
+      setPreg(p);
+      if(p.pide && !res.dato){
+        marcar();
+        setDato(""); setResp("");
+        setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
+        if(!panelVisible){
+          refIntentos.current += 1;
+          const que = p.pide==="cliente"?"¿De qué cliente?":"¿De qué dato?";
+          if(refIntentos.current < 3){
+            refReintProg.current = true;
+            hablarTexto(que);
+            setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
+          } else {
+            hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
+            apagarVoz();
+          }
+        }
+        return;
+      }
+      marcar();
+      responderYsaltar(p, res.dato || null);
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      setEscuchando(false);
+      if(!panelVisible && onFinVoz) onFinVoz();
+    };
+    r.onerror = ev=>{ marcar(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); apagarVoz(); };
+    r.onend = ()=>{ setEscuchando(false); if(!resuelto && !refReintProg.current) apagarVoz(); };
+    refRec.current = r;
+    try{ r.start(); }catch(e){ apagarVoz(); }
+  },[toast, panelVisible, onFinVoz]);
+  const reintentarVoz = React.useRef(null);
+  reintentarVoz.current = escucharNatural;
+
+  React.useEffect(()=>{
+    if(abierto){
+      setPreg(null); setDato(""); setResp(""); setNoEntendi("");
+      refIntentos.current = 0;
+      if(modoLista){ setMostrarTodas(true); } else { setMostrarTodas(false); }
+    }
+    // eslint-disable-next-line
+  },[abierto, escuchaInicial, panelVisible, modoLista]);
+
+  React.useEffect(()=>{
+    if(!abierto){
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      if(refTopeGlobal.current){ clearTimeout(refTopeGlobal.current); refTopeGlobal.current=null; }
+      try{ if(refRec.current){ refRec.current.onend=null; refRec.current.onerror=null; refRec.current.onresult=null; refRec.current.abort(); } }catch(e){}
+      refReintProg.current = false;
+    }
+  },[abierto]);
+
+  if(!abierto) return null;
+  if(!panelVisible) return null;
+
+  const responder = (p, valorDato) => {
+    const texto = p.responder(valorDato);
+    setResp(texto); setNoEntendi("");
+    hablarTexto(texto);
+  };
+  const responderYsaltar = (p, valorDato) => {
+    const texto = p.responder(valorDato);
+    hablarTexto(texto);
+    if(p.ir && onIr){ onIr(p.ir, null); return true; }
+    responder(p, valorDato);
+    return false;
+  };
+  const elegir = (p) => {
+    setPreg(p); setDato(""); setResp(""); setNoEntendi("");
+    if(!p.pide) responder(p, null);
+  };
+  const confirmarDato = () => {
+    if(!preg || !dato.trim()) return;
+    responder(preg, dato.trim());
+  };
+
+  const sugerencias = preg && preg.pide === "cliente"
+    ? pedidosRutaAsist().map(p=>p.cli)
+    : [];
+  const filtradas = dato.trim()
+    ? sugerencias.filter(s => normAsist(s).includes(normAsist(dato))).slice(0,5)
+    : [];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(15,25,20,.5)",zIndex:120,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+      onClick={onCerrar}>
+      <div style={{width:"100%",maxWidth:520,margin:0,background:"var(--card)",borderRadius:"18px 18px 0 0",padding:"18px 18px 26px",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 -8px 30px rgba(0,0,0,.2)"}}
+        onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:16,color:"var(--ink)"}}>🎙️ Preguntar al sistema</div>
+          <button className="micb" onClick={onCerrar} aria-label="Cerrar" style={{fontSize:18,color:"var(--muted)"}}>✕</button>
+        </div>
+
+        <button onClick={escucharNatural} disabled={escuchando}
+          style={{width:"100%",padding:"16px",borderRadius:12,border:"none",marginBottom:12,cursor:"pointer",
+            background: escuchando?"var(--clay, #B5613C)":"var(--field-700, #1E4D3A)",color:"#fff",
+            fontSize:15.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <span style={{fontSize:22}}>{escuchando?"●":"🎤"}</span>
+          {escuchando ? "Escuchando… habla ahora" : "Habla: dime tu pregunta"}
+        </button>
+        {noEntendi && (
+          <div style={{background:"var(--paper)",borderRadius:10,padding:"10px 13px",marginBottom:12,fontSize:12.5,color:"var(--ink)",lineHeight:1.45}}>
+            {noEntendi}
+          </div>
+        )}
+
+        {!mostrarTodas && !resp && !(preg&&preg.pide) && (
+          <div style={{textAlign:"center",marginBottom:8}}>
+            <button onClick={()=>setMostrarTodas(true)}
+              style={{background:"none",border:"none",color:"var(--field-700, #1E4D3A)",fontSize:12.5,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>
+              Ver todas las preguntas
+            </button>
+          </div>
+        )}
+
+        {mostrarTodas && (
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:"var(--ink)"}}>Todas las preguntas</div>
+            <button onClick={()=>setMostrarTodas(false)}
+              style={{background:"none",border:"none",color:"var(--muted)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>‹ Ocultar</button>
+          </div>
+          {[...new Set(PREGUNTAS_ASIST.map(p=>p.cat))].map(cat=>(
+            <div key={cat} style={{marginBottom:10}}>
+              <div style={{fontSize:11.5,fontWeight:800,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{cat}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                {PREGUNTAS_ASIST.filter(p=>p.cat===cat).map(p=>(
+                  <button key={p.id} onClick={()=>{ elegir(p); if(p.pide) setMostrarTodas(false); }}
+                    style={{padding:"8px 12px",borderRadius:999,border:"1px solid "+(preg&&preg.id===p.id?"var(--maize-deep)":"var(--line)"),
+                      background:preg&&preg.id===p.id?"var(--paper)":"var(--card)",fontSize:12,fontWeight:700,cursor:"pointer",color:"var(--ink)"}}>
+                    {p.ic} {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        )}
+
+        {preg && preg.pide && (
+          <div style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input value={dato} onChange={e=>setDato(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&confirmarDato()}
+                placeholder="Nombre del cliente…"
+                style={{flex:1,minWidth:0,padding:"11px 13px",borderRadius:10,border:"1px solid var(--line)",fontSize:14,background:"var(--card)",color:"var(--ink)"}} />
+              <MicBtn onTexto={t=>{ setDato(t); }} toast={toast} />
+              <button onClick={confirmarDato}
+                style={{padding:"11px 15px",borderRadius:10,border:"none",background:"var(--maize-deep)",color:"#fff",fontSize:13.5,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+                Consultar
+              </button>
+            </div>
+            {filtradas.length>0 && (
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+                {filtradas.map(s=>(
+                  <button key={s} onClick={()=>{ setDato(s); responder(preg, s); }}
+                    style={{textAlign:"left",padding:"8px 12px",borderRadius:8,border:"1px solid var(--line)",background:"var(--card)",fontSize:13,cursor:"pointer",color:"var(--ink)"}}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {resp && (
+          <div style={{background:"var(--paper)",padding:"14px 16px",borderRadius:12}}>
+            <div style={{fontSize:14.5,fontWeight:600,lineHeight:1.5,color:"var(--ink)"}}>{resp}</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:10}}>
+              {preg && preg.ir && onIr && (
+                <button onClick={()=>onIr(preg.ir, null)}
+                  style={{padding:"9px 15px",borderRadius:8,border:"none",background:"var(--field-700, #1E4D3A)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                  Ir a {ETIQUETA_IR[preg.ir] || "la pantalla"} ›
+                </button>
+              )}
+              <button onClick={()=>hablarTexto(resp)}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--line)",background:"var(--card)",fontSize:12.5,fontWeight:700,cursor:"pointer",color:"var(--ink)"}}>
+                🔊 Escuchar
+              </button>
+              <button onClick={()=>{ setPreg(null); setDato(""); setResp(""); setNoEntendi(""); setMostrarTodas(false); }}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--line)",background:"var(--card)",fontSize:12.5,fontWeight:700,cursor:"pointer",color:"var(--ink)"}}>
+                Preguntar otra
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+/* ═══════════════ FIN ASISTENTE DE VOZ ═══════════════ */
+
+
 function App(){
   const [chofer, setChofer] = useState(null);
   const [choferNuevo, setChoferNuevo] = useState(null);
@@ -1271,7 +1897,29 @@ function App(){
   const [seccion, setSeccion] = useState(null);
   const [faseCampana, setFaseCampana] = useState(null);   /* la campana puede pedir carga/entregas */
 
+  /* Asistente de voz */
+  const [asistAbierto, setAsistAbierto] = useState(false);
+  const [asistVozBurbuja, setAsistVozBurbuja] = useState(false);
+  const [asistLista, setAsistLista] = useState(false);
+  const [asistEscuchando, setAsistEscuchando] = useState(false);
+
+  /* El motor necesita saber quién está logueado para "mi ruta / mis entregas". */
+  React.useEffect(()=>{ CHOFER_ACTIVO = chofer || null; }, [chofer]);
+
   const salir = () => { setChofer(null); setChoferNuevo(null); setRutaId(null); setSeccion(null); };
+  /* onIr del asistente: solo navega a la sección del drawer. */
+  const irDesdeAsist = (destino) => {
+    setAsistAbierto(false); setAsistVozBurbuja(false); setAsistLista(false);
+    if(destino){ setSeccion(destino); window.scrollTo(0,0); }
+  };
+  React.useEffect(()=>{
+    MotorVoz.config({
+      onEstado:(v)=>setAsistEscuchando(v),
+      onIr:(dest)=>irDesdeAsist(dest),
+      onPedirDato:(p)=>{ setAsistVozBurbuja(false); setAsistAbierto(true); },
+      toast:(m)=>{ try{ alert(m); }catch(e){} }
+    });
+  }, []);
   const irDesdeCampana = (destino) => {
     setSeccion(null);
     setFaseCampana(destino === "entrega" ? "entregas" : "carga");
@@ -1295,6 +1943,19 @@ function App(){
   return (<>
     {pantalla}
     <Campana rutaId={rutaId} onIr={irDesdeCampana} />
+    {MotorVoz.soportado() && (
+      <BurbujaAsistente
+        escuchando={asistEscuchando}
+        onEscuchar={()=>{ setAsistVozBurbuja(true); MotorVoz.alternar(); }} />
+    )}
+    <AsistenteVoz
+      abierto={asistAbierto || asistVozBurbuja}
+      panelVisible={asistAbierto}
+      modoLista={asistLista}
+      onCerrar={()=>{ setAsistAbierto(false); setAsistVozBurbuja(false); setAsistLista(false); MotorVoz.apagar(); }}
+      onFinVoz={()=>{ setAsistVozBurbuja(false); }}
+      toast={(m)=>{ try{ alert(m); }catch(e){} }}
+      onIr={irDesdeAsist} />
   </>);
 }
 
