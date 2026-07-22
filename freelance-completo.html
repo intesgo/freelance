@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"308", fecha:"22 jul 2026", desc:"Asistente de voz reescrito: motor global único (MotorVoz), toque en burbuja escucha directo y se apaga infalible" };
+const VERSION = { n:"309", fecha:"22 jul 2026", desc:"Asistente de voz: arreglo del toque de la burbuja (doble disparo prendía y apagaba el micrófono)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11300,35 +11300,41 @@ function BurbujaAsistente({ onAbrir, onEscuchar, escuchando }){
   const iniciar = (e) => {
     const t = e.touches ? e.touches[0] : e;
     const s = ref.current;
-    s.arrastrando = true; s.movio = false; s.longpress = false;
+    s.arrastrando = true; s.movio = false;
     s.ini = { x: t.clientX, y: t.clientY, px: pos.x, py: pos.y };
-    /* long-press: si no se mueve en 0.6s, escucha directo */
-    s.timer = setTimeout(()=>{ if(!s.movio){ s.longpress = true; onEscuchar(); } }, 600);
   };
   const mover = (e) => {
     const s = ref.current;
     if(!s.arrastrando || !s.ini) return;
     const t = e.touches ? e.touches[0] : e;
     const dx = t.clientX - s.ini.x, dy = t.clientY - s.ini.y;
-    if(Math.abs(dx) > 6 || Math.abs(dy) > 6){ s.movio = true; if(s.timer){ clearTimeout(s.timer); s.timer=null; } }
+    if(Math.abs(dx) > 6 || Math.abs(dy) > 6){ s.movio = true; }
     if(s.movio){
       const nx = Math.max(6, Math.min((window.innerWidth||400)-62, s.ini.px + dx));
       const ny = Math.max(60, Math.min((window.innerHeight||700)-120, s.ini.py + dy));
       setPos({ x:nx, y:ny });
     }
   };
-  const soltar = () => {
+  const soltar = (e) => {
     const s = ref.current;
-    if(s.timer){ clearTimeout(s.timer); s.timer=null; }
+    /* Bloquea la emulación de mouse que el móvil dispara tras un touch. */
+    if(e && e.type === "touchend" && e.cancelable){ try{ e.preventDefault(); }catch(_){} }
     if(s.arrastrando){
-      if(!s.movio && !s.longpress){ onEscuchar(); }        /* toque simple = escuchar directo (sin ventana) */
-      else if(s.movio){
+      /* Toque limpio (no arrastró) = escuchar directo. Una sola llamada,
+         protegida contra doble disparo en una ventana corta. */
+      if(!s.movio){
+        const ahora = Date.now();
+        if(!s.ultimoTap || ahora - s.ultimoTap > 400){
+          s.ultimoTap = ahora;
+          onEscuchar();
+        }
+      } else {
         /* pegar al borde más cercano */
         const ancho = window.innerWidth||400;
         setPos(p=>({ ...p, x: p.x < ancho/2 ? 6 : ancho-62 }));
       }
     }
-    s.arrastrando = false; s.movio = false; s.longpress = false; s.ini = null;
+    s.arrastrando = false; s.movio = false; s.ini = null;
   };
 
   return (
