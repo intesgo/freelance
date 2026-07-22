@@ -4562,7 +4562,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"294", fecha:"20 jul 2026", desc:"Arreglo: modulo Productos abria en blanco" };
+const VERSION = { n:"295", fecha:"21 jul 2026", desc:"Asistente de consultas por voz (sin IA)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10860,6 +10860,175 @@ function MicBtn({onTexto, toast}){
         <path d="M5.5 11a6.5 6.5 0 0013 0"/><path d="M12 17.5V21M9 21h6"/>
       </svg>
     </button>
+  );
+}
+
+/* ── Asistente de consultas rápidas (sin IA): motor de reglas + voz ── */
+/* Lee en voz alta con la voz del navegador (gratis, sin internet). */
+function hablarTexto(txt){
+  try{
+    if(!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(txt);
+    u.lang = "es-EC"; u.rate = 1; u.pitch = 1;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+/* Normaliza para comparar nombres sin tildes ni mayúsculas. */
+const normAsist = s => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+const dineroAsist = n => "$" + Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+const MES_ACTUAL_ABR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][new Date().getMonth()];
+
+/* ══ CATÁLOGO DE PREGUNTAS ══
+   Para agregar una pregunta nueva: añade una entrada aquí. Cada una tiene:
+   - id, label (lo que ve el usuario)
+   - pide: "cliente" | "producto" | null  (si necesita un dato, aparece el buscador+voz)
+   - responder(dato) => devuelve el texto de la respuesta.
+   La pantalla y la voz se generan solas desde esta lista. */
+const PREGUNTAS_ASIST = [
+  { id:"pendiente", label:"Valor pendiente de un cliente", ic:"💰", pide:"cliente",
+    responder:(cli)=>{
+      const facs = CARTERA_INI.filter(f => normAsist(f.cli) === normAsist(cli));
+      if(!facs.length) return "No encontré cartera pendiente de " + cli + ".";
+      const total = facs.reduce((a,f)=>a+(f.saldo||0),0);
+      const venc = facs.filter(f=>(f.dias||0)>0).reduce((a,f)=>a+(f.saldo||0),0);
+      return cli + " tiene " + dineroAsist(total) + " pendiente en " + facs.length + " factura" + (facs.length!==1?"s":"") +
+        (venc>0 ? ", de los cuales " + dineroAsist(venc) + " está vencido." : ", todo al día.");
+    } },
+  { id:"comisiones", label:"Comisiones generadas este mes", ic:"📊", pide:null,
+    responder:()=>{
+      const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
+      const eq = COMISIONES_EQUIPO[anio] || {};
+      let total = 0, encontrado = false;
+      Object.values(eq).forEach(sc=>{
+        const m = (sc.meses||[]).find(x=>x.mes===MES_ACTUAL_ABR);
+        if(m){ total += (m.generada||0); encontrado = true; }
+      });
+      if(!encontrado) return "No hay comisiones registradas para " + MES_ACTUAL_ABR + " todavía.";
+      return "En " + MES_ACTUAL_ABR + " se han generado " + dineroAsist(total) + " en comisiones del equipo.";
+    } },
+  { id:"visita", label:"Próximo cliente a visitar", ic:"📍", pide:null,
+    responder:()=>{
+      const lista = clientesPorVisitar();
+      if(!lista.length) return "No hay clientes urgentes por visitar ahora mismo.";
+      const p = lista[0];
+      return "El próximo a visitar es " + p.cli + ": le quedan cerca de " + p.dias + " día" + (p.dias!==1?"s":"") +
+        " de stock" + (p.nivel==="rojo" ? " — es urgente." : ".");
+    } },
+  { id:"cobrosHoy", label:"Cobros para hoy", ic:"💵", pide:null,
+    responder:()=>{
+      const hoy = COBROS_INI.filter(c => /hoy/i.test(c.vence));
+      if(!hoy.length) return "No hay cobros que venzan hoy.";
+      const total = hoy.reduce((a,c)=>a+(c.valor||0),0);
+      return "Hoy vencen " + hoy.length + " cobro" + (hoy.length!==1?"s":"") + " por " + dineroAsist(total) +
+        ": " + hoy.map(c=>c.cli).join(", ") + ".";
+    } },
+  { id:"precio", label:"Precio de un producto", ic:"🏷️", pide:"producto",
+    responder:(prod)=>{
+      const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
+      if(!p) return "No encontré el producto " + prod + ".";
+      const pres = (p.presentaciones||[]).filter(x=>!x.inhabilitada);
+      if(!pres.length) return p.marca + " no tiene presentaciones disponibles.";
+      const detalle = pres.map(x=>x.tam + " a " + dineroAsist(x.baseContado) + " contado").join("; ");
+      return p.marca + ": " + detalle + ".";
+    } },
+];
+
+function AsistenteVoz({ abierto, onCerrar, toast }){
+  const [preg, setPreg] = useState(null);   // pregunta elegida
+  const [dato, setDato] = useState("");      // cliente/producto escrito o dictado
+  const [resp, setResp] = useState("");      // respuesta mostrada
+  if(!abierto) return null;
+
+  const responder = (p, valorDato) => {
+    const texto = p.responder(valorDato);
+    setResp(texto);
+    hablarTexto(texto);
+  };
+  const elegir = (p) => {
+    setPreg(p); setDato(""); setResp("");
+    if(!p.pide) responder(p, null);   // sin dato: responde directo
+  };
+  const confirmarDato = () => {
+    if(!preg || !dato.trim()) return;
+    responder(preg, dato.trim());
+  };
+
+  const sugerencias = preg && preg.pide === "cliente"
+    ? CLIENTES
+    : preg && preg.pide === "producto"
+      ? PRODUCTOS.map(p=>p.marca)
+      : [];
+  const filtradas = dato.trim()
+    ? sugerencias.filter(s => normAsist(s).includes(normAsist(dato))).slice(0,5)
+    : [];
+
+  return (
+    <div className="modal-fondo" style={{position:"fixed",inset:0,background:"rgba(15,25,20,.5)",zIndex:120,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+      onClick={onCerrar}>
+      <div className="card" style={{width:"100%",maxWidth:520,margin:0,borderRadius:"18px 18px 0 0",padding:"18px 18px 26px",maxHeight:"85vh",overflowY:"auto"}}
+        onClick={e=>e.stopPropagation()}>
+        <div className="row between" style={{alignItems:"center",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:16}}>🎙️ Preguntar al sistema</div>
+          <button className="micb" onClick={onCerrar} aria-label="Cerrar" style={{fontSize:18}}>✕</button>
+        </div>
+
+        {/* Chips de preguntas */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+          {PREGUNTAS_ASIST.map(p=>(
+            <button key={p.id} onClick={()=>elegir(p)}
+              style={{padding:"9px 13px",borderRadius:999,border:"1px solid "+(preg&&preg.id===p.id?"var(--maize-deep)":"var(--linea)"),
+                background:preg&&preg.id===p.id?"var(--maize-soft, #FBF3DC)":"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer",color:"var(--text)"}}>
+              {p.ic} {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Si la pregunta pide un dato: buscador + voz */}
+        {preg && preg.pide && (
+          <div style={{marginBottom:14}}>
+            <div className="row" style={{alignItems:"center",gap:8}}>
+              <input value={dato} onChange={e=>setDato(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&confirmarDato()}
+                placeholder={preg.pide==="cliente"?"Nombre del cliente…":"Nombre del producto…"}
+                style={{flex:1,minWidth:0,padding:"11px 13px",borderRadius:10,border:"1px solid var(--linea)",fontSize:14}} />
+              <MicBtn onTexto={t=>{ setDato(t); }} toast={toast} />
+              <button onClick={confirmarDato}
+                style={{padding:"11px 15px",borderRadius:10,border:"none",background:"var(--maize-deep)",color:"#fff",fontSize:13.5,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+                Consultar
+              </button>
+            </div>
+            {filtradas.length>0 && (
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+                {filtradas.map(s=>(
+                  <button key={s} onClick={()=>{ setDato(s); responder(preg, s); }}
+                    style={{textAlign:"left",padding:"8px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"#fff",fontSize:13,cursor:"pointer"}}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Respuesta */}
+        {resp && (
+          <div className="card" style={{background:"var(--maize-soft, #FBF3DC)",padding:"14px 16px",borderRadius:12}}>
+            <div style={{fontSize:14.5,fontWeight:600,lineHeight:1.5,color:"var(--text)"}}>{resp}</div>
+            <button onClick={()=>hablarTexto(resp)}
+              style={{marginTop:10,padding:"7px 12px",borderRadius:8,border:"1px solid var(--linea)",background:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+              🔊 Escuchar de nuevo
+            </button>
+          </div>
+        )}
+
+        {!preg && (
+          <div className="meta" style={{fontSize:12,lineHeight:1.5}}>
+            Toca una pregunta. La respuesta sale en pantalla y en voz alta. Se pueden agregar más preguntas cuando las necesites.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -18298,6 +18467,7 @@ function Autorizaciones({toast, usuario}){
 function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
+  const [asistAbierto,setAsistAbierto]=useState(false); // asistente de consultas por voz
   /* deslizar desde el borde izquierdo abre el menú (no cuando ya está abierto) */
   /* el gesto acompaña al botón ☰: solo desde el inicio */
   useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto && tab==="inicio");
@@ -18905,6 +19075,17 @@ function App({usuario, onSalir}){
           </div>
         </div>
       )}
+      {/* Asistente de consultas por voz */}
+      {tab==="inicio" && !asistAbierto && (
+        <button onClick={()=>setAsistAbierto(true)} aria-label="Preguntar al sistema"
+          style={{position:"fixed",right:16,bottom:78,zIndex:90,width:56,height:56,borderRadius:"50%",
+            border:"none",background:"var(--maize-deep)",color:"#fff",fontSize:24,cursor:"pointer",
+            boxShadow:"0 6px 20px rgba(0,0,0,.25)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          🎙️
+        </button>
+      )}
+      <AsistenteVoz abierto={asistAbierto} onCerrar={()=>setAsistAbierto(false)} toast={show} />
+
       <div className="nav">
         <button className={tab==="novedades"?"act":""} onClick={()=>tocarTab("novedades")}>
           <span className="nIco"><Ico n="novedades" c={tab==="novedades"?"#2E7D52":"#8A9A8E"} s={21}/>
