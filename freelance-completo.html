@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"302", fecha:"21 jul 2026", desc:"Asistente: si no entiende dice 'repite' y reintenta 1 vez; busca cliente por nombre parcial" };
+const VERSION = { n:"303", fecha:"21 jul 2026", desc:"Asistente: modo voz nunca abre ventana; reintenta por voz y se apaga hablando" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11275,15 +11275,15 @@ function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesi
       if(!res){
         marcar();
         setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
-        /* Modo voz: 1er fallo → dice "repite" y vuelve a escuchar; 2º fallo → abre el panel. */
+        /* Modo voz: NUNCA abre la ventana. Dice "repite" y reintenta por voz. */
         if(!panelVisible){
           refIntentos.current += 1;
-          if(refIntentos.current < 2){
+          if(refIntentos.current < 3){
             hablarTexto("No te entendí, por favor repite");
-            setTimeout(()=>{ escucharNatural(); }, 1600); // reintenta tras hablar
+            setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
           } else {
-            hablarTexto("No te entendí. Toca una pregunta.");
-            if(onNecesitaPanel) onNecesitaPanel();
+            hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
+            if(onFinVoz) onFinVoz(); // apaga el modo voz, SIN abrir panel
           }
         }
         return;
@@ -11294,24 +11294,34 @@ function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesi
         marcar();
         setDato(""); setResp(""); setCliResp(null);
         setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
+        /* Modo voz: pregunta el nombre por voz y reintenta escuchando; NO abre ventana. */
         if(!panelVisible){
+          refIntentos.current += 1;
           const que = p.pide==="cliente"?"¿De qué cliente?":p.pide==="producto"?"¿De qué producto?":p.pide==="vendedor"?"¿De qué vendedor?":"¿De qué línea?";
-          hablarTexto(que);
-          if(onNecesitaPanel) onNecesitaPanel(); // abrir panel para completar
+          if(refIntentos.current < 3){
+            hablarTexto(que);
+            setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
+          } else {
+            hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
+            if(onFinVoz) onFinVoz();
+          }
         }
         return;
       }
       /* Frase completa por voz: dice la respuesta y salta directo a la pantalla. */
       marcar();
       const salto = responderYsaltar(p, res.dato || null);
-      /* Si no había pantalla destino, cae a mostrar respuesta: abre el panel para verla. */
-      if(!salto && !panelVisible && onNecesitaPanel) onNecesitaPanel();
+      /* Si no había pantalla destino (raro): lo dice por voz y apaga el modo voz. */
+      if(!salto && !panelVisible && onFinVoz) onFinVoz();
     };
     r.onerror = ev=>{ setEscuchando(false); marcar(); if(!panelVisible && onFinVoz) onFinVoz(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); };
     r.onend = ()=>{ setEscuchando(false); if(!resuelto && !panelVisible && onFinVoz) onFinVoz(); };
     refRec.current = r;
     try{ r.start(); }catch(e){ setEscuchando(false); if(!panelVisible && onFinVoz) onFinVoz(); }
-  },[toast, panelVisible, onNecesitaPanel, onFinVoz]);
+  },[toast, panelVisible, onFinVoz]);
+  /* Ref estable para reintentar la escucha desde un setTimeout sin descoordinar el estado. */
+  const reintentarVoz = React.useRef(null);
+  reintentarVoz.current = escucharNatural;
 
   /* Al abrir: arranca en modo minimal (sin lista).
      Si vino por voz (long-press / burbuja), escucha directo aunque el panel esté oculto. */
