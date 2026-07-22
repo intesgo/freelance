@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"304", fecha:"22 jul 2026", desc:"Asistente: toque en burbuja = hablar directo (sin ventana); lista de preguntas movida a Ajustes" };
+const VERSION = { n:"305", fecha:"22 jul 2026", desc:"Asistente de voz: arreglo de burbuja colgada — apagado seguro con watchdog de 12s cuando el micrófono termina sin captar" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11255,6 +11255,8 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
   const [mostrarTodas, setMostrarTodas] = useState(false); // lista de 30 oculta por defecto
   const refRec = React.useRef(null);
   const refIntentos = React.useRef(0); // intentos de voz sin entender (para 1 reintento)
+  const refWatchdog = React.useRef(null); // temporizador de seguridad: apaga si se queda colgada
+  const refReintProg = React.useRef(false); // ¿hay un reintento por voz ya programado?
 
   /* Escucha una frase libre e interpreta contra el catálogo (habla natural). */
   const escucharNatural = React.useCallback(()=>{
@@ -11268,6 +11270,21 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
     let resuelto = false; // ¿este ciclo ya saltó o abrió panel?
     const marcar = ()=>{ resuelto = true; };
+    /* Apagado seguro del modo voz: limpia watchdog y avisa al padre. */
+    const apagarVoz = ()=>{
+      if(refWatchdog.current){ clearTimeout(refWatchdog.current); refWatchdog.current=null; }
+      setEscuchando(false);
+      if(!panelVisible && onFinVoz) onFinVoz();
+    };
+    refReintProg.current = false; // este ciclo aún no ha programado reintento
+    /* Watchdog: si en 12 s no captó nada ni reintentó, apaga para no quedar colgada. */
+    if(refWatchdog.current){ clearTimeout(refWatchdog.current); }
+    refWatchdog.current = setTimeout(()=>{
+      if(!resuelto && !refReintProg.current){
+        try{ if(refRec.current) refRec.current.abort(); }catch(e){}
+        apagarVoz();
+      }
+    }, 12000);
     setNoEntendi(""); setEscuchando(true);
     r.onresult = ev=>{
       const frase = ev.results[0][0].transcript.trim();
@@ -11279,11 +11296,12 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
         if(!panelVisible){
           refIntentos.current += 1;
           if(refIntentos.current < 3){
+            refReintProg.current = true;
             hablarTexto("No te entendí, por favor repite");
             setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
           } else {
             hablarTexto("No te entendí. Toca el botón para ver las preguntas.");
-            if(onFinVoz) onFinVoz(); // apaga el modo voz, SIN abrir panel
+            apagarVoz(); // apaga el modo voz, SIN abrir panel
           }
         }
         return;
@@ -11299,11 +11317,12 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
           refIntentos.current += 1;
           const que = p.pide==="cliente"?"¿De qué cliente?":p.pide==="producto"?"¿De qué producto?":p.pide==="vendedor"?"¿De qué vendedor?":"¿De qué línea?";
           if(refIntentos.current < 3){
+            refReintProg.current = true;
             hablarTexto(que);
             setTimeout(()=>{ if(reintentarVoz.current) reintentarVoz.current(); }, 1700);
           } else {
             hablarTexto("No capté el nombre. Toca el botón para escribirlo.");
-            if(onFinVoz) onFinVoz();
+            apagarVoz();
           }
         }
         return;
@@ -11314,10 +11333,10 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
       /* Si no había pantalla destino (raro): lo dice por voz y apaga el modo voz. */
       if(!salto && !panelVisible && onFinVoz) onFinVoz();
     };
-    r.onerror = ev=>{ setEscuchando(false); marcar(); if(!panelVisible && onFinVoz) onFinVoz(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); };
-    r.onend = ()=>{ setEscuchando(false); if(!resuelto && !panelVisible && onFinVoz) onFinVoz(); };
+    r.onerror = ev=>{ marcar(); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); apagarVoz(); };
+    r.onend = ()=>{ setEscuchando(false); /* si no resolvió y no hay reintento programado, apaga seguro */ if(!resuelto && !refReintProg.current) apagarVoz(); };
     refRec.current = r;
-    try{ r.start(); }catch(e){ setEscuchando(false); if(!panelVisible && onFinVoz) onFinVoz(); }
+    try{ r.start(); }catch(e){ apagarVoz(); }
   },[toast, panelVisible, onFinVoz]);
   /* Ref estable para reintentar la escucha desde un setTimeout sin descoordinar el estado. */
   const reintentarVoz = React.useRef(null);
