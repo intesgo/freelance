@@ -503,6 +503,19 @@
     color:var(--field);letter-spacing:.01em;margin-bottom:12px}
   .tp-titulo .tp-ic{font-size:17px}
   .tarjeta-pedido.tp-precio .tp-titulo{color:var(--maize-deep)}
+  /* Split 2 columnas: foto del producto | controles (cantidad + precio) */
+  .pedido-split{display:grid;grid-template-columns:0.82fr 1fr;gap:11px;align-items:stretch;margin-bottom:14px}
+  .ps-foto{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;
+    box-shadow:0 2px 10px rgba(21,57,43,.06)}
+  .ps-foto img{width:100%;height:100%;object-fit:contain;border-radius:11px}
+  .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0}
+  .ps-controles .tarjeta-pedido{margin-bottom:0}
+  /* dentro del split los steppers y textos se compactan un poco */
+  .ps-controles .pm-btn{width:40px}
+  .ps-controles .tp-titulo{font-size:12.5px;margin-bottom:8px}
+  .ps-controles .tp-titulo .tp-ic{font-size:14px}
+  .ps-controles .tarjeta-pedido{padding:11px 11px}
   /* dentro de la tarjeta, el label gris del field ya no hace falta como título */
   .tarjeta-pedido .field>label{font-size:11px;color:var(--muted)}
   .field input,.field select{width:100%;padding:13px 14px;border:1px solid var(--line);
@@ -1101,7 +1114,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"121", fecha:"22 jul 2026", desc:"Imagen del producto en grande (hero) al armar pedido" };
+const VERSION = { n:"122", fecha:"22 jul 2026", desc:"Armar pedido en 2 columnas: foto del saco + controles" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2327,6 +2340,48 @@ const PRODUCTOS = [
 
 // Imagen referencial por línea (en producción sería la foto real de cada presentación)
 const EMOJI_LINEA={Arroz:"🍚", Azúcar:"🧂", Harina:"🌾", Maíz:"🌽"};
+
+/* Ilustración de saco por línea (mientras no haya foto real del producto).
+   Devuelve un data-URI SVG: un saco de yute con el nombre de la línea y la presentación. */
+function sacoSVG(linea, pres){
+  const PAL = {
+    "Arroz":  {tela:"#EFE7D2", tela2:"#E2D6BA", txt:"#1E4D3A", grano:"#D8B77A"},
+    "Azúcar": {tela:"#EDE9E2", tela2:"#DED8CC", txt:"#2A2A2A", grano:"#EAEAEA"},
+    "Harina": {tela:"#F0EAD8", tela2:"#E4DAC0", txt:"#7A5A2A", grano:"#E9DCC0"},
+    "Maíz":   {tela:"#F3E7C4", tela2:"#EBD9A0", txt:"#8A6A1E", grano:"#E7B84C"},
+  };
+  const c = PAL[linea] || {tela:"#ECE6D8", tela2:"#DED6C4", txt:"#333", grano:"#D8C9A8"};
+  const titulo = (linea||"PRODUCTO").toUpperCase();
+  const sub = (pres||"").toUpperCase();
+  const svg =
+'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 340">'+
+'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'+
+'<stop offset="0" stop-color="'+c.tela+'"/><stop offset="1" stop-color="'+c.tela2+'"/>'+
+'</linearGradient></defs>'+
+'<rect width="300" height="340" fill="#FFFFFF"/>'+
+/* cuerpo del saco */
+'<path d="M70 60 q80 -22 160 0 q14 6 12 26 l-8 210 q-2 20 -22 24 q-64 12 -124 0 q-20 -4 -22 -24 l-8 -210 q-2 -20 12 -26 z" fill="url(#g)" stroke="'+c.tela2+'" stroke-width="2"/>'+
+/* boca cosida arriba */
+'<path d="M74 58 q76 -20 152 0" fill="none" stroke="'+c.tela2+'" stroke-width="6" stroke-linecap="round"/>'+
+'<path d="M88 50 l0 14 M112 46 l0 16 M136 44 l0 18 M160 44 l0 18 M184 46 l0 16 M208 50 l0 14" stroke="'+c.tela2+'" stroke-width="3" stroke-linecap="round"/>'+
+/* textura tela (líneas suaves) */
+'<g opacity="0.12" stroke="'+c.txt+'" stroke-width="1">'+
+'<line x1="80" y1="90" x2="220" y2="90"/><line x1="80" y1="110" x2="220" y2="110"/>'+
+'<line x1="78" y1="250" x2="222" y2="250"/><line x1="78" y1="270" x2="222" y2="270"/></g>'+
+/* granos derramados abajo */
+'<g fill="'+c.grano+'" opacity="0.9">'+
+'<ellipse cx="110" cy="292" rx="7" ry="3.4" transform="rotate(24 110 292)"/>'+
+'<ellipse cx="140" cy="300" rx="7" ry="3.4" transform="rotate(-14 140 300)"/>'+
+'<ellipse cx="170" cy="294" rx="7" ry="3.4" transform="rotate(34 170 294)"/>'+
+'<ellipse cx="126" cy="312" rx="7" ry="3.4" transform="rotate(-8 126 312)"/>'+
+'<ellipse cx="158" cy="314" rx="7" ry="3.4" transform="rotate(18 158 314)"/>'+
+'<ellipse cx="190" cy="308" rx="7" ry="3.4" transform="rotate(-22 190 308)"/></g>'+
+/* texto */
+'<text x="150" y="170" text-anchor="middle" font-family="Arial,sans-serif" font-size="40" font-weight="800" fill="'+c.txt+'">'+titulo+'</text>'+
+(sub?'<text x="150" y="210" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="'+c.txt+'">'+sub+'</text>':'')+
+'</svg>';
+  return "data:image/svg+xml;utf8,"+encodeURIComponent(svg);
+}
 
 // Lista plana de presentaciones VENDIBLES (excluye marcas y presentaciones inhabilitadas).
 // Cada ítem combina marca + presentación; es la unidad que se vende, se cuenta en stock y se historiza.
@@ -4723,13 +4778,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     {/* al elegir producto aparece el precio, sin cambiar de pantalla */}
     {prod && <>
     <div className="prodcard">
-      {/* Hero: imagen del producto en grande arriba */}
-      <div className="pc-hero">
-        <div className="pc-hero-img">{prod?(EMOJI_LINEA[prod.linea]||"📦"):"📦"}</div>
-        <div className="pc-hero-nom">{prod?prod.nombre:""}</div>
-        {prod && <div className="pc-hero-sub">{prod.unidad}</div>}
-        {esProductoNuevo && <span className="pc-hero-nuevo">Producto nuevo</span>}
-      </div>
 
     {/* Historial de compras (debajo del precio de venta) */}
     {prod && histo3m.length>0 && (
@@ -4867,6 +4915,13 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         </div>
       )}
 
+      <div className="pedido-split">
+        {/* Columna izquierda: imagen del producto (ilustración de saco) */}
+        <div className="ps-foto">
+          <img src={sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
+        </div>
+        {/* Columna derecha: cantidad + comisión/base + precio, compacto */}
+        <div className="ps-controles">
       <div className="tarjeta-pedido">
         <div className="tp-titulo"><span className="tp-ic">📦</span>Cantidad{prod?" ("+prod.unidad+")":""}</div>
         {/* Cantidad con botones − / + de 50 en 50 */}
@@ -4962,6 +5017,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         </div>
       </>)}
     </div>
+        </div>{/* /ps-controles */}
+      </div>{/* /pedido-split */}
 
     {prod && precio!=="" && (
       <div className="calc">
