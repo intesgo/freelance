@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"303", fecha:"21 jul 2026", desc:"Asistente: modo voz nunca abre ventana; reintenta por voz y se apaga hablando" };
+const VERSION = { n:"304", fecha:"22 jul 2026", desc:"Asistente: toque en burbuja = hablar directo (sin ventana); lista de preguntas movida a Ajustes" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11215,7 +11215,7 @@ function BurbujaAsistente({ onAbrir, onEscuchar, escuchando }){
     const s = ref.current;
     if(s.timer){ clearTimeout(s.timer); s.timer=null; }
     if(s.arrastrando){
-      if(!s.movio && !s.longpress){ onAbrir(); }          /* toque simple */
+      if(!s.movio && !s.longpress){ onEscuchar(); }        /* toque simple = escuchar directo (sin ventana) */
       else if(s.movio){
         /* pegar al borde más cercano */
         const ancho = window.innerWidth||400;
@@ -11245,7 +11245,7 @@ function BurbujaAsistente({ onAbrir, onEscuchar, escuchando }){
 /* Etiqueta corta del botón "Ir a…" según la tab destino de la pregunta. */
 const ETIQUETA_IR = { cartera:"Cartera", clientes:"Cliente", equipo:"Comisiones", agenda:"Agenda", productos:"Productos", cobros:"Cobros" };
 
-function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesitaPanel, toast, onVerCartera, onIr, escuchaInicial }){
+function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, onFinVoz, onNecesitaPanel, toast, onVerCartera, onIr, escuchaInicial }){
   const [preg, setPreg] = useState(null);   // pregunta elegida
   const [dato, setDato] = useState("");      // cliente/producto escrito o dictado
   const [resp, setResp] = useState("");      // respuesta mostrada
@@ -11327,12 +11327,17 @@ function AsistenteVoz({ abierto, panelVisible=true, onCerrar, onFinVoz, onNecesi
      Si vino por voz (long-press / burbuja), escucha directo aunque el panel esté oculto. */
   React.useEffect(()=>{
     if(abierto){
-      setMostrarTodas(false); setPreg(null); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
+      setPreg(null); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
       refIntentos.current = 0; // reinicia intentos de voz
-      if(escuchaInicial || !panelVisible) escucharNatural();
+      if(modoLista){
+        setMostrarTodas(true);   // abrir directo en la lista de preguntas (desde Ajustes)
+      } else {
+        setMostrarTodas(false);
+        if(escuchaInicial || !panelVisible) escucharNatural();
+      }
     }
     // eslint-disable-next-line
-  },[abierto, escuchaInicial, panelVisible]);
+  },[abierto, escuchaInicial, panelVisible, modoLista]);
 
   if(!abierto) return null;
   /* Modo voz desde la burbuja: escucha sin mostrar panel (la burbuja late). */
@@ -15113,7 +15118,7 @@ function Novedades({toast, go}){
   </>);
 }
 
-function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif}){
+function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif, onAbrirPreguntas}){
   useRetroceso(()=>{
       if(editPerfil){ setEditPerfil(false); return true; }
       return false;
@@ -15277,6 +15282,16 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   };
   return (<>
     <div className="h1">Ajustes</div>
+
+    <div className="card" style={{padding:"13px 15px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}
+      onClick={()=>onAbrirPreguntas && onAbrirPreguntas()}>
+      <div style={{fontSize:22}}>🎙️</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:700,fontSize:14}}>Preguntas frecuentes del asistente</div>
+        <div className="meta">Ver la lista de preguntas que puedes hacer por voz</div>
+      </div>
+      <span className="meta" style={{fontSize:18,color:"var(--muted)"}}>›</span>
+    </div>
 
     <div className="pot-filtros" style={{margin:"10px 0 12px"}}>
       {[["apariencia","Apariencia"],["negocio","Negocio"],["avisos","Avisos"],
@@ -18939,6 +18954,7 @@ function App({usuario, onSalir}){
   const [asistAbierto,setAsistAbierto]=useState(false); // asistente de consultas por voz
   const [asistEscucha,setAsistEscucha]=useState(false); // abrir el asistente escuchando directo (long-press)
   const [asistVozBurbuja,setAsistVozBurbuja]=useState(false); // escuchando por voz desde la burbuja, SIN panel
+  const [asistLista,setAsistLista]=useState(false); // abrir el panel directo en la lista de preguntas (desde Ajustes)
   /* deslizar desde el borde izquierdo abre el menú (no cuando ya está abierto) */
   /* el gesto acompaña al botón ☰: solo desde el inicio */
   useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto && tab==="inicio");
@@ -19284,7 +19300,8 @@ function App({usuario, onSalir}){
         )}
         {tab==="portafolio" && <Portafolio modo="freelance" miSector="" miDistribuidor=""/>}
         {tab==="ajustes" && <Ajustes prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif} usuario={usuario} onSalir={onSalir} tema={tema} setTema={setTema}
-          oscuro={oscuro} setOscuro={setOscuro} fontGrande={fontGrande} setFontGrande={setFontGrande} toast={show}/>}
+          oscuro={oscuro} setOscuro={setOscuro} fontGrande={fontGrande} setFontGrande={setFontGrande} toast={show}
+          onAbrirPreguntas={()=>{ setAsistEscucha(false); setAsistVozBurbuja(false); setAsistLista(true); setAsistAbierto(true); }}/>}
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
@@ -19554,14 +19571,15 @@ function App({usuario, onSalir}){
           onEscuchar={()=>{ setAsistAbierto(false); setAsistEscucha(true); setAsistVozBurbuja(true); }} />
       )}
       <AsistenteVoz abierto={asistAbierto || asistVozBurbuja} panelVisible={asistAbierto}
+        modoLista={asistLista}
         escuchaInicial={asistEscucha}
-        onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false); }}
+        onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false); setAsistLista(false); }}
         onFinVoz={()=>{ setAsistVozBurbuja(false); setAsistEscucha(false); }}
         onNecesitaPanel={()=>{ setAsistVozBurbuja(false); setAsistAbierto(true); }}
         toast={show}
         onVerCartera={(c)=>{ setCliFicha(c); setSecFicha("cartera"); navegar("clientes"); }}
         onIr={(tab, cli)=>{
-          setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false);
+          setAsistAbierto(false); setAsistEscucha(false); setAsistVozBurbuja(false); setAsistLista(false);
           if(cli && tab==="cartera"){ setCliFicha(cli); setSecFicha("cartera"); navegar("clientes"); return; }
           if(cli && tab==="clientes"){ setCliFicha(cli); navegar("clientes"); return; }
           navegar(tab);
