@@ -291,6 +291,18 @@ input,select,textarea{font-family:inherit;font-size:16px;}
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FREELANCE">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  // Cliente Supabase (solo lectura, anon). Conexión única para toda la app.
+  window.SB = (function(){
+    try{
+      return window.supabase.createClient(
+        "https://ztpwtddrblfvcnnhbevq.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg"
+      );
+    }catch(e){ console.warn("Supabase no inicializó:", e); return null; }
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -1185,9 +1197,9 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"22", fecha:"20 jul 2026", desc:"Aviso de version nueva" };
+const VERSION = { n:"23", fecha:"21 jul 2026", desc:"Selector de productos conectado a Supabase" };
 
-const PROVEEDOR = { provId:"PROV-A", nombre:"Agrícola del Valle", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
+const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
 const FREELANCE = {
   nombre:"Daniel Ríos", proyecto:"Distribución Valle Norte", zona:"Valle Norte",
@@ -2793,9 +2805,35 @@ function CargaXML({irTab}){
   const [equis,setEquis]=useState(EQUIVALENCIAS);
   const [xml,setXml]=useState(null);        // factura leída
   const [resuelto,setResuelto]=useState({}); // codProv → prodId confirmado en esta carga
+  const [nombresRes,setNombresRes]=useState({}); // codProv → nombre mostrado (sin depender de CAT_INI)
   const [eligiendo,setEligiendo]=useState(null); // línea que se está emparejando
   const [verEquis,setVerEquis]=useState(false);
   const [aviso,setAviso]=useState("");
+  /* Ofertas reales de ESTA piladora desde Supabase (ofertas_piladora + productos). */
+  const [ofertas,setOfertas]=useState(null);   // null=cargando, []=sin productos, [...]=lista
+  const [ofertasErr,setOfertasErr]=useState(false);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      if(!window.SB){ setOfertasErr(true); setOfertas([]); return; }
+      try{
+        const { data, error } = await window.SB
+          .from("ofertas_piladora")
+          .select("oferta_id,prod_id,pres_cod,presentacion,equiv_qq,productos(linea,marca,nombre)")
+          .eq("prov_cod", PROVEEDOR.provId)
+          .eq("activo", true);
+        if(!vivo) return;
+        if(error){ setOfertasErr(true); setOfertas([]); return; }
+        const lista=(data||[]).map(o=>({
+          prodId:o.prod_id,
+          pres:o.presentacion,
+          nombre:(o.productos && (o.productos.nombre||o.productos.marca)) || o.prod_id
+        })).sort((a,b)=> a.nombre.localeCompare(b.nombre) || a.pres.localeCompare(b.pres));
+        setOfertas(lista);
+      }catch(e){ if(vivo){ setOfertasErr(true); setOfertas([]); } }
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
   /* pestaña de grupo; null = elige sola la accionable */
   const [grupo,setGrupo]=useState(null);
   /* Atrás: cierra el selector de producto, luego las equivalencias, luego la factura leída. */
@@ -2816,6 +2854,8 @@ function CargaXML({irTab}){
     const eq = buscarEq(l.codProv);
     if(eq) return {grupo:"calza", prodId:eq.prodId, nombre:eq.nombre};
     if(resuelto[l.codProv]){
+      const nom = nombresRes[l.codProv];
+      if(nom) return {grupo:"calza", prodId:resuelto[l.codProv], nombre:nom};
       const p = CAT_INI.find(c=>c.prodId===resuelto[l.codProv]);
       return {grupo:"calza", prodId:resuelto[l.codProv], nombre:p? `${p.nombre} · ${p.pres}`:""};
     }
@@ -2873,12 +2913,12 @@ function CargaXML({irTab}){
   };
 
   /* Confirmar una equivalencia: se guarda y ya no vuelve a preguntar. */
-  const emparejar=(codProv, prodId, desc)=>{
-    const p = CAT_INI.find(c=>c.prodId===prodId);
+  const emparejar=(codProv, prodId, desc, nombreLinea)=>{
     const au = nuevoAu();
-    setEquis(prev=>[{codProv, prodId, nombre:`${p.nombre} · ${p.pres}`,
+    setEquis(prev=>[{codProv, prodId, nombre:nombreLinea||prodId,
       desde:"2026-07-20", quien:PROVEEDOR.contacto, descOriginal:desc, au}, ...prev]);
     setResuelto(prev=>({...prev, [codProv]:prodId}));
+    setNombresRes(prev=>({...prev, [codProv]:(nombreLinea||prodId)}));
     setEligiendo(null);
     toast(`${codProv} queda vinculado · la próxima vez entra solo`);
   };
@@ -3043,7 +3083,7 @@ function CargaXML({irTab}){
           <div className="sub tiny" style={{marginTop:2}}>Se parece un {l.pct}%</div>
           <div className="row" style={{gap:10,marginTop:12}}>
             <button className="btn btn-maiz" style={{flex:1}}
-              onClick={()=>emparejar(l.codProv, l.prodId, l.desc)}>Sí, es ese</button>
+              onClick={()=>emparejar(l.codProv, l.prodId, l.desc, l.nombre)}>Sí, es ese</button>
             <button className="btn btn-ghost" style={{flex:1}}
               onClick={()=>setEligiendo(l)}>Es otro</button>
           </div>
@@ -3080,10 +3120,24 @@ function CargaXML({irTab}){
           <div className="num" style={{fontWeight:700,fontSize:16}}>{eligiendo.codProv}</div>
           <div className="sub tiny" style={{marginTop:2,marginBottom:14}}>{eligiendo.desc}</div>
 
-          {CAT_INI.map(c=>(
-            <button key={c.prodId} className="card card-pad"
+          {ofertas===null && (
+            <div className="card card-pad" style={{marginBottom:8}}>
+              <div className="sub tiny">Cargando productos de la piladora…</div>
+            </div>
+          )}
+          {ofertas!==null && ofertas.length===0 && (
+            <div className="card card-pad" style={{marginBottom:8}}>
+              <div className="sub tiny" style={{lineHeight:1.5}}>
+                {ofertasErr
+                  ? "No se pudo consultar el catálogo. Revisa tu conexión e intenta de nuevo."
+                  : "Sin productos para esta piladora."}
+              </div>
+            </div>
+          )}
+          {ofertas!==null && ofertas.length>0 && ofertas.map((c,ix)=>(
+            <button key={c.prodId+"-"+c.pres+"-"+ix} className="card card-pad"
               style={{width:"100%",textAlign:"left",marginBottom:8}}
-              onClick={()=>emparejar(eligiendo.codProv, c.prodId, eligiendo.desc)}>
+              onClick={()=>emparejar(eligiendo.codProv, c.prodId, eligiendo.desc, `${c.nombre} · ${c.pres}`)}>
               <div style={{fontWeight:600,fontSize:14}}>{c.nombre}</div>
               <div className="sub tiny num">{c.prodId} · {c.pres}</div>
             </button>
