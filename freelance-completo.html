@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"321", fecha:"22 jul 2026", desc:"Cartera cliente: total por cobrar + acciones (Llamar/WhatsApp/Ubicación) + tarjeta Ver facturas; sin Filtros en modo cliente" };
+const VERSION = { n:"322", fecha:"22 jul 2026", desc:"Cartera: reestructura sin duplicados — Total/Vencido/Vence semana/Quién debe + Antigüedad; fuera tarjetas repetidas, Clientes bloqueados y calendario" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10332,24 +10332,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
         off+=largo; return el;
       });
       return (<>
-        {/* 4 mini-tarjetas */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4}}>
-          {[
-            {ic:"⚠️", lbl:"Vencida", val:money(vencido), col:"var(--clay)"},
-            {ic:"⏳", lbl:"Al día", val:money(porVencer), col:"#C9A227"},
-            {ic:"👥", lbl:"Clientes con deuda", val:String(clientesDeuda), col:"var(--field)"},
-            {ic:"🔒", lbl:"Clientes bloqueados", val:String(clientesBloq), col:"var(--clay)"},
-          ].map((m,i)=>(
-            <div key={i} className="card" style={{padding:"13px 14px",margin:0,display:"flex",alignItems:"center",gap:11}}>
-              <span style={{fontSize:20,flexShrink:0}}>{m.ic}</span>
-              <span style={{minWidth:0}}>
-                <span className="meta" style={{display:"block",fontSize:11,fontWeight:600}}>{m.lbl}</span>
-                <span className="num" style={{display:"block",fontSize:17,fontWeight:800,color:m.col}}>{m.val}</span>
-              </span>
-            </div>
-          ))}
-        </div>
-
         {/* Antigüedad de cartera: leyenda + dona (clicables) */}
         <div className="card" style={{padding:"16px 18px",marginTop:12}}>
           <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>Antigüedad de cartera</div>
@@ -10371,50 +10353,6 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
           </div>
           <div className="meta" style={{fontSize:10.5,marginTop:10,textAlign:"center"}}>Toca un tramo para ver los clientes y facturas</div>
         </div>
-
-        {/* ── Calendario de vencimientos (kit neumórfico) ── */}
-        {(()=>{
-          const HOY=new Date(2026,5,12);                 // 12 jun 2026 (fecha de trabajo del demo)
-          const anioC=HOY.getFullYear(), mesC=HOY.getMonth();
-          /* junta las facturas que vencen en el mes en curso */
-          const porDia={};
-          base.forEach(f=>{
-            const v=new Date(HOY); v.setDate(v.getDate()-f.dias);   // dias>0 = ya vencida
-            if(v.getFullYear()!==anioC || v.getMonth()!==mesC) return;
-            const d=v.getDate();
-            if(!porDia[d]) porDia[d]={dia:d, monto:0, n:0, vencido:false};
-            porDia[d].monto+=f.saldo; porDia[d].n++;
-            if(f.dias>0) porDia[d].vencido=true;
-          });
-          const marcados=Object.values(porDia).map(x=>({
-            ...x, color: x.vencido?"#C2603A":"#2E7D52"
-          }));
-          if(marcados.length===0) return null;
-          const totalMes=marcados.reduce((s,x)=>s+x.monto,0);
-          const MES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][mesC];
-          return (
-            <div className="neu" style={{marginTop:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                <div>
-                  <div className="neu-t">Vencimientos de {MES}</div>
-                  <div className="neu-s" style={{marginBottom:0}}>{marcados.length} día(s) con cobros</div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div className="num" style={{fontSize:16,fontWeight:800,color:"var(--field)"}}>{money(totalMes)}</div>
-                  <div className="meta" style={{fontSize:9.5}}>del mes</div>
-                </div>
-              </div>
-              <NeuCalendario anio={anioC} mes={mesC} marcados={marcados}
-                onDia={(m)=>toast(`${m.dia} de ${MES}: ${m.n} factura(s) · ${money(m.monto)}`)}/>
-              <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:12}}>
-                <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10.5}}>
-                  <span style={{width:9,height:9,borderRadius:3,background:"#2E7D52"}}></span>Por vencer</span>
-                <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10.5}}>
-                  <span style={{width:9,height:9,borderRadius:3,background:"#C2603A"}}></span>Vencido</span>
-              </div>
-            </div>
-          );
-        })()}
       </>);
     })()}
 
