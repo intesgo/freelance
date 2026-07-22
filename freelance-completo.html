@@ -4562,7 +4562,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"297", fecha:"21 jul 2026", desc:"Asistente de voz: 30 preguntas por categoría + Ver cartera directo" };
+const VERSION = { n:"298", fecha:"21 jul 2026", desc:"Asistente: burbuja movible + habla natural (long-press)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11109,16 +11109,172 @@ const PREGUNTAS_ASIST = [
     } },
 ];
 
-function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera }){
+/* ══ INTÉRPRETE DE HABLA NATURAL (motor de reglas, sin IA) ══
+   Recibe la frase dictada e intenta calzarla con una pregunta del catálogo, por palabras clave.
+   Si la pregunta pide un dato (cliente/producto/vendedor/línea), lo busca dentro de la frase.
+   Devuelve { pregunta, dato } o null si no reconoce. */
+const CLAVES_ASIST = {
+  pendiente:   ["debe","pendiente","saldo","adeuda","cuanto me debe","por cobrar de"],
+  vencidasCli: ["vencida","vencidas","atrasada","atrasado"],
+  cobrosHoy:   ["cobro hoy","cobros hoy","cobrar hoy","hoy vence","cobros de hoy","cobros para hoy"],
+  cobrosSemana:["esta semana","semana","proximos dias"],
+  carteraVencida:["cartera vencida","total vencido","vencido total","cuanto vencido"],
+  totalPorCobrar:["total por cobrar","cuanto por cobrar","cartera total"],
+  clienteMasDebe:["mas debe","quien debe mas","mayor deuda","cliente que mas debe"],
+  cobrosVendedor:["cartera del vendedor","cartera de vendedor"],
+  comisiones:  ["comision del mes","comisiones del mes","comisiones este mes","comision este mes","comisiones generadas"],
+  comLiberadas:["liberada","liberadas","comision liberada"],
+  comPendientes:["pendiente de liberar","retenida","comision retenida","por liberar"],
+  comProveedor:["comision del proveedor","comisiones proveedor"],
+  comAnioTotal:["comision del ano","comisiones del ano","acumulada del ano","comision acumulada"],
+  cuantosClientes:["cuantos clientes","numero de clientes","total de clientes"],
+  bloqueados:  ["bloqueado","bloqueados","clientes bloqueados"],
+  cupoCliente: ["cupo","cupo disponible","credito disponible","cuanto cupo"],
+  diasCredito: ["dias de credito","plazo de","cuantos dias de credito"],
+  ultimaCompra:["ultima compra","cuando compro","ultima vez que compro"],
+  datosCliente:["datos de","contacto de","telefono de","numero de"],
+  clientesVendedor:["clientes del vendedor","clientes de vendedor","clientes de"],
+  visita:      ["proximo cliente a visitar","a quien visito","proxima visita","que cliente visito","siguiente visita"],
+  urgentesVisita:["urgente por visitar","clientes urgentes","urgentes visitar"],
+  rutaVendedor:["ruta del vendedor","ruta de","que ruta"],
+  cobrosRuta:  ["cobros en ruta","cobro en ruta","pendiente en ruta"],
+  precio:      ["precio de","cuanto cuesta","cuanto vale","a como esta","valor de"],
+  presentaciones:["presentacion","presentaciones","que tamanos","en que viene"],
+  promos:      ["promocion","promociones","oferta de","promo de"],
+  productosLinea:["productos de la linea","linea de","que productos de"],
+  resumenDia:  ["resumen del dia","resumen de hoy","como va el dia","que tengo hoy"],
+  totalRecibirMes:["total a recibir","cuanto voy a recibir","por recibir del mes"],
+};
+function interpretarAsist(frase){
+  const f = normAsist(frase);
+  if(!f) return null;
+  /* Paso 1 - Detectar la pregunta: la que más palabras clave calce, la frase más larga gana. */
+  let mejor = null, mejorLargo = 0;
+  PREGUNTAS_ASIST.forEach(p=>{
+    (CLAVES_ASIST[p.id]||[]).forEach(clave=>{
+      const c = normAsist(clave);
+      if(f.includes(c) && c.length > mejorLargo){ mejor = p; mejorLargo = c.length; }
+    });
+  });
+  if(!mejor) return null;
+  /* Paso 2 - Si pide un dato, buscarlo dentro de la frase. */
+  let dato = null;
+  if(mejor.pide === "cliente"){
+    dato = CLIENTES.find(c => f.includes(normAsist(c)));
+  } else if(mejor.pide === "producto"){
+    const pr = PRODUCTOS.find(p => f.includes(normAsist(p.marca)));
+    dato = pr ? pr.marca : null;
+  } else if(mejor.pide === "vendedor"){
+    const vs = [...new Set(CARTERA_INI.map(x=>x.vendedor).filter(Boolean))];
+    dato = vs.find(v => f.includes(normAsist(v)));
+  } else if(mejor.pide === "linea"){
+    const ls = [...new Set(PRODUCTOS.map(p=>p.linea).filter(Boolean))];
+    dato = ls.find(l => f.includes(normAsist(l)));
+  }
+  return { pregunta: mejor, dato };
+}
+
+/* ── Burbuja flotante movible del asistente ──
+   Toque = abre el panel. Mantener presionada (~0.6s) = escucha directo (habla natural).
+   Arrastrar = reubica; al soltar se pega al borde más cercano. */
+function BurbujaAsistente({ onAbrir, onEscuchar }){
+  const [pos, setPos] = useState({ x: (window.innerWidth||400) - 74, y: (window.innerHeight||700) - 150 });
+  const ref = React.useRef({ arrastrando:false, movio:false, ini:null, timer:null, longpress:false });
+
+  const iniciar = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    const s = ref.current;
+    s.arrastrando = true; s.movio = false; s.longpress = false;
+    s.ini = { x: t.clientX, y: t.clientY, px: pos.x, py: pos.y };
+    /* long-press: si no se mueve en 0.6s, escucha directo */
+    s.timer = setTimeout(()=>{ if(!s.movio){ s.longpress = true; onEscuchar(); } }, 600);
+  };
+  const mover = (e) => {
+    const s = ref.current;
+    if(!s.arrastrando || !s.ini) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - s.ini.x, dy = t.clientY - s.ini.y;
+    if(Math.abs(dx) > 6 || Math.abs(dy) > 6){ s.movio = true; if(s.timer){ clearTimeout(s.timer); s.timer=null; } }
+    if(s.movio){
+      const nx = Math.max(6, Math.min((window.innerWidth||400)-62, s.ini.px + dx));
+      const ny = Math.max(60, Math.min((window.innerHeight||700)-120, s.ini.py + dy));
+      setPos({ x:nx, y:ny });
+    }
+  };
+  const soltar = () => {
+    const s = ref.current;
+    if(s.timer){ clearTimeout(s.timer); s.timer=null; }
+    if(s.arrastrando){
+      if(!s.movio && !s.longpress){ onAbrir(); }          /* toque simple */
+      else if(s.movio){
+        /* pegar al borde más cercano */
+        const ancho = window.innerWidth||400;
+        setPos(p=>({ ...p, x: p.x < ancho/2 ? 6 : ancho-62 }));
+      }
+    }
+    s.arrastrando = false; s.movio = false; s.longpress = false; s.ini = null;
+  };
+
+  return (
+    <button
+      onMouseDown={iniciar} onMouseMove={mover} onMouseUp={soltar} onMouseLeave={soltar}
+      onTouchStart={iniciar} onTouchMove={mover} onTouchEnd={soltar}
+      aria-label="Asistente de voz"
+      style={{position:"fixed", left:pos.x, top:pos.y, zIndex:95, width:56, height:56, borderRadius:"50%",
+        border:"none", background:"var(--maize-deep, #C9A227)", color:"#fff", fontSize:24, cursor:"grab",
+        boxShadow:"0 6px 20px rgba(0,0,0,.28)", display:"flex", alignItems:"center", justifyContent:"center",
+        touchAction:"none", userSelect:"none"}}>
+      🎙️
+    </button>
+  );
+}
+
+function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera, escuchaInicial }){
   const [preg, setPreg] = useState(null);   // pregunta elegida
   const [dato, setDato] = useState("");      // cliente/producto escrito o dictado
   const [resp, setResp] = useState("");      // respuesta mostrada
   const [cliResp, setCliResp] = useState(null); // cliente de la respuesta (para "Ver cartera")
+  const [escuchando, setEscuchando] = useState(false);
+  const [noEntendi, setNoEntendi] = useState("");
+  const refRec = React.useRef(null);
+
+  /* Escucha una frase libre e interpreta contra el catálogo (habla natural). */
+  const escucharNatural = React.useCallback(()=>{
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){ if(toast) toast("Tu navegador no permite dictado por voz"); return; }
+    const r = new Rec();
+    r.lang="es-EC"; r.interimResults=false; r.maxAlternatives=1;
+    setNoEntendi(""); setEscuchando(true);
+    r.onresult = ev=>{
+      const frase = ev.results[0][0].transcript.trim();
+      const res = interpretarAsist(frase);
+      if(!res){ setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo."); return; }
+      const p = res.pregunta;
+      setPreg(p);
+      if(p.pide && !res.dato){
+        setDato(""); setResp(""); setCliResp(null);
+        setNoEntendi("Entendí que preguntas sobre "+p.label.toLowerCase()+", pero no capté el nombre. Escríbelo o dícelo abajo.");
+        return;
+      }
+      responder(p, res.dato || null);
+    };
+    r.onerror = ev=>{ setEscuchando(false); if(ev.error==="not-allowed" && toast) toast("Permite el micrófono para hablar"); };
+    r.onend = ()=> setEscuchando(false);
+    refRec.current = r;
+    try{ r.start(); }catch(e){ setEscuchando(false); }
+  },[toast]);
+
+  /* Si se abrió con long-press (escuchaInicial), arranca a escuchar directo. */
+  React.useEffect(()=>{
+    if(abierto && escuchaInicial) escucharNatural();
+    // eslint-disable-next-line
+  },[abierto, escuchaInicial]);
+
   if(!abierto) return null;
 
   const responder = (p, valorDato) => {
     const texto = p.responder(valorDato);
-    setResp(texto);
+    setResp(texto); setNoEntendi("");
     hablarTexto(texto);
     /* Si la pregunta fue sobre un cliente que sí tiene cartera, habilita "Ver cartera". */
     if(p.pide === "cliente" && valorDato){
@@ -11129,7 +11285,7 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera }){
     }
   };
   const elegir = (p) => {
-    setPreg(p); setDato(""); setResp(""); setCliResp(null);
+    setPreg(p); setDato(""); setResp(""); setCliResp(null); setNoEntendi("");
     if(!p.pide) responder(p, null);   // sin dato: responde directo
   };
   const confirmarDato = () => {
@@ -11159,6 +11315,20 @@ function AsistenteVoz({ abierto, onCerrar, toast, onVerCartera }){
           <div style={{fontWeight:800,fontSize:16}}>🎙️ Preguntar al sistema</div>
           <button className="micb" onClick={onCerrar} aria-label="Cerrar" style={{fontSize:18}}>✕</button>
         </div>
+
+        {/* Micrófono grande: habla natural */}
+        <button onClick={escucharNatural} disabled={escuchando}
+          style={{width:"100%",padding:"14px",borderRadius:12,border:"none",marginBottom:12,cursor:"pointer",
+            background: escuchando?"var(--clay, #C2603A)":"var(--field-700, #2E7D52)",color:"#fff",
+            fontSize:14.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <span style={{fontSize:20}}>{escuchando?"●":"🎤"}</span>
+          {escuchando ? "Escuchando… habla ahora" : "Habla: dime tu pregunta"}
+        </button>
+        {noEntendi && (
+          <div style={{background:"var(--maize-soft, #FBF3DC)",borderRadius:10,padding:"10px 13px",marginBottom:12,fontSize:12.5,color:"var(--text)",lineHeight:1.45}}>
+            {noEntendi}
+          </div>
+        )}
 
         {/* Chips de preguntas, agrupados por categoría */}
         <div style={{marginBottom:14}}>
@@ -18670,6 +18840,7 @@ function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
   const [asistAbierto,setAsistAbierto]=useState(false); // asistente de consultas por voz
+  const [asistEscucha,setAsistEscucha]=useState(false); // abrir el asistente escuchando directo (long-press)
   /* deslizar desde el borde izquierdo abre el menú (no cuando ya está abierto) */
   /* el gesto acompaña al botón ☰: solo desde el inicio */
   useGestoDrawer(React.useCallback(()=>setMenuAbierto(true),[]), !menuAbierto && tab==="inicio");
@@ -19278,16 +19449,14 @@ function App({usuario, onSalir}){
           </div>
         </div>
       )}
-      {/* Asistente de consultas por voz */}
-      {tab==="inicio" && !asistAbierto && (
-        <button onClick={()=>setAsistAbierto(true)} aria-label="Preguntar al sistema"
-          style={{position:"fixed",right:16,bottom:78,zIndex:90,width:56,height:56,borderRadius:"50%",
-            border:"none",background:"var(--maize-deep)",color:"#fff",fontSize:24,cursor:"pointer",
-            boxShadow:"0 6px 20px rgba(0,0,0,.25)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-          🎙️
-        </button>
+      {/* Asistente de consultas por voz: burbuja movible en todas las pantallas */}
+      {!asistAbierto && (
+        <BurbujaAsistente
+          onAbrir={()=>{ setAsistEscucha(false); setAsistAbierto(true); }}
+          onEscuchar={()=>{ setAsistEscucha(true); setAsistAbierto(true); }} />
       )}
-      <AsistenteVoz abierto={asistAbierto} onCerrar={()=>setAsistAbierto(false)} toast={show}
+      <AsistenteVoz abierto={asistAbierto} escuchaInicial={asistEscucha}
+        onCerrar={()=>{ setAsistAbierto(false); setAsistEscucha(false); }} toast={show}
         onVerCartera={(c)=>{ setCliFicha(c); setSecFicha("cartera"); navegar("clientes"); }} />
 
       <div className="nav">
