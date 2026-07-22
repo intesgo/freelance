@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"320", fecha:"22 jul 2026", desc:"Cartera: con cliente seleccionado vista simple (Vencida + Al día + botón Ver facturas); sin dashboard general ni duplicados" };
+const VERSION = { n:"321", fecha:"22 jul 2026", desc:"Cartera cliente: total por cobrar + acciones (Llamar/WhatsApp/Ubicación) + tarjeta Ver facturas; sin Filtros en modo cliente" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10083,9 +10083,11 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
           <MicBtn onTexto={setQ} toast={toast}/></div>
       </div>
-      <button className={"cf-btn"+((verFiltros||nFiltros>0)?" on":"")} onClick={()=>setVerFiltros(v=>!v)}>
-        ⚙ Filtros{nFiltros>0 && <span className="cf-btn-n">{nFiltros}</span>}
-      </button>
+      {fCli==="Todos" && (
+        <button className={"cf-btn"+((verFiltros||nFiltros>0)?" on":"")} onClick={()=>setVerFiltros(v=>!v)}>
+          ⚙ Filtros{nFiltros>0 && <span className="cf-btn-n">{nFiltros}</span>}
+        </button>
+      )}
     </div>
 
     {/* Lista desplegable: clientes que coinciden con lo escrito. */}
@@ -10258,10 +10260,39 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
         try{ return motivosBloqueo(c).length>0; }catch(e){ return false; }
       }).length;
 
-      /* Cliente seleccionado: vista simple — Vencida + Al día + botón Ver facturas. */
+      /* Cliente seleccionado: vista de cobranza — total, acciones, resumen, ver facturas. */
       if(fCli!=="Todos"){
+        const fc = (typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[fCli]) || {};
+        const totalCli = base.reduce((s,i)=>s+i.saldo,0);
+        const nFacCli = base.length;
+        const tel = fc.tel || "";
+        const waNum = tel ? tel.replace(/\D/g,"").replace(/^0/,"593") : "";
         return (<>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4}}>
+          {/* Total por cobrar del cliente */}
+          <div className="card" style={{padding:"16px 18px",marginTop:4,textAlign:"center"}}>
+            <div className="meta" style={{fontSize:11.5,fontWeight:600}}>Total por cobrar</div>
+            <div className="num" style={{fontSize:28,fontWeight:800,color:totalCli>0?"var(--clay)":"var(--field)",marginTop:2}}>{money(totalCli)}</div>
+            <div className="meta" style={{fontSize:11,marginTop:2}}>{nFacCli} documento{nFacCli!==1?"s":""} pendiente{nFacCli!==1?"s":""}</div>
+          </div>
+
+          {/* Acciones rápidas de cobranza */}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button onClick={()=>{ if(!tel){toast("Este cliente no tiene teléfono registrado");return;} window.location.href="tel:"+tel; }}
+              style={{flex:1,padding:"11px 6px",border:"1px solid var(--line)",borderRadius:12,background:"var(--card)",
+                fontFamily:"inherit",fontWeight:700,fontSize:12.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:18}}>📞</span>Llamar</button>
+            <button onClick={()=>{ if(!tel){toast("Este cliente no tiene teléfono registrado");return;} window.open("https://wa.me/"+waNum,"_blank"); }}
+              style={{flex:1,padding:"11px 6px",border:"1px solid var(--line)",borderRadius:12,background:"var(--card)",
+                fontFamily:"inherit",fontWeight:700,fontSize:12.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:18}}>💬</span>WhatsApp</button>
+            <button onClick={()=>{ window.open("https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(`${fc.dir||""}, ${fc.ciudad||""}, Ecuador`),"_blank"); }}
+              style={{flex:1,padding:"11px 6px",border:"1px solid var(--line)",borderRadius:12,background:"var(--card)",
+                fontFamily:"inherit",fontWeight:700,fontSize:12.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{fontSize:18}}>📍</span>Ubicación</button>
+          </div>
+
+          {/* Vencida / Al día */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}}>
             {[
               {ic:"⚠️", lbl:"Vencida", val:money(vencido), col:"var(--clay)"},
               {ic:"⏳", lbl:"Al día", val:money(porVencer), col:"#C9A227"},
@@ -10275,12 +10306,18 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
               </div>
             ))}
           </div>
-          <button onClick={()=>setVerFacturasCli(true)}
-            style={{width:"100%",marginTop:12,padding:"14px 16px",border:"none",borderRadius:14,
-              background:"var(--field-700, #2E7D52)",color:"#fff",fontWeight:800,fontSize:15,
-              fontFamily:"inherit",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            Ver facturas de {fCli} →
-          </button>
+
+          {/* Tarjeta-acción Ver facturas (estética coherente, no botón sólido) */}
+          <div className="card" onClick={()=>setVerFacturasCli(true)}
+            style={{padding:"15px 16px",marginTop:10,display:"flex",alignItems:"center",gap:12,cursor:"pointer",
+              borderLeft:"4px solid var(--field-700, #2E7D52)"}}>
+            <span style={{fontSize:22,flexShrink:0}}>📄</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontWeight:800,fontSize:14.5}}>Ver facturas</span>
+              <span className="meta" style={{display:"block",fontSize:11.5}}>Detalle de las {nFacCli} pendiente{nFacCli!==1?"s":""}</span>
+            </span>
+            <span style={{color:"var(--field-700, #2E7D52)",fontSize:20,flexShrink:0}}>›</span>
+          </div>
         </>);
       }
 
