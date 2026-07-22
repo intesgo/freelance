@@ -4563,7 +4563,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"309", fecha:"22 jul 2026", desc:"Asistente de voz: arreglo del toque de la burbuja (doble disparo prendía y apagaba el micrófono)" };
+const VERSION = { n:"310", fecha:"22 jul 2026", desc:"Ficha cliente: lista de facturas por cobrar en Cartera; asistente de voz cuadra con la ficha (misma fuente)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10890,18 +10890,18 @@ const PREGUNTAS_ASIST = [
   // ── CARTERA Y COBROS ──
   { id:"pendiente", cat:"Cartera", label:"Valor pendiente de un cliente", ic:"💰", pide:"cliente", ir:"cartera",
     responder:(cli)=>{
-      const facs = CARTERA_INI.filter(f => normAsist(f.cli) === normAsist(cli));
+      const facs = COBROS_INI.filter(f => normAsist(f.cli) === normAsist(cli));
       if(!facs.length) return "No encontré cartera pendiente de " + cli + ".";
-      const total = facs.reduce((a,f)=>a+(f.saldo||0),0);
-      const venc = facs.filter(f=>(f.dias||0)>0).reduce((a,f)=>a+(f.saldo||0),0);
+      const total = facs.reduce((a,f)=>a+(f.valor||0),0);
+      const venc = facs.filter(f=>/vencid/i.test(String(f.vence||""))).reduce((a,f)=>a+(f.valor||0),0);
       return cli + " tiene " + dineroAsist(total) + " pendiente en " + facs.length + " factura" + (facs.length!==1?"s":"") +
         (venc>0 ? ", de los cuales " + dineroAsist(venc) + " está vencido." : ", todo al día.");
     } },
   { id:"vencidasCli", cat:"Cartera", label:"Facturas vencidas de un cliente", ic:"⏰", pide:"cliente", ir:"cartera",
     responder:(cli)=>{
-      const venc = CARTERA_INI.filter(f => normAsist(f.cli)===normAsist(cli) && (f.dias||0)>0);
+      const venc = COBROS_INI.filter(f => normAsist(f.cli)===normAsist(cli) && /vencid/i.test(String(f.vence||"")));
       if(!venc.length) return cli + " no tiene facturas vencidas.";
-      const total = venc.reduce((a,f)=>a+(f.saldo||0),0);
+      const total = venc.reduce((a,f)=>a+(f.valor||0),0);
       return cli + " tiene " + venc.length + " factura" + (venc.length!==1?"s":"") + " vencida" + (venc.length!==1?"s":"") + " por " + dineroAsist(total) + ".";
     } },
   { id:"cobrosHoy", cat:"Cartera", label:"Cobros para hoy", ic:"💵", pide:null, ir:"cartera",
@@ -11261,8 +11261,8 @@ const MotorVoz = {
       const texto = p.responder(res.dato || null);
       hablarTexto(texto);
       let cli = null;
-      if(p.pide === "cliente" && res.dato && typeof CARTERA_INI !== "undefined"){
-        const f = CARTERA_INI.find(x => normAsist(x.cli) === normAsist(res.dato));
+      if(p.pide === "cliente" && res.dato && typeof COBROS_INI !== "undefined"){
+        const f = COBROS_INI.find(x => normAsist(x.cli) === normAsist(res.dato));
         cli = f ? f.cli : res.dato;
       }
       if(p.ir && this.cb.onIr) this.cb.onIr(p.ir, cli);
@@ -12338,6 +12338,33 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido, verCarte
         })}
       </div>
     </div>
+    {(()=>{
+      const facturas = factsDe(nombre);
+      if(!facturas.length) return null;
+      const totalFac = Math.round(facturas.reduce((s,f)=>s+(f.valor||0),0)*100)/100;
+      const esVenc = v => /vencid/i.test(String(v||""));
+      return (<>
+        <div className="ficha-sec">Facturas por cobrar</div>
+        {facturas.map((fx,i)=>(
+          <div className="card" key={i} style={{padding:"11px 13px"}}>
+            <div className="row" style={{alignItems:"center"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="cli" style={{fontSize:13}}>Factura {(fx.factura||"").replace(/^001-001-/,"")}</div>
+                <div className="meta" style={{color:esVenc(fx.vence)?"var(--clay)":"var(--muted)"}}>
+                  {esVenc(fx.vence)?"⏰ ":""}{fx.vence}</div>
+              </div>
+              <div className="amt num" style={{fontSize:14,flexShrink:0,color:esVenc(fx.vence)?"var(--clay)":"var(--field)"}}>{money(fx.valor)}</div>
+            </div>
+          </div>
+        ))}
+        <div className="card" style={{padding:"11px 13px",background:"var(--cream, #FBF6E9)"}}>
+          <div className="row" style={{alignItems:"center"}}>
+            <div style={{flex:1,fontWeight:800,fontSize:13}}>Total por cobrar · {facturas.length} factura{facturas.length!==1?"s":""}</div>
+            <div className="amt num" style={{fontSize:15,flexShrink:0,fontWeight:800}}>{money(totalFac)}</div>
+          </div>
+        </div>
+      </>);
+    })()}
     {docs.length>0 && (<>
       <div className="ficha-sec">Documentos en circulación</div>
       {docs.map((d,i)=>(
