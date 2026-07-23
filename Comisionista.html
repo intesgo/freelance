@@ -503,11 +503,12 @@
     color:var(--field);letter-spacing:.01em;margin-bottom:12px}
   .tp-titulo .tp-ic{font-size:17px}
   .tarjeta-pedido.tp-precio .tp-titulo{color:var(--maize-deep)}
-  /* Split 2 columnas: foto del producto | controles (cantidad + precio) */
+  /* Split 2 columnas: foto + referencia | controles (cantidad + precio) */
   .pedido-split{display:grid;grid-template-columns:0.82fr 1fr;gap:11px;align-items:start;margin-bottom:14px}
+  .ps-izq{display:flex;flex-direction:column;gap:9px;min-width:0}
   .ps-foto{background:var(--card);border:1px solid var(--line);border-radius:16px;
     padding:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;
-    box-shadow:0 2px 10px rgba(21,57,43,.06);aspect-ratio:0.82/1;align-self:start}
+    box-shadow:0 2px 10px rgba(21,57,43,.06);aspect-ratio:0.86/1}
   .ps-foto img{width:100%;height:100%;object-fit:contain;border-radius:11px}
   .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0}
   .ps-controles .tarjeta-pedido{margin-bottom:0}
@@ -516,9 +517,11 @@
   .ps-controles .tp-titulo{font-size:12.5px;margin-bottom:8px}
   .ps-controles .tp-titulo .tp-ic{font-size:14px}
   .ps-controles .tarjeta-pedido{padding:11px 11px}
-  /* la barra comisión/base se APILA dentro del split (angosto): comisión arriba, base abajo */
-  .ps-controles .base-barra{flex-direction:column;align-items:stretch;gap:4px;padding:9px 12px}
-  .ps-controles .base-barra>span{justify-content:space-between;width:100%}
+  /* la barra comisión/base vive bajo la foto y se APILA (columna angosta) */
+  .ps-izq .base-barra{flex-direction:column;align-items:stretch;gap:5px;
+    padding:10px 12px;margin-bottom:0;font-size:12.5px}
+  .ps-izq .base-barra>span{justify-content:space-between;width:100%}
+  .ps-izq .base-barra b{font-size:15px}
   /* dentro de la tarjeta, el label gris del field ya no hace falta como título */
   .tarjeta-pedido .field>label{font-size:11px;color:var(--muted)}
   .field input,.field select{width:100%;padding:13px 14px;border:1px solid var(--line);
@@ -1117,7 +1120,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"123", fecha:"22 jul 2026", desc:"Armar pedido 2 columnas: arreglo barra comisión/base encimada y foto estirada" };
+const VERSION = { n:"124", fecha:"22 jul 2026", desc:"Comisión y base pasan bajo la foto; el Precio queda despejado" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4919,11 +4922,30 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       )}
 
       <div className="pedido-split">
-        {/* Columna izquierda: imagen del producto (ilustración de saco) */}
-        <div className="ps-foto">
-          <img src={sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
+        {/* Columna izquierda: imagen del producto + datos de referencia (comisión y base) */}
+        <div className="ps-izq">
+          <div className="ps-foto">
+            <img src={sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
+          </div>
+          {/* Referencia: lo que ganas por unidad y la base del tipo elegido */}
+          {prod && !esP5 && (
+            sinBaseP4
+              ? <div className="base-barra" style={{background:"#FBEDE7",borderColor:"var(--clay)",color:"var(--clay)"}}>
+                  <span>Sin promoción elegida</span><b>—</b></div>
+              : <div className={"base-barra"+(histo3m.length===0?" nueva":"")}>
+                  <span style={{display:"flex",alignItems:"baseline",gap:5,minWidth:0}}>
+                    <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",flexShrink:0}}>Comisión</span>
+                    <b className="num" style={{color: dif>0?"var(--ok)":dif<0?"var(--clay)":"var(--muted)"}}>{money(dif)}</b>
+                    <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",whiteSpace:"nowrap"}}>/ {uniCorta(prod.unidad)}</span>
+                  </span>
+                  <span style={{display:"flex",alignItems:"baseline",gap:5,flexShrink:0}}>
+                    <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)"}}>base</span>
+                    <b className="num">{money(base)}</b>
+                  </span>
+                </div>
+          )}
         </div>
-        {/* Columna derecha: cantidad + comisión/base + precio, compacto */}
+        {/* Columna derecha: cantidad + precio, compacto */}
         <div className="ps-controles">
       <div className="tarjeta-pedido">
         <div className="tp-titulo"><span className="tp-ic">📦</span>Cantidad{prod?" ("+prod.unidad+")":""}</div>
@@ -4961,25 +4983,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       {/* Precio de venta (no aplica como input en P5: ahí se propone) */}
       <div className="tarjeta-pedido tp-precio">
         <div className="tp-titulo"><span className="tp-ic">💵</span>Precio de venta</div>
-
-        {/* Barra informativa: precio base · o "Nueva compra" si es primera vez */}
-        {prod && !esP5 && (
-          sinBaseP4
-            ? <div className="base-barra" style={{background:"#FBEDE7",borderColor:"var(--clay)",color:"var(--clay)"}}>
-                <span>Sin promoción elegida</span><b>—</b></div>
-            : <div className={"base-barra"+(histo3m.length===0?" nueva":"")}>
-                {/* izquierda: lo que ganas por unidad · derecha: la base del tipo elegido */}
-                <span style={{display:"flex",alignItems:"baseline",gap:5,minWidth:0}}>
-                  <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",flexShrink:0}}>Comisión</span>
-                  <b className="num" style={{color: dif>0?"var(--ok)":dif<0?"var(--clay)":"var(--muted)"}}>{money(dif)}</b>
-                  <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",whiteSpace:"nowrap"}}>/ {uniCorta(prod.unidad)}</span>
-                </span>
-                <span style={{display:"flex",alignItems:"baseline",gap:5,flexShrink:0}}>
-                  <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)"}}>base</span>
-                  <b className="num">{money(base)}</b>
-                </span>
-              </div>
-        )}
 
         {/* Precio con botones − / + de $0,50 */}
         <div className="precio-row">
