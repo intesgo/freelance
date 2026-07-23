@@ -137,9 +137,11 @@
   @keyframes buscHalo{0%,100%{box-shadow:0 0 0 0 rgba(46,107,67,.28)}50%{box-shadow:0 0 0 6px rgba(46,107,67,0)}}
   .busc-cliente{animation:buscHalo 2.4s ease-in-out 3}
   @media (prefers-reduced-motion:reduce){.busc-cliente{animation:none!important}}
-  /* Cliente como TÍTULO de la pantalla (ya viene elegido: aquí no se busca ni se cambia) */
-  .cli-titulo{font-size:21px;font-weight:800;color:var(--field);line-height:1.2;
-    margin:0 0 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Cliente como TÍTULO de la pantalla, FIJO al hacer scroll (ya viene elegido) */
+  .cli-titulo{position:sticky;top:0;z-index:20;background:var(--paper);
+    font-size:21px;font-weight:800;color:var(--field);line-height:1.2;
+    margin:0 -18px 11px;padding:6px 18px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    box-shadow:0 6px 12px -8px rgba(21,57,43,.25)}
   .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
   .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
     gap:1px;background:var(--card);border:1px solid var(--line);border-radius:11px;
@@ -507,14 +509,15 @@
   .tp-titulo .tp-ic{font-size:17px}
   .tarjeta-pedido.tp-precio .tp-titulo{color:var(--maize-deep)}
   /* Split 2 columnas: foto + referencia | controles (cantidad + precio) */
-  .pedido-split{display:grid;grid-template-columns:0.82fr 1fr;gap:11px;align-items:start;margin-bottom:14px}
+  .pedido-split{display:grid;grid-template-columns:0.82fr 1fr;gap:11px;align-items:stretch;margin-bottom:14px}
   .ps-izq{display:flex;flex-direction:column;gap:9px;min-width:0}
   .ps-foto{background:var(--card);border:1px solid var(--line);border-radius:16px;
     padding:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;
-    box-shadow:0 2px 10px rgba(21,57,43,.06);aspect-ratio:0.86/1}
+    box-shadow:0 2px 10px rgba(21,57,43,.06);flex:1;min-height:150px}
   .ps-foto img{width:100%;height:100%;object-fit:contain;border-radius:11px}
+  /* la derecha reparte su alto para terminar donde termina la izquierda */
   .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0}
-  .ps-controles .tarjeta-pedido{margin-bottom:0}
+  .ps-controles .tarjeta-pedido{margin-bottom:0;flex:1;display:flex;flex-direction:column;justify-content:center}
   /* dentro del split los steppers y textos se compactan un poco */
   .ps-controles .pm-btn{width:40px}
   .ps-controles .tp-titulo{font-size:12.5px;margin-bottom:8px}
@@ -1130,7 +1133,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"126", fecha:"22 jul 2026", desc:"Tomar pedido: el cliente es el título, sin buscador, y menos margen arriba" };
+const VERSION = { n:"127", fecha:"22 jul 2026", desc:"Título fijo, historial en vez de primera compra, columnas parejas y cupo visible" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4800,82 +4803,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     {prod && <>
     <div className="prodcard">
 
-    {/* Historial de compras (debajo del precio de venta) */}
-    {prod && histo3m.length>0 && (
-      <>
-        <button className="pc-toggle" onClick={()=>setHistAbierto(v=>!v)}>
-          <span style={{flex:1,textAlign:"center",fontWeight:700}}>🕘 Historial de compras</span>
-          <span className="pc-toggle-ar">{histAbierto?"▲":"▼"}</span>
-        </button>
-
-        {histAbierto && <>
-        {resumen && (
-          <div className="pc-resumen">
-            <div className="pc-rcell">
-              <div className="pc-rk">Precio promedio</div>
-              <div className="pc-rv num">{money(resumen.prom)}</div>
-            </div>
-            <div className="pc-rcell">
-              <div className="pc-rk">Tendencia</div>
-              <div className={"pc-rv num "+(resumen.deltaTend>0?"up":resumen.deltaTend<0?"down":"")}>
-                {resumen.deltaTend>0?"▲":resumen.deltaTend<0?"▼":"="} {money(Math.abs(resumen.deltaTend))}
-              </div>
-            </div>
-            <div className="pc-rcell">
-              <div className="pc-rk">Total comprado</div>
-              <div className="pc-rv num">{resumen.totalQ} <span className="pc-ru">{prod.unidad.split(" ")[0].toLowerCase()}</span></div>
-            </div>
-          </div>
-        )}
-
-        {resumen && histo3m.length>=2 && (
-          <div className="pc-spark">
-            <div className="pc-spark-t">📈 Evolución del precio neto</div>
-            <Sparkline valores={histo3m.slice().reverse().map(netoDe)} />
-            <div className="pc-spark-lbl">
-              <span>{histo3m[histo3m.length-1].fecha}</span>
-              <span>{histo3m[0].fecha}</span>
-            </div>
-          </div>
-        )}
-
-        {histo3m.length>0 ? (
-          <div className="pc-hist" style={{maxHeight:220,overflowY:"auto"}}>
-            <div className="pc-row pc-row-h">
-              <span style={{flex:1}}>Fecha</span>
-              <span style={{width:58,textAlign:"center"}}>Tipo</span>
-              <span style={{width:40,textAlign:"right"}}>Cant.</span>
-              <span style={{width:80,textAlign:"right"}}>P. neto</span>
-            </div>
-            {histo3m.map((h,i)=>{
-              const neto=Math.round((h.precio-(h.nc||0))*100)/100;
-              return (
-                <div className={"pc-row"+(i===0?" pc-row-last":"")} key={i}>
-                  <span style={{flex:1}}>
-                    {h.fecha}
-                    {i===0 && <span className="pc-ultima">última</span>}
-                  </span>
-                  <span style={{width:58,textAlign:"center"}}><span className="pc-tag">{h.tipo}</span></span>
-                  <span className="num" style={{width:40,textAlign:"right"}}>{h.cant}</span>
-                  <span style={{width:80,textAlign:"right"}}>
-                    <span className="num">{money(neto)}</span>
-                    {h.nc>0 && (
-                      <div className="pc-ncline">
-                        <span className="pc-ncbruto num">{money(h.precio)}</span>
-                        <span className="pc-ncbadge">NC −{money(h.nc)}</span>
-                      </div>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="pc-empty">{cli} no ha comprado {prod.nombre} en los últimos 3 meses.</div>
-        )}
-        </>}
-      </>
-    )}
     </div>
 
 
@@ -5065,9 +4992,81 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         </div>{/* /ps-controles */}
       </div>{/* /pedido-split */}
 
-    {/* Cliente/producto nuevo: sin historial */}
-    {prod && histo3m.length===0 && (
-      <div className="primera-compra">✨ Primera compra de este producto para {cli}.</div>
+    {/* Historial de compras (debajo del precio de venta) */}
+    {prod && histo3m.length>0 && (
+      <>
+        <button className="pc-toggle" onClick={()=>setHistAbierto(v=>!v)}>
+          <span style={{flex:1,textAlign:"center",fontWeight:700}}>🕘 Historial de compras</span>
+          <span className="pc-toggle-ar">{histAbierto?"▲":"▼"}</span>
+        </button>
+
+        {histAbierto && <>
+        {resumen && (
+          <div className="pc-resumen">
+            <div className="pc-rcell">
+              <div className="pc-rk">Precio promedio</div>
+              <div className="pc-rv num">{money(resumen.prom)}</div>
+            </div>
+            <div className="pc-rcell">
+              <div className="pc-rk">Tendencia</div>
+              <div className={"pc-rv num "+(resumen.deltaTend>0?"up":resumen.deltaTend<0?"down":"")}>
+                {resumen.deltaTend>0?"▲":resumen.deltaTend<0?"▼":"="} {money(Math.abs(resumen.deltaTend))}
+              </div>
+            </div>
+            <div className="pc-rcell">
+              <div className="pc-rk">Total comprado</div>
+              <div className="pc-rv num">{resumen.totalQ} <span className="pc-ru">{prod.unidad.split(" ")[0].toLowerCase()}</span></div>
+            </div>
+          </div>
+        )}
+
+        {resumen && histo3m.length>=2 && (
+          <div className="pc-spark">
+            <div className="pc-spark-t">📈 Evolución del precio neto</div>
+            <Sparkline valores={histo3m.slice().reverse().map(netoDe)} />
+            <div className="pc-spark-lbl">
+              <span>{histo3m[histo3m.length-1].fecha}</span>
+              <span>{histo3m[0].fecha}</span>
+            </div>
+          </div>
+        )}
+
+        {histo3m.length>0 ? (
+          <div className="pc-hist" style={{maxHeight:220,overflowY:"auto"}}>
+            <div className="pc-row pc-row-h">
+              <span style={{flex:1}}>Fecha</span>
+              <span style={{width:58,textAlign:"center"}}>Tipo</span>
+              <span style={{width:40,textAlign:"right"}}>Cant.</span>
+              <span style={{width:80,textAlign:"right"}}>P. neto</span>
+            </div>
+            {histo3m.map((h,i)=>{
+              const neto=Math.round((h.precio-(h.nc||0))*100)/100;
+              return (
+                <div className={"pc-row"+(i===0?" pc-row-last":"")} key={i}>
+                  <span style={{flex:1}}>
+                    {h.fecha}
+                    {i===0 && <span className="pc-ultima">última</span>}
+                  </span>
+                  <span style={{width:58,textAlign:"center"}}><span className="pc-tag">{h.tipo}</span></span>
+                  <span className="num" style={{width:40,textAlign:"right"}}>{h.cant}</span>
+                  <span style={{width:80,textAlign:"right"}}>
+                    <span className="num">{money(neto)}</span>
+                    {h.nc>0 && (
+                      <div className="pc-ncline">
+                        <span className="pc-ncbruto num">{money(h.precio)}</span>
+                        <span className="pc-ncbadge">NC −{money(h.nc)}</span>
+                      </div>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="pc-empty">{cli} no ha comprado {prod.nombre} en los últimos 3 meses.</div>
+        )}
+        </>}
+      </>
     )}
 
     {prod && precio!=="" && (
@@ -8326,6 +8325,15 @@ const FICHA_CLIENTE = {
   "Comisariato La Y": {ruc:"0922334455001", negocio:"Comisariato", contacto:"Ana Loor", tel:"0922334455", correo:"laye@correo.ec",
     prov:"Guayas", ciudad:"Durán", zona:"Centro", barrio:"Primavera", dir:"Av. Nicolás Lapenti",
     canal:"Supermercado", diasCredito:30, cupo:6000, facturasPend:0, nFacturas:0, chequesPosf:0, nCheques:0, debe:0, ultimaCompra:"—"},
+  "Comercial Nilo": {ruc:"0933445566001", negocio:"Comercial / abarrotes", contacto:"Nilo Cedeño", tel:"0944556677", correo:"",
+    prov:"Los Ríos", ciudad:"Ventanas", zona:"Centro", barrio:"El Paraíso", dir:"Av. 10 de Agosto y Sucre",
+    canal:"Mayorista", diasCredito:30, cupo:5500, facturasPend:1150, nFacturas:1, chequesPosf:0, nCheques:0, debe:1150, ultimaCompra:"28 may 2026"},
+  "Almacenes Fernando": {ruc:"0944556677001", negocio:"Almacén de víveres", contacto:"Fernando Zambrano", tel:"0955443322", correo:"",
+    prov:"Guayas", ciudad:"Milagro", zona:"Norte", barrio:"Los Chirijos", dir:"Av. Chirijos y Calle 12",
+    canal:"Bodega", diasCredito:30, cupo:4500, facturasPend:0, nFacturas:0, chequesPosf:0, nCheques:0, debe:0, ultimaCompra:"—"},
+  "Distribuidora Los Andes": {ruc:"0955667788001", negocio:"Distribuidora mayorista", contacto:"Carmen Andrade", tel:"0966778899", correo:"ventas@losandes.ec",
+    prov:"Guayas", ciudad:"Guayaquil", zona:"Norte", barrio:"Sauces", dir:"Av. Francisco de Orellana, bodega 8",
+    canal:"Distribuidor Mayor", diasCredito:45, cupo:10000, facturasPend:2400, nFacturas:2, chequesPosf:1500, nCheques:1, debe:2400, ultimaCompra:"02 jun 2026"},
 };
 
 // ---------- CLIENTES ----------
