@@ -519,6 +519,23 @@
   /* la derecha ocupa exactamente el alto de la foto: dos tarjetas iguales */
   .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0;
     aspect-ratio:1.188/1}
+  /* b141 · P3/P4/P5: los campos extra viven DENTRO de la tarjeta de precio.
+     Con extras la columna crece por contenido (sin aspect-ratio fijo) para no desbordar sobre la foto. */
+  .ps-controles.tiene-extra{aspect-ratio:auto;min-height:0}
+  .ps-controles.tiene-extra .tarjeta-pedido{flex:0 0 auto;justify-content:flex-start}
+  .tp-extra{margin-top:9px;padding-top:9px;border-top:1px dashed var(--line)}
+  .tp-extra>label{display:block;font-size:10.5px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .tp-extra .seg{display:flex;gap:6px}
+  .tp-extra .seg button{flex:1;min-width:0;padding:8px 4px;font-size:11.5px;font-weight:700;
+    line-height:1.15;border:1px solid var(--line);background:#fff;border-radius:10px;
+    color:var(--field);font-family:inherit;cursor:pointer}
+  .tp-extra .seg button.on{background:var(--field);border-color:var(--field);color:#fff}
+  .tp-extra input{width:100%;box-sizing:border-box;border:1px solid var(--line);
+    background:var(--paper);border-radius:11px;padding:9px 10px;font-size:14px;
+    font-family:inherit;color:var(--ink)}
+  .tp-extra input:focus{border-color:var(--maize-deep);background:#fff;outline:none}
+  .tp-extra .precio-row input{text-align:center;font-weight:700;font-size:17px}
   .ps-controles .tarjeta-pedido{margin-bottom:0;flex:1 1 0;min-height:0;
     display:flex;flex-direction:column;justify-content:center}
   /* dentro del split los steppers y textos se compactan un poco */
@@ -1166,7 +1183,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"140", fecha:"22 jul 2026", desc:"Aviso de canal más claro y badge del cupo sin duplicar" };
+const VERSION = { n:"141", fecha:"23 jul 2026", desc:"Tipos de precio P3, P4 y P5 ordenados dentro de la tarjeta" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1180,6 +1197,14 @@ const COMO_FUNCIONA = [
    d:"Depósito y transferencia ya ocurrieron: no admiten fecha futura. El cheque sí, porque es posfechado."},
   {mod:"Cobros", ic:"📷", t:"Foto del cheque",
    d:"El cheque se recibe físicamente: la foto se toma en el momento, con la cámara. No se adjunta archivo."},
+  {mod:"Pedidos", ic:"🏷️", t:"Los cinco tipos de precio",
+   d:"P1 crédito y P2 contado son tus bases. P3 es promoción tuya: armas unidades gratis y sale de tu comisión. P4 es promoción del freelance, ya definida. P5 es precio especial y necesita autorización."},
+  {mod:"Pedidos", ic:"🎁", t:"P3 · unidades gratis",
+   d:"Eliges el piso (contado o crédito) y cuántas unidades regalas. El cliente recibe la cantidad más las gratis, pero paga solo la cantidad. El costo de lo gratis se descuenta de tu comisión."},
+  {mod:"Pedidos", ic:"📣", t:"P4 · promoción del freelance",
+   d:"La promoción ya viene armada por el freelance con su propia base. Elígela primero: sin ella no se puede calcular tu comisión."},
+  {mod:"Pedidos", ic:"✋", t:"P5 · precio especial",
+   d:"Es el precio que negociaste con el cliente y la comisión que propones por unidad. El freelance puede aprobarla, ajustarla o rechazarla, y el pedido queda pendiente de autorización."},
   {mod:"Comisiones", ic:"🔓", t:"Cuándo se libera tu comisión",
    d:"Cuando el proveedor confirma el pago efectivo de la factura. Cobrar al cliente o depositar su cheque no la libera."},
   {mod:"Cartera", ic:"📅", t:"Cheques posfechados",
@@ -5106,21 +5131,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     })()}
       </div>
 
-      {/* P4: elegir promoción de la lista del freelance */}
-      {tipo==="P4" && (
-        <div className="field"><label>Promoción del freelance</label>
-          {prod && prod.promosFreelance.length>0 ? (
-            <SearchSelect label="" cat="promociones" items={prod.promosFreelance} value={promoF}
-              onPick={pm=>{setPromoF(pm);setPrecio("");}} onClear={()=>{setPromoF(null);setPrecio("");}}
-              render={{
-                text:pm=>pm.nombre,
-                option:pm=>(<><div className="o1">{pm.nombre}</div><div className="o2">{pm.detalle} · base {money(pm.base)}</div></>),
-                picked:pm=>(<><div className="p1">{pm.nombre}</div><div className="p2">{pm.detalle}</div></>)
-              }}/>
-          ) : <div className="hint">Este producto no tiene promociones del freelance disponibles.</div>}
-        </div>
-      )}
-
       <div className="pedido-split">
         {/* Columna izquierda: imagen del producto */}
         <div className="ps-izq">
@@ -5129,7 +5139,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
           </div>
         </div>
         {/* Columna derecha: cantidad + precio, compacto */}
-        <div className="ps-controles">
+        <div className={"ps-controles"+((tipo==="P3"||tipo==="P4"||esP5)?" tiene-extra":"")}>
       <div className="tarjeta-pedido">
         <div className="tp-titulo"><span className="tp-ic">📦</span>Cantidad{prod?" ("+prod.unidad+")":""}</div>
         {/* Cantidad con botones − / + de 50 en 50 */}
@@ -5143,62 +5153,72 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         </div>
       </div>
 
-      {/* P3: condición (define el piso) + unidades gratis que arma el vendedor */}
-      {tipo==="P3" && (<>
-        <div className="field"><label>Condición de la promoción</label>
-          <div className="seg">
-            <button className={condP3==="contado"?"on":""} onClick={()=>{setCondP3("contado");setPrecio("");}}>Contado · piso P2</button>
-            <button className={condP3==="credito"?"on":""} onClick={()=>{setCondP3("credito");setPrecio("");}}>Crédito · piso P1</button>
-          </div>
-          <div className="hint">El precio no puede bajar del piso {condP3==="credito"?"de crédito (P1)":"de contado (P2)"}{prod?": "+money(base):""}.</div>
-        </div>
-        <div className="field"><label>Unidades gratis (promoción)</label>
-          <div className="stepper">
-            <button onClick={()=>setGratis(Math.max(0,(parseInt(gratis)||0)-1))}>−</button>
-            <input className="num" type="number" placeholder="0" value={gratis}
-              onChange={e=>setGratis(e.target.value)}/>
-            <button onClick={()=>setGratis((parseInt(gratis)||0)+1)}>+</button>
-          </div>
-          <div className="hint">Ej.: compra {cantN} lleva {gratis||0} gratis. El cliente recibe {cantN+(parseInt(gratis)||0)} y paga {cantN}.</div>
-        </div>
-      </>)}
-
-      {/* Precio de venta (no aplica como input en P5: ahí se propone) */}
+      {/* Precio de venta · b141: los campos propios de P3 y P5 viven DENTRO de esta tarjeta */}
       <div className="tarjeta-pedido tp-precio">
         <div className="tp-titulo"><span className="tp-ic">💵</span>Precio de venta</div>
 
-        {/* Precio con botones − / + de $0,50 */}
+        {/* Precio con botones − / + de $0,50 (también en P5) */}
         <div className="precio-row">
-          {!esP5 && <button type="button" className="pm-btn"
-            onClick={()=>{ const v=Math.max(0,(parseFloat(precio)|| (base||0))-0.5); setPrecio(v.toFixed(2)); }}>−</button>}
+          <button type="button" className="pm-btn"
+            onClick={()=>{ const v=Math.max(0,(parseFloat(precio)|| (base||0))-0.5); setPrecio(v.toFixed(2)); }}>−</button>
           <input className={"num precio-in"+(bajoBase?" warn":"")} type="number" inputMode="decimal"
             placeholder={prod&&base>0?"Precio base "+money(base):"Precio negociado"}
             value={precio} onChange={e=>setPrecio(e.target.value)}/>
-          {!esP5 && <button type="button" className="pm-btn"
-            onClick={()=>{ const v=(parseFloat(precio)|| (base||0))+0.5; setPrecio(v.toFixed(2)); }}>+</button>}
+          <button type="button" className="pm-btn"
+            onClick={()=>{ const v=(parseFloat(precio)|| (base||0))+0.5; setPrecio(v.toFixed(2)); }}>+</button>
         </div>
 
         {sinBaseP4
-          ? <div className="hint err">Elige primero la promoción del freelance para calcular tu comisión.</div>
+          ? <div className="hint err">Elige primero la promoción del freelance.</div>
           : bajoBase
-          ? <div className="hint err">No puedes vender bajo tu base ({money(base)}). Para un precio menor, usa Precio especial (P5).</div>
-          : esP5
-            ? <div className="hint">Precio que negociaste. El freelance lo autoriza.</div>
-            : null}
-      </div>
+          ? <div className="hint err">No puedes vender bajo tu base ({money(base)}). Usa Precio especial (P5).</div>
+          : null}
 
-      {/* P5: comisión propuesta + motivo */}
-      {esP5 && (<>
-        <div className="field"><label>Comisión que propones (por {prod?prod.unidad:"unidad"})</label>
-          <input className="num" type="number" inputMode="decimal" placeholder="Ej.: 1.50"
-            value={comProp} onChange={e=>setComProp(e.target.value)}/>
-          <div className="hint">El freelance puede aprobarla, ajustarla o rechazarla.</div>
-        </div>
-        <div className="field"><label>Motivo de la solicitud</label>
-          <input type="text" placeholder="Ej.: cliente mayorista, cierre de mes…"
-            value={motivo} onChange={e=>setMotivo(e.target.value)}/>
-        </div>
-      </>)}
+        {/* P3 dentro de la tarjeta: condición (define el piso) + unidades gratis */}
+        {tipo==="P3" && (<>
+          <div className="tp-extra"><label>Condición · define el piso</label>
+            <div className="seg">
+              <button className={condP3==="contado"?"on":""} onClick={()=>{setCondP3("contado");setPrecio("");}}>Contado<br/>piso {money(prod?prod.baseContado:0)}</button>
+              <button className={condP3==="credito"?"on":""} onClick={()=>{setCondP3("credito");setPrecio("");}}>Crédito<br/>piso {money(prod?prod.baseCredito:0)}</button>
+            </div>
+          </div>
+          <div className="tp-extra"><label>Unidades gratis</label>
+            <div className="precio-row">
+              <button type="button" className="pm-btn" onClick={()=>setGratis(Math.max(0,(parseInt(gratis)||0)-1))}>−</button>
+              <input className="num" type="number" inputMode="numeric" placeholder="0" value={gratis}
+                onChange={e=>setGratis(e.target.value)}/>
+              <button type="button" className="pm-btn" onClick={()=>setGratis((parseInt(gratis)||0)+1)}>+</button>
+            </div>
+          </div>
+        </>)}
+
+        {/* P4 dentro de la tarjeta: promoción del freelance */}
+        {tipo==="P4" && (
+          <div className="tp-extra"><label>Promoción del freelance</label>
+            {prod && prod.promosFreelance.length>0 ? (
+              <SearchSelect label="" cat="promociones" items={prod.promosFreelance} value={promoF}
+                onPick={pm=>{setPromoF(pm);setPrecio("");}} onClear={()=>{setPromoF(null);setPrecio("");}}
+                render={{
+                  text:pm=>pm.nombre,
+                  option:pm=>(<><div className="o1">{pm.nombre}</div><div className="o2">{pm.detalle} · base {money(pm.base)}</div></>),
+                  picked:pm=>(<><div className="p1">{pm.nombre}</div><div className="p2">{pm.detalle}</div></>)
+                }}/>
+            ) : <div className="hint">Sin promociones vigentes para este producto.</div>}
+          </div>
+        )}
+
+        {/* P5 dentro de la tarjeta: comisión propuesta + motivo */}
+        {esP5 && (<>
+          <div className="tp-extra"><label>Comisión que propones · por {prod?prod.unidad:"unidad"}</label>
+            <input className="num" type="number" inputMode="decimal" placeholder="Ej.: 1.50"
+              value={comProp} onChange={e=>setComProp(e.target.value)}/>
+          </div>
+          <div className="tp-extra"><label>Motivo de la solicitud</label>
+            <input type="text" placeholder="Ej.: cliente mayorista…"
+              value={motivo} onChange={e=>setMotivo(e.target.value)}/>
+          </div>
+        </>)}
+      </div>
     </div>
         </div>{/* /ps-controles */}
       </div>{/* /pedido-split */}
@@ -5303,22 +5323,16 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
               {comProp!=="" ? money(comisionTotal)+" · a confirmar" : "La define el freelance"}</span></div>
         ) : tipo==="P3" ? (
           <>
+            {/* b141 · resumen compacto: diferencia unitaria + comisión total (antes 5 líneas repetidas) */}
             <div className="cr"><span className="k">Diferencia sobre tu base</span>
               <span className="v num">{money(comisionUnidad)} / {prod.unidad}</span></div>
-            <div className="cr"><span className="k">Comisión por {cant} vendidos</span>
-              <span className="v num">{money(comisionBruta)}</span></div>
-            {gratisNum>0 &&
-              <div className="cr"><span className="k">− Costo de {gratisNum} gratis ({money(base)} c/u)</span>
-                <span className="v num" style={{color:"var(--clay)"}}>−{money(costoGratis)}</span></div>}
             <div className="cr tot" style={{alignItems:"flex-start"}}>
               <span className="k">Tu comisión total</span>
               <span style={{textAlign:"right",flexShrink:0}}>
                 <span className="v num" style={{display:"block"}}>{money(comisionTotal)}</span>
                 <span className="num" style={{display:"block",fontSize:11.5,color:"var(--muted)",fontWeight:600,marginTop:2,whiteSpace:"nowrap"}}>
-                  {money(comisionUnidad)} × {cantN} {prod.unidad}{gratisNum>0?" − "+money(costoGratis):""}</span>
+                  {money(comisionUnidad)} × {cantN} {prod.unidad}{gratisNum>0?" − "+money(costoGratis)+" gratis":""}</span>
               </span></div>
-            <div className="cr"><span className="k">Comisión promedio por {prod.unidad}</span>
-              <span className="v num" style={{color:comisionPromedio>0?"var(--field)":"var(--clay)"}}>{money(comisionPromedio)}</span></div>
           </>
         ) : (
           <>
