@@ -517,7 +517,7 @@
   .ps-foto img{width:100%;height:100%;object-fit:contain;border-radius:11px}
   /* la derecha reparte su alto para terminar donde termina la izquierda */
   .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0}
-  .ps-controles .tarjeta-pedido{margin-bottom:0;display:flex;flex-direction:column;justify-content:center}
+  .ps-controles .tarjeta-pedido{margin-bottom:0;flex:1 1 0;display:flex;flex-direction:column;justify-content:center}
   /* dentro del split los steppers y textos se compactan un poco */
   .ps-controles .pm-btn{width:40px}
   .ps-controles .tp-titulo{font-size:12.5px;margin-bottom:8px}
@@ -773,7 +773,7 @@
   .stepwrap.off{opacity:.4;pointer-events:none}
   /* selector de tipo de precio */
   .tipogrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  /* chips horizontales de tipo de precio: una sola fila deslizable (norma de etiquetas) */
+  /* chips horizontales genéricos (otras pantallas): fila deslizable */
   .tipochips{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .tipochips::-webkit-scrollbar{display:none}
   .tchip{display:flex;align-items:center;gap:6px;flex-shrink:0;padding:9px 13px;border:1.5px solid var(--line);
@@ -784,6 +784,13 @@
   .tchip.on .tchip-cod{color:var(--maize)}
   .tchip .tchip-nom{font-size:12.5px;font-weight:600;color:#2C3A32}
   .tchip.on .tchip-nom{color:#fff}
+  /* tipos de precio: los 5 en UNA fila, código arriba y nombre corto abajo */
+  .tipochips.precios{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;overflow:visible;padding-bottom:2px}
+  .tipochips.precios .tchip{flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    min-width:0;padding:7px 3px;white-space:normal;text-align:center}
+  .tipochips.precios .tchip .tchip-cod{line-height:1}
+  .tipochips.precios .tchip .tchip-nom{font-size:9.5px;font-weight:700;line-height:1.15;
+    width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tipobtn{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px 13px;
     border:1px solid var(--line);border-radius:13px;background:#fff;text-align:left}
   .tipobtn:active{background:var(--paper)}
@@ -1141,7 +1148,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"133", fecha:"22 jul 2026", desc:"Título centrado y buscadores más grandes y espaciados" };
+const VERSION = { n:"134", fecha:"22 jul 2026", desc:"Chips de precio en una fila, tarjetas iguales y cupo renombrado" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4468,11 +4475,11 @@ function Sparkline({valores}){
 }
 
 const TIPOS_PRECIO=[
-  {id:"P1", nombre:"Crédito", desc:"Base de crédito (venta habitual)"},
-  {id:"P2", nombre:"Contado", desc:"Base de contado"},
-  {id:"P3", nombre:"Promoción vendedor", desc:"Tú armas el producto gratis"},
-  {id:"P4", nombre:"Promoción freelance", desc:"Eliges una promo de la lista"},
-  {id:"P5", nombre:"Precio especial", desc:"Propones precio y comisión"},
+  {id:"P1", nombre:"Crédito", corto:"Crédito", desc:"Base de crédito (venta habitual)"},
+  {id:"P2", nombre:"Contado", corto:"Contado", desc:"Base de contado"},
+  {id:"P3", nombre:"Promoción vendedor", corto:"Promo vend.", desc:"Tú armas el producto gratis"},
+  {id:"P4", nombre:"Promoción freelance", corto:"Promo free.", desc:"Eliges una promo de la lista"},
+  {id:"P5", nombre:"Precio especial", corto:"Especial", desc:"Propones precio y comisión"},
 ];
 
 // ── Medidor de arco del cupo (comité UI): la aguja se mueve en vivo mientras digitas ──
@@ -5039,7 +5046,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     <div className={"stepwrap"+(prod?"":" off")}>
       {/* Selector de tipo de precio */}
       <div className="field"><label>Tipo de precio</label>
-        <div className="tipochips">
+        <div className="tipochips precios">
           {TIPOS_PRECIO.map(t=>{
             const sinPromo = t.id==="P4" && prod && (!prod.promosFreelance || prod.promosFreelance.length===0);
             return (
@@ -5048,7 +5055,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
                   if(sinPromo){ toast("Este producto no tiene promociones vigentes"+(prov?" de "+prov.nombre:"")+"."); return; }
                   setTipo(t.id);setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setComProp("");setMotivo("");}}>
                 <span className="tchip-cod">{t.id}</span>
-                <span className="tchip-nom">{t.nombre}</span>
+                <span className="tchip-nom">{t.corto||t.nombre}</span>
               </button>
             );
           })}
@@ -5192,10 +5199,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             </div>
           </div>
           <div className="cupo-lines">
-            <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
+            <div className="cupo-l"><span>Cupo</span><b className="num">{money(cupoTotal)}</b></div>
             <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
             {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
-            {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
+            {montoLinea>0 && <div className="cupo-l"><span>Venta</span><b className="num">{money(montoLinea)}</b></div>}
             <div className="cupo-l cupo-disp">
               <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
               <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
