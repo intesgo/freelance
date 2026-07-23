@@ -138,9 +138,9 @@
   .busc-cliente{animation:buscHalo 2.4s ease-in-out 3}
   @media (prefers-reduced-motion:reduce){.busc-cliente{animation:none!important}}
   /* Cliente como TÍTULO de la pantalla, FIJO al hacer scroll (ya viene elegido) */
-  .cli-titulo{position:sticky;top:0;z-index:20;background:var(--paper);
+  .cli-titulo{position:sticky;top:-10px;z-index:20;background:var(--paper);
     font-size:21px;font-weight:800;color:var(--field);line-height:1.2;
-    margin:0 -18px 11px;padding:6px 18px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    margin:-10px -18px 11px;padding:14px 18px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     box-shadow:0 6px 12px -8px rgba(21,57,43,.25)}
   .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
   .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
@@ -509,7 +509,7 @@
   .tp-titulo .tp-ic{font-size:17px}
   .tarjeta-pedido.tp-precio .tp-titulo{color:var(--maize-deep)}
   /* Split 2 columnas: foto + referencia | controles (cantidad + precio) */
-  .pedido-split{display:grid;grid-template-columns:0.82fr 1fr;gap:11px;align-items:start;margin-bottom:14px}
+  .pedido-split{display:grid;grid-template-columns:0.72fr 1fr;gap:11px;align-items:start;margin-bottom:14px}
   .ps-izq{display:flex;flex-direction:column;gap:9px;min-width:0}
   /* la FOTO manda el alto del bloque (proporción fija) */
   .ps-foto{background:var(--card);border:1px solid var(--line);border-radius:16px;
@@ -518,15 +518,17 @@
   .ps-foto img{width:100%;height:100%;object-fit:contain;border-radius:11px}
   /* la derecha ocupa exactamente el alto de la foto: dos tarjetas iguales */
   .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0;
-    aspect-ratio:1.04/1}
+    aspect-ratio:1.188/1}
   .ps-controles .tarjeta-pedido{margin-bottom:0;flex:1 1 0;min-height:0;
     display:flex;flex-direction:column;justify-content:center}
   /* dentro del split los steppers y textos se compactan un poco */
   .ps-controles .pm-btn{width:42px;flex-shrink:0;font-size:22px;font-weight:600;
     display:flex;align-items:center;justify-content:center;color:var(--field)}
   .ps-controles .precio-row{gap:6px}
-  .ps-controles .precio-in{text-align:center;font-weight:800;font-size:21px;
-    border-radius:11px;padding:9px 4px;min-width:0}
+  .ps-controles .precio-in{text-align:center;font-weight:700;font-size:19px;
+    border-radius:11px;padding:9px 4px;min-width:0;border:1px solid var(--line);
+    background:var(--paper);color:var(--ink)}
+  .ps-controles .precio-in:focus{border-color:var(--maize-deep);background:#fff;outline:none}
   .ps-controles .tp-titulo{font-size:12.5px;margin-bottom:8px}
   .ps-controles .tp-titulo .tp-ic{font-size:14px}
   .ps-controles .tarjeta-pedido{padding:11px 11px}
@@ -715,6 +717,11 @@
   .cta-fila{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:2px}
   .cta-fila .cta{margin-top:0;padding:15px 8px;font-size:15px;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
+  /* carrito grande y claro: agrega otro producto al pedido */
+  .cta-carrito{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap}
+  .cta-carrito .cta-carro{font-size:27px;line-height:1}
+  .cta-carrito .cta-mas{font-size:25px;font-weight:800;line-height:1}
+  .cta-carrito .cta-aut{width:100%;font-size:10.5px;font-weight:700;line-height:1.1}
   .cta-guardar:active{background:var(--field-700,#1E4D3A)}
   .ghost{width:100%;background:#fff;border:1px solid var(--line);color:var(--field);
     font-size:14px;font-weight:600;padding:13px;border-radius:12px;margin-top:10px}
@@ -1159,7 +1166,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"137", fecha:"22 jul 2026", desc:"Botones en fila, steppers mejorados, resumen compacto y título fijo funcionando" };
+const VERSION = { n:"138", fecha:"22 jul 2026", desc:"Carrito grande a la derecha, precio suave, título sin hueco" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -5322,16 +5329,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 
 
     <div className="cta-fila">
-      <button className="cta" disabled={!valido}
-        onClick={()=>{
-          setCarrito([...carrito, construirItem()]);
-          toast(requiereAutorizacion
-            ? "Producto agregado · espera autorización del freelance."
-            : "Producto agregado al pedido ✓");
-          resetProducto();
-        }}>
-        🛒 +{requiereAutorizacion ? " con autorización" : ""}</button>
-
       {/* Guardar pedido: sirve aunque solo se haya definido un producto en pantalla */}
       {(valido || carrito.length>0) && (
         <button className="cta cta-guardar"
@@ -5344,6 +5341,17 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
           }}>
           Guardar · {valido ? (carrito.length+1) : carrito.length}</button>
       )}
+
+      <button className="cta cta-carrito" disabled={!valido}
+        onClick={()=>{
+          setCarrito([...carrito, construirItem()]);
+          toast(requiereAutorizacion
+            ? "Producto agregado · espera autorización del freelance."
+            : "Producto agregado al pedido ✓");
+          resetProducto();
+        }}>
+        <span className="cta-carro">🛒</span><span className="cta-mas">+</span>
+        {requiereAutorizacion ? <span className="cta-aut">con autorización</span> : null}</button>
     </div>
 
     </>}
