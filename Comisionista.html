@@ -517,7 +517,7 @@
   .ps-foto img{width:100%;height:100%;object-fit:contain;border-radius:11px}
   /* la derecha reparte su alto para terminar donde termina la izquierda */
   .ps-controles{display:flex;flex-direction:column;gap:11px;min-width:0}
-  .ps-controles .tarjeta-pedido{margin-bottom:0;flex:1;display:flex;flex-direction:column;justify-content:center}
+  .ps-controles .tarjeta-pedido{margin-bottom:0;display:flex;flex-direction:column;justify-content:center}
   /* dentro del split los steppers y textos se compactan un poco */
   .ps-controles .pm-btn{width:40px}
   .ps-controles .tp-titulo{font-size:12.5px;margin-bottom:8px}
@@ -528,13 +528,6 @@
     padding:10px 12px;margin-bottom:0;font-size:12.5px}
   .ps-izq .base-barra>span{justify-content:space-between;width:100%}
   .ps-izq .base-barra b{font-size:15px}
-  /* el medidor de cupo, dentro de la columna angosta, se compacta */
-  .ps-izq .cupo-box{margin-bottom:0;padding:10px 11px}
-  .ps-izq .cupo-head{flex-direction:column;align-items:flex-start;gap:5px;font-size:11.5px;margin-bottom:8px}
-  .ps-izq .cupo-head>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .ps-izq .cupo-l{font-size:11.5px;gap:6px}
-  .ps-izq .cupo-l b{font-size:12.5px}
-  .ps-izq .cupo-aviso{font-size:11px;padding:8px 10px;margin-top:9px}
   /* dentro de la tarjeta, el label gris del field ya no hace falta como título */
   .tarjeta-pedido .field>label{font-size:11px;color:var(--muted)}
   .field input,.field select{width:100%;padding:13px 14px;border:1px solid var(--line);
@@ -1133,7 +1126,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"128", fecha:"22 jul 2026", desc:"Historial de compras para los 10 clientes (antes solo 5 tenían)" };
+const VERSION = { n:"129", fecha:"22 jul 2026", desc:"Cupo a lo ancho bajo el split; historial sin KPIs ni gráfica" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -5181,36 +5174,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
                   </span>
                 </div>
           )}
-          {/* Medidor de cupo del cliente, al pie de la columna */}
-      {prod && esCredito && fichaCli && cupoTotal>0 && (
-        <div className={"cupo-box"+(excedeCupo?" cupo-excede":"")}>
-          <div className="cupo-head">
-            <span>💳 Cupo de crédito · {cli}</span>
-            <span className={"cupo-badge "+(excedeCupo?"bad":cupoDisponible>0?"ok":"warn")}>
-              {excedeCupo?"Excedido":"Disponible"}
-            </span>
-          </div>
-          <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
-          <div className="cupo-barra">
-            <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
-          </div>
-          <div className="cupo-lines">
-            <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
-            <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
-            {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
-            {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
-            <div className="cupo-l cupo-disp">
-              <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
-              <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
-            </div>
-          </div>
-          {excedeCupo && (
-            <div className="cupo-aviso">
-              ⚠️ Este pedido supera el cupo de {cli}. Puedes tomarlo, pero quedará <b>pendiente de autorización del freelance</b> para ampliar el crédito.
-            </div>
-          )}
-        </div>
-      )}
         </div>
         {/* Columna derecha: cantidad + precio, compacto */}
         <div className="ps-controles">
@@ -5287,6 +5250,37 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         </div>{/* /ps-controles */}
       </div>{/* /pedido-split */}
 
+    {/* Cupo de crédito: a lo ancho, debajo de las dos columnas */}
+    {prod && esCredito && fichaCli && cupoTotal>0 && (
+      <div className={"cupo-box"+(excedeCupo?" cupo-excede":"")}>
+        <div className="cupo-head">
+          <span>💳 Cupo de crédito · {cli}</span>
+          <span className={"cupo-badge "+(excedeCupo?"bad":cupoDisponible>0?"ok":"warn")}>
+            {excedeCupo?"Excedido":"Disponible"}
+          </span>
+        </div>
+        <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
+        <div className="cupo-barra">
+          <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
+        </div>
+        <div className="cupo-lines">
+          <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
+          <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
+          {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
+          {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
+          <div className="cupo-l cupo-disp">
+            <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
+            <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
+          </div>
+        </div>
+        {excedeCupo && (
+          <div className="cupo-aviso">
+            ⚠️ Este pedido supera el cupo de {cli}. Puedes tomarlo, pero quedará <b>pendiente de autorización del freelance</b> para ampliar el crédito.
+          </div>
+        )}
+      </div>
+    )}
+
     {/* Historial de compras (debajo del precio de venta) */}
     {prod && histo3m.length>0 && (
       <>
@@ -5296,36 +5290,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         </button>
 
         {histAbierto && <>
-        {resumen && (
-          <div className="pc-resumen">
-            <div className="pc-rcell">
-              <div className="pc-rk">Precio promedio</div>
-              <div className="pc-rv num">{money(resumen.prom)}</div>
-            </div>
-            <div className="pc-rcell">
-              <div className="pc-rk">Tendencia</div>
-              <div className={"pc-rv num "+(resumen.deltaTend>0?"up":resumen.deltaTend<0?"down":"")}>
-                {resumen.deltaTend>0?"▲":resumen.deltaTend<0?"▼":"="} {money(Math.abs(resumen.deltaTend))}
-              </div>
-            </div>
-            <div className="pc-rcell">
-              <div className="pc-rk">Total comprado</div>
-              <div className="pc-rv num">{resumen.totalQ} <span className="pc-ru">{prod.unidad.split(" ")[0].toLowerCase()}</span></div>
-            </div>
-          </div>
-        )}
-
-        {resumen && histo3m.length>=2 && (
-          <div className="pc-spark">
-            <div className="pc-spark-t">📈 Evolución del precio neto</div>
-            <Sparkline valores={histo3m.slice().reverse().map(netoDe)} />
-            <div className="pc-spark-lbl">
-              <span>{histo3m[histo3m.length-1].fecha}</span>
-              <span>{histo3m[0].fecha}</span>
-            </div>
-          </div>
-        )}
-
         {histo3m.length>0 ? (
           <div className="pc-hist" style={{maxHeight:220,overflowY:"auto"}}>
             <div className="pc-row pc-row-h">
