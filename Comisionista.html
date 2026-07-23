@@ -1218,7 +1218,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"148", fecha:"23 jul 2026", desc:"Foto y tarjetas de cantidad y precio más altas, sin apretar el título" };
+const VERSION = { n:"149", fecha:"23 jul 2026", desc:"Promociones con reglas reales: vigencia, mínimo, gratis proporcional y desglose" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -2425,25 +2425,31 @@ const PROVEEDORES = [
 const PRODUCTOS = [
   {id:"ARROZ-GUST", provId:"PROV-A", marca:"Arroz Gustadina", linea:"Arroz", presentaciones:[
     {id:"AG-QQ", tam:"Quintal", baseContado:42.50, baseCredito:43.00,
-     promosFreelance:[{id:"PF1", nombre:"Combo temporada", base:41.50, detalle:"compra 50 lleva 2"}],
-     promosProveedor:[{id:"PP1", nombre:"Impulso Gustadina", base:42.50, detalle:"compra 100 lleva 5", gratis:5, minimo:100}]},
+     promosFreelance:[
+       {id:"PF1", nombre:"Combo temporada", base:41.50, detalle:"compra 50 lleva 2", minimo:50, gratis:2, desde:"2026-07-01", hasta:"2026-08-31", paga:"freelance"},
+       /* vencida a propósito: sirve para verificar que el filtro de vigencia la oculte */
+       {id:"PF2", nombre:"Feria de junio", base:41.00, detalle:"compra 60 lleva 3", minimo:60, gratis:3, desde:"2026-06-01", hasta:"2026-06-30", paga:"freelance"}],
+     promosProveedor:[{id:"PP1", nombre:"Impulso Gustadina", base:42.50, detalle:"compra 100 lleva 5", gratis:5, minimo:100, desde:"2026-07-01", hasta:"2026-09-30", paga:"proveedor"}]},
+    {id:"AG-AR", tam:"Arroba 25 lb", baseContado:11.00, baseCredito:11.25, promosFreelance:[], promosProveedor:[]},
     {id:"AG-25", tam:"Saco 25 kg", baseContado:23.00, baseCredito:23.50, promosFreelance:[], promosProveedor:[]},
     {id:"AG-05", tam:"Funda 5 kg", baseContado:5.20, baseCredito:5.40, promosFreelance:[],
      inhabilitada:true, motivo:"Sin stock en el proveedor"},
   ]},
   {id:"ARROZ-CONEJO", provId:"PROV-A", marca:"Arroz Conejo", linea:"Arroz", presentaciones:[
     {id:"AC-QQ", tam:"Quintal", baseContado:45.00, baseCredito:45.50,
-     promosFreelance:[{id:"PF3", nombre:"Promo flor", base:44.50, detalle:"compra 80 lleva 4"}],
-     promosProveedor:[{id:"PP2", nombre:"Arranque de cosecha", base:45.00, detalle:"compra 50 lleva 3", gratis:3, minimo:50},
-                      {id:"PP3", nombre:"Volumen mayorista", base:45.00, detalle:"compra 200 lleva 15", gratis:15, minimo:200}]},
+     promosFreelance:[{id:"PF3", nombre:"Promo flor", base:44.50, detalle:"compra 80 lleva 4", minimo:80, gratis:4, desde:"2026-07-01", hasta:"2026-08-31", paga:"freelance"}],
+     promosProveedor:[{id:"PP2", nombre:"Arranque de cosecha", base:45.00, detalle:"compra 50 lleva 3", gratis:3, minimo:50, desde:"2026-07-01", hasta:"2026-09-30", paga:"proveedor"},
+                      {id:"PP3", nombre:"Volumen mayorista", base:45.00, detalle:"compra 200 lleva 15", gratis:15, minimo:200, desde:"2026-07-01", hasta:"2026-09-30", paga:"proveedor"}]},
+    {id:"AC-AR", tam:"Arroba 25 lb", baseContado:11.60, baseCredito:11.85, promosFreelance:[], promosProveedor:[]},
     {id:"AC-25", tam:"Saco 25 kg", baseContado:24.00, baseCredito:24.50, promosFreelance:[], promosProveedor:[]},
   ]},
   {id:"ARROZ-ECO", provId:"PROV-A", marca:"Arroz Económico", linea:"Arroz", presentaciones:[
     {id:"AE-QQ", tam:"Quintal", baseContado:33.00, baseCredito:33.50, promosFreelance:[], promosProveedor:[]},
+    {id:"AE-AR", tam:"Arroba 25 lb", baseContado:8.60, baseCredito:8.75, promosFreelance:[], promosProveedor:[]},
   ]},
   {id:"AZUCAR-VALD", provId:"PROV-B", marca:"Azúcar Valdez", linea:"Azúcar", presentaciones:[
     {id:"AZ-50", tam:"Saco 50 kg", baseContado:48.00, baseCredito:49.00, promosFreelance:[],
-     promosProveedor:[{id:"PP4", nombre:"Zafra Valdez", base:48.00, detalle:"compra 60 lleva 4", gratis:4, minimo:60}]},
+     promosProveedor:[{id:"PP4", nombre:"Zafra Valdez", base:48.00, detalle:"compra 60 lleva 4", gratis:4, minimo:60, desde:"2026-07-01", hasta:"2026-09-30", paga:"proveedor"}]},
     {id:"AZ-02", tam:"Funda 2 kg", baseContado:2.10, baseCredito:2.20, promosFreelance:[], promosProveedor:[]},
   ]},
   {id:"AZUCAR-SANCAR", provId:"PROV-B", marca:"Azúcar San Carlos", linea:"Azúcar", inhabilitada:true, motivo:"Marca descontinuada por el freelance", presentaciones:[
@@ -2578,6 +2584,42 @@ const PRESENTACIONES = PRODUCTOS
         promosProveedor: pr.promosProveedor || [],
       }))
   );
+
+/* ═══ b149 · MOTOR DE PROMOCIONES (reglas selladas) ═══
+   · Vigencia desde/hasta obligatoria: fuera de fecha la promo NO aparece.
+   · Gratis PROPORCIONAL sin tope: (cantidad/minimo)×gratis, con decimales.
+   · La comisión del vendedor se calcula sobre los qq PAGADOS.
+   · paga:"freelance" sale del margen del freelance (no toca la comisión);
+     paga:"proveedor" la financia el proveedor.
+   · El decimal de las gratis se DESCOMPONE en las presentaciones reales del
+     producto (mayor→menor); lo que no calce se redondea abajo y se avisa. */
+const HOY_ISO = new Date().toISOString().slice(0,10);
+const promoVigente = pm => (pm.activa!==false)
+  && (!pm.desde || pm.desde<=HOY_ISO) && (!pm.hasta || pm.hasta>=HOY_ISO);
+const promosVigentes = lista => (lista||[]).filter(promoVigente);
+/* gratis proporcional en unidades de la presentación de la promo */
+const gratisDePromo = (pm,cant) => (!pm||!pm.minimo||!pm.gratis||!(cant>0)) ? 0
+  : Math.round((cant/pm.minimo)*pm.gratis*100)/100;
+/* equivalencia en qq de una presentación por su nombre */
+const qqDeTam = t => { if(!t) return 1;
+  if(/quintal/i.test(t)) return 1;
+  if(/arroba/i.test(t)) return 0.25;
+  let m=t.match(/([\d.]+)\s*kg/i); if(m) return (parseFloat(m[1])||0)/45.4;
+  m=t.match(/([\d.]+)\s*lb/i); if(m) return (parseFloat(m[1])||0)/100;
+  return 1; };
+/* descompone qq gratis en las presentaciones hermanas del producto (misma marca) */
+const descomponerGratis = (qq, marca) => {
+  const dispo = PRESENTACIONES.filter(p=>p.marca===marca)
+    .map(p=>({tam:p.unidad, eq:qqDeTam(p.unidad)})).sort((a,b)=>b.eq-a.eq);
+  const partes=[]; let resto=Math.round(qq*10000)/10000;
+  for(const p of dispo){
+    const n=Math.floor(resto/p.eq + 1e-9);
+    if(n>0){ partes.push({tam:p.tam, n}); resto=Math.round((resto-n*p.eq)*10000)/10000; }
+  }
+  return {partes, resto};
+};
+const textoDesglose = d => d.partes.map(p=>p.n+" "+p.tam).join(" + ");
+
 /* Cheques devueltos de MIS clientes: el vendedor debe gestionar el reposicionamiento */
 const CHEQUES_DEVUELTOS = [
   {cli:"Comercial Mendoza", proveedor:"Molinos del Litoral", ciudad:"Milagro", zona:"Sur",
@@ -4714,12 +4756,16 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 
   const esP5 = tipo==="P5";
   const esP6 = tipo==="P6";
-  /* b143 · unidades gratis: en P3 las arma el vendedor; en P6 vienen fijas en la promo del proveedor */
+  /* b149 · unidades gratis: en P3 las arma el vendedor; en P4/P6 son PROPORCIONALES
+     a la cantidad según la promo (cant/minimo × gratis, con decimales, sin tope) */
   const gratisNum = tipo==="P3" ? (parseInt(gratis)||0)
-    : (esP6 && promoP) ? (promoP.gratis||0) : 0;
+    : (tipo==="P4" && promoF) ? gratisDePromo(promoF, Math.max(0,parseInt(cant)||0))
+    : (esP6 && promoP) ? gratisDePromo(promoP, Math.max(0,parseInt(cant)||0)) : 0;
   /* QUIÉN PAGA LA PROMOCIÓN:
      P3 la paga el VENDEDOR → el costo de lo gratis se descuenta de su comisión.
-     P6 la paga el PROVEEDOR → NO se descuenta nada; el vendedor cobra comisión completa. */
+     P4 la paga el FREELANCE → sale de SU margen; la comisión del vendedor no baja.
+     P6 la paga el PROVEEDOR → NO se descuenta nada; el vendedor cobra comisión completa.
+     En todos: la comisión se calcula sobre los qq PAGADOS, nunca sobre los entregados. */
   const costoGratis = tipo==="P3" ? Math.round(base*gratisNum*100)/100 : 0;
   const cantN = Math.max(0, parseInt(cant)||0);   // cantidad como número seguro (cant puede ser texto mientras se escribe)
   const comisionUnidad = esP5 ? comPropNum : dif;
@@ -4742,12 +4788,21 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 
   const requiereAutorizacion = esP5 || excedeCupo;   // P5 o exceder cupo → requiere autorización del freelance
 
+  /* b149 · promociones VIGENTES del producto (vencidas o inactivas no se listan) */
+  const promosFVig = prod ? promosVigentes(prod.promosFreelance) : [];
+  const promosPVig = prod ? promosVigentes(prod.promosProveedor) : [];
+  /* b149 · bajo el mínimo de la promo: se BLOQUEA el guardado */
+  const promoActiva = tipo==="P4" ? promoF : esP6 ? promoP : null;
+  const bajoMinimo = !!(promoActiva && promoActiva.minimo && cantN < promoActiva.minimo);
+  /* b149 · desglose de las gratis en presentaciones reales del producto */
+  const desgloseGratis = (gratisNum>0 && prod && (tipo==="P4"||esP6))
+    ? descomponerGratis(gratisNum*qqDeTam(prod.unidad), prod.marca) : null;
   // validaciones por tipo
   const baseLista = esP5 || (tipo==="P4" ? !!promoF : tipo==="P6" ? !!promoP : true);
   const precioOk = precio!=="" && precioNum>0 && (esP5 || !bajoBase);
   const p5Ok = !esP5 || (comProp!=="" && motivo.trim().length>2);
   const p3Ok = tipo!=="P3" || (parseInt(gratis)||0)>=0;
-  const valido = cli && prov && prod && cantN>0 && baseLista && precioOk && p5Ok && p3Ok && !bloqueado;
+  const valido = cli && prov && prod && cantN>0 && baseLista && precioOk && p5Ok && p3Ok && !bloqueado && !bajoMinimo;
 
   const tInfo=TIPOS_PRECIO.find(t=>t.id===tipo);
   // Arma el producto actual como item del carrito (se usa al agregar y al guardar directo)
@@ -4808,6 +4863,20 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       }
     }
   }, [tipo]);
+  /* b149 · preselección: si hay UNA sola promo vigente, viene elegida (P4 y P6);
+     con varias, se obliga a elegir conscientemente. VA DESPUÉS del efecto de
+     cambio de tipo (el orden de declaración manda): así su cantidad mínima
+     no queda pisada por el "setCant(50)" de ese efecto. */
+  React.useEffect(()=>{
+    if(tipo==="P4" && prod && !promoF && promosFVig.length===1){
+      const pm=promosFVig[0]; setPromoF(pm); setPrecio("");
+      if(pm.minimo) setCant(c=>((parseInt(c)||0)<pm.minimo)?pm.minimo:c);
+    }
+    if(esP6 && prod && !promoP && promosPVig.length===1){
+      const pm=promosPVig[0]; setPromoP(pm); setPrecio("");
+      if(pm.minimo) setCant(c=>((parseInt(c)||0)<pm.minimo)?pm.minimo:c);
+    }
+  },[tipo,prod]);
   const imgProd = prod ? (EMOJI_LINEA[prod.linea]||"📦") : null;
   const netoDe = h => Math.round((h.precio-(h.nc||0))*100)/100;
   let resumen=null;
@@ -5144,8 +5213,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         <div className="tipochips precios">
           {TIPOS_PRECIO.map(t=>{
             /* b143 · un tipo se pinta gris cuando no se puede aplicar a este producto */
-            const sinPromoF = t.id==="P4" && prod && !(prod.promosFreelance||[]).length;
-            const sinPromoP = t.id==="P6" && prod && !(prod.promosProveedor||[]).length;
+            const sinPromoF = t.id==="P4" && prod && !promosVigentes(prod.promosFreelance).length;
+            const sinPromoP = t.id==="P6" && prod && !promosVigentes(prod.promosProveedor).length;
             const sinPromo = sinPromoF || sinPromoP;
             return (
               <button key={t.id} className={"tchip"+(tipo===t.id?" on":"")+(sinPromo?" nodisp":"")}
@@ -5252,25 +5321,28 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         {/* P4 dentro de la tarjeta: promoción del freelance */}
         {tipo==="P4" && (
           <div className="tp-extra"><label>Promoción del freelance</label>
-            {prod && prod.promosFreelance.length>0 ? (
-              <SearchSelect label="" cat="promociones" items={prod.promosFreelance} value={promoF}
-                onPick={pm=>{setPromoF(pm);setPrecio("");}} onClear={()=>{setPromoF(null);setPrecio("");}}
+            {prod && promosFVig.length>0 ? (
+              <SearchSelect label="" cat="promociones" items={promosFVig} value={promoF}
+                onPick={pm=>{setPromoF(pm);setPrecio("");if(pm.minimo) setCant(pm.minimo);}}
+                onClear={()=>{setPromoF(null);setPrecio("");}}
                 render={{
                   text:pm=>pm.nombre,
                   option:pm=>(<><div className="o1">{pm.nombre}</div><div className="o2">{pm.detalle} · base {money(pm.base)}</div></>),
                   picked:pm=>(<><div className="p1">{pm.nombre}</div><div className="p2">{pm.detalle}</div></>)
                 }}/>
             ) : <div className="hint">Sin promociones vigentes para este producto.</div>}
-            {sinBaseP4 && (prod.promosFreelance||[]).length>0 &&
+            {sinBaseP4 && promosFVig.length>0 &&
               <div className="hint err">Elige la promoción del freelance para calcular tu comisión.</div>}
+            {promoF && !bajoMinimo &&
+              <div className="hint">Por cada {promoF.minimo} {prod.unidad}, {promoF.gratis} gratis. Las paga el freelance: tu comisión no baja.</div>}
           </div>
         )}
 
         {/* P6 dentro de la tarjeta: promoción del proveedor (la financia él) */}
         {esP6 && (
           <div className="tp-extra"><label>Promoción del proveedor</label>
-            {prod && (prod.promosProveedor||[]).length>0 ? (
-              <SearchSelect label="" cat="promos-proveedor" items={prod.promosProveedor} value={promoP}
+            {prod && promosPVig.length>0 ? (
+              <SearchSelect label="" cat="promos-proveedor" items={promosPVig} value={promoP}
                 onPick={pm=>{setPromoP(pm);setPrecio("");if(pm.minimo) setCant(pm.minimo);}}
                 onClear={()=>{setPromoP(null);setPrecio("");}}
                 render={{
@@ -5279,11 +5351,15 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
                   picked:pm=>(<><div className="p1">{pm.nombre}</div><div className="p2">{pm.detalle}</div></>)
                 }}/>
             ) : <div className="hint">Sin promociones del proveedor para este producto.</div>}
-            {sinBaseP6 && (prod.promosProveedor||[]).length>0 &&
+            {sinBaseP6 && promosPVig.length>0 &&
               <div className="hint err">Elige la promoción del proveedor para calcular tu comisión.</div>}
-            {promoP && <div className="hint">Lleva {promoP.gratis} gratis desde {promoP.minimo} {prod.unidad}. Las paga el proveedor: tu comisión no baja.</div>}
+            {promoP && !bajoMinimo &&
+              <div className="hint">Por cada {promoP.minimo} {prod.unidad}, {promoP.gratis} gratis. Las paga el proveedor: tu comisión no baja.</div>}
           </div>
         )}
+        {/* b149 · bajo el mínimo de la promo elegida: BLOQUEA el guardado (P4 y P6) */}
+        {bajoMinimo &&
+          <div className="hint err">La promo exige mínimo {promoActiva.minimo} {prod.unidad} y tienes {cantN}. Sube la cantidad o cambia el tipo de precio.</div>}
 
       </div>
     </div>
@@ -5404,9 +5480,16 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         {tipo==="P3" && (parseInt(gratis)||0)>0 &&
           <div className="cr"><span className="k">Más {gratis} gratis</span>
             <span className="v num">{cantN+(parseInt(gratis)||0)} entregados</span></div>}
-        {esP6 && gratisNum>0 &&
-          <div className="cr"><span className="k">Más {gratisNum} gratis · los paga el proveedor</span>
-            <span className="v num">{cantN+gratisNum} entregados</span></div>}
+        {(tipo==="P4"||esP6) && gratisNum>0 && <>
+          <div className="cr"><span className="k">Más {gratisNum} gratis · los paga el {esP6?"proveedor":"freelance"}</span>
+            <span className="v num">{Math.round((cantN+gratisNum)*100)/100} entregados</span></div>
+          {desgloseGratis && desgloseGratis.partes.length>0 &&
+            <div className="cr"><span className="k">Se entregan</span>
+              <span className="v num" style={{fontSize:13}}>{textoDesglose(desgloseGratis)}</span></div>}
+          {desgloseGratis && desgloseGratis.resto>0 &&
+            <div className="cr"><span className="k" style={{color:"var(--clay)"}}>No calza {desgloseGratis.resto} qq en presentaciones: se redondea abajo</span>
+              <span className="v"></span></div>}
+        </>}
         {sinBasePromo ? (
           <div className="cr tot"><span className="k">Tu comisión</span>
             <span className="v" style={{fontSize:14,color:"var(--clay)"}}>Elige la promoción</span></div>
