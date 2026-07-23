@@ -1070,6 +1070,12 @@
   .cupo-fill{height:100%;background:var(--field-soft-txt);border-radius:6px;transition:width .3s}
   .cupo-excede .cupo-fill{background:#C2603A}
   .cupo-lines{display:flex;flex-direction:column;gap:6px}
+  /* cupo en dos columnas: medidor a la izquierda, detalle a la derecha */
+  .cupo-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center}
+  .cupo-cols .cupo-col-arco{min-width:0}
+  .cupo-cols .cupo-barra{margin-bottom:0;margin-top:8px}
+  .cupo-cols .cupo-lines{justify-content:center}
+  @media(max-width:359px){.cupo-cols{grid-template-columns:1fr}}
   .cupo-l{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--ink)}
   .cupo-l span{color:var(--muted)}
   .cupo-l b{font-family:'Space Grotesk',sans-serif;color:var(--field)}
@@ -1126,7 +1132,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"129", fecha:"22 jul 2026", desc:"Cupo a lo ancho bajo el split; historial sin KPIs ni gráfica" };
+const VERSION = { n:"130", fecha:"22 jul 2026", desc:"Cupo en 2 columnas (medidor y detalle); fuera la tarjeta comisión/base" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -5152,28 +5158,11 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       )}
 
       <div className="pedido-split">
-        {/* Columna izquierda: imagen del producto + datos de referencia (comisión y base) */}
+        {/* Columna izquierda: imagen del producto */}
         <div className="ps-izq">
           <div className="ps-foto">
             <img src={sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
           </div>
-          {/* Referencia: lo que ganas por unidad y la base del tipo elegido */}
-          {prod && !esP5 && (
-            sinBaseP4
-              ? <div className="base-barra" style={{background:"#FBEDE7",borderColor:"var(--clay)",color:"var(--clay)"}}>
-                  <span>Sin promoción elegida</span><b>—</b></div>
-              : <div className={"base-barra"+(histo3m.length===0?" nueva":"")}>
-                  <span style={{display:"flex",alignItems:"baseline",gap:5,minWidth:0}}>
-                    <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",flexShrink:0}}>Comisión</span>
-                    <b className="num" style={{color: dif>0?"var(--ok)":dif<0?"var(--clay)":"var(--muted)"}}>{money(dif)}</b>
-                    <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)",whiteSpace:"nowrap"}}>/ {uniCorta(prod.unidad)}</span>
-                  </span>
-                  <span style={{display:"flex",alignItems:"baseline",gap:5,flexShrink:0}}>
-                    <span style={{fontSize:11.5,fontWeight:600,color:"var(--muted)"}}>base</span>
-                    <b className="num">{money(base)}</b>
-                  </span>
-                </div>
-          )}
         </div>
         {/* Columna derecha: cantidad + precio, compacto */}
         <div className="ps-controles">
@@ -5259,18 +5248,22 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             {excedeCupo?"Excedido":"Disponible"}
           </span>
         </div>
-        <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
-        <div className="cupo-barra">
-          <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
-        </div>
-        <div className="cupo-lines">
-          <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
-          <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
-          {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
-          {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
-          <div className="cupo-l cupo-disp">
-            <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
-            <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
+        <div className="cupo-cols">
+          <div className="cupo-col-arco">
+            <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
+            <div className="cupo-barra">
+              <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
+            </div>
+          </div>
+          <div className="cupo-lines">
+            <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
+            <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
+            {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
+            {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
+            <div className="cupo-l cupo-disp">
+              <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
+              <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
+            </div>
           </div>
         </div>
         {excedeCupo && (
