@@ -137,6 +137,13 @@
   @keyframes buscHalo{0%,100%{box-shadow:0 0 0 0 rgba(46,107,67,.28)}50%{box-shadow:0 0 0 6px rgba(46,107,67,0)}}
   .busc-cliente{animation:buscHalo 2.4s ease-in-out 3}
   @media (prefers-reduced-motion:reduce){.busc-cliente{animation:none!important}}
+  /* Cliente en una sola línea cuando ya se está armando el pedido (gana alto) */
+  .cli-compacto{display:flex;align-items:center;gap:8px;margin-bottom:10px;min-width:0}
+  .cli-compacto .cc-nom{flex:1;min-width:0;font-size:17px;font-weight:800;color:var(--field);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cli-compacto .cc-chg{flex-shrink:0;width:30px;height:30px;border-radius:9px;
+    border:1px solid var(--line);background:var(--card);color:var(--muted);
+    font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .mini-kpi{display:flex;gap:7px;margin:10px 0 11px}
   .mini-kpi button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;
     gap:1px;background:var(--card);border:1px solid var(--line);border-radius:11px;
@@ -522,6 +529,13 @@
     padding:10px 12px;margin-bottom:0;font-size:12.5px}
   .ps-izq .base-barra>span{justify-content:space-between;width:100%}
   .ps-izq .base-barra b{font-size:15px}
+  /* el medidor de cupo, dentro de la columna angosta, se compacta */
+  .ps-izq .cupo-box{margin-bottom:0;padding:10px 11px}
+  .ps-izq .cupo-head{flex-direction:column;align-items:flex-start;gap:5px;font-size:11.5px;margin-bottom:8px}
+  .ps-izq .cupo-head>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .ps-izq .cupo-l{font-size:11.5px;gap:6px}
+  .ps-izq .cupo-l b{font-size:12.5px}
+  .ps-izq .cupo-aviso{font-size:11px;padding:8px 10px;margin-top:9px}
   /* dentro de la tarjeta, el label gris del field ya no hace falta como título */
   .tarjeta-pedido .field>label{font-size:11px;color:var(--muted)}
   .field input,.field select{width:100%;padding:13px 14px;border:1px solid var(--line);
@@ -1120,7 +1134,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"124", fecha:"22 jul 2026", desc:"Comisión y base pasan bajo la foto; el Precio queda despejado" };
+const VERSION = { n:"125", fecha:"22 jul 2026", desc:"Cliente compacto en una línea y medidor de cupo bajo la foto" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4405,7 +4419,17 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 
     {/* siempre visible: cliente, proveedor y producto */}
     {true && <>
-    {/* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */}
+    {/* Con producto ya elegido el cliente va compacto (una línea), para ganar alto */}
+    {cli && prod ? (
+      <div className="cli-compacto">
+        <span className="cc-nom">{cli}</span>
+        {carrito.length===0 && (
+          <button type="button" className="cc-chg"
+            onClick={()=>{setCli(null);setProd(null);setCodigo("");setDesbloqueado(false);reset();}}>✎</button>
+        )}
+      </div>
+    ) : (
+    /* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */
     <div className="busc-cliente">
     <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra sinLabel
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
@@ -4418,6 +4442,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
           <div className="p2">Cliente</div></>)
       }}/>
     </div>
+    )}
 
     {/* en cascada: el proveedor aparece cuando ya hay cliente, igual que en la app del freelance */}
     {cli && !prod && !bloqueado && !verFact && <SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} sinLabel value={prov}
@@ -4944,6 +4969,36 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
                   </span>
                 </div>
           )}
+          {/* Medidor de cupo del cliente, al pie de la columna */}
+      {prod && esCredito && fichaCli && cupoTotal>0 && (
+        <div className={"cupo-box"+(excedeCupo?" cupo-excede":"")}>
+          <div className="cupo-head">
+            <span>💳 Cupo de crédito · {cli}</span>
+            <span className={"cupo-badge "+(excedeCupo?"bad":cupoDisponible>0?"ok":"warn")}>
+              {excedeCupo?"Excedido":"Disponible"}
+            </span>
+          </div>
+          <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
+          <div className="cupo-barra">
+            <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
+          </div>
+          <div className="cupo-lines">
+            <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
+            <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
+            {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
+            {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
+            <div className="cupo-l cupo-disp">
+              <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
+              <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
+            </div>
+          </div>
+          {excedeCupo && (
+            <div className="cupo-aviso">
+              ⚠️ Este pedido supera el cupo de {cli}. Puedes tomarlo, pero quedará <b>pendiente de autorización del freelance</b> para ampliar el crédito.
+            </div>
+          )}
+        </div>
+      )}
         </div>
         {/* Columna derecha: cantidad + precio, compacto */}
         <div className="ps-controles">
@@ -5072,35 +5127,6 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       </div>
     )}
 
-    {prod && esCredito && fichaCli && cupoTotal>0 && (
-      <div className={"cupo-box"+(excedeCupo?" cupo-excede":"")}>
-        <div className="cupo-head">
-          <span>💳 Cupo de crédito · {cli}</span>
-          <span className={"cupo-badge "+(excedeCupo?"bad":cupoDisponible>0?"ok":"warn")}>
-            {excedeCupo?"Excedido":"Disponible"}
-          </span>
-        </div>
-        <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
-        <div className="cupo-barra">
-          <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
-        </div>
-        <div className="cupo-lines">
-          <div className="cupo-l"><span>Límite autorizado</span><b className="num">{money(cupoTotal)}</b></div>
-          <div className="cupo-l"><span>Deuda</span><b className="num">{money(deudaActual)}</b></div>
-          {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
-          {montoLinea>0 && <div className="cupo-l"><span>Venta actual</span><b className="num">{money(montoLinea)}</b></div>}
-          <div className="cupo-l cupo-disp">
-            <span>{excedeCupo?"Excede el cupo en":"Cupo disponible"}</span>
-            <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
-          </div>
-        </div>
-        {excedeCupo && (
-          <div className="cupo-aviso">
-            ⚠️ Este pedido supera el cupo de {cli}. Puedes tomarlo, pero quedará <b>pendiente de autorización del freelance</b> para ampliar el crédito.
-          </div>
-        )}
-      </div>
-    )}
 
     <button className="cta" disabled={!valido}
       onClick={()=>{
