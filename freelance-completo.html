@@ -2611,6 +2611,30 @@ const PRESENTACIONES = PRODUCTOS
       }))
   );
 
+/* ── FASE 4 · Etapa 2: catálogo del pedido con datos REALES ──
+   Función PURA y global (antes de Pedido, que la usa): arma piladoras y presentaciones
+   desde la base. La oferta define QUÉ vende cada piladora (ofertas_piladora activas);
+   el precio de venta es ÚNICO del freelance (precios vigentes) × equiv_qq de la oferta
+   (regla sellada: un producto, un precio). Sin producto activo o sin precio vigente,
+   la oferta no se ofrece. Promos siempre [] (las reales viven en `promociones`, vacía). */
+function construirCatalogoPedido(provs, ofertas, prods, precios){
+  const r2=n=>Math.round(n*100)/100;
+  const nomDe={}, lineaDe={}, precioDe={};
+  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; });
+  (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+  const pres=(ofertas||[]).map(o=>{
+    const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
+    if(!nom || !pr) return null;
+    const eq=Number(o.equiv_qq)||1;
+    return { id:o.prod_id+"-"+o.pres_cod, provId:o.prov_cod, linea:lineaDe[o.prod_id],
+      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, diasCredito:30,
+      baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
+      costo:o.costo!=null?r2(Number(o.costo)):null,
+      promosFreelance:[], promosProveedor:[] };
+  }).filter(Boolean);
+  return { provs:(provs||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})), pres };
+}
+
 function sacoSVG(linea, pres){
   const PAL = {
     "Arroz":  {tela:"#EFE7D2", tela2:"#E2D6BA", txt:"#1E4D3A", grano:"#D8B77A"},
@@ -4813,7 +4837,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"331", fecha:"24 jul 2026", desc:"Fase 4 Etapa 1: login con correo (Supabase Auth) y pantalla Productos con catalogo y precios reales de la base (demo intacto sin sesion)" };
+const VERSION = { n:"332", fecha:"24 jul 2026", desc:"Fase 4 Etapa 2: Pedidos con piladoras reales y catalogo por oferta (ofertas_piladora x precios vigentes x equiv_qq); demo intacto sin sesion" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5171,12 +5195,39 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [desbloqueado,setDesbloqueado]=useState(false);
   const [dashAbierto,setDashAbierto]=useState(null); // tarjeta del dashboard de entrada abierta: entregar|mes|recompra|top
 
+  /* ── FASE 4 · Etapa 2: con sesión, piladoras y catálogo del pedido vienen de la base ── */
+  const [vivoPed,setVivoPed]=useState(null);
+  React.useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    (async ()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!s || !s.session) return;
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }] = await Promise.all([
+          window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
+          window.SB.from("ofertas_piladora").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo").eq("activo",true).limit(1000),
+          window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
+          window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
+        ]);
+        if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
+        const cat=construirCatalogoPedido(provs, ofertas, prods, precios);
+        if(!cat.pres.length) return;
+        provs.forEach(p=>{ PROV_REAL_NOMBRES[p.prov_cod]=p.nombre; });
+        setVivoPed(cat);
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
+  const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
+
   const motivos = cli ? motivosBloqueo(cli) : [];
   const bloqueado = motivos.length>0 && !desbloqueado;
 
   React.useEffect(()=>{
     if(prodInicial){
-      const pv=PROVEEDORES.find(x=>x.id===prodInicial.provId);
+      const pv=PROVS_PED.find(x=>x.id===prodInicial.provId);
       if(pv) setProv(pv);
       setProd(prodInicial);
       if(onConsumir) onConsumir();
@@ -5197,7 +5248,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
   const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
-  const productosDelProv = prov ? PRESENTACIONES.filter(p=>p.provId===prov.id) : [];
+  const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id) : [];
   /* Recompra: productos que este cliente ya compra de este proveedor, con su última vez.
      Se ordena por frecuencia y se ocultan los que ya están en el carrito. */
   const enCarrito = new Set(carrito.map(x=>x.prod && x.prod.id));
@@ -5367,6 +5418,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   return (<>
     {!(cli && prod) && <div className="h1" style={{textAlign:"center"}}>Tomar pedido</div>}
 
+    {vivoPed && !prod && <div style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+      background:"rgba(28,122,68,.13)",color:"#1c7a44",margin:"0 0 10px"}}>
+      🟢 Piladoras y precios vivos de la base · {vivoPed.pres.length} presentaciones</div>}
     {/* b327 · Ya elegidos cliente y producto: el cliente es el título, sin buscador */}
     {cli && prod ? (
       <div className="cli-titulo">{cli}</div>
@@ -5385,7 +5439,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     </div>
     )}
 
-    {cli && !bloqueado && !verFact && !prod && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} sinLabel value={prov}
+    {cli && !bloqueado && !verFact && !prod && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -5453,15 +5507,15 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       const F={display:"flex",justifyContent:"space-between",gap:8,padding:"3px 0",fontSize:12.5};
       /* SELECCIÓN POR FACTURA: repite cliente + proveedor + TODOS los productos.
          Los precios se traen VIGENTES (no los viejos de la factura); si cambiaron, se avisa. */
-      const buscarPres=(nombre)=> PRESENTACIONES.find(p=>p.nombre===nombre)
-        || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
-        || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
+      const buscarPres=(nombre)=> PRES_PED.find(p=>p.nombre===nombre)
+        || PRES_PED.find(p=>nombre.startsWith(p.marca))
+        || PRES_PED.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
       const repetir=()=>{
         const lineas=[], fuera=[]; let pv=null, nAjuste=0;
         f.items.forEach((it,k)=>{
           const pres=buscarPres(it.prod);
           if(!pres){ fuera.push(it.prod); return; }
-          if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
+          if(!pv) pv=PROVS_PED.find(x=>x.id===pres.provId);
           const base=pres.baseCredito;                       /* base VIGENTE hoy (crédito, P1) */
           const precio=it.precio;                            /* precio de la factura repetida */
           const com=Math.round((precio-base)*it.cant*100)/100;
@@ -6307,8 +6361,8 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
                     <span style={{fontWeight:700,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(it.prodNombre||"").split(" · ")[0]}</span></span>
                   <span style={{display:"flex",gap:4,flexShrink:0}}>
                     <button className="del" style={{background:"#EAF0F6",color:"#3A6EA5",borderColor:"#C9D8E6",padding:"5px 10px"}} onClick={()=>{
-                      const pres = PRESENTACIONES.find(p=>p.nombre===it.prodNombre);
-                      if(pres){ const pv=PROVEEDORES.find(x=>x.id===pres.provId); if(pv) setProv(pv); setProd(pres); }
+                      const pres = PRES_PED.find(p=>p.nombre===it.prodNombre);
+                      if(pres){ const pv=PROVS_PED.find(x=>x.id===pres.provId); if(pv) setProv(pv); setProd(pres); }
                       setCant(it.cant); setTipo(it.tipo||"P1"); setPrecio(String(it.precio));
                       if(it.tipo==="P3") setGratis(String(it.gratis||0));
                       setCarrito(carrito.filter(x=>x.id!==it.id));
