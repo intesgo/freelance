@@ -883,7 +883,11 @@ function facturasCargadas(){
 function registrarFacturaCargada(f){
   const l = facturasCargadas();
   l.unshift({ clave:f.clave||"", numero:f.numero||"", cliente:f.cliente||"",
-    total:f.total||0, cuando:new Date().toISOString().slice(0,10), au:f.au||"" });
+    total:f.total||0, fecha:f.fecha||"",
+    /* Cuanto se ha cobrado de esta factura. HOY es demo (llega en 0 o sembrado a mano);
+       en Fase 4 este dato sale de la cartera real en Supabase, no de aqui. */
+    cobrado:f.cobrado||0,
+    cuando:new Date().toISOString().slice(0,10), au:f.au||"" });
   try { localStorage.setItem(FACTURAS_KEY, JSON.stringify(l.slice(0,200))); } catch(e){}
 }
 /* Devuelve la factura previa si ya se cargo, o null si es nueva. */
@@ -892,6 +896,77 @@ function facturaRepetida(f){
   if(f.clave)  { const p = l.find(x=>x.clave && x.clave===f.clave);   if(p) return p; }
   if(f.numero) { const p = l.find(x=>x.numero && x.numero===f.numero); if(p) return p; }
   return null;
+}
+
+/* ══ ANULACION DE FACTURAS ══
+   REGLA SELLADA (21 jul 2026): SOLO EL PROVEEDOR anula, porque el fue quien la emitio
+   ante el SRI. Al anular se reversa cartera, comision, inventario y cuenta de piladora.
+   EL COBRO NO SE ANULA NI SE RECREA: SE TRASLADA. El dinero real ya entro al banco;
+   recrearlo duplicaria el ingreso y reiniciaria el reloj de 24h del efectivo.
+   Mientras no exista la factura nueva, el cobro queda EN TRANSITO como saldo a favor
+   del cliente, y se traslada despues. Si la factura nueva es de menor valor, la
+   diferencia tambien queda como saldo a favor.
+   Todo movimiento se AUDITA (AU-) guardando el valor anterior.
+   HOY es registro local (demo). En Fase 4 la reversa real la ejecuta Supabase por
+   trigger, porque la cartera y el cobro no viven en esta app. */
+const ANULADAS_KEY = "freelance_facturas_anuladas_v1";
+function facturasAnuladas(){
+  try { return JSON.parse(localStorage.getItem(ANULADAS_KEY) || "[]"); } catch(e){ return []; }
+}
+function guardarAnuladas(l){
+  try { localStorage.setItem(ANULADAS_KEY, JSON.stringify(l.slice(0,200))); } catch(e){}
+}
+/* Motivos tipificados: nunca texto libre solo, para poder medir por que se anula. */
+const MOTIVOS_ANULAR = [
+  "Error en el valor o el precio",
+  "Error en el cliente o el RUC",
+  "Error en los productos o cantidades",
+  "Devolucion total de la mercaderia",
+  "Pedido no despachado",
+  "Duplicada por error"
+];
+/* Segun la fecha de la factura decide la via legal correcta ante el SRI.
+   Dentro de las 24h y sin cobros: se puede anular en linea.
+   Fuera de ese plazo la unica via real es la Nota de Credito. */
+function viaAnulacion(fechaFac, tieneCobros){
+  let dias = 0;
+  try {
+    const p = String(fechaFac||"").split("/");
+    const f = (p.length===3) ? new Date(+p[2], +p[1]-1, +p[0]) : new Date(fechaFac);
+    dias = Math.floor((Date.now() - f.getTime())/86400000);
+    if(!isFinite(dias) || dias<0) dias = 0;
+  } catch(e){ dias = 0; }
+  if(dias<=1 && !tieneCobros)
+    return { via:"directa", dias, t:"Anulacion directa",
+      d:"La factura es de hoy y no tiene cobros: se puede anular en linea en el portal del SRI." };
+  return { via:"nc", dias, t:"Requiere Nota de credito",
+    d:`La factura tiene ${dias} dia${dias!==1?"s":""}. El SRI ya no permite anularla en linea: la via correcta es emitir una Nota de credito.` };
+}
+/* Registra la anulacion con su rastro completo (valor anterior incluido). */
+function registrarAnulacion(a){
+  const l = facturasAnuladas();
+  l.unshift({
+    clave:a.clave||"", numero:a.numero||"", cliente:a.cliente||"",
+    totalAnterior:a.totalAnterior||0,      /* el valor que tenia antes: no se pierde */
+    motivo:a.motivo||"", nota:a.nota||"",
+    via:a.via||"", cobros:a.cobros||0,     /* cuanto dinero hay que trasladar */
+    destino:a.destino||"transito",         /* transito | numero de la factura nueva */
+    saldoFavor:a.saldoFavor||0,
+    cuando:new Date().toISOString().slice(0,10), au:a.au||""
+  });
+  guardarAnuladas(l);
+}
+/* Cierra el traslado: el cobro en transito se aplica a la factura nueva. */
+function trasladarCobro(clave, facturaDestino, montoDestino){
+  const l = facturasAnuladas();
+  const r = l.find(x=>x.clave===clave);
+  if(!r) return null;
+  r.destino = facturaDestino;
+  r.saldoFavor = Math.max(0, (r.cobros||0) - (montoDestino||0));
+  r.trasladoAu = nuevoAuG();
+  r.trasladoCuando = new Date().toISOString().slice(0,10);
+  guardarAnuladas(l);
+  return r;
 }
 
 /* ══ LECTOR DEL XML DEL SRI ══
@@ -1223,7 +1298,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"30", fecha:"22 jul 2026", desc:"Carga XML sin emparejar (lo hace el sistema web)" };
+const VERSION = { n:"32", fecha:"23 jul 2026", desc:"Traslado del cobro en transito: cierre del ciclo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -3558,9 +3633,21 @@ function CargaXML({irTab}){
   const [aviso,setAviso]=useState("");
   /* pestaña de grupo; null = elige sola la accionable */
   const [grupo,setGrupo]=useState(null);
-  /* Atrás: cierra la factura leída. */
+  /* ── Pestaña de la pantalla: subir una nueva o ver las ya cargadas ── */
+  const [vista,setVista]=useState("subir");   // subir | cargadas
+  const [ficha,setFicha]=useState(null);      // factura cargada abierta
+  const [anular,setAnular]=useState(false);   // flujo de anulación abierto
+  const [motAnu,setMotAnu]=useState("");
+  const [notaAnu,setNotaAnu]=useState("");
+  const [tick,setTick]=useState(0);           // repinta tras escribir en localStorage
+  const [traslado,setTraslado]=useState(false); // pantalla de cerrar el cobro en transito
+  const [destSel,setDestSel]=useState(null);    // factura destino elegida
+  /* Atrás: cierra lo más interno primero (anulación → ficha → factura leída). */
   useRetrocesoP(()=>{
+    if(anular){ setAnular(false); setMotAnu(""); setNotaAnu(""); return true; }
+    if(ficha){ setFicha(null); return true; }
     if(xml){ setXml(null); return true; }
+    if(vista!=="subir"){ setVista("subir"); return true; }
     return false;
   });
   const toast=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3600); };
@@ -3671,6 +3758,228 @@ function CargaXML({irTab}){
   ) : null;
 
 
+  /* ══ ANULACION ══ */
+  const anuladas = facturasAnuladas();
+  const estaAnulada = (f)=> anuladas.find(a=>a.clave && f.clave && a.clave===f.clave)
+                         || anuladas.find(a=>a.numero && f.numero && a.numero===f.numero) || null;
+  /* Demo: cuánto se cobró de esta factura. En Fase 4 sale de la cartera real. */
+  const cobradoDe = (f)=> f.cobrado || 0;
+
+  const confirmarAnulacion=()=>{
+    const f = ficha; if(!f) return;
+    if(!motAnu){ toast("Elige el motivo de la anulación"); return; }
+    const cob = cobradoDe(f);
+    const v = viaAnulacion(f.fecha, cob>0);
+    const au = nuevoAu();
+    registrarAnulacion({
+      clave:f.clave, numero:f.numero, cliente:f.cliente,
+      totalAnterior:f.total, motivo:motAnu, nota:notaAnu.trim(),
+      via:v.via, cobros:cob,
+      destino:"transito", saldoFavor:cob,
+      au
+    });
+    setAnular(false); setMotAnu(""); setNotaAnu(""); setTick(t=>t+1);
+    toast(cob>0
+      ? `Factura ${f.numero} anulada · ${money(cob)} queda a favor del cliente · ${au}`
+      : `Factura ${f.numero} anulada · ${au}`);
+  };
+
+  /* Cierra el traslado: el dinero en transito se aplica a la factura nueva.
+     El cobro NUNCA se recrea (duplicaria el ingreso): solo cambia de factura.
+     Si la factura nueva vale menos, la diferencia queda a favor del cliente. */
+  const confirmarTraslado=()=>{
+    const f = ficha; if(!f || !destSel) return;
+    const r = trasladarCobro(f.clave, destSel.numero, destSel.total);
+    if(!r){ toast("No se encontro el registro de anulacion"); return; }
+    setTraslado(false); setDestSel(null); setTick(t=>t+1);
+    toast(r.saldoFavor>0
+      ? `Trasladado a ${destSel.numero} · ${money(r.saldoFavor)} queda a favor del cliente · ${r.trasladoAu}`
+      : `Cobro trasladado a ${destSel.numero} · ${r.trasladoAu}`);
+  };
+
+  /* ── FICHA DE UNA FACTURA CARGADA ── */
+  if(ficha){
+    const f = ficha;
+    const anu = estaAnulada(f);
+    const cob = cobradoDe(f);
+    const v = viaAnulacion(f.fecha, cob>0);
+    return (<>
+      <div className="eyebrow">Factura cargada</div>
+      <h1 className="h1">{f.numero}</h1>
+      <div className="sub" style={{marginTop:4}}>{f.cliente} · {f.fecha}</div>
+
+      <div className="sec-gap" style={{height:16}} />
+      <div className="hero">
+        <div className="lbl">{anu ? "Valor anulado" : "Total facturado"}</div>
+        <div className="big num" style={anu?{textDecoration:"line-through",opacity:.65}:null}>
+          {money(f.total)}</div>
+      </div>
+
+      {anu ? (<>
+        <div className="sec-gap" style={{height:12}} />
+        <div className="card card-pad" style={{borderColor:"#C62828"}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#C62828"}}>Anulada · {anu.motivo}</div>
+          {anu.nota && <div className="sub tiny" style={{marginTop:4}}>{anu.nota}</div>}
+          <div className="sub tiny" style={{marginTop:6}}>{anu.cuando} · {anu.au}</div>
+          <div className="sub tiny" style={{marginTop:6}}>
+            Valor anterior: <b className="num">{money(anu.totalAnterior)}</b></div>
+        </div>
+        {anu.cobros>0 && (
+          <>
+            <div className="sec-gap" style={{height:12}} />
+            <div className="card card-pad" style={{background:"var(--maiz-suave)"}}>
+              <div style={{fontWeight:700,fontSize:14}}>
+                {anu.destino==="transito" ? "Cobro en tránsito" : `Trasladado a ${anu.destino}`}</div>
+              <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>
+                {anu.destino==="transito"
+                  ? `${money(anu.cobros)} ya entraron al banco. El dinero NO se anula: queda a favor de ${f.cliente} y se traslada cuando emitas la factura nueva.`
+                  : `${money(anu.cobros)} se aplicaron a la factura ${anu.destino}.`}</div>
+              {anu.saldoFavor>0 && anu.destino!=="transito" && (
+                <div className="sub tiny" style={{marginTop:6}}>
+                  Saldo a favor del cliente: <b className="num">{money(anu.saldoFavor)}</b></div>
+              )}
+              {anu.trasladoAu && (
+                <div className="sub tiny" style={{marginTop:6}}>
+                  {anu.trasladoCuando} · {anu.trasladoAu}</div>
+              )}
+            </div>
+
+            {/* Cerrar el traslado: solo si el dinero sigue en transito. */}
+            {anu.destino==="transito" && !traslado && (
+              <button className="btn btn-maiz" style={{width:"100%",marginTop:10}}
+                onClick={()=>{ setTraslado(true); setDestSel(null); }}>
+                Trasladar a una factura nueva</button>
+            )}
+
+            {anu.destino==="transito" && traslado && (()=>{
+              /* Solo facturas del MISMO cliente, no anuladas y distintas de esta. */
+              const opciones = facturasCargadas().filter(x=>
+                x.cliente===f.cliente &&
+                (x.clave||x.numero)!==(f.clave||f.numero) &&
+                !estaAnulada(x));
+              return (<>
+                <div className="sec-gap" style={{height:12}} />
+                <div className="card card-pad" style={{borderColor:"var(--maiz)"}}>
+                  <h3>¿A qué factura va el dinero?</h3>
+                  <div className="sub tiny" style={{margin:"6px 0 14px",lineHeight:1.5}}>
+                    {money(anu.cobros)} de {f.cliente}. Si la factura nueva vale menos,
+                    la diferencia queda a favor del cliente.</div>
+
+                  {opciones.length===0 ? (
+                    <div className="sub tiny" style={{textAlign:"center",padding:"14px 0"}}>
+                      Todavía no hay otra factura cargada de este cliente.
+                      Carga la factura nueva y vuelve aquí.</div>
+                  ) : opciones.slice(0,20).map((x,i)=>(
+                    <button key={x.clave||x.numero||i} className="btn btn-ghost"
+                      style={{width:"100%",marginBottom:8,textAlign:"left",
+                        fontWeight:destSel && destSel.numero===x.numero?700:500,
+                        borderColor:destSel && destSel.numero===x.numero?"var(--maiz)":undefined}}
+                      onClick={()=>setDestSel(x)}>
+                      <span className="row between" style={{width:"100%"}}>
+                        <span style={{minWidth:0,overflow:"hidden",
+                          textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.numero}</span>
+                        <b className="num" style={{flexShrink:0,marginLeft:10}}>{money(x.total)}</b>
+                      </span>
+                    </button>
+                  ))}
+
+                  {destSel && (
+                    <div className="card card-pad" style={{background:"var(--maiz-suave)",
+                      border:"none",marginTop:4,marginBottom:12}}>
+                      <div className="row between">
+                        <span className="sub tiny">Se traslada</span>
+                        <b className="num">{money(anu.cobros)}</b></div>
+                      <div className="row between" style={{marginTop:4}}>
+                        <span className="sub tiny">Factura nueva</span>
+                        <b className="num">{money(destSel.total)}</b></div>
+                      {anu.cobros>destSel.total && (
+                        <div className="row between" style={{marginTop:4}}>
+                          <span className="sub tiny">Queda a favor</span>
+                          <b className="num">{money(anu.cobros-destSel.total)}</b></div>
+                      )}
+                    </div>
+                  )}
+
+                  <button className="btn btn-maiz" style={{width:"100%"}}
+                    disabled={!destSel} onClick={confirmarTraslado}>
+                    Confirmar traslado</button>
+                  <button className="btn btn-ghost" style={{width:"100%",marginTop:8}}
+                    onClick={()=>{ setTraslado(false); setDestSel(null); }}>Cancelar</button>
+                </div>
+              </>);
+            })()}
+          </>
+        )}
+      </>) : anular ? (<>
+        <div className="sec-gap" style={{height:12}} />
+        <div className="card card-pad" style={{borderColor:"#C62828"}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#C62828"}}>{v.t}</div>
+          <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>{v.d}</div>
+        </div>
+
+        {cob>0 && (<>
+          <div className="sec-gap" style={{height:12}} />
+          <div className="card card-pad" style={{background:"var(--maiz-suave)"}}>
+            <div style={{fontWeight:700,fontSize:14}}>Esta factura tiene {money(cob)} cobrados</div>
+            <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>
+              El dinero ya entró al banco, así que NO se anula ni se vuelve a registrar.
+              Queda a favor de {f.cliente} y lo trasladas a la factura nueva cuando la emitas.</div>
+          </div>
+        </>)}
+
+        <div className="sec-gap" style={{height:12}} />
+        <div className="card card-pad">
+          <h3>¿Por qué la anulas?</h3>
+          <div className="sub tiny" style={{margin:"6px 0 14px"}}>
+            Queda auditado con el valor anterior. La anulación no se puede deshacer.</div>
+          {MOTIVOS_ANULAR.map(m=>(
+            <button key={m} className="btn btn-ghost"
+              style={{width:"100%",marginBottom:8,textAlign:"left",
+                fontWeight:motAnu===m?700:500,
+                borderColor:motAnu===m?"#C62828":undefined}}
+              onClick={()=>{ setMotAnu(m); regUso("motivos_anular", m); }}>{m}</button>
+          ))}
+          <textarea className="inp" rows={2} placeholder="Detalle (opcional)"
+            value={notaAnu} onChange={e=>setNotaAnu(e.target.value)}
+            style={{width:"100%",marginTop:4}} />
+        </div>
+
+        <div className="sec-gap" style={{height:16}} />
+        <button className="btn" style={{width:"100%",background:"#C62828",color:"#fff"}}
+          onClick={confirmarAnulacion}>Anular la factura</button>
+        <div className="sec-gap" style={{height:10}} />
+        <button className="btn btn-ghost" style={{width:"100%"}}
+          onClick={()=>{setAnular(false); setMotAnu(""); setNotaAnu("");}}>Cancelar</button>
+      </>) : (<>
+        <div className="sec-gap" style={{height:12}} />
+        <div className="card card-pad">
+          <div className="row between" style={{padding:"5px 0"}}>
+            <span className="sub tiny">Cargada el</span>
+            <b style={{fontSize:14}}>{f.cuando}</b>
+          </div>
+          {f.au && (
+            <div className="row between" style={{padding:"5px 0"}}>
+              <span className="sub tiny">Código</span>
+              <b className="num" style={{fontSize:13}}>{f.au}</b>
+            </div>
+          )}
+          {cob>0 && (
+            <div className="row between" style={{padding:"5px 0"}}>
+              <span className="sub tiny">Cobrado</span>
+              <b className="num" style={{fontSize:14}}>{money(cob)}</b>
+            </div>
+          )}
+        </div>
+
+        <div className="sec-gap" style={{height:16}} />
+        <button className="btn btn-ghost" style={{width:"100%",borderColor:"#C62828",color:"#C62828"}}
+          onClick={()=>setAnular(true)}>Anular esta factura</button>
+        <div className="sub tiny" style={{marginTop:10,lineHeight:1.5,textAlign:"center"}}>
+          Solo tú puedes anularla: tú la emitiste ante el SRI.</div>
+      </>)}
+    </>);
+  }
+
   /* ── LISTA / CARGA ── */
   return (<>
     <div className="eyebrow">Tu factura, sin digitar</div>
@@ -3679,6 +3988,52 @@ function CargaXML({irTab}){
       Sube el XML del SRI y el sistema lee todo: cliente, productos y valores.</div>
 
     {!xml && (<>
+      <div className="sec-gap" style={{height:14}} />
+      <div className="row" style={{gap:8}}>
+        <button className={"btn "+(vista==="subir"?"btn-maiz":"btn-ghost")}
+          style={{flex:1}} onClick={()=>setVista("subir")}>Subir</button>
+        <button className={"btn "+(vista==="cargadas"?"btn-maiz":"btn-ghost")}
+          style={{flex:1}} onClick={()=>setVista("cargadas")}>
+          Cargadas{facturasCargadas().length?` · ${facturasCargadas().length}`:""}</button>
+      </div>
+    </>)}
+
+    {!xml && vista==="cargadas" && (<>
+      <div className="sec-gap" style={{height:14}} />
+      {facturasCargadas().length===0 ? (
+        <div className="card card-pad" style={{textAlign:"center",padding:"26px 18px"}}>
+          <div style={{fontSize:34,marginBottom:8}}>📭</div>
+          <div className="sub tiny">Todavía no has cargado ninguna factura.</div>
+        </div>
+      ) : facturasCargadas().slice(0,30).map((f,i)=>{
+        const anu = estaAnulada(f);
+        return (
+          <div key={f.clave||f.numero||i} className="card card-pad"
+            style={{marginBottom:8,cursor:"pointer",
+              borderColor:anu?"#C62828":undefined,opacity:anu?.75:1}}
+            onClick={()=>setFicha(f)}>
+            <div className="row between">
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontWeight:600,fontSize:15,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.cliente||"Sin cliente"}</div>
+                <div className="sub tiny" style={{marginTop:2}}>{f.numero} · {f.cuando}</div>
+              </div>
+              <div style={{flexShrink:0,textAlign:"right",marginLeft:10}}>
+                <b className="num" style={{fontSize:14,
+                  textDecoration:anu?"line-through":"none"}}>{money(f.total)}</b>
+                {anu && <div className="sub tiny" style={{color:"#C62828",fontWeight:700}}>Anulada</div>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {facturasCargadas().length>30 && (
+        <div className="sub tiny" style={{textAlign:"center",marginTop:6}}>
+          Mostrando las 30 más recientes.</div>
+      )}
+    </>)}
+
+    {!xml && vista==="subir" && (<>
       <div className="sec-gap" style={{height:16}} />
       <div className="card card-pad" style={{textAlign:"center",padding:"28px 18px"}}>
         <div style={{fontSize:40,marginBottom:10}}>📄</div>
