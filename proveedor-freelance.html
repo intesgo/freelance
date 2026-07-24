@@ -956,6 +956,18 @@ function registrarAnulacion(a){
   });
   guardarAnuladas(l);
 }
+/* ══ DINERO EN TRANSITO ══
+   Cobros de facturas ANULADAS que todavia no se trasladan a la factura nueva.
+   Es plata real del cliente parada, sin factura que la respalde: mientras no se
+   cierre el traslado, la cartera del cliente miente. Solo el proveedor lo resuelve
+   (el anulo). El Inicio lo muestra en banda ambar cuando existe. */
+function dineroEnTransito(){
+  const l = facturasAnuladas().filter(a=>a.destino==="transito" && (a.cobros||0)>0);
+  return { casos:l.length, monto:l.reduce((a,x)=>a+(x.cobros||0),0), lista:l };
+}
+/* La banda del Inicio pide abrir la lista de facturas cargadas ya filtrada. */
+let ABRIR_TRANSITO = false;
+
 /* Cierra el traslado: el cobro en transito se aplica a la factura nueva. */
 function trasladarCobro(clave, facturaDestino, montoDestino){
   const l = facturasAnuladas();
@@ -1298,7 +1310,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"34", fecha:"23 jul 2026", desc:"Buscador agrupado por producto en Precios y Catalogo" };
+const VERSION = { n:"35", fecha:"23 jul 2026", desc:"Banda de dinero en transito en Inicio" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2489,6 +2501,10 @@ const COMO_FUNCIONA = [
    d:"Si aún no tienes la autorización, regístrala igual: la cartera del cliente baja desde ya y confirmas después."},
   {mod:"Notas de crédito", ic:"↩", t:"Dos tipos, y se tratan distinto",
    d:"Por DEVOLUCIÓN vuelve producto a tu bodega, así que se registra qué y cuántos quintales. Por DESCUENTO solo baja el monto: no vuelve nada."},
+  {mod:"Inicio", ic:"⏳", t:"Qué es el dinero en tránsito",
+   d:"Cuando anulas una factura que ya tenía cobros, ese dinero no se borra: el cliente ya pagó. Queda en tránsito hasta que lo apliques a la factura nueva. Mientras no lo cierres, la cartera del cliente no cuadra."},
+  {mod:"Inicio", ic:"💵", t:"El cobro se traslada, no se recrea",
+   d:"Recrear el cobro duplicaría el ingreso y reiniciaría el reloj de 24 horas del efectivo. Por eso se traslada. Si la factura nueva vale menos, la diferencia queda como saldo a favor del cliente."},
   {mod:"Notas de crédito", ic:"💰", t:"Revierte la comisión en proporción",
    d:"Si la nota es el 20% de la factura, se revierte el 20% de la comisión. Si al vendedor ya se le pagó, se le descuenta del próximo corte: nunca se le pide devolver."},
   {mod:"Cargar factura", ic:"📄", t:"Tú solo subes el XML",
@@ -2915,6 +2931,7 @@ function Inicio({ctx,irTab,credPend}){
   const retenPend  = RETENCIONES_INI.filter(r=>!r.confirmada).length;
   const sinCuenta  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>=HOY)).length===0;
   const usoCupo    = pct(fl.porCobrar,fl.cupo);
+  const transito   = dineroEnTransito();   // cobros de facturas anuladas sin trasladar
   /* Franja de pendientes: 4 fichas fijas. Reemplaza 4 tarjetas grandes. */
   const FICHAS=[
     ["conciliacion", cobrosPend, "Cobros"],
@@ -2961,6 +2978,31 @@ function Inicio({ctx,irTab,credPend}){
           <Mini k="Clientes (agregado)" v={fl.equipo.clientes} />
         </div>
       </div>
+
+      {/* Dinero en tránsito: plata cobrada de facturas anuladas, sin trasladar.
+          Solo aparece si existe; si no hay nada, no ocupa pantalla. */}
+      {transito.casos>0 && (
+        <>
+          <div className="sec-gap" style={{height:14}} />
+          <button className="card card-pad row between" style={{width:"100%",textAlign:"left",
+            background:"var(--espera-suave)",border:"none"}}
+            onClick={()=>{ ABRIR_TRANSITO = true; irTab("carga"); }}>
+            <div className="row" style={{gap:13,minWidth:0}}>
+              <div className="ava ava-m" style={{flexShrink:0,background:"#F3DFB4"}}>⏳</div>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:14.5,color:"#8A5A12"}}>Dinero en tránsito</div>
+                <div className="tiny" style={{color:"#8A5A12",opacity:.85,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {transito.casos===1 ? "1 cobro sin trasladar" : transito.casos+" cobros sin trasladar"}</div>
+              </div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <div className="num" style={{fontWeight:700,fontSize:16,color:"#8A5A12"}}>{f(transito.monto)}</div>
+              <div className="tiny" style={{color:"#8A5A12",opacity:.7}}>por aplicar ›</div>
+            </div>
+          </button>
+        </>
+      )}
 
       {/* Franja de pendientes: de un vistazo, qué te espera */}
       <div className="sec-gap" style={{height:14}} />
@@ -3787,7 +3829,9 @@ function CargaXML({irTab}){
   /* pestaña de grupo; null = elige sola la accionable */
   const [grupo,setGrupo]=useState(null);
   /* ── Pestaña de la pantalla: subir una nueva o ver las ya cargadas ── */
-  const [vista,setVista]=useState("subir");   // subir | cargadas
+  /* Si se entró desde la banda de dinero en tránsito, abre directo en esa lista. */
+  const [vista,setVista]=useState(ABRIR_TRANSITO ? "transito" : "subir");   // subir | cargadas | transito
+  useEffect(()=>{ ABRIR_TRANSITO = false; }, []);
   const [ficha,setFicha]=useState(null);      // factura cargada abierta
   const [anular,setAnular]=useState(false);   // flujo de anulación abierto
   const [motAnu,setMotAnu]=useState("");
@@ -3913,6 +3957,8 @@ function CargaXML({irTab}){
 
   /* ══ ANULACION ══ */
   const anuladas = facturasAnuladas();
+  /* se recalcula en cada repintado (tick) para que al cerrar un traslado baje solo */
+  const transito = dineroEnTransito();
   const estaAnulada = (f)=> anuladas.find(a=>a.clave && f.clave && a.clave===f.clave)
                          || anuladas.find(a=>a.numero && f.numero && a.numero===f.numero) || null;
   /* Demo: cuánto se cobró de esta factura. En Fase 4 sale de la cartera real. */
@@ -4148,6 +4194,45 @@ function CargaXML({irTab}){
         <button className={"btn "+(vista==="cargadas"?"btn-maiz":"btn-ghost")}
           style={{flex:1}} onClick={()=>setVista("cargadas")}>
           Cargadas{facturasCargadas().length?` · ${facturasCargadas().length}`:""}</button>
+        {/* solo se ve si hay plata parada: si no hay, no estorba */}
+        {transito.casos>0 && (
+          <button className={"btn "+(vista==="transito"?"btn-maiz":"btn-ghost")}
+            style={{flex:1}} onClick={()=>setVista("transito")}>
+            Tránsito · {transito.casos}</button>
+        )}
+      </div>
+    </>)}
+
+    {!xml && vista==="transito" && (<>
+      <div className="sec-gap" style={{height:14}} />
+      <div className="card card-pad" style={{background:"var(--espera-suave)",border:"none"}}>
+        <div className="row between">
+          <span style={{fontWeight:700,fontSize:14,color:"#8A5A12"}}>Sin trasladar</span>
+          <span className="num" style={{fontWeight:700,fontSize:16,color:"#8A5A12"}}>{f(transito.monto)}</span>
+        </div>
+        <div className="tiny" style={{color:"#8A5A12",opacity:.85,marginTop:4,lineHeight:1.5}}>
+          Dinero que el cliente ya pagó y quedó sin factura al anularla. Aplícalo a la factura nueva.</div>
+      </div>
+
+      <div className="sec-gap" style={{height:12}} />
+      <div className="list-card">
+        {transito.lista.map((a,i)=>(
+          <button key={a.clave||i} className="item" style={{width:"100%",textAlign:"left"}}
+            onClick={()=>{ const fc = facturasCargadas().find(x=>x.clave===a.clave || x.numero===a.numero);
+                           if(fc) setFicha(fc); }}>
+            <div className="ava ava-m" style={{flexShrink:0,background:"#F3DFB4"}}>⏳</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.cliente||"Sin cliente"}</div>
+              <div className="tiny muted num">{a.numero}</div>
+              <div className="tiny muted">Anulada el {a.cuando} · {a.motivo}</div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <div className="num" style={{fontWeight:700,color:"#8A5A12"}}>{f(a.cobros)}</div>
+              <div className="tiny muted">aplicar ›</div>
+            </div>
+          </button>
+        ))}
       </div>
     </>)}
 
