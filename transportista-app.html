@@ -494,7 +494,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"13", fecha:"23 jul 2026", desc:"7 temas: se suman Grafito, Brote y Rio" };
+const VERSION = { n:"14", fecha:"24 jul 2026", desc:"Retroceso inteligente: boton fisico atras navega dentro de la app" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -862,6 +862,28 @@ function Franja({ subtitulo }){
       <div style={{ width:64, height:4, borderRadius:2, background:"#7FD69A", margin:"12px auto 0" }}></div>
     </div>
   );
+}
+
+/* ── Retroceso inteligente (portado de freelance-completo) ──
+   Pila global de handlers. Cada pantalla/modal montado deja su función aquí; el botón
+   físico "atrás" la consulta del último al primero. Con pila (no una sola variable)
+   ningún componente borra el handler de otro, y el orden LIFO da la jerarquía correcta:
+   primero se cierra el modal, luego la sub-pantalla, luego se sube de nivel. */
+const RETROCESOS=[];
+function useRetroceso(fn){
+  const ref=React.useRef(fn);
+  ref.current=fn;
+  React.useEffect(()=>{
+    const item={ run:()=>ref.current() };
+    RETROCESOS.push(item);
+    return ()=>{ const i=RETROCESOS.indexOf(item); if(i>=0) RETROCESOS.splice(i,1); };
+  },[]);
+}
+function retrocederEnModulo(){
+  for(let i=RETROCESOS.length-1;i>=0;i--){
+    try{ if(RETROCESOS[i].run()) return true; }catch(e){}
+  }
+  return false;
 }
 
 /* ---------- Login: 3 caras + biometría real + tarjeta banca + registro por link ---------- */
@@ -1962,6 +1984,47 @@ function App(){
       toast:(m)=>{ try{ alert(m); }catch(e){} }
     });
   }, []);
+
+  /* ── Botón físico "atrás" de Android: retroceso inteligente (portado de freelance-completo) ── */
+  const choferRef=React.useRef(chofer);   choferRef.current=chofer;
+  const seccionRef=React.useRef(seccion); seccionRef.current=seccion;
+  const rutaIdRef=React.useRef(rutaId);   rutaIdRef.current=rutaId;
+  const asistRef=React.useRef(false);     asistRef.current=(asistAbierto||asistVozBurbuja);
+  React.useEffect(()=>{
+    /* Chrome rechaza muchos pushState seguidos: los sembramos espaciados y llevamos un
+       contador propio de "colchones" en el historial para que el botón físico no salga
+       de la app por accidente. */
+    const MARCA={tr:1};
+    let colchones=0;
+    const poner=()=>{ try{ history.pushState(MARCA,""); colchones++; }catch(e){} };
+    try{ history.replaceState(MARCA,""); }catch(e){}
+    poner();
+    const sembrar=setInterval(()=>{ if(colchones>=12){ clearInterval(sembrar); return; } poner(); },120);
+    const onPop=()=>{
+      colchones=Math.max(0,colchones-1);
+      poner(); setTimeout(poner,60);
+      /* 1. asistente de voz abierto */
+      if(asistRef.current){ setAsistAbierto(false); setAsistVozBurbuja(false); setAsistLista(false); try{MotorVoz.apagar();}catch(e){} return; }
+      /* 2. un modal o sub-pantalla montada tiene algo que cerrar: hoja, campana o fase */
+      if(retrocederEnModulo()) return;
+      /* 3. dentro de una sección: volver a Rutas */
+      if(seccionRef.current){ setSeccion(null); window.scrollTo(0,0); return; }
+      /* 4. dentro de una ruta: volver a Rutas */
+      if(rutaIdRef.current){ setRutaId(null); setFaseCampana(null); window.scrollTo(0,0); return; }
+      /* 5. raíz: no salimos por accidente en la app de campo, solo avisamos */
+      if(choferRef.current) toast("Estás en Rutas. Usa “Cerrar sesión” para salir.");
+    };
+    window.addEventListener("popstate",onPop);
+    const vigilante=setInterval(()=>{ if(colchones<8) poner(); },300);
+    const onVis=()=>{ if(document.visibilityState==="visible" && colchones<8) poner(); };
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>{
+      window.removeEventListener("popstate",onPop);
+      document.removeEventListener("visibilitychange",onVis);
+      clearInterval(vigilante); clearInterval(sembrar);
+    };
+  },[]);
+
   const irDesdeCampana = (destino) => {
     setSeccion(null);
     setFaseCampana(destino === "entrega" ? "entregas" : "carga");
@@ -2065,6 +2128,8 @@ function CampoFoto({ label, hint, requerida, foto, setFoto }){
 
 /* ---------- Hoja emergente genérica ---------- */
 function Hoja({ titulo, onCerrar, children, pie }){
+  /* el botón físico "atrás" cierra esta hoja antes de navegar */
+  useRetroceso(()=>{ onCerrar(); return true; });
   return (
     <div className="scrim" onClick={(e)=>{ if(e.target.classList.contains("scrim")) onCerrar(); }}>
       <div className="sheet">
@@ -2588,6 +2653,8 @@ function PantallaRuta({ rutaId, chofer, onVolver, onSalir, faseInicial }){
   const r = ruta(rutaId);
   const [fase, setFase] = useState(faseInicial || (cargaCompleta(r) ? "entregas" : "carga"));
   const faseReal = cargaCompleta(r) ? fase : "carga";   /* la carga incompleta bloquea las entregas */
+  /* retroceso interno: desde entregas se vuelve a carga antes de salir de la ruta */
+  useRetroceso(()=>{ if(faseReal==="entregas"){ setFase("carga"); window.scrollTo(0,0); return true; } return false; });
 
   const rutaCompletaQuiza = () => {
     if (r && rutaConcluida(r)){
@@ -2929,6 +2996,7 @@ function Campana({ rutaId, onIr }){
   const tareas = tareasNotifDe(rutaId);
   const total = tareas.reduce((a,x)=>a+x.n,0);
   const menuAbierto = useDrawerAbierto();
+  useRetroceso(()=>{ if(abierta){ setAbierta(false); return true; } return false; });
   if (menuAbierto) return null;    /* con el menu abierto, la campanilla estorba */
   return (<>
     <button onClick={()=>setAbierta(true)}
