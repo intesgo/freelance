@@ -1298,7 +1298,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"32", fecha:"23 jul 2026", desc:"Traslado del cobro en transito: cierre del ciclo" };
+const VERSION = { n:"33", fecha:"23 jul 2026", desc:"Arreglo pantalla Precios en blanco: datos a ambito global" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2427,39 +2427,9 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
 /* ═══════════════ FIN ASISTENTE DE VOZ ═══════════════ */
 
 
-function App({usuario, onSalir}){
-  const [logueado,setLogueado]=useState(true); // el login lo maneja Root (PantallaLogin)
-  const [tab,setTab]=useState("inicio");
-  const [pila,setPila]=useState([]);            // historial de pestañas visitadas
-  const [prop,setProp]=useState(PROP_INI);
-  const [cat,setCat]=useState(CAT_INI);
-  const [cred,setCred]=useState(CRED_INI);
-  const [contado]=useState(CONTADO_INI);
-  const [cola,setCola]=useState(0);
-  const [online,setOnline]=useState(true);
-
-  /* Asistente de voz */
-  const [asistAbierto,setAsistAbierto]=useState(false);
-  const [asistVozBurbuja,setAsistVozBurbuja]=useState(false);
-  const [asistEscuchando,setAsistEscuchando]=useState(false);
-
-  const pendientes = prop.filter(p=>p.estado==="pendiente").length;
-  const preciosPend = cat.filter(p=>p.propuesto!=null).length;
-  const credPend = cred.filter(c=>c.estado==="pendiente").length;
-  // menu lateral: modulos que no estan en el tablero ni en la barra
-  const [menuAbierto,setMenuAbierto]=useState(false);
-  const [secMenu,setSecMenu]=useState("docs");   /* grupo abierto del menu lateral */
-  const [confirmarSalir,setConfirmarSalir]=useState(false);
-  const abrirMenu=React.useCallback(()=>setMenuAbierto(true),[]);
-  useGestoDrawer(abrirMenu, !menuAbierto);
-  // contadores que alimentan el drawer y la franja de pendientes del Inicio
-  const cobrosPend  = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente").length;
-  const notasPend   = NC_INI.filter(n=>!n.confirmada).length;
-  const retenPend   = RETENCIONES_INI.filter(r=>!r.confirmada).length;
-  const cuentasAct  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>="2026-07-20")).length;
-  // ═══ NOTIFICACIONES · tareas del rol Proveedor ═══
-  const [verNotifs,setVerNotifs]=useState(false);
-  const [tabNotif,setTabNotif]=useState("tareas");   // tareas | ayuda
+/* ══ DATOS GLOBALES DE PRECIOS / CAMPANILLA / EXPORTACIÓN ══
+   Trasladados fuera de App (b33): los usan módulos que viven en ámbito global
+   (Precios, Reportes). Declarados dentro de App dejaban la pantalla en blanco. */
   /* ══ CÓMO FUNCIONA ══
    Norma sellada: las notas explicativas NO van sueltas en la pantalla; viven en la
    campanilla. Los avisos contextuales (respuesta a un estado concreto) sí se quedan. */
@@ -2533,6 +2503,40 @@ const exportarCsv = (nombre, cabeceras, filas, titulo) => {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
 };
+
+function App({usuario, onSalir}){
+  const [logueado,setLogueado]=useState(true); // el login lo maneja Root (PantallaLogin)
+  const [tab,setTab]=useState("inicio");
+  const [pila,setPila]=useState([]);            // historial de pestañas visitadas
+  const [prop,setProp]=useState(PROP_INI);
+  const [cat,setCat]=useState(CAT_INI);
+  const [cred,setCred]=useState(CRED_INI);
+  const [contado]=useState(CONTADO_INI);
+  const [cola,setCola]=useState(0);
+  const [online,setOnline]=useState(true);
+
+  /* Asistente de voz */
+  const [asistAbierto,setAsistAbierto]=useState(false);
+  const [asistVozBurbuja,setAsistVozBurbuja]=useState(false);
+  const [asistEscuchando,setAsistEscuchando]=useState(false);
+
+  const pendientes = prop.filter(p=>p.estado==="pendiente").length;
+  const preciosPend = cat.filter(p=>p.propuesto!=null).length;
+  const credPend = cred.filter(c=>c.estado==="pendiente").length;
+  // menu lateral: modulos que no estan en el tablero ni en la barra
+  const [menuAbierto,setMenuAbierto]=useState(false);
+  const [secMenu,setSecMenu]=useState("docs");   /* grupo abierto del menu lateral */
+  const [confirmarSalir,setConfirmarSalir]=useState(false);
+  const abrirMenu=React.useCallback(()=>setMenuAbierto(true),[]);
+  useGestoDrawer(abrirMenu, !menuAbierto);
+  // contadores que alimentan el drawer y la franja de pendientes del Inicio
+  const cobrosPend  = COBROS_REPORTADOS.filter(c=>c.estado==="pendiente").length;
+  const notasPend   = NC_INI.filter(n=>!n.confirmada).length;
+  const retenPend   = RETENCIONES_INI.filter(r=>!r.confirmada).length;
+  const cuentasAct  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>="2026-07-20")).length;
+  // ═══ NOTIFICACIONES · tareas del rol Proveedor ═══
+  const [verNotifs,setVerNotifs]=useState(false);
+  const [tabNotif,setTabNotif]=useState("tareas");   // tareas | ayuda
 
 const TAREAS_NOTIF=[
     {tipo:"facturar", icono:"🧾", titulo:"Pedidos por facturar", detalle:"Al facturar, el pedido entra a logística", destino:"decidir", n:FACTURAR_INI.filter(x=>x.estado==="pendiente").length},
