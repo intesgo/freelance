@@ -1653,7 +1653,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"17", fecha:"24 jul 2026", desc:"Dictado por voz en la nota de agenda" };
+const VERSION = { n:"18", fecha:"24 jul 2026", desc:"Retroceso inteligente: boton fisico atras navega y cierra modales" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -6945,6 +6945,52 @@ function App(){
   const irInicio=()=>{ setHist([]); setPasoPedido(1); setTab("inicio"); };
   // Tras guardar un pedido: ir a Mis pedidos con Inicio como única ventana previa
   const irAPedidosGuardado=()=>{ setHist(["inicio"]); setPasoPedido(1); setTab("pedidos"); };
+
+  /* ── Botón físico "atrás" de Android: retroceso inteligente (reusa atras() + hist) ── */
+  const atrasRef=React.useRef(atras);      atrasRef.current=atras;
+  const tabRef=React.useRef(tab);          tabRef.current=tab;
+  const histRef=React.useRef(hist);        histRef.current=hist;
+  const pasoRef=React.useRef(pasoPedido);  pasoRef.current=pasoPedido;
+  const asistRef=React.useRef(false);      asistRef.current=(asistAbierto||asistVozBurbuja);
+  const menuRef=React.useRef(menuAbierto); menuRef.current=menuAbierto;
+  const notifRef=React.useRef(verNotifs);  notifRef.current=verNotifs;
+  React.useEffect(()=>{
+    /* Chrome rechaza muchos pushState seguidos: los sembramos espaciados y llevamos un
+       contador propio de "colchones" para que el botón físico no salga por accidente. */
+    const MARCA={sc:1};
+    let colchones=0;
+    const poner=()=>{ try{ history.pushState(MARCA,""); colchones++; }catch(e){} };
+    try{ history.replaceState(MARCA,""); }catch(e){}
+    poner();
+    const sembrar=setInterval(()=>{ if(colchones>=12){ clearInterval(sembrar); return; } poner(); },120);
+    const onPop=()=>{
+      colchones=Math.max(0,colchones-1);
+      poner(); setTimeout(poner,60);
+      /* 1. asistente de voz abierto */
+      if(asistRef.current){ setAsistAbierto(false); setAsistVozBurbuja(false); setAsistLista(false); try{ MotorVoz.apagar && MotorVoz.apagar(); }catch(e){} return; }
+      /* 2. menu lateral abierto */
+      if(menuRef.current){ setMenuAbierto(false); return; }
+      /* 3. panel de notificaciones abierto */
+      if(notifRef.current){ setVerNotifs(false); return; }
+      /* 4. ventana modal abierta (overlay .ov): cerrar la de encima */
+      const ovs=document.querySelectorAll(".ov");
+      if(ovs.length){ ovs[ovs.length-1].click(); return; }
+      /* 5. navegación interna: pasos del pedido y luego historial de pantallas */
+      if(tabRef.current!=="inicio" || (histRef.current && histRef.current.length>0) || pasoRef.current>1){ atrasRef.current(); return; }
+      /* 6. raíz del inicio: no salimos por accidente, solo avisamos */
+      if(refShow.current) refShow.current("Estás en el inicio.");
+    };
+    window.addEventListener("popstate",onPop);
+    const vigilante=setInterval(()=>{ if(colchones<8) poner(); },300);
+    const onVis=()=>{ if(document.visibilityState==="visible" && colchones<8) poner(); };
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>{
+      window.removeEventListener("popstate",onPop);
+      document.removeEventListener("visibilitychange",onVis);
+      clearInterval(vigilante); clearInterval(sembrar);
+    };
+  },[]);
+
   // pantallas secundarias (se llega desde Inicio, no están en la barra)
   const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",comisiones:"Mis comisiones"};
   const enSub = tab in subPantallas;
