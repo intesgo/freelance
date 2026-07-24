@@ -1640,6 +1640,20 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FREELANCE">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  /* FASE 4 · Cliente Supabase (clave publishable; el RLS decide qué se ve).
+     Patrón idéntico al de proveedor-freelance. Si el CDN falla, la app sigue
+     100% en modo demo: nada depende de que SB exista. */
+  window.SB = (function(){
+    try{
+      return window.supabase.createClient(
+        "https://ztpwtddrblfvcnnhbevq.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg"
+      );
+    }catch(e){ console.warn("Supabase no inicializó:", e); return null; }
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -2413,7 +2427,10 @@ const PROVEEDORES = [
 /* Nombre de la piladora a partir de su id. Vive AQUÍ, global, porque la usan
    varios módulos. Estaba solo dentro de FichaMarca y el módulo Productos la
    llamaba sin tenerla: compilaba bien y reventaba al abrirlo (pantalla vacía). */
-const provName = id => (PROVEEDORES.find(x=>x.id===id) || {}).nombre || "";
+/* Nombres de piladoras REALES (se llena al cargar el catálogo vivo; respaldo de provName).
+   Declarada ANTES de provName: const no tiene hoisting. */
+const PROV_REAL_NOMBRES = {};
+const provName = id => (PROVEEDORES.find(x=>x.id===id) || {}).nombre || PROV_REAL_NOMBRES[id] || "";
 /* Normaliza texto para buscar: minúsculas y sin tildes. Estaba declarada dentro de
    cada componente que la usaba, pero el módulo Productos la llamaba sin tenerla.
    Los componentes que ya tienen la suya local la siguen usando: esta es el respaldo. */
@@ -4796,7 +4813,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"330", fecha:"24 jul 2026", desc:"Contraste: maize-deep del tema campo sube a 3.2 sobre papel (accesibilidad)" };
+const VERSION = { n:"331", fecha:"24 jul 2026", desc:"Fase 4 Etapa 1: login con correo (Supabase Auth) y pantalla Productos con catalogo y precios reales de la base (demo intacto sin sesion)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -14189,16 +14206,57 @@ function ListaPrecios({pedirCon}){
 function Productos({vender}){
   const [q,setQ]=useState("");   // texto del buscador (faltaba declararlo)
   const [sel,setSel]=useState(null);   // marca abierta (ficha). Faltaba declararlo: tocar una marca no hacía nada.
+
+  /* ── FASE 4 · Catálogo REAL con sesión (Etapa 1 de conectar las apps) ──
+     Con sesión de correo lee `productos` activos + `precios` vigentes (el RLS solo
+     entrega precios a autenticados). QQ viene de la base; la arroba se deriva
+     (equiv 0.25, regla sellada). Siempre con promos [] para no romper FichaMarca.
+     Sin sesión o sin datos: el catálogo demo de siempre, intacto. */
+  const [reales,setReales]=useState(null);
+  useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    (async ()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!s || !s.session) return;
+        const [{ data:prods }, { data:precios }] = await Promise.all([
+          window.SB.from("productos").select("prod_id,nombre,linea,proveedor,proveedor_cod")
+            .eq("estado","activo").order("nombre").limit(500),
+          window.SB.from("precios").select("prod_id,base_contado,base_credito")
+            .is("vigente_hasta",null).limit(500),
+        ]);
+        if(!activo || !prods || !prods.length) return;
+        const r2=n=>Math.round(n*100)/100;
+        const precioDe={}; (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+        const lista=prods.map(p=>{
+          if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
+          const pr=precioDe[p.prod_id];
+          if(!pr) return null;   // sin precio vigente no se ofrece (no inventar precios)
+          const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
+          return { id:p.prod_id, provId:p.proveedor_cod||"", provNombre:p.proveedor||"",
+            marca:p.nombre, linea:p.linea||"Otros", presentaciones:[
+              { id:p.prod_id+"-QQ", tam:"Quintal",      baseContado:qqC,        baseCredito:qqK,        promosFreelance:[], promosProveedor:[] },
+              { id:p.prod_id+"-AR", tam:"Arroba 25 lb", baseContado:r2(qqC*.25), baseCredito:r2(qqK*.25), promosFreelance:[], promosProveedor:[] },
+            ] };
+        }).filter(Boolean);
+        if(lista.length) setReales(lista);
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  const CATALOGO = reales || PRODUCTOS;
+
   useRetroceso(()=>{
       if(sel){ setSel(null); return true; }   // de la ficha de marca, vuelve al listado
       return false;                            // entrada del módulo: que el app retroceda de módulo
     });
   if(sel) return <FichaMarca marca={sel} volver={()=>setSel(null)} vender={vender}/>;
 
-  const lista=PRODUCTOS.filter(m=>{
+  const lista=CATALOGO.filter(m=>{
     if(m.inhabilitada) return false; // inhabilitada por proveedor/freelance
     if(m.presentaciones.every(p=>p.inhabilitada)) return false; // todas sus presentaciones inhabilitadas
-    const campos=norm(`${m.marca} ${m.linea} ${provName(m.provId)}`);
+    const campos=norm(`${m.marca} ${m.linea} ${m.provNombre||provName(m.provId)}`);
     return campos.includes(norm(q));
   });
   const porLinea={};
@@ -14208,6 +14266,9 @@ function Productos({vender}){
   return (<>
     <div className="h1">Productos</div>
     <div className="sub">Marcas por línea de grano. Toca una marca para ver sus presentaciones.</div>
+    {reales && <div style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+      background:"rgba(28,122,68,.13)",color:"#1c7a44",margin:"0 0 12px"}}>
+      🟢 Catálogo y precios vivos de la base · {reales.length} productos</div>}
     <div className="ss" style={{marginBottom:16}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar por marca, línea o proveedor…" onChange={e=>setQ(e.target.value)}/>
@@ -18451,9 +18512,10 @@ function PantallaLogin({ onAutenticado }) {
 
   const syncItems = ["Precios y promociones","Clientes (284)","Agenda · 4 visitas hoy","Stock actualizado"];
 
+  const esCorreo  = usr.includes("@");   // FASE 4: con correo se entra por Supabase Auth
   const usrValido = USUARIOS[usr.toUpperCase()];
-  const usrColor  = usr.length === 0 ? CL.tinta : usrValido ? CL.tinta : CL.error;
-  const pwdColor  = pwd.length === 0 ? CL.tinta : (usrValido && usrValido.clave === pwd) ? CL.tinta : CL.error;
+  const usrColor  = usr.length === 0 || esCorreo ? CL.tinta : usrValido ? CL.tinta : CL.error;
+  const pwdColor  = pwd.length === 0 || esCorreo ? CL.tinta : (usrValido && usrValido.clave === pwd) ? CL.tinta : CL.error;
 
   const handleLogin = (conHuella = false) => {
     /* ── HUELLA REAL: el sensor del sistema, igual que al entrar a tu banca ── */
@@ -18472,6 +18534,32 @@ function PantallaLogin({ onAutenticado }) {
     }
     if (!usr.trim()) { setError("Ingresa tu usuario"); return; }
     if (!pwd.trim()) { setError("Ingresa tu contraseña"); return; }
+    /* ── FASE 4 · Con CORREO entra por Supabase Auth (cuenta real) ──
+       Busca el rol en el padrón `usuarios` por auth_uid y sigue el mismo flujo
+       de sincronización. Sin correo: el ingreso demo de siempre, intacto. */
+    if (esCorreo) {
+      if (!window.SB || !window.SB.auth) { setError("Sin conexión con el servidor. Entra con tu usuario local."); return; }
+      setError(""); setCargando(true);
+      (async () => {
+        try {
+          const { data, error: e1 } = await window.SB.auth.signInWithPassword({ email: usr.trim().toLowerCase(), password: pwd });
+          if (e1 || !data || !data.session) { setCargando(false); setError("Correo o clave incorrectos."); return; }
+          let fila = null;
+          try {
+            const { data: filas } = await window.SB.from("usuarios")
+              .select("usr_id,nombre,rol").eq("auth_uid", data.session.user.id).limit(1);
+            fila = (filas && filas[0]) || null;
+          } catch (e2) {}
+          setCargando(false);
+          const u = { nombre: (fila && fila.nombre) || usr.trim(), codigo: (fila && fila.usr_id) || "AUTH",
+                      zona: "Sesión real", rol: (fila && fila.rol) || "freelance", clave: "", real: true };
+          usuarioAuthRef.current = u;
+          try { localStorage.setItem("freelance_ultimo_usr", JSON.stringify({ usuario: usr.trim(), nombre: u.nombre })); } catch (e3) {}
+          setPaso("sync");
+        } catch (e4) { setCargando(false); setError("No se pudo conectar. Intenta de nuevo."); }
+      })();
+      return;
+    }
     const u = USUARIOS[usr.toUpperCase()];
     if (!u || u.clave !== pwd) { setError("Usuario o contraseña incorrectos"); return; }
     setError(""); setCargando(true);
@@ -20247,7 +20335,7 @@ function Root(){
       </div>
     </div>
   );
-  return <App usuario={sesion} onSalir={()=>setSesion(null)} />;
+  return <App usuario={sesion} onSalir={()=>{ try{ if(window.SB && window.SB.auth) window.SB.auth.signOut(); }catch(e){} setSesion(null); }} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
