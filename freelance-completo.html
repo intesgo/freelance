@@ -2635,6 +2635,49 @@ function construirCatalogoPedido(provs, ofertas, prods, precios){
   return { provs:(provs||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})), pres };
 }
 
+/* ── FASE 4 · Etapa 3: catálogo real COMPARTIDO (pantalla Productos + asistente de voz) ──
+   Cargador único con sesión: productos activos × precios vigentes, en la MISMA forma del
+   catálogo demo. Single-flight (una sola carga por sesión). Los consumidores transversales
+   leen catProds() al momento de responder: si no hay sesión o aún no carga, demo. */
+let CATALOGO_REAL = null;
+let _cargandoCat = null;
+const catProds = () => CATALOGO_REAL || PRODUCTOS;
+async function cargarCatalogoReal(){
+  if (CATALOGO_REAL) return CATALOGO_REAL;
+  if (_cargandoCat) return _cargandoCat;
+  if (!window.SB || !window.SB.auth) return null;
+  _cargandoCat = (async () => {
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      if(!s || !s.session) return null;
+      const [{ data:prods }, { data:precios }] = await Promise.all([
+        window.SB.from("productos").select("prod_id,nombre,linea,proveedor,proveedor_cod")
+          .eq("estado","activo").order("nombre").limit(500),
+        window.SB.from("precios").select("prod_id,base_contado,base_credito")
+          .is("vigente_hasta",null).limit(500),
+      ]);
+      if(!prods || !prods.length) return null;
+      const r2=n=>Math.round(n*100)/100;
+      const precioDe={}; (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+      const lista=prods.map(p=>{
+        if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
+        const pr=precioDe[p.prod_id];
+        if(!pr) return null;   // sin precio vigente no se ofrece (no inventar precios)
+        const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
+        return { id:p.prod_id, provId:p.proveedor_cod||"", provNombre:p.proveedor||"",
+          marca:p.nombre, linea:p.linea||"Otros", presentaciones:[
+            { id:p.prod_id+"-QQ", tam:"Quintal",      baseContado:qqC,         baseCredito:qqK,         promosFreelance:[], promosProveedor:[] },
+            { id:p.prod_id+"-AR", tam:"Arroba 25 lb", baseContado:r2(qqC*.25), baseCredito:r2(qqK*.25), promosFreelance:[], promosProveedor:[] },
+          ] };
+      }).filter(Boolean);
+      if(lista.length) CATALOGO_REAL = lista;
+      return CATALOGO_REAL;
+    }catch(e){ return null; }
+    finally{ _cargandoCat = null; }
+  })();
+  return _cargandoCat;
+}
+
 function sacoSVG(linea, pres){
   const PAL = {
     "Arroz":  {tela:"#EFE7D2", tela2:"#E2D6BA", txt:"#1E4D3A", grano:"#D8B77A"},
@@ -4837,7 +4880,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"332", fecha:"24 jul 2026", desc:"Fase 4 Etapa 2: Pedidos con piladoras reales y catalogo por oferta (ofertas_piladora x precios vigentes x equiv_qq); demo intacto sin sesion" };
+const VERSION = { n:"333", fecha:"24 jul 2026", desc:"Fase 4 Etapa 3: asistente de voz y contador del dashboard con catalogo real compartido (cargarCatalogoReal); proveedores y stock siguen demo (sin datos reales aun)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11550,7 +11593,7 @@ const PREGUNTAS_ASIST = [
   // ── PRODUCTOS Y PRECIOS ──
   { id:"precio", cat:"Productos", label:"Precio de un producto", ic:"🏷️", pide:"producto", ir:"productos",
     responder:(prod)=>{
-      const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
+      const p = catProds().find(x => normAsist(x.marca).includes(normAsist(prod)));
       if(!p) return "No encontré el producto " + prod + ".";
       const pres = (p.presentaciones||[]).filter(x=>!x.inhabilitada);
       if(!pres.length) return p.marca + " no tiene presentaciones disponibles.";
@@ -11558,14 +11601,14 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"presentaciones", cat:"Productos", label:"Presentaciones de un producto", ic:"📦", pide:"producto", ir:"productos",
     responder:(prod)=>{
-      const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
+      const p = catProds().find(x => normAsist(x.marca).includes(normAsist(prod)));
       if(!p) return "No encontré el producto " + prod + ".";
       const pres = (p.presentaciones||[]).filter(x=>!x.inhabilitada).map(x=>x.tam);
       return p.marca + " tiene " + pres.length + " presentación(es): " + pres.join(", ") + ".";
     } },
   { id:"promos", cat:"Productos", label:"Promociones de un producto", ic:"🎁", pide:"producto", ir:"productos",
     responder:(prod)=>{
-      const p = PRODUCTOS.find(x => normAsist(x.marca).includes(normAsist(prod)));
+      const p = catProds().find(x => normAsist(x.marca).includes(normAsist(prod)));
       if(!p) return "No encontré el producto " + prod + ".";
       const promos = [];
       (p.presentaciones||[]).forEach(pr=>{ (pr.promosFreelance||[]).forEach(pm=> promos.push(pm.nombre + " (" + pr.tam + "): " + pm.detalle)); });
@@ -11574,7 +11617,7 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"productosLinea", cat:"Productos", label:"Productos de una línea", ic:"🌾", pide:"linea", ir:"productos",
     responder:(l)=>{
-      const prods = PRODUCTOS.filter(x=>normAsist(x.linea||"").includes(normAsist(l)));
+      const prods = catProds().filter(x=>normAsist(x.linea||"").includes(normAsist(l)));
       if(!prods.length) return "No encontré productos de la línea " + l + ".";
       return "En la línea " + l + " hay " + prods.length + " producto(s): " + prods.map(x=>x.marca).join(", ") + ".";
     } },
@@ -11659,13 +11702,13 @@ function interpretarAsist(frase){
   if(mejor.pide === "cliente"){
     dato = CLIENTES.find(calzaNombre) || null;
   } else if(mejor.pide === "producto"){
-    const pr = PRODUCTOS.find(p => calzaNombre(p.marca));
+    const pr = catProds().find(p => calzaNombre(p.marca));
     dato = pr ? pr.marca : null;
   } else if(mejor.pide === "vendedor"){
     const vs = [...new Set(CARTERA_INI.map(x=>x.vendedor).filter(Boolean))];
     dato = vs.find(calzaNombre) || null;
   } else if(mejor.pide === "linea"){
-    const ls = [...new Set(PRODUCTOS.map(p=>p.linea).filter(Boolean))];
+    const ls = [...new Set(catProds().map(p=>p.linea).filter(Boolean))];
     dato = ls.find(calzaNombre) || null;
   }
   return { pregunta: mejor, dato };
@@ -12024,11 +12067,11 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
   const sugerencias = preg && preg.pide === "cliente"
     ? CLIENTES
     : preg && preg.pide === "producto"
-      ? PRODUCTOS.map(p=>p.marca)
+      ? catProds().map(p=>p.marca)
       : preg && preg.pide === "vendedor"
         ? [...new Set(CARTERA_INI.map(f=>f.vendedor).filter(Boolean))]
         : preg && preg.pide === "linea"
-          ? [...new Set(PRODUCTOS.map(p=>p.linea).filter(Boolean))]
+          ? [...new Set(catProds().map(p=>p.linea).filter(Boolean))]
           : [];
   const filtradas = dato.trim()
     ? sugerencias.filter(s => normAsist(s).includes(normAsist(dato))).slice(0,5)
@@ -14261,42 +14304,13 @@ function Productos({vender}){
   const [q,setQ]=useState("");   // texto del buscador (faltaba declararlo)
   const [sel,setSel]=useState(null);   // marca abierta (ficha). Faltaba declararlo: tocar una marca no hacía nada.
 
-  /* ── FASE 4 · Catálogo REAL con sesión (Etapa 1 de conectar las apps) ──
-     Con sesión de correo lee `productos` activos + `precios` vigentes (el RLS solo
-     entrega precios a autenticados). QQ viene de la base; la arroba se deriva
-     (equiv 0.25, regla sellada). Siempre con promos [] para no romper FichaMarca.
-     Sin sesión o sin datos: el catálogo demo de siempre, intacto. */
-  const [reales,setReales]=useState(null);
+  /* ── FASE 4 · Catálogo REAL con sesión (Etapas 1 y 3) ──
+     Desde la Etapa 3 la carga vive en cargarCatalogoReal() (global, compartida con el
+     asistente de voz). Esta pantalla solo pide la lista y refresca su estado. */
+  const [reales,setReales]=useState(CATALOGO_REAL);
   useEffect(()=>{
-    if(!window.SB || !window.SB.auth) return;
     let activo=true;
-    (async ()=>{
-      try{
-        const { data:s } = await window.SB.auth.getSession();
-        if(!s || !s.session) return;
-        const [{ data:prods }, { data:precios }] = await Promise.all([
-          window.SB.from("productos").select("prod_id,nombre,linea,proveedor,proveedor_cod")
-            .eq("estado","activo").order("nombre").limit(500),
-          window.SB.from("precios").select("prod_id,base_contado,base_credito")
-            .is("vigente_hasta",null).limit(500),
-        ]);
-        if(!activo || !prods || !prods.length) return;
-        const r2=n=>Math.round(n*100)/100;
-        const precioDe={}; (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
-        const lista=prods.map(p=>{
-          if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
-          const pr=precioDe[p.prod_id];
-          if(!pr) return null;   // sin precio vigente no se ofrece (no inventar precios)
-          const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
-          return { id:p.prod_id, provId:p.proveedor_cod||"", provNombre:p.proveedor||"",
-            marca:p.nombre, linea:p.linea||"Otros", presentaciones:[
-              { id:p.prod_id+"-QQ", tam:"Quintal",      baseContado:qqC,        baseCredito:qqK,        promosFreelance:[], promosProveedor:[] },
-              { id:p.prod_id+"-AR", tam:"Arroba 25 lb", baseContado:r2(qqC*.25), baseCredito:r2(qqK*.25), promosFreelance:[], promosProveedor:[] },
-            ] };
-        }).filter(Boolean);
-        if(lista.length) setReales(lista);
-      }catch(e){}
-    })();
+    cargarCatalogoReal().then(l=>{ if(activo && l && l.length) setReales(l); }).catch(()=>{});
     return ()=>{ activo=false; };
   },[]);
   const CATALOGO = reales || PRODUCTOS;
@@ -20188,7 +20202,7 @@ function App({usuario, onSalir}){
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("productos")}}>
                 <span className="di-ic" style={{background:"#EDEAE0",color:"#7A6F50"}}>🌾</span>
                 <div style={{flex:1}}><div className="di-t">Productos</div>
-                  <div className="di-s">{PRODUCTOS.length} autorizados</div></div>
+                  <div className="di-s">{catProds().length} autorizados</div></div>
                 <span className="di-a">›</span>
               </button>
             </>)}
@@ -20382,6 +20396,9 @@ function Root(){
   /* Intenta reconectar la última impresora. Si no puede, no dice nada: el usuario
      verá el botón "Reconectar" en Ajustes. */
   React.useEffect(()=>{ if(sesion) reconectarImpresora(); },[sesion]);
+  /* FASE 4 · Etapa 3: precarga el catálogo real al entrar (si hay sesión de correo),
+     para que el asistente de voz responda con datos vivos sin abrir Productos. */
+  React.useEffect(()=>{ if(sesion){ try{ cargarCatalogoReal(); }catch(e){} } },[sesion]);
   if(!sesion) return (
     <div className="shell" style={{background:"var(--paper)"}}>
       <div style={{flex:1, display:"flex", flexDirection:"column"}}>
