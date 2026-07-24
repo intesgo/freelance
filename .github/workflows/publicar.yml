@@ -1,0 +1,42 @@
+# ══ Publicación precompilada (comité 1.1 + 6.1) ══
+# En cada push a main: compila las 5 apps (JSX → JS plano) y publica en la rama
+# gh-pages. Si alguna app no compila, NO se publica (protege producción).
+# El fuente NO cambia: se sigue editando main como siempre.
+name: Publicar apps precompiladas
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  compilar-y-publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Traer el fuente
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Babel
+        run: npm install --no-save @babel/standalone@7.23.6
+
+      - name: Compilar las 5 apps (falla = no publica)
+        run: node scripts/compilar.js
+
+      - name: Publicar dist/ en la rama gh-pages
+        run: |
+          cd dist
+          git init -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Publicación precompilada · fuente $GITHUB_SHA"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
