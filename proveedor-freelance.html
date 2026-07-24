@@ -1298,7 +1298,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"33", fecha:"23 jul 2026", desc:"Arreglo pantalla Precios en blanco: datos a ambito global" };
+const VERSION = { n:"34", fecha:"23 jul 2026", desc:"Buscador agrupado por producto en Precios y Catalogo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1331,14 +1331,51 @@ const PROP_INI = [
     base:40.00, promo:"$38.00 sobre 100 qq", unidad:"quintal", estado:"aprobada", resuelta:"9 jun" },
 ];
 
+/* Un producto tiene VARIAS presentaciones y cada una es una fila con su propio costo,
+   estado y propuesta. Precios y Catálogo las AGRUPAN por prodId: una tarjeta por
+   producto, con la hoja de presentaciones al tocar. En Fase 4 esto llega de
+   ofertas_piladora (Supabase); aquí va sembrado para ver el comportamiento real. */
 const CAT_INI = [
   { id:"P-00012", prodId:"P-00012", presId:"P-00012-03", nombre:"Arroz Conejo", pres:"Quintal", base:43.00, sugerido:46.00, stock:520, promo:false, estado:"aceptado", propuesto:null },
+  { id:"P-00012b", prodId:"P-00012", presId:"P-00012-01", nombre:"Arroz Conejo", pres:"Arroba 25 lb", base:11.00, sugerido:12.00, stock:310, promo:false, estado:"aceptado", propuesto:null },
+  { id:"P-00012c", prodId:"P-00012", presId:"P-00012-05", nombre:"Arroz Conejo", pres:"Saco 25 kg", base:24.00, sugerido:26.00, stock:80, promo:false, estado:"ofrecido", propuesto:null },
   { id:"P-00007", prodId:"P-00007", presId:"P-00007-02", nombre:"Arroz Campoverde", pres:"Quintal", base:42.50, sugerido:45.00, stock:140, promo:true, estado:"aceptado", propuesto:43.50 },
+  { id:"P-00007b", prodId:"P-00007", presId:"P-00007-01", nombre:"Arroz Campoverde", pres:"Arroba 25 lb", base:10.80, sugerido:11.50, stock:95, promo:false, estado:"aceptado", propuesto:null },
   { id:"P-00013", prodId:"P-00013", presId:"P-00013-03", nombre:"Arroz Conejo Economico", pres:"Quintal", base:33.00, sugerido:36.00, stock:0, promo:false, estado:"rechazado", propuesto:null },
   { id:"P-00005", prodId:"P-00005", presId:"P-00005-03", nombre:"Arroz Bomba", pres:"Quintal", base:45.00, sugerido:48.00, stock:75, promo:true, estado:"aceptado", propuesto:null },
+  { id:"P-00005b", prodId:"P-00005", presId:"P-00005-01", nombre:"Arroz Bomba", pres:"Arroba 25 lb", base:11.50, sugerido:12.50, stock:40, promo:false, estado:"aceptado", propuesto:null },
   { id:"P-00015", prodId:"P-00015", presId:"P-00015-03", nombre:"Arroz Dallis", pres:"Quintal", base:40.00, sugerido:43.00, stock:200, promo:false, estado:"ofrecido", propuesto:null },
   { id:"P-00018", prodId:"P-00018", presId:"P-00018-04", nombre:"Arroz Delicia", pres:"Quintal", base:38.00, sugerido:41.00, stock:90, promo:false, estado:"ofrecido", propuesto:null },
 ];
+
+/* ══ AGRUPAR POR PRODUCTO ══
+   Norma sellada: aceptado manda. La tarjeta lleva el estado de la presentación
+   MÁS AVANZADA (aceptado > ofrecido > rechazado) y avisa si quedan pendientes.
+   "desde" es el costo más bajo entre sus presentaciones. */
+const ORDEN_ESTADO = { aceptado:0, ofrecido:1, rechazado:2 };
+function agruparProd(filas){
+  const mapa = new Map();
+  filas.forEach(p=>{
+    const k = p.prodId || p.id;
+    if(!mapa.has(k)) mapa.set(k, { prodId:k, nombre:p.nombre, pres:[] });
+    mapa.get(k).pres.push(p);
+  });
+  return [...mapa.values()].map(g=>{
+    const orden = [...g.pres].sort((a,b)=>ORDEN_ESTADO[a.estado]-ORDEN_ESTADO[b.estado]);
+    const estado = orden[0].estado;                       // aceptado manda
+    const otros  = g.pres.filter(p=>p.estado!==estado).length;
+    const bases  = g.pres.map(p=>p.base).filter(n=>n>0);
+    return { ...g,
+      estado,
+      pendEstado: otros,                                   // presentaciones en otro estado
+      desde: bases.length ? Math.min(...bases) : 0,
+      unica: g.pres.length===1,
+      propuestos: g.pres.filter(p=>p.propuesto!=null).length,
+      stock: g.pres.reduce((a,p)=>a+(p.stock||0),0),
+      promo: g.pres.some(p=>p.promo),
+    };
+  });
+}
 
 // Solicitudes de crédito de CLIENTES FINALES.
 // Flujo: el subcomisionista sube documentos y fotos -> el freelance revisa y SUGIERE cupo
@@ -2311,7 +2348,7 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
   const sugerencias = preg && preg.pide === "cliente"
     ? [...new Set([].concat(COBROS_REPORTADOS.map(x=>x.cli), RETENCIONES_INI.map(x=>x.cli), CRED_INI.map(x=>x.cliente)).filter(Boolean))]
     : preg && preg.pide === "producto"
-      ? CAT_INI.map(p=>p.nombre)
+      ? [...new Set(CAT_INI.map(p=>p.nombre))]
       : [];
   const filtradas = dato.trim()
     ? sugerencias.filter(s => normAsist(s).includes(normAsist(dato))).slice(0,5)
@@ -2460,6 +2497,10 @@ const COMO_FUNCIONA = [
    d:"Si un código todavía no está emparejado, esa línea viaja como pendiente y el sistema web la resuelve. Nada se carga a un producto supuesto."},
   {mod:"Precios", ic:"🏷️", t:"El precio base lo fija el freelance",
    d:"Tú ajustas tu costo y propones; él decide el precio con el que vende su fuerza de subcomisionistas."},
+  {mod:"Precios", ic:"✓", t:"Solo los aceptados tienen precio",
+   d:"Un producto tiene precio base de venta únicamente cuando el freelance lo aceptó en el catálogo de su equipo."},
+  {mod:"Precios", ic:"📦", t:"Un producto, varias presentaciones",
+   d:"La lista muestra una tarjeta por producto con el precio más bajo como referencia. Toca la tarjeta y se abre el detalle: ahí ajustas el costo de cada presentación por separado."},
   {mod:"Créditos", ic:"✅", t:"Cómo llega un crédito hasta ti",
    d:"El subcomisionista sube los documentos, el freelance revisa y sugiere el cupo, y tú apruebas. El cliente no compra a crédito hasta que lo autorices."},
   {mod:"Propuestas", ic:"✎", t:"Qué son las propuestas",
@@ -2960,6 +3001,7 @@ function Mini({k,v}){return <div><div style={{fontFamily:"Space Grotesk",fontWei
 function Precios({ctx,irTab}){
   const {cat,setCat,accion}=ctx;
   const [edit,setEdit]=useState(null);
+  const [abierto,setAbierto]=useState(null);   // producto con hoja de presentaciones abierta
   const [q,setQ]=useState("");
   const [verTodo,setVerTodo]=useState(false);   // historial completo
 
@@ -2968,6 +3010,10 @@ function Precios({ctx,irTab}){
   const vendibles = cat.filter(p=>p.estado==="aceptado")
     .filter(p=> q.trim()==="" || norm(p.nombre+" "+p.pres).includes(norm(q)));
   const pendientes = vendibles.filter(p=>p.propuesto!=null);
+  // Una tarjeta por producto: las presentaciones viven en la hoja
+  const grupos = agruparProd(vendibles);
+  // la hoja abierta se recalcula del catálogo vivo para reflejar lo recién propuesto
+  const grupoAbierto = abierto ? agruparProd(cat.filter(p=>p.estado==="aceptado" && p.prodId===abierto))[0] : null;
 
   /* Proponer un costo nuevo mueve plata: queda auditado con su motivo.
      El costo no cambia hasta que el freelance apruebe; mientras tanto es una propuesta. */
@@ -2990,7 +3036,8 @@ function Precios({ctx,irTab}){
     <>
       <div className="eyebrow">Precio base de venta</div>
       <h1 className="h1">Precios</h1>
-      <div className="sub" style={{marginTop:4}}>Tu costo por producto.</div>
+      {/* margen derecho: la campanilla flota en esa esquina y tapaba el texto */}
+      <div className="sub" style={{marginTop:4,paddingRight:58}}>Tu costo por producto.</div>
 
       {pendientes.length>0 &&
         <div className="card card-pad" style={{margin:"16px 0 0",background:"var(--espera-suave)",border:"none"}}>
@@ -3005,26 +3052,24 @@ function Precios({ctx,irTab}){
 
       <div className="sec-gap" style={{height:14}} />
       <div className="list-card">
-        {vendibles.map(p=>{
-          const pend = p.propuesto!=null;
-          const sube = pend && p.propuesto>p.base;
-          return (
-            <button key={p.id} className="item" style={{width:"100%",textAlign:"left"}} onClick={()=>setEdit(p)}>
-              <div className="ava ava-m">{p.nombre[0]}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:600,fontSize:14}}>{p.nombre}</div>
-                <div className="tiny muted">{p.pres}</div>
-                {pend &&
-                  <span className="chip chip-esp tiny" style={{padding:"2px 7px",marginTop:4}}>Propuesto · espera al freelance</span>}
+        {grupos.map(g=>(
+          <button key={g.prodId} className="item" style={{width:"100%",textAlign:"left"}} onClick={()=>setAbierto(g.prodId)}>
+            <div className="ava ava-m">{g.nombre[0]}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:14}}>{g.nombre}</div>
+              <div className="tiny muted">
+                {g.unica ? g.pres[0].pres : g.pres.length+" presentaciones"}
               </div>
-              <div style={{textAlign:"right"}}>
-                <div className="num" style={{fontWeight:600,color:pend?"var(--texto-3)":"var(--texto)",textDecoration:pend?"line-through":"none"}}>{f(p.base)}</div>
-                {pend &&
-                  <div className="num tiny" style={{fontWeight:700,color:sube?"var(--alerta)":"var(--ok)"}}>→ {f(p.propuesto)}</div>}
-              </div>
-            </button>
-          );
-        })}
+              {g.propuestos>0 &&
+                <span className="chip chip-esp tiny" style={{padding:"2px 7px",marginTop:4}}>
+                  {g.propuestos===1?"1 propuesto":g.propuestos+" propuestos"} · espera al freelance</span>}
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              {!g.unica && <div className="tiny muted">desde</div>}
+              <div className="num" style={{fontWeight:600}}>{f(g.desde)}</div>
+            </div>
+          </button>
+        ))}
       </div>
 
       {vendibles.length===0 && (
@@ -3068,12 +3113,57 @@ function Precios({ctx,irTab}){
         </div>
       )}
 
-      <div className="tiny muted" style={{textAlign:"center",marginTop:14}}>Solo los productos aceptados en el catálogo del equipo tienen precio base de venta.</div>
+      {/* el texto explicativo del pie vive ahora en la campanilla (norma sellada) */}
+      <div style={{height:88}} />
+
+      {grupoAbierto && <PresentacionesSheet g={grupoAbierto} onClose={()=>setAbierto(null)}
+        onElegir={(p)=>{ setAbierto(null); setEdit(p); }} />}
 
       {edit && <PrecioSheet p={edit} onClose={()=>setEdit(null)}
         onProponer={(v,m)=>{proponer(edit.id,v,m);setEdit(null);}}
         onRetirar={()=>{retirar(edit.id);setEdit(null);}} />}
     </>
+  );
+}
+
+/* Hoja de presentaciones: el detalle de UN producto. Cada fila lleva su costo,
+   su propuesta en curso si la hay, y al tocarla se abre la edición del precio. */
+function PresentacionesSheet({g,onClose,onElegir}){
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="sheet" onClick={ev=>ev.stopPropagation()}>
+        <div className="grip" />
+        <span className="chip chip-maiz">{PROVEEDOR.linea}</span>
+        <div className="h2" style={{margin:"12px 0 4px"}}>{g.nombre}</div>
+        <div className="sub">Toca una presentación para ajustar su costo.</div>
+
+        <div className="sec-gap" style={{height:14}} />
+        <div className="list-card">
+          {g.pres.map(p=>{
+            const pend = p.propuesto!=null;
+            const sube = pend && p.propuesto>p.base;
+            return (
+              <button key={p.id} className="item" style={{width:"100%",textAlign:"left"}}
+                onClick={()=>onElegir(p)}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:14}}>{p.pres}</div>
+                  {pend &&
+                    <span className="chip chip-esp tiny" style={{padding:"2px 7px",marginTop:4}}>Propuesto · espera al freelance</span>}
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div className="num" style={{fontWeight:600,color:pend?"var(--texto-3)":"var(--texto)",textDecoration:pend?"line-through":"none"}}>{f(p.base)}</div>
+                  {pend &&
+                    <div className="num tiny" style={{fontWeight:700,color:sube?"var(--alerta)":"var(--ok)"}}>→ {f(p.propuesto)}</div>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="sec-gap" style={{height:14}} />
+        <button className="btn btn-ghost" style={{width:"100%"}} onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
   );
 }
 
@@ -3383,6 +3473,7 @@ function Catalogo({ctx,irTab}){
   const {cat,setCat,setProp,accion}=ctx;
   const [edit,setEdit]=useState(null);
   const [nuevo,setNuevo]=useState(false);
+  const [abierto,setAbierto]=useState(null);   // producto con hoja de presentaciones abierta
   const [q,setQ]=useState("");
   const [fEst,setFEst]=useState("todos");   // todos | aceptado | ofrecido | rechazado
 
@@ -3419,6 +3510,15 @@ function Catalogo({ctx,irTab}){
     .sort((a,b)=>orden[a.estado]-orden[b.estado]);
   const cuenta=(e)=>cat.filter(p=>p.estado===e).length;
 
+  /* Se agrupa PRIMERO y se filtra por el estado del GRUPO (aceptado manda):
+     así la hoja conserva todas las presentaciones del producto, incluidas las
+     que están en otro estado. Filtrar las filas antes las escondería. */
+  const grupos = agruparProd(
+      cat.filter(p=> q.trim()==="" || norm(p.nombre+" "+p.pres).includes(norm(q))))
+    .filter(g=> fEst==="todos" || g.estado===fEst)
+    .sort((a,b)=>orden[a.estado]-orden[b.estado]);
+  const grupoAbierto = abierto ? agruparProd(cat.filter(p=>p.prodId===abierto))[0] : null;
+
   return (
     <>
       <div className="eyebrow">Tu línea · {PROVEEDOR.linea}</div>
@@ -3449,31 +3549,36 @@ function Catalogo({ctx,irTab}){
       )}
 
       <div className="list-card">
-        {lista.map(p=>{
-          const ce=CAT_ESTADO[p.estado];
+        {grupos.map(g=>{
+          const ce=CAT_ESTADO[g.estado];
           return (
-            <button key={p.id} className="item" style={{width:"100%",textAlign:"left"}} onClick={()=>setEdit(p)}>
-              <div className="ava ava-m">{p.nombre[0]}</div>
+            <button key={g.prodId} className="item" style={{width:"100%",textAlign:"left"}} onClick={()=>setAbierto(g.prodId)}>
+              <div className="ava ava-m">{g.nombre[0]}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div className="row" style={{gap:6}}>
-                  <span style={{fontWeight:600,fontSize:14}}>{p.nombre}</span>
-                  {p.promo && <span className="chip chip-maiz tiny" style={{padding:"2px 7px"}}>Promo</span>}
+                  <span style={{fontWeight:600,fontSize:14}}>{g.nombre}</span>
+                  {g.promo && <span className="chip chip-maiz tiny" style={{padding:"2px 7px"}}>Promo</span>}
                 </div>
                 <div className="row" style={{gap:6,marginTop:3}}>
                   <span className={"chip tiny "+ce.chip} style={{padding:"2px 7px"}}>{ce.corto}</span>
-                  {p.stock===0 && <span className="tiny" style={{color:"var(--alerta)"}}>Agotado</span>}
+                  {g.stock===0 && <span className="tiny" style={{color:"var(--alerta)"}}>Agotado</span>}
                 </div>
+                {/* aceptado manda: si quedan presentaciones en otro estado, se avisa */}
+                {g.pendEstado>0 &&
+                  <div className="tiny muted" style={{marginTop:3}}>
+                    {g.pendEstado===1 ? "1 presentación por resolver" : g.pendEstado+" presentaciones por resolver"}</div>}
               </div>
-              <div style={{textAlign:"right"}}>
-                <div className="num" style={{fontWeight:600}}>{f(p.base)}</div>
-                <div className="tiny muted">{p.pres}</div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                {!g.unica && <div className="tiny muted">desde</div>}
+                <div className="num" style={{fontWeight:600}}>{f(g.desde)}</div>
+                <div className="tiny muted">{g.unica ? g.pres[0].pres : g.pres.length+" pres."}</div>
               </div>
             </button>
           );
         })}
       </div>
 
-      {lista.length===0 && (
+      {grupos.length===0 && (
         <div className="card card-pad" style={{textAlign:"center"}}>
           <div className="sub">
             {q ? `Ningún producto coincide con "${q}".`
@@ -3482,10 +3587,54 @@ function Catalogo({ctx,irTab}){
         </div>
       )}
 
+      {grupoAbierto && <PresentacionesCatSheet g={grupoAbierto} onClose={()=>setAbierto(null)}
+        onElegir={(p)=>{ setAbierto(null); setEdit(p); }} />}
+
       {edit && <ProdSheet p={edit} onClose={()=>setEdit(null)}
         onOfrecer={()=>{ofrecer(edit);setEdit(null);irTab("prop");}} />}
       {nuevo && <NuevoProducto onClose={()=>setNuevo(false)} onCrear={crear} />}
     </>
+  );
+}
+
+/* Hoja de presentaciones del CATÁLOGO: cada una con su estado propio,
+   porque el freelance acepta o rechaza presentación por presentación. */
+function PresentacionesCatSheet({g,onClose,onElegir}){
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="sheet" onClick={ev=>ev.stopPropagation()}>
+        <div className="grip" />
+        <span className="chip chip-maiz">{PROVEEDOR.linea}</span>
+        <div className="h2" style={{margin:"12px 0 4px"}}>{g.nombre}</div>
+        <div className="sub">Cada presentación se acepta por separado.</div>
+
+        <div className="sec-gap" style={{height:14}} />
+        <div className="list-card">
+          {g.pres.map(p=>{
+            const ce=CAT_ESTADO[p.estado];
+            return (
+              <button key={p.id} className="item" style={{width:"100%",textAlign:"left"}}
+                onClick={()=>onElegir(p)}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:14}}>{p.pres}</div>
+                  <div className="row" style={{gap:6,marginTop:3}}>
+                    <span className={"chip tiny "+ce.chip} style={{padding:"2px 7px"}}>{ce.corto}</span>
+                    {p.stock===0 && <span className="tiny" style={{color:"var(--alerta)"}}>Agotado</span>}
+                  </div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div className="num" style={{fontWeight:600}}>{f(p.base)}</div>
+                  <div className="tiny muted">{p.stock} qq</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="sec-gap" style={{height:14}} />
+        <button className="btn btn-ghost" style={{width:"100%"}} onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
   );
 }
 
