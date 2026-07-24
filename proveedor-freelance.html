@@ -990,6 +990,36 @@ function registrarAnulacion(a){
   });
   guardarAnuladas(l);
 }
+
+/* ══ ANULACION DE RETENCIONES Y GUIAS ══
+   Mismo principio que facturas: SOLO EL PROVEEDOR anula, con motivo tipificado y
+   auditoria AU-. Registro local (demo); la reversa real (la retencion baja la deuda
+   del cliente, la guia ampara el despacho) la ejecuta Supabase por trigger en Fase 4. */
+const RET_ANULADAS_KEY  = "freelance_retenciones_anuladas_v1";
+const GUIA_ANULADAS_KEY = "freelance_guias_anuladas_v1";
+function leerAnulados(key){ try{ return JSON.parse(localStorage.getItem(key)||"[]"); }catch(e){ return []; } }
+function guardarAnulados(key,l){ try{ localStorage.setItem(key, JSON.stringify(l.slice(0,200))); }catch(e){} }
+function registrarAnulDoc(key,d){
+  const l = leerAnulados(key);
+  l.unshift({ id:d.id||"", numero:d.numero||"", cliente:d.cliente||"", totalAnterior:d.total||0,
+    motivo:d.motivo||"", nota:d.nota||"", cuando:new Date().toISOString().slice(0,10), au:d.au||"" });
+  guardarAnulados(key,l);
+}
+const MOTIVOS_ANULAR_RET = [
+  "Error en los porcentajes",
+  "Error en el número o autorización",
+  "Retención duplicada",
+  "Factura de sustento anulada",
+  "Datos del cliente incorrectos"
+];
+const MOTIVOS_ANULAR_GUIA = [
+  "Error en el destinatario o dirección",
+  "Error en productos o cantidades",
+  "Guía duplicada",
+  "Despacho cancelado",
+  "Error en transportista o placa"
+];
+
 /* ══ DINERO EN TRANSITO ══
    Cobros de facturas ANULADAS que todavia no se trasladan a la factura nueva.
    Es plata real del cliente parada, sin factura que la respalde: mientras no se
@@ -1344,7 +1374,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"40", fecha:"24 jul 2026", desc:"Dictado por voz en detalle de propuesta, motivo de rechazo y anulacion" };
+const VERSION = { n:"41", fecha:"24 jul 2026", desc:"Anulacion de retenciones y guias con motivo tipificado y auditoria AU-" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -4869,8 +4899,13 @@ function Retenciones({irTab}){
   const [numero,setNumero]=useState("");
   const [autoriz,setAutoriz]=useState("");
   const [aviso,setAviso]=useState("");
-  /* Atrás: retrocede paso a paso dentro del alta; luego cierra el detalle. */
+  const [anulando,setAnulando]=useState(false);
+  const [motRet,setMotRet]=useState("");
+  const [notaRet,setNotaRet]=useState("");
+  const [anuladasRet,setAnuladasRet]=useState(()=>leerAnulados(RET_ANULADAS_KEY).map(a=>a.id));
+  /* Atrás: cierra el panel de anulación, retrocede paso a paso en el alta, luego cierra el detalle. */
   useRetrocesoP(()=>{
+    if(anulando){ setAnulando(false); setMotRet(""); setNotaRet(""); return true; }
     if(nueva){ if(paso>1){ setPaso(paso-1); return true; } reset(); return true; }
     if(sel){ setSel(null); return true; }
     return false;
@@ -5016,6 +5051,35 @@ function Retenciones({irTab}){
             onClick={()=>confirmarSri(r)}>Ya está confirmada en el SRI</button>
           <div className="sec-gap" style={{height:10}} />
         </>
+      )}
+      {anuladasRet.includes(r.id) ? (
+        <div className="card card-pad" style={{borderColor:"#B5432E",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#B5432E"}}>✕ Retención anulada</div>
+          <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>Queda registrada con su auditoría. La reversa en la cartera del cliente la aplica el sistema al sincronizar.</div>
+        </div>
+      ) : anulando ? (
+        <div className="card card-pad" style={{borderColor:"#B5432E",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>¿Por qué se anula?</div>
+          {MOTIVOS_ANULAR_RET.map(m=>(
+            <button key={m} className={"btn "+(motRet===m?"btn-maiz":"btn-ghost")} style={{width:"100%",marginBottom:8,textAlign:"left"}}
+              onClick={()=>{ setMotRet(m); regUso("motivos_anular_ret", m); }}>{m}</button>
+          ))}
+          <textarea className="inp" rows={2} placeholder="Detalle (opcional)" value={notaRet}
+            onChange={e=>setNotaRet(e.target.value)} style={{width:"100%",marginTop:4}} />
+          <button className="btn btn-maiz" style={{width:"100%",marginTop:10}}
+            onClick={()=>{
+              if(!motRet){ toast("Elige el motivo de la anulación"); return; }
+              const au=nuevoAuG();
+              registrarAnulDoc(RET_ANULADAS_KEY,{ id:r.id, numero:r.numero, cliente:r.cli, total:r.total, motivo:motRet, nota:notaRet.trim(), au });
+              setAnuladasRet(a=>[...a, r.id]); setAnulando(false); setMotRet(""); setNotaRet("");
+              toast(`Retención ${r.numero} anulada · ${au}`);
+            }}>Anular la retención</button>
+          <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+            onClick={()=>{ setAnulando(false); setMotRet(""); setNotaRet(""); }}>Cancelar</button>
+        </div>
+      ) : (
+        <button className="btn btn-ghost" style={{width:"100%",marginBottom:10,color:"#B5432E"}}
+          onClick={()=>setAnulando(true)}>Anular retención</button>
       )}
       <button className="btn btn-ghost" style={{width:"100%"}} onClick={()=>setSel(null)}>Volver</button>
       <Aviso/>
@@ -5602,9 +5666,13 @@ function GuiasRemision(){
   const [guias,setGuias]=useState(GUIAS_INI);
   const [sel,setSel]=useState(null);
   const [aviso,setAviso]=useState("");
+  const [anulandoG,setAnulandoG]=useState(false);
+  const [motGuia,setMotGuia]=useState("");
+  const [notaGuia,setNotaGuia]=useState("");
+  const [anuladasGuia,setAnuladasGuia]=useState(()=>leerAnulados(GUIA_ANULADAS_KEY).map(a=>a.id));
   const xmlRef=React.useRef(null);
-  /* Atrás: primero cierra el detalle de la guía, luego sale del módulo. */
-  useRetrocesoP(()=>{ if(sel){ setSel(null); return true; } return false; });
+  /* Atrás: cierra el panel de anulación, luego el detalle, luego sale del módulo. */
+  useRetrocesoP(()=>{ if(anulandoG){ setAnulandoG(false); setMotGuia(""); setNotaGuia(""); return true; } if(sel){ setSel(null); return true; } return false; });
 
   const alSubirGuia=(e)=>{
     const f=e.target.files&&e.target.files[0]; e.target.value="";
@@ -5677,6 +5745,35 @@ function GuiasRemision(){
       ))}
 
       <div className="sec-gap" style={{height:14}} />
+      {anuladasGuia.includes(g.clave||g.numero) ? (
+        <div className="card card-pad" style={{borderColor:"#B5432E",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#B5432E"}}>✕ Guía anulada</div>
+          <div className="sub tiny" style={{marginTop:6,lineHeight:1.5}}>Queda registrada con su auditoría. El transportista ya no debe usarla para salir a ruta.</div>
+        </div>
+      ) : anulandoG ? (
+        <div className="card card-pad" style={{borderColor:"#B5432E",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>¿Por qué se anula?</div>
+          {MOTIVOS_ANULAR_GUIA.map(m=>(
+            <button key={m} className={"btn "+(motGuia===m?"btn-maiz":"btn-ghost")} style={{width:"100%",marginBottom:8,textAlign:"left"}}
+              onClick={()=>{ setMotGuia(m); regUso("motivos_anular_guia", m); }}>{m}</button>
+          ))}
+          <textarea className="inp" rows={2} placeholder="Detalle (opcional)" value={notaGuia}
+            onChange={e=>setNotaGuia(e.target.value)} style={{width:"100%",marginTop:4}} />
+          <button className="btn btn-maiz" style={{width:"100%",marginTop:10}}
+            onClick={()=>{
+              if(!motGuia){ setAviso("Elige el motivo de la anulación"); return; }
+              const au=nuevoAuG();
+              registrarAnulDoc(GUIA_ANULADAS_KEY,{ id:(g.clave||g.numero), numero:g.numero, cliente:g.emisor, total:0, motivo:motGuia, nota:notaGuia.trim(), au });
+              setAnuladasGuia(a=>[...a,(g.clave||g.numero)]); setAnulandoG(false); setMotGuia(""); setNotaGuia("");
+              setAviso(`Guía ${g.numero} anulada · ${au}`);
+            }}>Anular la guía</button>
+          <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+            onClick={()=>{ setAnulandoG(false); setMotGuia(""); setNotaGuia(""); }}>Cancelar</button>
+        </div>
+      ) : (
+        <button className="btn btn-ghost" style={{width:"100%",marginBottom:10,color:"#B5432E"}}
+          onClick={()=>setAnulandoG(true)}>Anular guía</button>
+      )}
       <button className="btn btn-ghost" style={{width:"100%"}} onClick={()=>setSel(null)}>Volver</button>
       <Aviso/>
     </>);
