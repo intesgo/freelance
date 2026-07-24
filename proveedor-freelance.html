@@ -1344,7 +1344,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"37", fecha:"24 jul 2026", desc:"Sello de version del Inicio ya no queda bajo la campanilla" };
+const VERSION = { n:"38", fecha:"24 jul 2026", desc:"Transito: aviso claro cuando la factura ya no esta cargada" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -4251,10 +4251,16 @@ function CargaXML({irTab}){
 
       <div className="sec-gap" style={{height:12}} />
       <div className="list-card">
-        {transito.lista.map((a,i)=>(
+        {transito.lista.map((a,i)=>{
+          /* Dos listas distintas en el telefono: el caso en transito vive en
+             facturasAnuladas() y la factura en facturasCargadas(). Si la factura
+             ya no esta cargada no hay nada que abrir: se avisa y la fila no
+             promete "aplicar". Se resuelve solo en Fase 4 con Supabase. */
+          const fc = facturasCargadas().find(x=>x.clave===a.clave || x.numero===a.numero);
+          return (
           <button key={a.clave||i} className="item" style={{width:"100%",textAlign:"left"}}
-            onClick={()=>{ const fc = facturasCargadas().find(x=>x.clave===a.clave || x.numero===a.numero);
-                           if(fc) setFicha(fc); }}>
+            onClick={()=>{ if(fc) setFicha(fc);
+                           else toast("La factura ya no está cargada en este teléfono. Vuelve a cargarla para aplicar el cobro."); }}>
             <div className="ava ava-m" style={{flexShrink:0,background:"#F3DFB4"}}>⏳</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
@@ -4264,10 +4270,12 @@ function CargaXML({irTab}){
             </div>
             <div style={{textAlign:"right",flexShrink:0}}>
               <div className="num" style={{fontWeight:700,color:"#8A5A12"}}>{f(a.cobros)}</div>
-              <div className="tiny muted">aplicar ›</div>
+              {fc ? <div className="tiny muted">aplicar ›</div>
+                  : <div className="tiny muted" style={{opacity:.6}}>no disponible</div>}
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
     </>)}
 
