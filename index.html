@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FREELANCE · Plataforma</title>
 <style>
-  /* Portada de acceso · vanilla puro, paleta verde/maíz del ecosistema */
-  :root{ --tinta:#123B2C; --verde:#2E7D52; --maiz:#F2A900; --fondo:#F4F7F4; --papel:#fff; --linea:#E2E8E2; --gris:#5C6B60; --tenue:#8A968D; }
+  /* Portal único de acceso · vanilla puro, paleta verde/maíz del ecosistema */
+  :root{ --tinta:#123B2C; --verde:#2E7D52; --maiz:#F2A900; --fondo:#F4F7F4; --papel:#fff; --linea:#E2E8E2; --gris:#5C6B60; --tenue:#8A968D; --error:#B3261E; --ok:#1c7a44; }
   *{ margin:0; padding:0; box-sizing:border-box; }
   body{ font-family:-apple-system, "Segoe UI", Roboto, sans-serif; background:var(--fondo); min-height:100vh; }
   .franja{ background:linear-gradient(160deg,#15392B 0%,#1E4D3A 100%); padding:calc(env(safe-area-inset-top,0px) + 44px) 24px 34px; text-align:center; position:relative; }
@@ -26,6 +26,23 @@
   .ir{ color:var(--tenue); font-size:20px; }
   .nota{ background:#FBF6E8; border:1px solid #EAD9A8; border-radius:12px; padding:12px 14px; margin-top:24px; font-size:12.5px; color:#7A5B00; line-height:1.5; }
   .pie{ text-align:center; font-size:11px; color:var(--tenue); margin-top:26px; }
+
+  /* ── Tarjeta de acceso (portal único) ── */
+  .acceso{ background:var(--papel); border:1px solid var(--linea); border-radius:16px; padding:18px 16px; margin-top:18px; box-shadow:0 4px 16px rgba(18,59,44,.07); }
+  .acceso h2{ font-size:15px; color:var(--tinta); font-weight:800; margin-bottom:3px; }
+  .acceso .sub{ font-size:12.5px; color:var(--gris); margin-bottom:13px; }
+  .campo{ margin-bottom:10px; }
+  .campo input{ width:100%; padding:13px 14px; border-radius:11px; border:1.5px solid var(--linea); font-size:15px; outline:none; background:#FBFDFB; color:var(--tinta); }
+  .campo input:focus{ border-color:var(--verde); }
+  .btn{ width:100%; padding:13px; border:none; border-radius:11px; background:var(--verde); color:#fff; font-size:15px; font-weight:800; cursor:pointer; }
+  .btn:disabled{ opacity:.6; }
+  .btn-suave{ width:100%; padding:11px; border:1.5px solid var(--linea); border-radius:11px; background:#fff; color:var(--gris); font-size:13.5px; font-weight:700; cursor:pointer; margin-top:8px; }
+  .msj-error{ color:var(--error); font-size:12.5px; margin:6px 2px 0; min-height:16px; }
+  .sesion-chip{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .sesion-punto{ width:10px; height:10px; border-radius:50%; background:var(--ok); flex-shrink:0; }
+  .sesion-chip b{ color:var(--tinta); font-size:14.5px; }
+  .sesion-chip span{ color:var(--gris); font-size:12.5px; }
+  .oculto{ display:none; }
 </style>
 <link rel="manifest" href="./pwa/manifest.json">
 <meta name="theme-color" content="#123B2C">
@@ -33,6 +50,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FREELANCE">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
   <div class="franja">
@@ -42,6 +60,30 @@
     <em>Conectamos el campo con tu negocio</em>
   </div>
   <div class="cuerpo">
+
+    <!-- ── PORTAL ÚNICO: una sola entrada con tu correo; la sesión vale para todas las apps ── -->
+    <div class="acceso" id="cajaAcceso">
+      <!-- Sin sesión: formulario -->
+      <div id="vistaLogin">
+        <h2>Entrar con tu cuenta</h2>
+        <div class="sub">Una sola clave para toda la plataforma. Tu sesión queda activa en todas las apps de este teléfono.</div>
+        <form id="formLogin">
+          <div class="campo"><input id="inCorreo" type="email" inputmode="email" autocomplete="username" placeholder="Correo" required></div>
+          <div class="campo"><input id="inClave" type="password" autocomplete="current-password" placeholder="Clave" required></div>
+          <button class="btn" id="btnEntrar" type="submit">Entrar</button>
+        </form>
+        <div class="msj-error" id="msjError"></div>
+      </div>
+      <!-- Con sesión: continuar -->
+      <div id="vistaSesion" class="oculto">
+        <div class="sesion-chip"><span class="sesion-punto"></span>
+          <div><b id="sesNombre">—</b><br><span id="sesRol">—</span></div></div>
+        <button class="btn" id="btnMiApp">Entrar a mi app ›</button>
+        <button class="btn-suave" id="btnSalir">Cerrar sesión</button>
+        <div class="msj-error" id="msjSesion"></div>
+      </div>
+    </div>
+
     <div class="titulo-grupo">Equipo de campo</div>
     <a class="app" href="./Comisionista.html">
       <div class="icono" style="background:#E7F1EA">🧑‍💼</div>
@@ -71,9 +113,102 @@
       <div class="ir">›</div>
     </a>
 
-    <div class="nota">🔒 El <b>Sistema Web central</b> no se publica aquí a propósito: muestra la operación real y permanece privado hasta activar el inicio de sesión (Fase 4). Estas apps usan datos de demostración.</div>
-    <div class="pie">v1.0.0 · © 2026 FREELANCE</div>
+    <div class="nota">🔒 Con tu cuenta, la app <b>Freelance</b> ya trabaja con datos reales (catálogo, clientes y pedidos). Sin cuenta, todas las apps abren en modo demostración. El <b>Sistema Web central</b> sigue privado.</div>
+    <div class="pie">v2.0 · Portal único · © 2026 FREELANCE</div>
   </div>
+
+<script>
+/* ══ PORTAL ÚNICO (Fase 4) · vanilla puro ══
+   La sesión de Supabase vive en el almacenamiento de ESTE origen: al entrar aquí,
+   las apps del mismo dominio (freelance-completo, etc.) la encuentran y entran
+   directo. El RLS decide qué datos ve cada rol. Si el CDN falla, el portal sigue
+   funcionando como directorio simple. */
+(function(){
+  var SB = null;
+  try{
+    SB = window.supabase.createClient(
+      "https://ztpwtddrblfvcnnhbevq.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg"
+    );
+  }catch(e){ /* sin conexión: directorio simple */ }
+
+  /* App de cada rol (7 roles canónicos del padrón) */
+  var APP_POR_ROL = {
+    freelance:       "./freelance-completo.html",
+    subcomisionista: "./Comisionista.html",
+    socio:           "./socio-comercial.html",
+    proveedor:       "./proveedor-freelance.html",
+    transportista:   "./transportista-app.html",
+    logistica:       null,   /* sistema-web de escritorio (privado) */
+    financiero:      null,
+    admin:           "./freelance-completo.html"
+  };
+  var ROL_LINDO = { freelance:"Freelance · centro del negocio", subcomisionista:"Subcomisionista", socio:"Socio comercial",
+    proveedor:"Proveedor / piladora", transportista:"Transportista", logistica:"Operadora del sistema web",
+    financiero:"Contadora", admin:"Administración" };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var vistaLogin = $("vistaLogin"), vistaSesion = $("vistaSesion");
+  var estado = { rol:null };
+
+  function mostrarSesion(nombre, rol){
+    $("sesNombre").textContent = nombre;
+    $("sesRol").textContent = ROL_LINDO[rol] || rol || "—";
+    estado.rol = rol;
+    var destino = APP_POR_ROL[rol];
+    $("btnMiApp").textContent = destino ? "Entrar a mi app ›" : "Tu módulo es el Sistema Web de escritorio";
+    if(!destino){ $("btnMiApp").disabled = true; $("msjSesion").textContent = "El Sistema Web es privado; se abre desde el computador de la oficina."; }
+    else { $("btnMiApp").disabled = false; $("msjSesion").textContent = ""; }
+    vistaLogin.classList.add("oculto");
+    vistaSesion.classList.remove("oculto");
+  }
+  function mostrarLogin(){
+    vistaSesion.classList.add("oculto");
+    vistaLogin.classList.remove("oculto");
+  }
+
+  function cargarPadron(uid, correo, listo){
+    SB.from("usuarios").select("usr_id,nombre,rol").eq("auth_uid", uid).limit(1)
+      .then(function(r){ var f = (r.data && r.data[0]) || null;
+        listo((f && f.nombre) || correo, (f && f.rol) || "freelance"); })
+      .catch(function(){ listo(correo, "freelance"); });
+  }
+
+  /* Al abrir: ¿ya hay sesión? */
+  if(SB){
+    SB.auth.getSession().then(function(r){
+      var s = r.data && r.data.session;
+      if(s) cargarPadron(s.user.id, s.user.email || "Cuenta activa", mostrarSesion);
+    }).catch(function(){});
+  } else {
+    $("cajaAcceso").classList.add("oculto");   /* sin CDN: solo directorio */
+  }
+
+  $("formLogin").addEventListener("submit", function(ev){
+    ev.preventDefault();
+    if(!SB){ $("msjError").textContent = "Sin conexión con el servidor."; return; }
+    var correo = $("inCorreo").value.trim().toLowerCase(), clave = $("inClave").value;
+    $("btnEntrar").disabled = true; $("msjError").textContent = "";
+    SB.auth.signInWithPassword({ email: correo, password: clave }).then(function(r){
+      $("btnEntrar").disabled = false;
+      if(r.error || !r.data || !r.data.session){ $("msjError").textContent = "Correo o clave incorrectos."; return; }
+      cargarPadron(r.data.session.user.id, correo, function(nombre, rol){
+        var destino = APP_POR_ROL[rol];
+        if(destino){ location.href = destino; }        /* directo a tu app */
+        else mostrarSesion(nombre, rol);               /* Diana/Marcia: aviso */
+      });
+    }).catch(function(){ $("btnEntrar").disabled = false; $("msjError").textContent = "No se pudo conectar. Intenta de nuevo."; });
+  });
+
+  $("btnMiApp").addEventListener("click", function(){
+    var destino = APP_POR_ROL[estado.rol];
+    if(destino) location.href = destino;
+  });
+  $("btnSalir").addEventListener("click", function(){
+    if(SB){ SB.auth.signOut().then(mostrarLogin).catch(mostrarLogin); } else mostrarLogin();
+  });
+})();
+</script>
 </body>
 </html>
-<!-- v92 b262 -->
+<!-- v93 portal único b1 -->

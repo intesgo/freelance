@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"334", fecha:"24 jul 2026", desc:"Fase 4 Etapa 4: el pedido NACE EN LA BASE (pedidos+pedido_items) con clientes reales en el buscador; si algo es demo o no hay sesion, sigue local como siempre" };
+const VERSION = { n:"335", fecha:"24 jul 2026", desc:"Portal unico: si ya hay sesion de Supabase (del portal o de la app), entra directo sin pedir clave; cerrar sesion la borra" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -18631,6 +18631,33 @@ function PantallaLogin({ onAutenticado }) {
   const pwdRef         = React.useRef(null);
 
   const syncItems = ["Precios y promociones","Clientes (284)","Agenda · 4 visitas hoy","Stock actualizado"];
+
+  /* ── FASE 4 · Restauración de sesión (portal único) ──
+     Si ya existe sesión de Supabase (creada aquí o en el portal index.html — mismo
+     origen, mismo almacenamiento), se entra DIRECTO sin pedir clave, igual que
+     sistema-web b25. Cerrar sesión hace signOut y la próxima vez pide clave. */
+  React.useEffect(() => {
+    if (!window.SB || !window.SB.auth) return;
+    let activo = true;
+    (async () => {
+      try {
+        const { data: s } = await window.SB.auth.getSession();
+        if (!activo || !s || !s.session) return;
+        let fila = null;
+        try {
+          const { data: filas } = await window.SB.from("usuarios")
+            .select("usr_id,nombre,rol").eq("auth_uid", s.session.user.id).limit(1);
+          fila = (filas && filas[0]) || null;
+        } catch (e2) {}
+        if (!activo) return;
+        const em = (s.session.user && s.session.user.email) || "";
+        usuarioAuthRef.current = { nombre: (fila && fila.nombre) || em, codigo: (fila && fila.usr_id) || "AUTH",
+          zona: "Sesión real", rol: (fila && fila.rol) || "freelance", clave: "", real: true };
+        setPaso("sync");
+      } catch (e) {}
+    })();
+    return () => { activo = false; };
+  }, []);
 
   const esCorreo  = usr.includes("@");   // FASE 4: con correo se entra por Supabase Auth
   const usrValido = USUARIOS[usr.toUpperCase()];
