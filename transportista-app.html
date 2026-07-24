@@ -470,7 +470,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"11", fecha:"23 jul 2026", desc:"Sello de version en Inicio" };
+const VERSION = { n:"12", fecha:"23 jul 2026", desc:"Sello en Inicio + aviso claro si el usuario no existe en la demo" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -1207,6 +1207,10 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
   const docsPend = DOCS_RETORNO.filter((d)=>!d.entregadoOficina);
   const porCobrar = fletesDe(chofer).filter((f)=>f.estado==="por_cobrar").reduce((a,f)=>a+f.monto,0);
   const solPend = solicitudesDe(chofer).filter((s)=>s.estado==="pendiente").length;
+  /* ¿este nombre llegó a registrarse alguna vez? Distingue "perdí mi ruta"
+     de "este usuario nunca existió", que son problemas distintos. */
+  const gNuevo = choferNuevoGuardado();
+  const registroGuardado = !!choferNuevo || !!(gNuevo && gNuevo.nombre === chofer);
 
   return (
     <Shell who={"Transportista · CI "+(c.cedula||"—")} name={chofer} onSalir={onSalir}
@@ -1235,11 +1239,20 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
         <div className="empty"><div className="ico">📭</div><div className="t">Sin rutas hoy</div>
           {choferPorNombre(chofer) ? (
             <div className="s">Cuando logística te asigne una ruta, aparecerá aquí.</div>
-          ) : (<>
+          ) : registroGuardado ? (<>
+            {/* se registró por enlace y sus datos siguen en el teléfono: sí perdió la ruta */}
             <div className="s">Tu registro se perdió al recargar la app. En la demo los datos
               viven en el teléfono; al conectar el sistema, tu ruta quedará guardada.</div>
             <button className="b-carga-accion" style={{ maxWidth:260, margin:"16px auto 0" }}
               onClick={onSalir}>Volver a ingresar</button>
+          </>) : (<>
+            {/* nunca existió: no es una falla de la app, es un usuario que no está en la demo */}
+            <div className="s">Este usuario no está registrado como transportista en la demo.
+              No es una falla de la app: el nombre que ingresaste no existe en los datos de prueba.</div>
+            <div className="s" style={{ marginTop:10, fontWeight:600 }}>
+              Transportistas de la demo: marlon · wilson · galo (clave 1234)</div>
+            <button className="b-carga-accion" style={{ maxWidth:260, margin:"16px auto 0" }}
+              onClick={onSalir}>Ingresar con otro usuario</button>
           </>)}
         </div>
       ) : (<>
