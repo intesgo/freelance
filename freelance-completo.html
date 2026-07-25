@@ -4983,7 +4983,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"354", fecha:"25 jul 2026", desc:"URGENTE: repara pantalla en blanco al entrar (useEffect sin React. en 3 componentes nuevos)" };
+const VERSION = { n:"355", fecha:"25 jul 2026", desc:"Asistente: di ver todas las preguntas y se abre el modulo; preguntas editables (ocultar, agregar propias con respuesta, restaurar)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11635,6 +11635,33 @@ const MES_ACTUAL_ABR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","O
    - pide: "cliente" | "producto" | null  (si necesita un dato, aparece el buscador+voz)
    - responder(dato) => devuelve el texto de la respuesta.
    La pantalla y la voz se generan solas desde esta lista. */
+/* ═════ b355 · Preguntas personalizables del asistente (orden de Richard) ═════
+   Las 30 de fábrica se pueden OCULTAR; se pueden AGREGAR propias (pregunta +
+   respuesta hablada). Guardado híbrido: teléfono + base (config_sistema
+   "preguntas_asistente") con huella AU cuando hay sesión. */
+const PREG_PERS_KEY = "freelance_preguntas_asist";
+function pregPers(){
+  try{ const d = JSON.parse(localStorage.getItem(PREG_PERS_KEY)); return { ocultas:(d&&d.ocultas)||[], propias:(d&&d.propias)||[] }; }
+  catch(e){ return { ocultas:[], propias:[] }; }
+}
+async function guardarPregPers(d){
+  try{ localStorage.setItem(PREG_PERS_KEY, JSON.stringify(d)); }catch(e){}
+  try{
+    if(!window.SB) return;
+    const { data } = await window.SB.auth.getSession();
+    if(!data || !data.session) return;
+    await window.SB.from("config_sistema").upsert({ clave:"preguntas_asistente", valor:d });
+    await auReal("config_sistema","PREGUNTAS_ASISTENTE","preguntas_asistente",{ocultas:d.ocultas.length, propias:d.propias.length});
+  }catch(e){}
+}
+function preguntasVigentes(){
+  const per = pregPers();
+  const base = PREGUNTAS_ASIST.filter(p => per.ocultas.indexOf(p.id) < 0);
+  const propias = (per.propias||[]).map(x => ({ id:x.id, cat:x.cat||"Mis preguntas", label:x.label,
+    ic:"⭐", pide:null, ir:null, propia:true, responder:()=>x.respuesta }));
+  return base.concat(propias);
+}
+
 const PREGUNTAS_ASIST = [
   // ── CARTERA Y COBROS ──
   { id:"pendiente", cat:"Cartera", label:"Valor pendiente de un cliente", ic:"💰", pide:"cliente", ir:"cartera",
@@ -11898,10 +11925,15 @@ const CLAVES_ASIST = {
 function interpretarAsist(frase){
   const f = normAsist(frase);
   if(!f) return null;
-  /* Paso 1 - Detectar la pregunta: la que más palabras clave calce, la frase más larga gana. */
+  /* b355 · Comando de voz: "ver todas las preguntas" (o abrir/editar preguntas)
+     abre el módulo de preguntas para consultar, editar, eliminar y agregar. */
+  if(f.includes("todas las preguntas") || /\b(ver|abrir|muestra|muestrame|edita|editar)\b[\s\S]*\bpreguntas\b/.test(f))
+    return { comando:"lista" };
+  /* Paso 1 - Detectar la pregunta: la que más palabras clave calce, la frase más larga gana.
+     b355: sobre las VIGENTES (fábrica sin ocultas + propias; las propias calzan por su texto). */
   let mejor = null, mejorLargo = 0;
-  PREGUNTAS_ASIST.forEach(p=>{
-    (CLAVES_ASIST[p.id]||[]).forEach(clave=>{
+  preguntasVigentes().forEach(p=>{
+    (CLAVES_ASIST[p.id]||[normAsist(p.label)]).forEach(clave=>{
       const c = normAsist(clave);
       if(f.includes(c) && c.length > mejorLargo){ mejor = p; mejorLargo = c.length; }
     });
@@ -11980,6 +12012,12 @@ const MotorVoz = {
       if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
       const frase = ev.results[0][0].transcript.trim();
       const res = interpretarAsist(frase);
+      if(res && res.comando === "lista"){
+        hablarTexto("Aquí están todas las preguntas");
+        if(this.cb.onVerLista) this.cb.onVerLista();
+        this.apagar();
+        return;
+      }
       if(!res){
         this.intentos += 1;
         if(this.intentos < 3){
@@ -12107,6 +12145,42 @@ function BurbujaAsistente({ onAbrir, onEscuchar, escuchando }){
 const ETIQUETA_IR = { cartera:"Cartera", clientes:"Cliente", equipo:"Comisiones", agenda:"Agenda", productos:"Productos", cobros:"Cobros" };
 
 function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, onFinVoz, onNecesitaPanel, toast, onVerCartera, onIr, escuchaInicial }){
+  /* b355 · edición de preguntas (ocultar de fábrica / agregar-editar propias) */
+  const [editPreg,setEditPreg]=React.useState(false);
+  const [formPreg,setFormPreg]=React.useState(null);   /* {id?, label, respuesta} en edición */
+  const [tickPreg,setTickPreg]=React.useState(0);
+  React.useEffect(()=>{   /* semilla: lo guardado en la base manda sobre el teléfono */
+    let vivo=true;
+    (async()=>{
+      try{
+        if(!window.SB) return;
+        const { data } = await window.SB.auth.getSession();
+        if(!vivo || !data || !data.session) return;
+        const { data:cf } = await window.SB.from("config_sistema").select("valor").eq("clave","preguntas_asistente").maybeSingle();
+        if(vivo && cf && cf.valor){ try{ localStorage.setItem(PREG_PERS_KEY, JSON.stringify(cf.valor)); }catch(e){} setTickPreg(t=>t+1); }
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const persistirPreg=(d)=>{ guardarPregPers(d).then(()=>{}); setTickPreg(t=>t+1); };
+  const ocultarPreg=(p)=>{
+    const d=pregPers();
+    if(p.propia){ d.propias=d.propias.filter(x=>x.id!==p.id); }
+    else if(d.ocultas.indexOf(p.id)<0){ d.ocultas.push(p.id); }
+    persistirPreg(d);
+    if(toast) toast(p.propia ? "Pregunta eliminada" : "Pregunta ocultada (se puede restaurar)");
+  };
+  const restaurarPreg=()=>{ const d=pregPers(); d.ocultas=[]; persistirPreg(d); if(toast) toast("Preguntas de fábrica restauradas"); };
+  const guardarFormPreg=()=>{
+    const f=formPreg||{};
+    if(!f.label || !f.label.trim()){ if(toast) toast("Escribe la pregunta"); return; }
+    if(!f.respuesta || !f.respuesta.trim()){ if(toast) toast("Escribe la respuesta que dirá el asistente"); return; }
+    const d=pregPers();
+    if(f.id){ d.propias=d.propias.map(x=>x.id===f.id?{...x, label:f.label.trim(), respuesta:f.respuesta.trim()}:x); }
+    else { d.propias.push({ id:"PP-"+new Date().getTime(), cat:"Mis preguntas", label:f.label.trim(), respuesta:f.respuesta.trim() }); }
+    persistirPreg(d); setFormPreg(null);
+    if(toast) toast(f.id ? "Pregunta actualizada ✓" : "Pregunta agregada ✓ Ya puedes decirla por voz");
+  };
   const [preg, setPreg] = useState(null);   // pregunta elegida
   const [dato, setDato] = useState("");      // cliente/producto escrito o dictado
   const [resp, setResp] = useState("");      // respuesta mostrada
@@ -12159,6 +12233,12 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     r.onresult = ev=>{
       const frase = ev.results[0][0].transcript.trim();
       const res = interpretarAsist(frase);
+      if(res && res.comando === "lista"){
+        marcar(); setNoEntendi(""); setMostrarTodas(true);
+        hablarTexto("Aquí están todas las preguntas");
+        setEscuchando(false);
+        return;
+      }
       if(!res){
         marcar();
         setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
@@ -12327,6 +12407,7 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
               style={{background:"none",border:"none",color:"var(--field-700, #2E7D52)",fontSize:12.5,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>
               Ver todas las preguntas
             </button>
+            <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>o dilo por voz: «ver todas las preguntas»</div>
           </div>
         )}
 
@@ -12335,23 +12416,58 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
         <div style={{marginBottom:14}}>
           <div className="row between" style={{alignItems:"center",marginBottom:8}}>
             <div style={{fontSize:12.5,fontWeight:800,color:"var(--text)"}}>Todas las preguntas</div>
+            <button onClick={()=>{ setEditPreg(e=>!e); setFormPreg(null); }}
+              style={{background:editPreg?"var(--field-700, #2E7D52)":"none",border:editPreg?"none":"1px solid var(--linea)",
+                color:editPreg?"#fff":"var(--muted)",borderRadius:9,padding:"5px 11px",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+              {editPreg?"✓ Listo":"✎ Editar"}</button>
             <button onClick={()=>setMostrarTodas(false)}
               style={{background:"none",border:"none",color:"var(--muted)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>‹ Ocultar</button>
           </div>
-          {[...new Set(PREGUNTAS_ASIST.map(p=>p.cat))].map(cat=>(
+          {(()=>{ const VIG=preguntasVigentes(); return [...new Set(VIG.map(p=>p.cat))].map(cat=>(
             <div key={cat} style={{marginBottom:10}}>
               <div style={{fontSize:11.5,fontWeight:800,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{cat}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-                {PREGUNTAS_ASIST.filter(p=>p.cat===cat).map(p=>(
-                  <button key={p.id} onClick={()=>{ elegir(p); if(p.pide) setMostrarTodas(false); }}
+                {VIG.filter(p=>p.cat===cat).map(p=>(
+                  <button key={p.id} onClick={()=>{
+                      if(editPreg){ if(p.propia){ setFormPreg({id:p.id, label:p.label, respuesta:p.responder()}); } return; }
+                      elegir(p); if(p.pide) setMostrarTodas(false); }}
                     style={{padding:"8px 12px",borderRadius:999,border:"1px solid "+(preg&&preg.id===p.id?"var(--maize-deep)":"var(--linea)"),
                       background:preg&&preg.id===p.id?"var(--maize-soft, #FBF3DC)":"#fff",fontSize:12,fontWeight:700,cursor:"pointer",color:"var(--text)"}}>
                     {p.ic} {p.label}
+                    {editPreg && <span onClick={ev=>{ ev.stopPropagation(); ocultarPreg(p); }}
+                      style={{marginLeft:6,color:"#B5432C",fontWeight:800}}>🗑</span>}
                   </button>
                 ))}
               </div>
             </div>
-          ))}
+          )); })()}
+          {editPreg && (
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+              <button onClick={()=>setFormPreg({label:"",respuesta:""})}
+                style={{padding:"9px 13px",borderRadius:10,border:"none",background:"var(--field-700, #2E7D52)",color:"#fff",fontSize:12.5,fontWeight:800,cursor:"pointer"}}>＋ Agregar pregunta</button>
+              {pregPers().ocultas.length>0 && (
+                <button onClick={restaurarPreg}
+                  style={{padding:"9px 13px",borderRadius:10,border:"1px solid var(--linea)",background:"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>↺ Restaurar ocultas ({pregPers().ocultas.length})</button>
+              )}
+            </div>
+          )}
+          {formPreg && (
+            <div className="card" style={{padding:"13px 14px",marginTop:10,border:"1.5px solid var(--field-700, #2E7D52)"}}>
+              <div style={{fontSize:12.5,fontWeight:800,marginBottom:8}}>{formPreg.id?"Editar pregunta":"Nueva pregunta"}</div>
+              <div style={{fontSize:11.5,color:"var(--muted)",marginBottom:4}}>Cómo la dirás (por voz o al tocarla)</div>
+              <input value={formPreg.label} placeholder="Ej. Horario de la piladora Coronel"
+                onChange={e=>setFormPreg({...formPreg,label:e.target.value})}
+                style={{width:"100%",padding:"10px 12px",border:"1px solid var(--linea)",borderRadius:9,marginBottom:8}}/>
+              <div style={{fontSize:11.5,color:"var(--muted)",marginBottom:4}}>Lo que responderá el asistente</div>
+              <textarea value={formPreg.respuesta} rows={3} placeholder="Ej. La piladora Coronel atiende de lunes a sábado, de 7 de la mañana a 5 de la tarde."
+                onChange={e=>setFormPreg({...formPreg,respuesta:e.target.value})}
+                style={{width:"100%",padding:"10px 12px",border:"1px solid var(--linea)",borderRadius:9,resize:"vertical",lineHeight:1.5}}/>
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <button onClick={()=>setFormPreg(null)} style={{flex:1,padding:"10px",borderRadius:9,border:"1px solid var(--linea)",background:"#fff",fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={guardarFormPreg} style={{flex:1,padding:"10px",borderRadius:9,border:"none",background:"var(--field-700, #2E7D52)",color:"#fff",fontWeight:800,cursor:"pointer"}}>Guardar</button>
+              </div>
+            </div>
+          )}
         </div>
         )}
 
@@ -20648,7 +20764,8 @@ function App({usuario, onSalir}){
         if(cli && tab==="clientes"){ setCliFicha(cli); refNavegar.current("clientes"); return; }
         refNavegar.current(tab);
       },
-      onPedirDato:(p)=>{ setAsistLista(false); setAsistAbierto(true); }  // abre panel para escribir el dato
+      onPedirDato:(p)=>{ setAsistLista(false); setAsistAbierto(true); },  // abre panel para escribir el dato
+      onVerLista:()=>{ setAsistLista(true); setAsistAbierto(true); }      // b355: "ver todas las preguntas" por voz
     });
   },[]);
   const [escuchando,setEscuchando]=useState(false);
