@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"340", fecha:"25 jul 2026", desc:"Cierre diario: cuadro Cobrado hoy por piladora (recibos del dia). Destinatarios de recibos viajan a la base (config_sistema) con confirmacion visible y AU-" };
+const VERSION = { n:"341", fecha:"25 jul 2026", desc:"El cierre diario se MUDO de Ajustes a Mi Caja (el cierre de caja es operacion, no configuracion). El desglose por piladora ya vivia en Mi Caja > Detalle; se elimino el duplicado" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -8201,10 +8201,112 @@ function Verificacion({toast, yo}){
   </>);
 }
 
+/* ══ TARJETA CIERRE DIARIO (b341) ══
+   Vivía en Ajustes→Negocio; Richard ordenó mudarla aquí: el cierre de caja es
+   operación, no configuración. Hora del corte + nota de con quién se acordó.
+   Doble persistencia (teléfono + config_sistema con sesión), AU- real vía
+   au_codigo(), confirmación visible, piladoras sin duplicar en la nota. */
+function TarjetaCierreDiario({usuario, toast}){
+  const [horaCie,setHoraCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.hora) return g.hora;}catch(e){} return CONFIG_CIERRE.hora; });
+  const [acuerdoCie,setAcuerdoCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.acordadoCon!=null) return g.acordadoCon;}catch(e){} return CONFIG_CIERRE.acordadoCon; });
+  const [ultCie,setUltCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.donde) return g;}catch(e){} return null; });
+  const dedupPiladoras=(t)=>{
+    const norm=x=>x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+    const vistos=new Set(), out=[];
+    String(t||"").split("·").map(x=>x.trim()).filter(Boolean).forEach(x=>{
+      const k=norm(x); if(!vistos.has(k)){ vistos.add(k); out.push(x); }
+    });
+    return out.join(" · ");
+  };
+  React.useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    (async()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!activo || !s || !s.session) return;
+        const [{ data:cfgs }, { data:provs }] = await Promise.all([
+          window.SB.from("config_sistema").select("valor").eq("clave","cierre_diario").limit(1),
+          window.SB.from("proveedores").select("nombre").eq("es_demo",false).order("nombre"),
+        ]);
+        if(!activo) return;
+        if(cfgs && cfgs[0] && cfgs[0].valor){
+          const v=cfgs[0].valor;
+          if(v.hora) setHoraCie(v.hora);
+          if(v.acordado_con!=null) setAcuerdoCie(v.acordado_con);
+          const u={hora:v.hora, acordadoCon:v.acordado_con, au:v.au||null, donde:"base"};
+          setUltCie(u);
+          try{ localStorage.setItem("freelance_cierre", JSON.stringify(u)); }catch(e2){}
+        } else if(provs && provs.length){
+          /* aún no hay config en la base: si el texto sigue siendo el demo, precarga las REALES */
+          setAcuerdoCie(prev => (!prev || prev===CONFIG_CIERRE.acordadoCon) ? provs.map(p=>p.nombre).join(" · ") : prev);
+        }
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  const aplicarCierre=async()=>{
+    const acordado=dedupPiladoras(acuerdoCie);
+    if(acordado!==acuerdoCie.trim()) setAcuerdoCie(acordado);
+    if(ultCie && ultCie.hora===horaCie && (ultCie.acordadoCon||"")===acordado){
+      toast("Sin cambios: ya estaba guardado "+(ultCie.donde==="base"?"en la base":"en este teléfono")+".");
+      return;
+    }
+    CONFIG_CIERRE.hora=horaCie; CONFIG_CIERRE.acordadoCon=acordado;
+    const guardar=(u)=>{ setUltCie(u); try{ localStorage.setItem("freelance_cierre", JSON.stringify(u)); }catch(e){} };
+    try{
+      if(window.SB && window.SB.auth){
+        const { data:s } = await window.SB.auth.getSession();
+        if(s && s.session){
+          let au=null;
+          try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
+          const valor={ hora:horaCie, acordado_con:acordado, au };
+          const { error } = await window.SB.from("config_sistema").upsert({ clave:"cierre_diario", valor,
+            descripcion:"Hora del corte automático de la jornada y con quién se acordó (app de campo)" });
+          if(!error){
+            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
+              usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
+              registro_id:"cierre_diario", valor_nuevo:valor }); }catch(e3){} }
+            CONFIG_CIERRE.au=au;
+            guardar({hora:horaCie, acordadoCon:acordado, au, donde:"base"});
+            toast("Corte diario a las "+horaCie+" · guardado en la base"+(au?" · "+au:""));
+            return;
+          }
+        }
+      }
+    }catch(e){}
+    guardar({hora:horaCie, acordadoCon:acordado, au:null, donde:"telefono"});
+    toast("Corte diario a las "+horaCie+" · guardado en este teléfono");
+  };
+  return (<>
+    <div className="ficha-sec">Hora del cierre diario</div>
+    <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
+      <div className="meta" style={{marginBottom:10}}>Hora del corte automático de la jornada. La acuerdas con el proveedor. En Fase 4 el servidor la ejecuta aunque el celular esté apagado.</div>
+      <div className="row" style={{gap:8,alignItems:"flex-end"}}>
+        <label style={{flex:"0 0 118px",fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Hora de corte
+          <input type="time" value={horaCie} onChange={e=>setHoraCie(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
+        <label style={{flex:1,minWidth:0,fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Acordado con
+          <input value={acuerdoCie} placeholder="Proveedores" onChange={e=>setAcuerdoCie(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
+      </div>
+      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={aplicarCierre}>Aplicar hora de cierre</button>
+      {ultCie && (
+        <div style={{marginTop:9,padding:"8px 11px",borderRadius:9,fontSize:11.5,lineHeight:1.45,
+          background:ultCie.donde==="base"?"rgba(28,122,68,.10)":"rgba(138,138,149,.12)",
+          color:ultCie.donde==="base"?"#1c7a44":"#6b7280"}}>
+          {ultCie.donde==="base"?"🟢":"⚪"} <b>Guardado {ultCie.donde==="base"?"en la base":"solo en este teléfono"}:</b> corte a las {ultCie.hora}
+          {ultCie.acordadoCon?" · con "+ultCie.acordadoCon:""}{ultCie.au?" · "+ultCie.au:""}
+        </div>
+      )}
+    </div>
+  </>);
+}
+
 /* ══ MI CAJA · recibos, cuadre de caja y cierre diario ══
    Módulo propio: se llega desde el drawer o desde el atajo en Cobros.
-   La hora de corte se acuerda con el proveedor y se aplica en Ajustes. */
-function MiDia({toast}){
+   La hora de corte se acuerda con el proveedor y se aplica AQUÍ (b341: antes en Ajustes). */
+function MiDia({toast, usuario}){
   const [tabCie,setTabCie]=useState("resumen");
   const [expProv,setExpProv]=useState(null);
   const [cerrando,setCerrando]=useState(false);
@@ -8386,6 +8488,9 @@ function MiDia({toast}){
             }}>✓ Confirmar mi cuadre</button>
           )}
         </div>
+
+        {/* b341 · La hora del cierre diario vive aquí (antes en Ajustes) */}
+        <TarjetaCierreDiario usuario={usuario} toast={toast}/>
       </>)}
 
       {/* ── 2 · DETALLE ── */}      {tabCie==="detalle" && (()=>{
@@ -16107,24 +16212,9 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       if(Array.isArray(g)&&g.length===DESTINATARIOS_RECIBO.length) return g.map(d=>({...d})); }catch(e){}
     return DESTINATARIOS_RECIBO.map(d=>({...d}));
   });
-  /* ── b338 · Cierre diario PERSISTENTE (reporte de Richard: salían las piladoras demo).
-     "Acordado con" es una NOTA de con quién pactaste la hora; con sesión se precarga con
-     las 5 piladoras REALES y todo se guarda en el teléfono + config_sistema (clave
-     cierre_diario) con auditoría AU- real vía au_codigo(). Antes: nada persistía y el
-     código AU era un número inventado al azar. ── */
-  const [horaCie,setHoraCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.hora) return g.hora;}catch(e){} return CONFIG_CIERRE.hora; });
-  const [acuerdoCie,setAcuerdoCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.acordadoCon!=null) return g.acordadoCon;}catch(e){} return CONFIG_CIERRE.acordadoCon; });
-  /* b339 · Confirmación PERMANENTE del último guardado (el toast era fugaz y Richard
-     no veía si guardó) + deduplicación de piladoras en la nota (su pedido). */
-  const [ultCie,setUltCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.donde) return g;}catch(e){} return null; });
-  const dedupPiladoras=(t)=>{
-    const norm=x=>x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
-    const vistos=new Set(), out=[];
-    String(t||"").split("·").map(x=>x.trim()).filter(Boolean).forEach(x=>{
-      const k=norm(x); if(!vistos.has(k)){ vistos.add(k); out.push(x); }
-    });
-    return out.join(" · ");
-  };
+  /* b341 · El CIERRE DIARIO se mudó a Mi Caja (TarjetaCierreDiario): el cierre de caja
+     es operación, no configuración (decisión de Richard). Aquí solo quedan los
+     destinatarios de recibos; con sesión se leen de config_sistema. */
   React.useEffect(()=>{
     if(!window.SB || !window.SB.auth) return;
     let activo=true;
@@ -16132,69 +16222,19 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       try{
         const { data:s } = await window.SB.auth.getSession();
         if(!activo || !s || !s.session) return;
-        const [{ data:cfgs }, { data:provs }] = await Promise.all([
-          window.SB.from("config_sistema").select("clave,valor").in("clave",["cierre_diario","destinatarios_recibo"]),
-          window.SB.from("proveedores").select("nombre").eq("es_demo",false).order("nombre"),
-        ]);
+        const { data:cfgs } = await window.SB.from("config_sistema").select("valor").eq("clave","destinatarios_recibo").limit(1);
         if(!activo) return;
-        const cfg=[(cfgs||[]).find(x=>x.clave==="cierre_diario")].filter(x=>x&&x.valor);
-        /* b340 · los destinatarios de recibos también viajan en la base */
-        const dCfg=(cfgs||[]).find(x=>x.clave==="destinatarios_recibo");
+        const dCfg=cfgs && cfgs[0];
         if(dCfg && dCfg.valor && Array.isArray(dCfg.valor.lista) && dCfg.valor.lista.length===DESTINATARIOS_RECIBO.length){
           setDestRec(dCfg.valor.lista.map(d=>({...d})));
           dCfg.valor.lista.forEach((d,i)=>{ DESTINATARIOS_RECIBO[i]={...d}; });
           setUltDest({donde:"base", au:dCfg.valor.au||null});
           try{ localStorage.setItem("freelance_dest_recibo", JSON.stringify(dCfg.valor.lista)); }catch(e4){}
         }
-        if(cfg && cfg[0] && cfg[0].valor){
-          const v=cfg[0].valor;
-          if(v.hora) setHoraCie(v.hora);
-          if(v.acordado_con!=null) setAcuerdoCie(v.acordado_con);
-          const u={hora:v.hora, acordadoCon:v.acordado_con, au:v.au||null, donde:"base"};
-          setUltCie(u);
-          try{ localStorage.setItem("freelance_cierre", JSON.stringify(u)); }catch(e2){}
-        } else if(provs && provs.length){
-          /* aún no hay config en la base: si el texto sigue siendo el demo, precarga las REALES */
-          setAcuerdoCie(prev => (!prev || prev===CONFIG_CIERRE.acordadoCon) ? provs.map(p=>p.nombre).join(" · ") : prev);
-        }
       }catch(e){}
     })();
     return ()=>{ activo=false; };
   },[]);
-  const aplicarCierre=async()=>{
-    const acordado=dedupPiladoras(acuerdoCie);                      /* sin piladoras repetidas */
-    if(acordado!==acuerdoCie.trim()) setAcuerdoCie(acordado);
-    /* sin cambios respecto a lo último guardado: no re-guardar ni duplicar auditorías */
-    if(ultCie && ultCie.hora===horaCie && (ultCie.acordadoCon||"")===acordado){
-      toast("Sin cambios: ya estaba guardado "+(ultCie.donde==="base"?"en la base":"en este teléfono")+".");
-      return;
-    }
-    CONFIG_CIERRE.hora=horaCie; CONFIG_CIERRE.acordadoCon=acordado;
-    const guardar=(u)=>{ setUltCie(u); try{ localStorage.setItem("freelance_cierre", JSON.stringify(u)); }catch(e){} };
-    try{
-      if(window.SB && window.SB.auth){
-        const { data:s } = await window.SB.auth.getSession();
-        if(s && s.session){
-          let au=null;
-          try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
-          const valor={ hora:horaCie, acordado_con:acordado, au };
-          const { error } = await window.SB.from("config_sistema").upsert({ clave:"cierre_diario", valor,
-            descripcion:"Hora del corte automático de la jornada y con quién se acordó (app de campo)" });
-          if(!error){
-            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
-              usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
-              registro_id:"cierre_diario", valor_nuevo:valor }); }catch(e3){} }
-            CONFIG_CIERRE.au=au;
-            guardar({hora:horaCie, acordadoCon:acordado, au, donde:"base"});
-            toast("Corte diario a las "+horaCie+" · guardado en la base"+(au?" · "+au:""));
-            return;
-          }
-        }
-      }
-    }catch(e){}
-    guardar({hora:horaCie, acordadoCon:acordado, au:null, donde:"telefono"});
-    toast("Corte diario a las "+horaCie+" · guardado en este teléfono");
-  };
   /* b340 · destinatarios con doble persistencia (teléfono + config_sistema con sesión) */
   const [ultDest,setUltDest]=useState(null);
   const guardarDest=async()=>{
@@ -16244,48 +16284,8 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     </div>
 
     {pestAj==="negocio" && (<>
-    <div className="ficha-sec">Cierre diario</div>
-    <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
-      <div className="meta" style={{marginBottom:10}}>Hora del corte automático de la jornada. La acuerdas con el proveedor y se aplica manualmente aquí. En Fase 4 el servidor la ejecuta aunque el celular esté apagado.</div>
-      <div className="row" style={{gap:8,alignItems:"flex-end"}}>
-        <label style={{flex:"0 0 118px",fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Hora de corte
-          <input type="time" value={horaCie} onChange={e=>setHoraCie(e.target.value)}
-            style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
-        <label style={{flex:1,minWidth:0,fontSize:11.5,color:"var(--muted)",fontWeight:700}}>Acordado con
-          <input value={acuerdoCie} placeholder="Proveedores" onChange={e=>setAcuerdoCie(e.target.value)}
-            style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
-      </div>
-      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={aplicarCierre}>Aplicar hora de cierre</button>
-      {ultCie && (
-        <div style={{marginTop:9,padding:"8px 11px",borderRadius:9,fontSize:11.5,lineHeight:1.45,
-          background:ultCie.donde==="base"?"rgba(28,122,68,.10)":"rgba(138,138,149,.12)",
-          color:ultCie.donde==="base"?"#1c7a44":"#6b7280"}}>
-          {ultCie.donde==="base"?"🟢":"⚪"} <b>Guardado {ultCie.donde==="base"?"en la base":"solo en este teléfono"}:</b> corte a las {ultCie.hora}
-          {ultCie.acordadoCon?" · con "+ultCie.acordadoCon:""}{ultCie.au?" · "+ultCie.au:""}
-        </div>
-      )}
-      {/* b340 · El "cuadro de negocio por piladora" del día (pedido de Richard):
-          cuánto se cobró HOY con cada una, según los recibos emitidos en esta app.
-          El cierre de CUENTAS con cada piladora vive en Conciliación (sistema web). */}
-      {(()=>{
-        const activos=COBROS_DIA.filter(c=>!c.anulado);
-        if(!activos.length) return <div className="meta" style={{marginTop:10}}>Hoy aún no hay cobros registrados en esta app.</div>;
-        const por={}; activos.forEach(c=>{ const k=c.prov||"(sin piladora)"; (por[k]=por[k]||{n:0,monto:0}); por[k].n++; por[k].monto+=(c.monto||0); });
-        const tot=activos.reduce((s,c)=>s+(c.monto||0),0);
-        return (
-          <div style={{marginTop:12}}>
-            <div style={{fontWeight:700,fontSize:12.5,marginBottom:5}}>Cobrado hoy por piladora</div>
-            {Object.entries(por).sort((a,b)=>b[1].monto-a[1].monto).map(([p,x])=>(
-              <div key={p} className="cu-line"><span>{p} · {x.n} recibo(s)</span><b className="num">{money(x.monto)}</b></div>
-            ))}
-            <div className="cu-line" style={{borderTop:"1px solid var(--line)",marginTop:4,paddingTop:6}}>
-              <span style={{fontWeight:700}}>Total del día</span><b className="num">{money(tot)}</b></div>
-            <div className="meta" style={{marginTop:6}}>Según los recibos emitidos hoy en esta app. El cierre de cuentas con cada piladora vive en Conciliación (sistema web).</div>
-          </div>
-        );
-      })()}
-    </div>
-
+    {/* b341 · La tarjeta "Cierre diario" se MUDÓ a Mi Caja (decisión de Richard:
+        el cierre de caja es operación, no configuración). Ver TarjetaCierreDiario. */}
     <div className="ficha-sec">Recibos de cobro</div>
     <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
       <div className="meta" style={{marginBottom:10}}>Reciben copia virtual de cada recibo de cobro. El cliente y el proveedor del cobro se agregan automáticamente.</div>
@@ -20307,7 +20307,7 @@ function App({usuario, onSalir}){
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
         {tab==="pedidos" && <Pedidos pedidos={pedidos} toast={show}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
-        {tab==="midia" && <MiDia toast={show}/>}
+        {tab==="midia" && <MiDia toast={show} usuario={usuario}/>}
         {tab==="boveda" && <Boveda toast={show} yo="Daniel Ríos (Freelance)"/>}
         {tab==="verificacion" && <Verificacion toast={show} yo="Daniel Ríos (Freelance)"/>}
         {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
