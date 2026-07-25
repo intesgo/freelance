@@ -3696,6 +3696,42 @@ function Portafolio({ modo, miSector, miDistribuidor }){
   );
 }
 
+/* b350 · Aviso de fallos abiertos: apenas Richard abre la app, si hay reportes
+   FA- sin resolver aparece la banda roja con el conteo. Con sesión; sin sesión
+   o sin reportes, no ocupa espacio. */
+function BandaFallosAbiertos(){
+  const [n,setN]=useState(0);
+  const [urg,setUrg]=useState(0);
+  useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        if(!window.SB) return;
+        const { data } = await window.SB.auth.getSession();
+        if(!data || !data.session) return;
+        const { data:fs } = await window.SB.from("fallos")
+          .select("fallo_id,prioridad,estado").in("estado",["abierto","en_revision"]);
+        if(!vivo || !fs) return;
+        setN(fs.length);
+        setUrg(fs.filter(f=>f.prioridad==="urgente").length);
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  if(!n) return null;
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:10,background:"#FBE9E4",
+      border:"1px solid #E8C4B8",borderRadius:13,padding:"11px 14px",marginBottom:12}}>
+      <span style={{fontSize:18,flexShrink:0}}>🚨</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:800,fontSize:13.5,color:"#8C2E1E"}}>
+          {n===1?"1 problema reportado":n+" problemas reportados"} sin resolver{urg?" · "+urg+" urgente"+(urg===1?"":"s"):""}</div>
+        <div style={{fontSize:11.5,color:"#A0574A"}}>Míralos en el sistema web → Fallos, o pídeme resolverlos en la próxima sesión.</div>
+      </div>
+    </div>
+  );
+}
+
 function Inicio({go, irCliente, irProducto, irFactura}){
   const [verVisitas,setVerVisitas]=useState(false);
   useModal(verVisitas, React.useCallback(()=>setVerVisitas(false),[]));
@@ -3739,6 +3775,7 @@ function Inicio({go, irCliente, irProducto, irFactura}){
     <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted,#8B9490)",
       margin:"0 0 10px",letterSpacing:".02em"}}>
       v{VERSION.n} · {VERSION.fecha}</div>
+    <BandaFallosAbiertos/>
     {/* ── Buscador universal ── */}
     <div className="ss" style={{marginBottom:qGlobal?10:14}}>
       <div className="box"><span className="mag">⌕</span>
@@ -4928,7 +4965,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"349", fecha:"25 jul 2026", desc:"Sistema de fallos etapa 1: Reportar un problema en Ajustes-Datos, con cola sin conexion y auditoria automatica" };
+const VERSION = { n:"350", fecha:"25 jul 2026", desc:"Banda roja en Inicio con el conteo de fallos abiertos (aviso al freelance sin abrir sistema-web)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
