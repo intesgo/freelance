@@ -1230,7 +1230,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"156", fecha:"25 jul 2026", desc:"Avisos al telefono: activalos en Ajustes-Avisos y recibe lo que te toca aunque la app este cerrada" };
+const VERSION = { n:"157", fecha:"25 jul 2026", desc:"Mensajes: chat real con el freelance (texto, foto y audio) en tiempo real" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -10254,6 +10254,243 @@ function TarjetaAvisosTelefono({ avisar }){
   );
 }
 
+/* ═════ CHAT DEL EQUIPO · pantalla para las apps del celular ═════
+   Conversaciones reales entre las personas del padrón (misma tabla que el
+   sistema web, chat_mensajes). Llegan en tiempo real, con fotos y audios en
+   depósito privado. Sin sesión, la pantalla lo dice con honestidad.
+   Estilos en línea a propósito: así se ve igual en las 5 apps. */
+function ChatEquipo({ usuario, toast }){
+  const [miUsr,setMiUsr]=useState(null);
+  const [contactos,setContactos]=useState([]);
+  const [msgs,setMsgs]=useState([]);
+  const [sel,setSel]=useState(null);
+  const [txt,setTxt]=useState("");
+  const [estado,setEstado]=useState("cargando");   /* cargando | vivo | sin-sesion */
+  const [grabando,setGrabando]=useState(false);
+  const [enviando,setEnviando]=useState(false);
+  const recRef=React.useRef(null), iniRef=React.useRef(0), hiloRef=React.useRef(null);
+  const ICONO={ freelance:"🌾", admin:"🛡️", subcomisionista:"🧑‍💼", socio:"🤝",
+    proveedor:"🏭", transportista:"🚛", logistica:"🗺️", financiero:"🧮" };
+  const ROL={ freelance:"Freelance", admin:"Administración", subcomisionista:"Subcomisionista",
+    socio:"Socio comercial", proveedor:"Proveedor", transportista:"Transportista",
+    logistica:"Logística", financiero:"Contadora" };
+  const traducir=(m,yo)=>({ id:m.msg_id, con: m.de_usr===yo ? m.para_usr : m.de_usr,
+    mio: m.de_usr===yo, aviso: m.tipo==="aviso", tipo:m.tipo, texto:m.texto||"",
+    adjunto:m.adjunto||null, hora:String(m.creado||"").slice(11,16),
+    fecha:String(m.creado||"").slice(0,10), leido:!!m.leido });
+
+  React.useEffect(()=>{
+    let vivo=true, canal=null;
+    (async()=>{
+      try{
+        if(!window.SB){ if(vivo) setEstado("sin-sesion"); return; }
+        const { data:s } = await window.SB.auth.getSession();
+        if(!vivo) return;
+        if(!s || !s.session){ setEstado("sin-sesion"); return; }
+        const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).maybeSingle();
+        if(!vivo) return;
+        if(!yo){ setEstado("sin-sesion"); return; }
+        setMiUsr(yo.usr_id);
+        const [{ data:us }, { data:ms }] = await Promise.all([
+          window.SB.from("usuarios").select("usr_id,nombre,rol,activo").neq("usr_id", yo.usr_id),
+          window.SB.from("chat_mensajes").select("*").order("creado").limit(400),
+        ]);
+        if(!vivo) return;
+        setContactos((us||[]).filter(u=>u.activo!==false).map(u=>({
+          id:u.usr_id, nombre:u.nombre, rol:ROL[u.rol]||u.rol, ico:ICONO[u.rol]||"👤" })));
+        setMsgs((ms||[]).map(m=>traducir(m, yo.usr_id)));
+        setEstado("vivo");
+        canal = window.SB.channel("chat-app")
+          .on("postgres_changes", { event:"INSERT", schema:"public", table:"chat_mensajes" },
+            (ev)=>{ const m=traducir(ev.new, yo.usr_id);
+              setMsgs(prev => prev.some(x=>x.id===m.id) ? prev : [...prev, m]); })
+          .subscribe();
+      }catch(e){ if(vivo) setEstado("sin-sesion"); }
+    })();
+    return ()=>{ vivo=false; try{ if(canal) window.SB.removeChannel(canal); }catch(e){} };
+  },[]);
+  React.useEffect(()=>{ if(hiloRef.current) hiloRef.current.scrollTop=hiloRef.current.scrollHeight; },[msgs,sel]);
+  /* el botón atrás cierra la conversación — solo en las apps que lo tienen */
+  const usarRetro = (typeof useRetroceso === "function") ? useRetroceso : function(){};
+  usarRetro(()=>{ if(sel){ setSel(null); return true; } return false; });
+
+  const noLeidos=(cid)=>msgs.filter(m=>m.con===cid && !m.mio && !m.leido).length;
+  const ultimo=(cid)=>msgs.filter(m=>m.con===cid).slice(-1)[0];
+  const abrir=async(cid)=>{
+    setSel(cid);
+    setMsgs(prev=>prev.map(m=>m.con===cid && !m.mio ? {...m, leido:true} : m));
+    try{ await window.SB.from("chat_mensajes").update({leido:true})
+      .eq("de_usr", cid).eq("para_usr", miUsr).eq("leido", false); }catch(e){}
+  };
+  const mandar=async(tipo, extra)=>{
+    if(enviando) return false;
+    setEnviando(true);
+    const fila={ msg_id:"CH-"+new Date().getTime()+"-"+Math.floor(Math.random()*1000),
+      org_id:"ORG-001", de_usr:miUsr, para_usr:sel, tipo,
+      texto:(extra&&extra.texto)||null, adjunto:(extra&&extra.adjunto)||null, es_demo:false };
+    const { error } = await window.SB.from("chat_mensajes").insert(fila);
+    setEnviando(false);
+    if(error){ toast && toast("No se pudo enviar: "+(error.message||"error")); return false; }
+    setMsgs(prev => prev.some(x=>x.id===fila.msg_id) ? prev : [...prev,
+      { id:fila.msg_id, con:sel, mio:true, aviso:false, tipo, texto:fila.texto||"",
+        adjunto:fila.adjunto, hora:new Date().toTimeString().slice(0,5),
+        fecha:new Date().toISOString().slice(0,10), leido:false }]);
+    return true;
+  };
+  const enviarTexto=async()=>{
+    const t=txt.trim(); if(!t) return;
+    setTxt("");
+    await mandar("texto", { texto:t });
+  };
+  const enviarFoto=async(f)=>{
+    if(!f) return;
+    if(f.size > 8*1024*1024){ toast && toast("La foto supera 8 MB."); return; }
+    try{
+      const ext=((f.name.match(/\.[^.]+$/)||[".jpg"])[0]).toLowerCase();
+      const ruta=miUsr+"/"+new Date().getTime()+ext;
+      const { error } = await window.SB.storage.from("chat-adjuntos").upload(ruta, f, { contentType:f.type||undefined });
+      if(error){ toast && toast("No se pudo subir la foto."); return; }
+      await mandar("imagen", { adjunto:ruta });
+    }catch(e){ toast && toast("No se pudo enviar la foto."); }
+  };
+  const alternarAudio=async()=>{
+    if(grabando){ try{ recRef.current && recRef.current.stop(); }catch(e){} setGrabando(false); return; }
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({ audio:true });
+      const rec=new MediaRecorder(stream);
+      const trozos=[];
+      rec.ondataavailable=e=>trozos.push(e.data);
+      rec.onstop=async()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        const seg=Math.max(1, Math.round((new Date().getTime()-iniRef.current)/1000));
+        const dur=Math.floor(seg/60)+":"+String(seg%60).padStart(2,"0");
+        const blob=new Blob(trozos, { type: rec.mimeType || "audio/webm" });
+        try{
+          const ruta=miUsr+"/"+new Date().getTime()+".webm";
+          const { error } = await window.SB.storage.from("chat-adjuntos").upload(ruta, blob, { contentType:"audio/webm" });
+          if(error){ toast && toast("No se pudo subir el audio."); return; }
+          await mandar("audio", { adjunto:ruta, texto:dur });
+        }catch(e){ toast && toast("No se pudo enviar el audio."); }
+      };
+      iniRef.current=new Date().getTime(); recRef.current=rec; rec.start(); setGrabando(true);
+    }catch(e){ toast && toast("Permite el micrófono para grabar."); }
+  };
+
+  const VERDE="#2E7D52", LINEA="#E2E8E2", GRIS="#6B7A70";
+  const TIT={ fontSize:21, fontWeight:800, margin:"0 0 4px" };
+  const NOTA={ fontSize:13, color:GRIS, lineHeight:1.5, background:"#F4F7F4",
+    border:"1px solid "+LINEA, borderRadius:12, padding:"14px 15px" };
+  const TARJETA={ background:"#fff", border:"1px solid "+LINEA, borderRadius:14 };
+  if(estado==="cargando") return (<><div style={TIT}>Mensajes</div><div style={NOTA}>Abriendo tus conversaciones…</div></>);
+  if(estado==="sin-sesion") return (<>
+    <div style={TIT}>Mensajes</div>
+    <div style={NOTA}>Entra con tu cuenta desde el portal para chatear con tu equipo.
+      Los mensajes viajan entre el sistema web y las apps, en tiempo real.</div>
+  </>);
+
+  if(!sel) return (<>
+    <div style={{...TIT,marginBottom:2}}>Mensajes</div>
+    <div style={{fontSize:12.5,color:GRIS}}>Tu equipo · en tiempo real
+      {" "}<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:10.5,
+        fontWeight:700,background:"rgba(28,122,68,.13)",color:"#1c7a44"}}>🟢 En vivo</span></div>
+    <div style={{height:12}} />
+    {contactos.map(c=>{
+      const u=ultimo(c.id), n=noLeidos(c.id);
+      return (
+        <div key={c.id} style={{...TARJETA,padding:"12px 14px",marginBottom:8,display:"flex",
+          alignItems:"center",gap:12,cursor:"pointer"}} onClick={()=>abrir(c.id)}>
+          <span style={{width:42,height:42,borderRadius:"50%",background:"#E4F1E9",display:"flex",
+            alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{c.ico}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:14}}>{c.nombre}
+              <span style={{fontWeight:600,fontSize:11,color:GRIS}}> · {c.rol}</span></div>
+            <div style={{fontSize:12,color:GRIS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {u ? (u.tipo==="imagen"?"📷 Foto":u.tipo==="audio"?"🎤 Audio":u.texto) : "Sin mensajes aún"}</div>
+          </div>
+          {n>0 && <span style={{minWidth:22,padding:"2px 7px",borderRadius:999,background:VERDE,
+            color:"#fff",fontSize:11,fontWeight:800,textAlign:"center",flexShrink:0}}>{n}</span>}
+        </div>
+      );
+    })}
+    {!contactos.length && <div style={NOTA}>Aún no hay más personas con cuenta en el sistema.
+      Cuando el equipo tenga la suya, aparecerán aquí.</div>}
+  </>);
+
+  const c=contactos.find(x=>x.id===sel) || { nombre:sel, rol:"—", ico:"👤" };
+  const hilo=msgs.filter(m=>m.con===sel);
+  return (<>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+      <button onClick={()=>setSel(null)} style={{padding:"7px 13px",borderRadius:10,border:"1px solid "+LINEA,background:"#fff",fontSize:15,fontWeight:800}}>‹</button>
+      <span style={{width:34,height:34,borderRadius:"50%",background:"#E4F1E9",display:"flex",
+        alignItems:"center",justifyContent:"center",fontSize:17}}>{c.ico}</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:800,fontSize:14.5}}>{c.nombre}</div>
+        <div style={{fontSize:11.5,color:GRIS}}>{c.rol}</div>
+      </div>
+    </div>
+    <div ref={hiloRef} style={{background:"#F4F7F4",border:"1px solid "+LINEA,borderRadius:14,
+      padding:"10px 10px",height:"52vh",overflowY:"auto",marginBottom:10}}>
+      {!hilo.length && <div style={{textAlign:"center",color:GRIS,fontSize:12.5,padding:"20px 10px"}}>
+        Escríbele a {c.nombre}. Le llega al instante, esté en la web o en su app.</div>}
+      {hilo.map(m=>{
+        if(m.aviso) return (
+          <div key={m.id} style={{textAlign:"center",margin:"9px 0"}}>
+            <span style={{display:"inline-block",background:"#EEF1F4",color:GRIS,borderRadius:10,
+              padding:"6px 11px",fontSize:11.5,maxWidth:"85%"}}>🔔 {m.texto} · {m.hora}</span></div>
+        );
+        return (
+          <div key={m.id} style={{display:"flex",justifyContent:m.mio?"flex-end":"flex-start",margin:"6px 0"}}>
+            <div style={{maxWidth:"80%",background:m.mio?VERDE:"#fff",color:m.mio?"#fff":"#1E1B14",
+              border:m.mio?"none":"1px solid "+LINEA,
+              borderRadius:m.mio?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"9px 12px"}}>
+              {m.adjunto && <AdjuntoChatApp ruta={m.adjunto} tipo={m.tipo} dur={m.texto} mio={m.mio}/>}
+              {m.texto && m.tipo!=="audio" && <p style={{margin:0,fontSize:13.5,lineHeight:1.4}}>{m.texto}</p>}
+              <p style={{margin:"3px 0 0",fontSize:10,opacity:.7,textAlign:"right"}}>{m.hora}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    <div style={{display:"flex",gap:7,alignItems:"center"}}>
+      <label style={{width:40,height:40,borderRadius:11,border:"1px solid "+LINEA,display:"flex",
+        alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0,cursor:"pointer",background:"#fff"}}>📷
+        <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+          onChange={e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(f) enviarFoto(f); }}/>
+      </label>
+      <button onClick={alternarAudio} style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,
+        background:grabando?"#B5432C":"#EFF2EF",color:grabando?"#fff":"#1E1B14",fontSize:17}}>
+        {grabando?"⏹":"🎤"}</button>
+      <input value={txt} onChange={e=>setTxt(e.target.value)}
+        onKeyDown={e=>{ if(e.key==="Enter") enviarTexto(); }}
+        placeholder="Escribe un mensaje…"
+        style={{flex:1,minWidth:0,padding:"11px 13px",borderRadius:11,border:"1px solid "+LINEA,fontSize:14}}/>
+      <button onClick={enviarTexto} disabled={enviando} style={{padding:"11px 16px",borderRadius:11,border:"none",
+        background:VERDE,color:"#fff",fontWeight:800,fontSize:14,flexShrink:0}}>Enviar</button>
+    </div>
+  </>);
+}
+/* Los adjuntos viven en un depósito privado: enlace firmado por 1 hora. */
+function AdjuntoChatApp({ ruta, tipo, dur, mio }){
+  const [url,setUrl]=useState(null);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        const { data } = await window.SB.storage.from("chat-adjuntos").createSignedUrl(ruta, 3600);
+        if(vivo && data && data.signedUrl) setUrl(data.signedUrl);
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; };
+  },[ruta]);
+  if(tipo==="audio") return url
+    ? <audio controls src={url} style={{width:200,height:36,marginBottom:4}} />
+    : <div style={{fontSize:12.5,padding:"3px 0"}}>🎤 Audio{dur?" · "+dur:""} · abriendo…</div>;
+  return url
+    ? <img src={url} alt="foto" style={{maxWidth:190,width:"100%",borderRadius:9,display:"block",marginBottom:5}} />
+    : <div style={{width:170,height:100,borderRadius:9,background:mio?"rgba(255,255,255,.15)":"#EFF2EF",
+        display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:5}}>📷</div>;
+}
+
 function Ajustes({usuario, onSalir, tema, setTema, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif}){
   const [editPerfil,setEditPerfil]=useState(false);
   useRetroceso(()=>{
@@ -11603,6 +11840,7 @@ function App(){
         </div>
       </div>
       <div className="body">
+        {tab==="mensajes" && <ChatEquipo usuario={usuario} toast={show}/>}
         {tab==="inicio" && <Inicio go={navegar}/>}
         {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado}
           onGuardarPedido={(data)=>{ guardarPedido(data); irAPedidosGuardado(); }}/>}
@@ -11707,6 +11945,7 @@ function App(){
                   ["boveda","🔐","#EFEAF7","Mi bóveda","Cheques en tu poder"],
                 ]],
                 ["cuenta","Cuenta", [
+                  ["mensajes","💬","#E4F1E9","Mensajes","Chat con el freelance"],
                   ["cuenta","🏆","#E9EEE9","Mi cuenta","Metas y logros"],
                   ["ajustes","⚙️","#EEF1F5","Ajustes","Colores, impresora y avisos"],
                 ]],
