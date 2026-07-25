@@ -423,6 +423,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  // Cliente Supabase (anon). Solo se usa para restaurar la sesión del portal.
+  window.SB = (function(){
+    try{
+      return window.supabase.createClient(
+        "https://ztpwtddrblfvcnnhbevq.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg"
+      );
+    }catch(e){ console.warn("Supabase no inicializó:", e); return null; }
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -494,7 +506,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"16", fecha:"24 jul 2026", desc:"Contraste: maize-deep del tema campo sube a 3.2 sobre papel (accesibilidad)" };
+const VERSION = { n:"17", fecha:"25 jul 2026", desc:"Restauracion de sesion del portal: con sesion entra directo con el nombre real" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -897,6 +909,29 @@ function PantallaLogin({ onEntrar }){
   const [tel, setTel] = useState(""); const [pla, setPla] = useState("");
   const [huellaReg, setHuellaReg] = useState(huellaGuardada());
   const bio = puedeHuellaReal();
+
+  /* b17 · Restauración de sesión (patrón fc b335): con sesión del portal se
+     entra directo con el nombre real, sin pedir usuario. */
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        if (!window.SB) return;
+        const { data } = await window.SB.auth.getSession();
+        const s = (data && data.session) || null;
+        if (!vivo || !s) return;
+        let fila = null;
+        try {
+          const { data: u } = await window.SB.from("usuarios")
+            .select("nombre").eq("auth_uid", s.user.id).maybeSingle();
+          fila = u || null;
+        } catch (e) {}
+        if (!vivo) return;
+        onEntrar((fila && fila.nombre) || s.user.email, null);
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
 
   const subtitulo = vista==="recurrente" ? "Acceso de transportista"
     : vista==="nuevo" ? "Registro por enlace de ruta" : "Conectamos el campo con tu negocio";

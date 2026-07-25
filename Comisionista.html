@@ -1182,6 +1182,18 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FREELANCE">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  // Cliente Supabase (anon). Solo se usa para restaurar la sesión del portal.
+  window.SB = (function(){
+    try{
+      return window.supabase.createClient(
+        "https://ztpwtddrblfvcnnhbevq.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg"
+      );
+    }catch(e){ console.warn("Supabase no inicializó:", e); return null; }
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -1218,7 +1230,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"153", fecha:"24 jul 2026", desc:"Contraste: maize-deep del tema campo a 3.2 sobre papel; comision a-confirmar en deep" };
+const VERSION = { n:"154", fecha:"25 jul 2026", desc:"Restauracion de sesion del portal: con sesion entra directo, sin pedir usuario" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1686,6 +1698,33 @@ function PantallaLogin({ onAutenticado }) {
   const [focusField, setFocusField]     = useState(null);
 
   const usuarioAuthRef = React.useRef(null);
+
+  /* b154 · Restauración de sesión (patrón fc b335): si ya entraste por el
+     portal, la app no vuelve a pedir usuario — directo a sincronizar. */
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        if (!window.SB) return;
+        const { data } = await window.SB.auth.getSession();
+        const s = (data && data.session) || null;
+        if (!vivo || !s) return;
+        let fila = null;
+        try {
+          const { data: u } = await window.SB.from("usuarios")
+            .select("nombre,rol").eq("auth_uid", s.user.id).maybeSingle();
+          fila = u || null;
+        } catch (e) {}
+        if (!vivo) return;
+        usuarioAuthRef.current = { nombre: (fila && fila.nombre) || s.user.email,
+          codigo: "SC1", zona: "Sesión real", rol: "subcomisionista", real: true };
+        setPaso("sync");
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
+
+
   const syncRef        = React.useRef(false);
   const pwdRef         = React.useRef(null);
 
