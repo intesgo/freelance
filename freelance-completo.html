@@ -3696,6 +3696,24 @@ function Portafolio({ modo, miSector, miDistribuidor }){
   );
 }
 
+/* b351 · AU HONESTO para Mi Día: con sesión, el código sale de au_codigo() y el
+   evento queda en la bitácora real; sin sesión, el código dice DEMO a la vista
+   (nunca más un AU- inventado que parece real). */
+const auDemo=()=>"AU-DEMO-"+Math.floor(1000+Math.random()*9000);
+const esAuDemo=(c)=>String(c||"").indexOf("AU-DEMO")===0;
+async function auReal(tabla, operacion, regId, valor){
+  try{
+    if(!window.SB) return null;
+    const { data } = await window.SB.auth.getSession();
+    if(!data || !data.session) return null;
+    const { data:cod } = await window.SB.rpc("au_codigo");
+    if(!cod) return null;
+    await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+      usuario:data.session.user.email, tabla, operacion, registro_id:regId, valor_nuevo:valor });
+    return cod;
+  }catch(e){ return null; }
+}
+
 /* b350 · Aviso de fallos abiertos: apenas Richard abre la app, si hay reportes
    FA- sin resolver aparece la banda roja con el conteo. Con sesión; sin sesión
    o sin reportes, no ocupa espacio. */
@@ -4965,7 +4983,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"350", fecha:"25 jul 2026", desc:"Banda roja en Inicio con el conteo de fallos abiertos (aviso al freelance sin abrir sistema-web)" };
+const VERSION = { n:"351", fecha:"25 jul 2026", desc:"Mi Dia con auditoria honesta: cierre, cuadre y anulacion piden AU real a la base; sin sesion el codigo dice DEMO" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6619,7 +6637,7 @@ function correrCorteAutomatico(){
     if(d.estado==="abierto"){
       d.estado="cerrado_auto";
       d.cerradoEn=CONFIG_CIERRE.hora;
-      d.au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+      d.au=auDemo();   /* historial demo: rotulado, no finge ser real */
       cerrados.push(d.fechaTxt);
     }
   });
@@ -6627,7 +6645,7 @@ function correrCorteAutomatico(){
   if(CIERRE_HOY.estado==="abierto" && ahora>=CONFIG_CIERRE.hora){
     CIERRE_HOY.estado="cerrado_auto";
     CIERRE_HOY.cerradoEn=CONFIG_CIERRE.hora;
-    CIERRE_HOY.au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+    CIERRE_HOY.au=auDemo();
     cerrados.push("hoy");
   }
   return cerrados;
@@ -8412,10 +8430,10 @@ function MiDia({toast, usuario}){
   /* ANULACIÓN DE COBRO: el recibo no se borra, se marca. La plata vuelve a la cartera
      del cliente quitando los abonos que este recibo aplicó. Todo auditado con AU-.
      El cheque protestado NO pasa por aquí: ese cobro sí ocurrió (se trata aparte). */
-  const ejecutarAnulacion=()=>{
+  const ejecutarAnulacion=async()=>{
     const r = anulando;
     if(!r) return;
-    const au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
+    const au = (await auReal("mi_dia","ANULAR_RECIBO",r.nRecibo,{motivo:motAnu,monto:r.monto,cli:r.cli})) || auDemo();
     const hora = new Date().toTimeString().slice(0,5);
     /* revertir en cartera: quitar los abonos que dejó este recibo */
     let saldoAntes=0, saldoDespues=0;
@@ -8452,19 +8470,21 @@ function MiDia({toast, usuario}){
     };
     setAnulando(null); setMotAnu(""); setComAnu("");
     setAnulado(constancia); setTick(t=>t+1);
-    toast(`Recibo ${r.nRecibo} anulado · auditado ${au}`);
+    toast(esAuDemo(au) ? `Recibo ${r.nRecibo} anulado (demo · sin sesión no va a la bitácora)` : `Recibo ${r.nRecibo} anulado · auditado ${au}`);
   };
 
-  const cerrarJornada=(motivo)=>{
+  const cerrarJornada=async(motivo)=>{
     CIERRE_HOY.confirmado = true;
     CIERRE_HOY.estado = efePend>0 ? "cerrado_obs" : "cerrado";
     CIERRE_HOY.cerradoEn = new Date().toTimeString().slice(0,5);
     CIERRE_HOY.obs = motivo||null;
-    CIERRE_HOY.au = "AU-260612-"+Math.floor(1000+Math.random()*9000);
+    CIERRE_HOY.au = (await auReal("mi_dia","CIERRE_JORNADA","hoy",
+      {estado:CIERRE_HOY.estado, pendiente_usd:efePend, obs:CIERRE_HOY.obs})) || auDemo();
     setCerrando(false); setMotivoCie(""); setTick(t=>t+1);
+    const sello = esAuDemo(CIERRE_HOY.au) ? "(demo · sin sesión)" : `auditado ${CIERRE_HOY.au}`;
     toast(efePend>0
-      ? `Jornada cerrada CON PENDIENTES · ${money(efePend)} sin depositar · auditado ${CIERRE_HOY.au}`
-      : `Jornada cerrada sin pendientes ✓ · auditado ${CIERRE_HOY.au}`);
+      ? `Jornada cerrada CON PENDIENTES · ${money(efePend)} sin depositar · ${sello}`
+      : `Jornada cerrada sin pendientes ✓ · ${sello}`);
   };
 
   return (<>
@@ -8519,9 +8539,10 @@ function MiDia({toast, usuario}){
             </div>
           )}
           {!soloLect && auto && !CIERRE_HOY.confirmado && (
-            <button className="cta" style={{marginTop:12}} onClick={()=>{
+            <button className="cta" style={{marginTop:12}} onClick={async()=>{
               CIERRE_HOY.confirmado=true; setTick(t=>t+1);
-              toast(`Cuadre confirmado · auditado AU-260612-${Math.floor(1000+Math.random()*9000)}`);
+              const au=(await auReal("mi_dia","CUADRE_CONFIRMADO","hoy",{}))||auDemo();
+              toast(esAuDemo(au) ? "Cuadre confirmado (demo · sin sesión)" : `Cuadre confirmado · auditado ${au}`);
             }}>✓ Confirmar mi cuadre</button>
           )}
         </div>
