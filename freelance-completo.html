@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"337", fecha:"25 jul 2026", desc:"Perfil del negocio: indicador de DONDE se guarda (base con sesion / solo telefono sin sesion). Datos reales de Richard sembrados en organizaciones (AU-260725-0093)" };
+const VERSION = { n:"338", fecha:"25 jul 2026", desc:"Cierre diario persistente: con sesion precarga las 5 piladoras REALES en Acordado con, guarda en config_sistema con AU- real (au_codigo); sin sesion guarda en el telefono. Se elimino el codigo AU inventado" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16107,8 +16107,64 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       if(Array.isArray(g)&&g.length===DESTINATARIOS_RECIBO.length) return g.map(d=>({...d})); }catch(e){}
     return DESTINATARIOS_RECIBO.map(d=>({...d}));
   });
-  const [horaCie,setHoraCie]=useState(CONFIG_CIERRE.hora);       /* hora del corte automático */
-  const [acuerdoCie,setAcuerdoCie]=useState(CONFIG_CIERRE.acordadoCon);
+  /* ── b338 · Cierre diario PERSISTENTE (reporte de Richard: salían las piladoras demo).
+     "Acordado con" es una NOTA de con quién pactaste la hora; con sesión se precarga con
+     las 5 piladoras REALES y todo se guarda en el teléfono + config_sistema (clave
+     cierre_diario) con auditoría AU- real vía au_codigo(). Antes: nada persistía y el
+     código AU era un número inventado al azar. ── */
+  const [horaCie,setHoraCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.hora) return g.hora;}catch(e){} return CONFIG_CIERRE.hora; });
+  const [acuerdoCie,setAcuerdoCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.acordadoCon!=null) return g.acordadoCon;}catch(e){} return CONFIG_CIERRE.acordadoCon; });
+  React.useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    (async()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!activo || !s || !s.session) return;
+        const [{ data:cfg }, { data:provs }] = await Promise.all([
+          window.SB.from("config_sistema").select("valor").eq("clave","cierre_diario").limit(1),
+          window.SB.from("proveedores").select("nombre").eq("es_demo",false).order("nombre"),
+        ]);
+        if(!activo) return;
+        if(cfg && cfg[0] && cfg[0].valor){
+          const v=cfg[0].valor;
+          if(v.hora) setHoraCie(v.hora);
+          if(v.acordado_con!=null) setAcuerdoCie(v.acordado_con);
+          try{ localStorage.setItem("freelance_cierre", JSON.stringify({hora:v.hora, acordadoCon:v.acordado_con})); }catch(e2){}
+        } else if(provs && provs.length){
+          /* aún no hay config en la base: si el texto sigue siendo el demo, precarga las REALES */
+          setAcuerdoCie(prev => (!prev || prev===CONFIG_CIERRE.acordadoCon) ? provs.map(p=>p.nombre).join(" · ") : prev);
+        }
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  const aplicarCierre=async()=>{
+    const acordado=acuerdoCie.trim();
+    CONFIG_CIERRE.hora=horaCie; CONFIG_CIERRE.acordadoCon=acordado;
+    try{ localStorage.setItem("freelance_cierre", JSON.stringify({hora:horaCie, acordadoCon:acordado})); }catch(e){}
+    try{
+      if(window.SB && window.SB.auth){
+        const { data:s } = await window.SB.auth.getSession();
+        if(s && s.session){
+          const valor={ hora:horaCie, acordado_con:acordado };
+          const { error } = await window.SB.from("config_sistema").upsert({ clave:"cierre_diario", valor,
+            descripcion:"Hora del corte automático de la jornada y con quién se acordó (app de campo)" });
+          if(!error){
+            let au=null;
+            try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
+            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
+              usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
+              registro_id:"cierre_diario", valor_nuevo:valor }); }catch(e3){} }
+            CONFIG_CIERRE.au=au;
+            toast("Corte diario a las "+horaCie+" · guardado en la base"+(au?" · "+au:""));
+            return;
+          }
+        }
+      }
+    }catch(e){}
+    toast("Corte diario a las "+horaCie+" · guardado en este teléfono");
+  };
   const guardarDest=()=>{
     destRec.forEach((d,i)=>{ DESTINATARIOS_RECIBO[i]={...d}; });
     try{ localStorage.setItem("freelance_dest_recibo", JSON.stringify(destRec)); }catch(e){}   /* b336 */
@@ -16146,11 +16202,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
           <input value={acuerdoCie} placeholder="Proveedores" onChange={e=>setAcuerdoCie(e.target.value)}
             style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
       </div>
-      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
-        CONFIG_CIERRE.hora=horaCie; CONFIG_CIERRE.acordadoCon=acuerdoCie.trim();
-        CONFIG_CIERRE.au="AU-260612-"+Math.floor(1000+Math.random()*9000);
-        toast(`Corte diario a las ${horaCie} · auditado ${CONFIG_CIERRE.au}`);
-      }}>Aplicar hora de cierre</button>
+      <button className="ghost" style={{width:"100%",marginTop:10}} onClick={aplicarCierre}>Aplicar hora de cierre</button>
     </div>
 
     <div className="ficha-sec">Recibos de cobro</div>
