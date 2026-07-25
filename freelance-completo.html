@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"347", fecha:"25 jul 2026", desc:"Limpieza de Ajustes: oculta la tarjeta Preguntas frecuentes del asistente y se elimina el chip informativo Con tu sesion de la tarjeta Empresa" };
+const VERSION = { n:"348", fecha:"25 jul 2026", desc:"Cambiar contrasena conectado a la cuenta real: verifica la actual, cambia en Auth y deja AU- real en la bitacora" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16080,14 +16080,44 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
   const [abrirClave,setAbrirClave]=useState(false);
   const [clAct,setClAct]=useState(""), [clNue,setClNue]=useState(""), [clRep,setClRep]=useState("");
   const [clVer,setClVer]=useState(false);
+  const [clGuardando,setClGuardando]=useState(false);
   const fzaCl = fuerzaClaveF(clNue);
   const cerrarClave=()=>{ setAbrirClave(false); setClAct(""); setClNue(""); setClRep(""); setClVer(false); };
-  const guardarNuevaClave=()=>{
+  const guardarNuevaClave=async()=>{
+    if(clGuardando) return;
     if(!clAct.trim()){ toast("Escribe tu contraseña actual"); return; }
     if(!fzaCl.valida){ toast("La nueva contraseña necesita "+fzaCl.falta.join(", ")); return; }
     if(clNue!==clRep){ toast("La nueva contraseña y su repetición no coinciden"); return; }
     if(clAct===clNue){ toast("La nueva contraseña debe ser distinta a la actual"); return; }
     if(claveRepetidaF(clNue)){ toast("Ya usaste esa contraseña antes. Elige una nueva."); return; }
+    /* b348 · Con sesión real el cambio va a la CUENTA (Supabase Auth):
+       1) se verifica la clave actual re-entrando, 2) se cambia,
+       3) queda el evento en la bitácora con AU- real (jamás la contraseña). */
+    let sesion=null;
+    try{ if(window.SB){ const {data}=await window.SB.auth.getSession(); sesion=(data&&data.session)||null; } }catch(e){}
+    if(sesion && sesion.user && sesion.user.email){
+      setClGuardando(true);
+      try{
+        const correo=sesion.user.email;
+        const {error:e1}=await window.SB.auth.signInWithPassword({email:correo, password:clAct});
+        if(e1){ toast("La contraseña actual no es correcta"); setClGuardando(false); return; }
+        const {error:e2}=await window.SB.auth.updateUser({password:clNue});
+        if(e2){ toast("No se pudo cambiar: "+(e2.message||"error")); setClGuardando(false); return; }
+        guardarClaveF(hashClaveF(clNue));   /* historial local: regla de no repetir las últimas 3 */
+        let au=null;
+        try{
+          const {data:cod}=await window.SB.rpc("au_codigo");
+          if(cod){ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+            usuario:correo, tabla:"auth", operacion:"CAMBIO_CLAVE", registro_id:correo,
+            valor_nuevo:{nota:"Clave cambiada por el usuario desde la app"} }); au=cod; }
+        }catch(e){}
+        cerrarClave();
+        toast("Contraseña de tu cuenta actualizada ✓"+(au?" · "+au:""));
+      }catch(e){ toast("No se pudo cambiar la contraseña. Revisa tu conexión."); }
+      setClGuardando(false);
+      return;
+    }
+    /* Sin sesión: demo local de siempre (no toca la cuenta) */
     guardarClaveF(hashClaveF(clNue));
     const au=nuevoAuClaveF();
     cerrarClave();
@@ -16395,12 +16425,12 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
         {clRep.length>0 && clRep!==clNue && (
           <div className="cl-nota" style={{color:"#B5613C",fontWeight:600}}>No coinciden todavía</div>
         )}
-        <button className="cta" style={{width:"100%",marginTop:6}}
-          onClick={guardarNuevaClave}>Guardar contraseña</button>
+        <button className="cta" style={{width:"100%",marginTop:6}} disabled={clGuardando}
+          onClick={guardarNuevaClave}>{clGuardando?"Guardando…":"Guardar contraseña"}</button>
         <div className="cl-nota" style={{color:"var(--muted)",marginTop:10}}>
           Se guarda cifrada: ni el sistema ni el proveedor pueden verla. No puedes repetir
           tus últimas 3. El cambio queda registrado en la bitácora (solo el evento, nunca
-          la contraseña). Al conectar el sistema, este cambio viajará al servidor.</div>
+          la contraseña). Si entraste con tu correo, se aplica a tu cuenta real al instante.</div>
       </div>
     )}
 
