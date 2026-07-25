@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"348", fecha:"25 jul 2026", desc:"Cambiar contrasena conectado a la cuenta real: verifica la actual, cambia en Auth y deja AU- real en la bitacora" };
+const VERSION = { n:"349", fecha:"25 jul 2026", desc:"Sistema de fallos etapa 1: Reportar un problema en Ajustes-Datos, con cola sin conexion y auditoria automatica" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16007,6 +16007,106 @@ function Novedades({toast, go}){
   </>);
 }
 
+/* ═════ b349 · Sistema de fallos, etapa 1 (25 jul 2026) ═════
+   "Reportar un problema": el reporte viaja a la tabla fallos de la base con
+   sesión; sin internet o sin sesión queda en cola en el teléfono y se envía
+   solo al volver. La auditoría AU- la pone la base (gatillo tg_aud_fallos). */
+const FALLOS_COLA_KEY="freelance_fallos_pendientes";
+function fallosEnCola(){ try{ return JSON.parse(localStorage.getItem(FALLOS_COLA_KEY)||"[]"); }catch(e){ return []; } }
+function guardarColaFallos(l){ try{ localStorage.setItem(FALLOS_COLA_KEY, JSON.stringify(l)); }catch(e){} }
+async function siguienteFalloId(){
+  const { data } = await window.SB.from("fallos").select("fallo_id").order("fallo_id",{ascending:false}).limit(1);
+  const ult=(data&&data[0]&&data[0].fallo_id)||"FA-0000";
+  const n=parseInt(String(ult).replace("FA-",""),10)||0;
+  return "FA-"+String(n+1).padStart(4,"0");
+}
+async function enviarFallosEnCola(){
+  const cola=fallosEnCola();
+  if(!cola.length || !window.SB) return 0;
+  try{
+    const { data } = await window.SB.auth.getSession();
+    const s=(data&&data.session)||null;
+    if(!s) return 0;
+    let enviados=0;
+    for(const f of cola){
+      const id=await siguienteFalloId();
+      const { error } = await window.SB.from("fallos").insert({ ...f, fallo_id:id, usuario:f.usuario||s.user.email });
+      if(error) break;
+      enviados++;
+    }
+    if(enviados) guardarColaFallos(cola.slice(enviados));
+    return enviados;
+  }catch(e){ return 0; }
+}
+function TarjetaReportarFallo({toast, usuario}){
+  const [desc,setDesc]=useState("");
+  const [pantalla,setPantalla]=useState("");
+  const [prio,setPrio]=useState("normal");
+  const [enviando,setEnviando]=useState(false);
+  const [ultimo,setUltimo]=useState(null);   /* {id, encola} del último reporte */
+  useEffect(()=>{
+    enviarFallosEnCola().then(n=>{ if(n) toast(n+" reporte(s) guardado(s) sin señal ya viajaron a la base ✓"); });
+  },[]);
+  const reportar=async()=>{
+    if(enviando) return;
+    if(!desc.trim() || desc.trim().length<10){ toast("Cuéntame qué pasó (al menos una frase)."); return; }
+    setEnviando(true);
+    const fila={ app:"freelance-completo", version:"b"+VERSION.n,
+      pantalla:pantalla.trim()||null, descripcion:desc.trim(), prioridad:prio, es_demo:false };
+    let mandado=false;
+    try{
+      if(window.SB){
+        const { data } = await window.SB.auth.getSession();
+        const s=(data&&data.session)||null;
+        if(s){
+          const id=await siguienteFalloId();
+          const { error } = await window.SB.from("fallos").insert({ ...fila, fallo_id:id, usuario:s.user.email });
+          if(!error){ mandado=true; setUltimo({id, encola:false});
+            toast("Reporte "+id+" enviado ✓ El comité lo revisará."); }
+        }
+      }
+    }catch(e){}
+    if(!mandado){
+      const cola=fallosEnCola();
+      cola.push({ ...fila, usuario:(usuario&&usuario.nombre)||null });
+      guardarColaFallos(cola);
+      setUltimo({id:null, encola:true});
+      toast("Sin conexión o sin sesión: quedó guardado en tu teléfono y se enviará solo.");
+    }
+    setDesc(""); setPantalla(""); setPrio("normal");
+    setEnviando(false);
+  };
+  const seg=(v,t)=>(
+    <button key={v} onClick={()=>setPrio(v)} style={{flex:1,padding:"9px 0",borderRadius:10,fontSize:12.5,fontWeight:700,
+      border:"1.5px solid "+(prio===v?"var(--tinta,#1E1B14)":"var(--line,#ddd)"),
+      background:prio===v?"var(--tinta,#1E1B14)":"transparent", color:prio===v?"#fff":"inherit"}}>{t}</button>
+  );
+  return (
+    <div className="fcard" style={{marginBottom:14}}>
+      <div className="cl-lbl">¿Qué pasó?</div>
+      <textarea className="cl-inp" rows={3} value={desc} placeholder="Ej. En Cobranza el total de hoy no cuadra con lo cobrado"
+        style={{width:"100%",resize:"vertical",lineHeight:1.5}} onChange={e=>setDesc(e.target.value)} />
+      <div className="cl-lbl">¿En qué pantalla estabas? (opcional)</div>
+      <input className="cl-inp" style={{width:"100%"}} value={pantalla} placeholder="Ej. Cobranza"
+        onChange={e=>setPantalla(e.target.value)} />
+      <div className="cl-lbl">¿Qué tan grave es?</div>
+      <div style={{display:"flex",gap:8}}>
+        {seg("urgente","🔴 Urgente")}{seg("normal","🟡 Normal")}{seg("baja","🟢 Puede esperar")}
+      </div>
+      <button className="cta" style={{width:"100%",marginTop:12}} disabled={enviando}
+        onClick={reportar}>{enviando?"Enviando…":"📨 Enviar reporte"}</button>
+      {ultimo && !ultimo.encola && (
+        <div className="cl-nota" style={{marginTop:10,color:"var(--muted)"}}>
+          Último reporte: {ultimo.id} · El comité lo diagnostica y te avisa la solución. Todo queda en la bitácora.</div>
+      )}
+      {ultimo && ultimo.encola && (
+        <div className="cl-nota" style={{marginTop:10,color:"var(--muted)"}}>
+          Guardado en el teléfono ({fallosEnCola().length} en cola). Viaja solo cuando haya señal y sesión.</div>
+      )}
+    </div>
+  );
+}
+
 function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande, setFontGrande, toast, prefsNotif, setPrefsNotif, onAbrirPreguntas, go}){
   useRetroceso(()=>{
       if(editPerfil){ setEditPerfil(false); return true; }
@@ -16640,6 +16740,9 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>toast("Sincronizando…")}>🔄 Sincronizar ahora</button>
       <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>toast("Datos locales limpiados")}>🗑️ Limpiar datos locales</button>
     </div>
+
+    <div className="ficha-sec">🚨 ¿Algo falló?</div>
+    <TarjetaReportarFallo toast={toast} usuario={usuario}/>
 
     </>)}
 
