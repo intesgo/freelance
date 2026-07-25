@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"338", fecha:"25 jul 2026", desc:"Cierre diario persistente: con sesion precarga las 5 piladoras REALES en Acordado con, guarda en config_sistema con AU- real (au_codigo); sin sesion guarda en el telefono. Se elimino el codigo AU inventado" };
+const VERSION = { n:"339", fecha:"25 jul 2026", desc:"Cierre diario: confirmacion PERMANENTE de lo guardado en la tarjeta (base/telefono + AU), piladoras sin duplicar en la nota, y sin re-guardar si no hay cambios" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16114,6 +16114,17 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
      código AU era un número inventado al azar. ── */
   const [horaCie,setHoraCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.hora) return g.hora;}catch(e){} return CONFIG_CIERRE.hora; });
   const [acuerdoCie,setAcuerdoCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.acordadoCon!=null) return g.acordadoCon;}catch(e){} return CONFIG_CIERRE.acordadoCon; });
+  /* b339 · Confirmación PERMANENTE del último guardado (el toast era fugaz y Richard
+     no veía si guardó) + deduplicación de piladoras en la nota (su pedido). */
+  const [ultCie,setUltCie]=useState(()=>{ try{const g=JSON.parse(localStorage.getItem("freelance_cierre")||"null"); if(g&&g.donde) return g;}catch(e){} return null; });
+  const dedupPiladoras=(t)=>{
+    const norm=x=>x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+    const vistos=new Set(), out=[];
+    String(t||"").split("·").map(x=>x.trim()).filter(Boolean).forEach(x=>{
+      const k=norm(x); if(!vistos.has(k)){ vistos.add(k); out.push(x); }
+    });
+    return out.join(" · ");
+  };
   React.useEffect(()=>{
     if(!window.SB || !window.SB.auth) return;
     let activo=true;
@@ -16130,7 +16141,9 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
           const v=cfg[0].valor;
           if(v.hora) setHoraCie(v.hora);
           if(v.acordado_con!=null) setAcuerdoCie(v.acordado_con);
-          try{ localStorage.setItem("freelance_cierre", JSON.stringify({hora:v.hora, acordadoCon:v.acordado_con})); }catch(e2){}
+          const u={hora:v.hora, acordadoCon:v.acordado_con, au:v.au||null, donde:"base"};
+          setUltCie(u);
+          try{ localStorage.setItem("freelance_cierre", JSON.stringify(u)); }catch(e2){}
         } else if(provs && provs.length){
           /* aún no hay config en la base: si el texto sigue siendo el demo, precarga las REALES */
           setAcuerdoCie(prev => (!prev || prev===CONFIG_CIERRE.acordadoCon) ? provs.map(p=>p.nombre).join(" · ") : prev);
@@ -16140,29 +16153,37 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     return ()=>{ activo=false; };
   },[]);
   const aplicarCierre=async()=>{
-    const acordado=acuerdoCie.trim();
+    const acordado=dedupPiladoras(acuerdoCie);                      /* sin piladoras repetidas */
+    if(acordado!==acuerdoCie.trim()) setAcuerdoCie(acordado);
+    /* sin cambios respecto a lo último guardado: no re-guardar ni duplicar auditorías */
+    if(ultCie && ultCie.hora===horaCie && (ultCie.acordadoCon||"")===acordado){
+      toast("Sin cambios: ya estaba guardado "+(ultCie.donde==="base"?"en la base":"en este teléfono")+".");
+      return;
+    }
     CONFIG_CIERRE.hora=horaCie; CONFIG_CIERRE.acordadoCon=acordado;
-    try{ localStorage.setItem("freelance_cierre", JSON.stringify({hora:horaCie, acordadoCon:acordado})); }catch(e){}
+    const guardar=(u)=>{ setUltCie(u); try{ localStorage.setItem("freelance_cierre", JSON.stringify(u)); }catch(e){} };
     try{
       if(window.SB && window.SB.auth){
         const { data:s } = await window.SB.auth.getSession();
         if(s && s.session){
-          const valor={ hora:horaCie, acordado_con:acordado };
+          let au=null;
+          try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
+          const valor={ hora:horaCie, acordado_con:acordado, au };
           const { error } = await window.SB.from("config_sistema").upsert({ clave:"cierre_diario", valor,
             descripcion:"Hora del corte automático de la jornada y con quién se acordó (app de campo)" });
           if(!error){
-            let au=null;
-            try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
             if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
               usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
               registro_id:"cierre_diario", valor_nuevo:valor }); }catch(e3){} }
             CONFIG_CIERRE.au=au;
+            guardar({hora:horaCie, acordadoCon:acordado, au, donde:"base"});
             toast("Corte diario a las "+horaCie+" · guardado en la base"+(au?" · "+au:""));
             return;
           }
         }
       }
     }catch(e){}
+    guardar({hora:horaCie, acordadoCon:acordado, au:null, donde:"telefono"});
     toast("Corte diario a las "+horaCie+" · guardado en este teléfono");
   };
   const guardarDest=()=>{
@@ -16203,6 +16224,14 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
             style={{width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4}}/></label>
       </div>
       <button className="ghost" style={{width:"100%",marginTop:10}} onClick={aplicarCierre}>Aplicar hora de cierre</button>
+      {ultCie && (
+        <div style={{marginTop:9,padding:"8px 11px",borderRadius:9,fontSize:11.5,lineHeight:1.45,
+          background:ultCie.donde==="base"?"rgba(28,122,68,.10)":"rgba(138,138,149,.12)",
+          color:ultCie.donde==="base"?"#1c7a44":"#6b7280"}}>
+          {ultCie.donde==="base"?"🟢":"⚪"} <b>Guardado {ultCie.donde==="base"?"en la base":"solo en este teléfono"}:</b> corte a las {ultCie.hora}
+          {ultCie.acordadoCon?" · con "+ultCie.acordadoCon:""}{ultCie.au?" · "+ultCie.au:""}
+        </div>
+      )}
     </div>
 
     <div className="ficha-sec">Recibos de cobro</div>
