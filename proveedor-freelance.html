@@ -1374,7 +1374,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"41", fecha:"24 jul 2026", desc:"Anulacion de retenciones y guias con motivo tipificado y auditoria AU-" };
+const VERSION = { n:"42", fecha:"25 jul 2026", desc:"Perfil en 3 tarjetas: Datos de la Piladora, Colaboradores y Con el Freelance (datos vivos con sesion)" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -5489,6 +5489,229 @@ function CuentasBancarias({irTab}){
 const GUIAS_INI = [];
 /* ══ AJUSTES DEL PROVEEDOR ══
    5 pestañas: sin Impresora — el proveedor no imprime en campo, factura en su sistema. */
+/* ═════ b42 · Perfil de negocio (estructura de Richard, 25 jul 2026) ═════
+   Tres tarjetas: 1) Datos de la Piladora  2) Colaboradores  3) Con el Freelance.
+   Con sesión real (portal): datos vivos de la base. Mientras las piladoras no
+   tengan cuenta propia, un selector temporal permite elegir cuál piladora ver.
+   Sin sesión: demostración rotulada. */
+function SelloVivoP({vivo}){
+  return (<span style={{display:"inline-block",padding:"2px 9px",borderRadius:20,fontSize:10.5,fontWeight:700,
+    background:vivo?"rgba(28,122,68,.13)":"var(--papel-2)",color:vivo?"#1c7a44":"var(--texto-3)",
+    border:vivo?"none":"1px solid var(--linea)"}}>{vivo?"🟢 Datos vivos":"⚪ Demostración"}</span>);
+}
+function PerfilNegocioProv({decir}){
+  const [ses,setSes]=useState(undefined);          /* undefined=cargando · null=sin sesión */
+  const [provs,setProvs]=useState([]);
+  const [sel,setSel]=useState(null);
+  const [fichas,setFichas]=useState({});
+  const [contactos,setContactos]=useState({});
+  const [docs,setDocs]=useState({});
+  const [flx,setFlx]=useState(null);               /* {org, colabs} del freelance */
+  const [editF,setEditF]=useState(null);
+  const [editC,setEditC]=useState(null);
+  useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        if(!window.SB){ if(vivo) setSes(null); return; }
+        const { data } = await window.SB.auth.getSession();
+        const s=(data&&data.session)||null;
+        if(!vivo) return;
+        setSes(s);
+        if(!s) return;
+        const [{data:ps},{data:fs},{data:cs},{data:ds},{data:og},{data:cf}] = await Promise.all([
+          window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
+          window.SB.from("proveedor_fichas").select("*"),
+          window.SB.from("proveedor_contactos").select("*").eq("activo",true).order("orden"),
+          window.SB.from("proveedor_documentos").select("*").eq("activo",true).order("creado",{ascending:false}),
+          window.SB.from("organizaciones").select("nombre,ruc,tel,correo").eq("org_id","ORG-001").maybeSingle(),
+          window.SB.from("config_sistema").select("valor").eq("clave","colaboradores").maybeSingle(),
+        ]);
+        if(!vivo) return;
+        const lista=(ps||[]).map(p=>({id:p.prov_cod,nombre:p.nombre}));
+        setProvs(lista);
+        if(lista.length) setSel(lista[0].id);
+        const f={}; (fs||[]).forEach(x=>{ f[x.prov_cod]=x; }); setFichas(f);
+        const c={}; (cs||[]).forEach(x=>{ (c[x.prov_cod]=c[x.prov_cod]||[]).push(x); }); setContactos(c);
+        const dd={}; (ds||[]).forEach(x=>{ (dd[x.prov_cod]=dd[x.prov_cod]||[]).push(x); }); setDocs(dd);
+        setFlx({ org:og||null, colabs:(cf&&cf.valor&&cf.valor.lista)||[] });
+      }catch(e){ if(vivo) setSes(null); }
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const audit=async(tabla,op,regId,valor)=>{
+    try{
+      const { data:cod } = await window.SB.rpc("au_codigo");
+      if(cod){ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+        usuario:(ses&&ses.user&&ses.user.email)||"proveedor-app", tabla, operacion:op,
+        registro_id:regId, valor_nuevo:valor }); }
+      return cod||null;
+    }catch(e){ return null; }
+  };
+  const guardarFicha=async()=>{
+    const f={...editF, prov_cod:sel, actualizado:new Date().toISOString()};
+    const { error } = await window.SB.from("proveedor_fichas").upsert(f);
+    if(error){ decir("No se pudo guardar: "+(error.message||"error")); return; }
+    const au=await audit("proveedor_fichas","UPDATE",sel,{representante:f.representante,ruc:f.ruc,telefono:f.telefono,correo:f.correo});
+    setFichas(prev=>({...prev,[sel]:f})); setEditF(null);
+    decir("Datos guardados en la base"+(au?" · "+au:""));
+  };
+  const guardarColab=async()=>{
+    if(!editC.nombre || !editC.nombre.trim()){ decir("El nombre es obligatorio"); return; }
+    const c={...editC, prov_cod:sel, activo:true, es_demo:false};
+    if(!c.contacto_id) c.contacto_id="PC-"+sel+"-"+String(((contactos[sel]||[]).length+1)).padStart(2,"0")+"-"+String(Math.abs(new Date().getTime())%10000);
+    const { error } = await window.SB.from("proveedor_contactos").upsert(c);
+    if(error){ decir("No se pudo guardar: "+(error.message||"error")); return; }
+    const au=await audit("proveedor_contactos","UPSERT",c.contacto_id,c);
+    setContactos(prev=>{ const l=(prev[sel]||[]).filter(x=>x.contacto_id!==c.contacto_id);
+      return {...prev,[sel]:[...l,c].sort((a,b)=>(a.orden||0)-(b.orden||0))}; });
+    setEditC(null);
+    decir("Colaborador guardado"+(au?" · "+au:""));
+  };
+  const quitarColab=async(c)=>{
+    const { error } = await window.SB.from("proveedor_contactos").update({activo:false}).eq("contacto_id",c.contacto_id);
+    if(error){ decir("No se pudo quitar: "+(error.message||"error")); return; }
+    await audit("proveedor_contactos","BAJA",c.contacto_id,{activo:false});
+    setContactos(prev=>({...prev,[sel]:(prev[sel]||[]).filter(x=>x.contacto_id!==c.contacto_id)}));
+    setEditC(null);
+    decir("Colaborador quitado");
+  };
+  const verDoc=async(d)=>{
+    try{
+      const { data, error } = await window.SB.storage.from("docs-piladora").createSignedUrl(d.ruta, 3600);
+      if(error || !data || !data.signedUrl){ decir("No se pudo abrir el documento"); return; }
+      window.open(data.signedUrl, "_blank");
+    }catch(e){ decir("No se pudo abrir el documento"); }
+  };
+  const icoDoc=t=>({contrato:"📄",pagare:"🧾"}[t]||"📎");
+
+  /* ── Cargando ── */
+  if(ses===undefined) return <div className="aj-nota">Cargando tu perfil…</div>;
+
+  /* ── DEMOSTRACIÓN (sin sesión) ── */
+  if(!ses) return (<>
+    <div className="aj-sec">Datos de la Piladora <SelloVivoP vivo={false}/></div>
+    <div className="aj-card">
+      <div className="aj-fila"><span>Piladora</span><b>{PROVEEDOR.nombre}</b></div>
+      <div className="aj-fila"><span>Representante</span><b>{PROVEEDOR.contacto}</b></div>
+      <div className="aj-fila"><span>RUC</span><b>—</b></div>
+      <div className="aj-fila"><span>Teléfono</span><b>—</b></div>
+      <div className="aj-fila"><span>Correo</span><b>—</b></div>
+    </div>
+    <div className="aj-sec">Colaboradores</div>
+    <div className="aj-card">
+      <div className="aj-fila"><span>Luis Pérez</span><b>Despachos</b></div>
+      <div className="aj-sub">Con tu cuenta real podrás agregar a tus colaboradores.</div>
+    </div>
+    <div className="aj-sec">Con el Freelance</div>
+    <div className="aj-card">
+      <div className="aj-fila"><span>Representante</span><b>{FREELANCE.nombre}</b></div>
+      <div className="aj-fila"><span>Zona</span><b>{FREELANCE.zona}</b></div>
+      <div className="aj-fila"><span>Cupo acordado</span><b className="num">{money(FREELANCE.cupo)}</b></div>
+    </div>
+    <div className="aj-nota">Estás en la demostración. Entra con tu cuenta desde el portal para ver y editar los datos reales de tu piladora.</div>
+  </>);
+
+  /* ── DATOS VIVOS (con sesión) ── */
+  const ficha=fichas[sel]||{prov_cod:sel};
+  const lista=contactos[sel]||[];
+  const ldocs=docs[sel]||[];
+  const org=(flx&&flx.org)||null;
+  const colabsF=(flx&&flx.colabs)||[];
+  return (<>
+    {provs.length>1 && (<>
+      <div className="aj-sec">Piladora <SelloVivoP vivo={true}/></div>
+      <div className="seg" style={{marginBottom:4}}>
+        {provs.map(p=>(
+          <button key={p.id} className={sel===p.id?"on":""}
+            onClick={()=>{ setSel(p.id); setEditF(null); setEditC(null); }}>{p.nombre.replace("Piladora ","")}</button>
+        ))}
+      </div>
+      <div className="aj-sub" style={{margin:"0 2px 4px"}}>Selector temporal: cuando cada piladora tenga su cuenta, verá solo la suya.</div>
+    </>)}
+
+    <div className="aj-sec">Datos de la Piladora</div>
+    {!editF && (<>
+      <div className="aj-card">
+        <div className="aj-fila"><span>Representante</span><b>{ficha.representante||"—"}</b></div>
+        <div className="aj-fila"><span>RUC</span><b className="num">{ficha.ruc||"—"}</b></div>
+        <div className="aj-fila"><span>Teléfono</span><b className="num">{ficha.telefono||"—"}</b></div>
+        <div className="aj-fila"><span>Correo</span><b>{ficha.correo||"—"}</b></div>
+      </div>
+      <button className="btn btn-ghost" style={{marginTop:8}} onClick={()=>setEditF({...ficha, prov_cod:sel})}>✎ Editar datos</button>
+    </>)}
+    {editF && (
+      <div className="aj-card field">
+        <label>Representante<input value={editF.representante||""} onChange={e=>setEditF({...editF,representante:e.target.value})}/></label>
+        <label>RUC<input inputMode="numeric" value={editF.ruc||""} onChange={e=>setEditF({...editF,ruc:e.target.value})}/></label>
+        <label>Teléfono<input inputMode="tel" placeholder="09…" value={editF.telefono||""} onChange={e=>setEditF({...editF,telefono:e.target.value})}/></label>
+        <label>Correo<input inputMode="email" value={editF.correo||""} onChange={e=>setEditF({...editF,correo:e.target.value})}/></label>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setEditF(null)}>Cancelar</button>
+          <button className="btn btn-maiz" style={{flex:1}} onClick={guardarFicha}>Guardar</button>
+        </div>
+      </div>
+    )}
+
+    <div className="aj-sec">Colaboradores</div>
+    <div className="aj-card">
+      {lista.map(c=>(
+        <div key={c.contacto_id} className="aj-fila" style={{alignItems:"flex-start"}}>
+          <span style={{minWidth:0,flex:1}}>
+            <span style={{display:"block",fontWeight:700,color:"var(--texto)",fontSize:13.5}}>{c.nombre}</span>
+            <span className="aj-sub">{c.cargo||"—"}{c.tel?" · "+c.tel:""}{c.correo?" · "+c.correo:""}</span>
+          </span>
+          <button className="btn btn-ghost" style={{width:"auto",padding:"7px 11px",fontSize:13}} onClick={()=>setEditC({...c})}>✎</button>
+        </div>
+      ))}
+      {!lista.length && !editC && <div className="aj-sub">Aún no hay colaboradores registrados para esta piladora.</div>}
+    </div>
+    {!editC && <button className="btn btn-tinta" style={{marginTop:8}} onClick={()=>setEditC({nombre:"",cargo:"",tel:"",correo:"",orden:lista.length})}>+ Agregar colaborador</button>}
+    {editC && (
+      <div className="aj-card field" style={{marginTop:8}}>
+        <label>Nombre *<input value={editC.nombre||""} onChange={e=>setEditC({...editC,nombre:e.target.value})}/></label>
+        <label>Cargo<input placeholder="Gerente / Despachos / Pagos…" value={editC.cargo||""} onChange={e=>setEditC({...editC,cargo:e.target.value})}/></label>
+        <label>WhatsApp<input inputMode="tel" placeholder="09…" value={editC.tel||""} onChange={e=>setEditC({...editC,tel:e.target.value})}/></label>
+        <label>Correo<input inputMode="email" value={editC.correo||""} onChange={e=>setEditC({...editC,correo:e.target.value})}/></label>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setEditC(null)}>Cancelar</button>
+          {editC.contacto_id && <button className="btn btn-al" style={{flex:1}} onClick={()=>quitarColab(editC)}>Quitar</button>}
+          <button className="btn btn-maiz" style={{flex:1}} onClick={guardarColab}>Guardar</button>
+        </div>
+      </div>
+    )}
+
+    <div className="aj-sec">Con el Freelance</div>
+    <div className="aj-card">
+      <div className="aj-fila"><span>Representante</span><b>{(org&&org.nombre)||"—"}</b></div>
+      <div className="aj-fila"><span>Teléfono</span><b className="num">{(org&&org.tel)||"—"}</b></div>
+      <div className="aj-fila"><span>Correo</span><b>{(org&&org.correo)||"—"}</b></div>
+      {colabsF.map((c,i)=>(
+        <div key={i} className="aj-fila">
+          <span>{c.nombre||"Colaborador"}</span>
+          <b>{[c.cargo,c.contacto||c.correo||c.tel].filter(Boolean).join(" · ")||"—"}</b>
+        </div>
+      ))}
+    </div>
+    <div className="aj-card" style={{marginTop:8}}>
+      <div className="aj-fila"><span>Cupo de crédito</span><b className="num">{ficha.cupo_usd!=null?money(ficha.cupo_usd):"—"}</b></div>
+      <div className="aj-fila"><span>Días de crédito</span><b className="num">{ficha.dias_credito!=null?ficha.dias_credito+" días":"—"}</b></div>
+      <div className="aj-fila"><span>Zona comercial</span><b>{ficha.zona_comercial||"—"}</b></div>
+      <div className="aj-sub">Las condiciones de la negociación las administra el freelance.</div>
+    </div>
+    <div className="aj-card" style={{marginTop:8}}>
+      {ldocs.map(d=>(
+        <div key={d.doc_id} className="aj-fila">
+          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{icoDoc(d.tipo)} {d.nombre}</span>
+          <button className="btn btn-ghost" style={{width:"auto",padding:"7px 12px",fontSize:12.5}} onClick={()=>verDoc(d)}>Ver</button>
+        </div>
+      ))}
+      {!ldocs.length && <div className="aj-sub">Sin documentos de negociación todavía (contratos, pagarés…).</div>}
+    </div>
+    <div className="aj-nota">Los documentos se abren con un enlace privado que dura 1 hora.</div>
+  </>);
+}
+
 function AjustesProv(){
   const [pest,setPest]=useState("apariencia");
   const [tema,setTema]=useState(temaGuardadoP());
@@ -5554,20 +5777,7 @@ function AjustesProv(){
       <div className="aj-nota">El color queda guardado en este teléfono.</div>
     </>)}
 
-    {pest==="perfil" && (<>
-      <div className="aj-sec">Tu empresa</div>
-      <div className="aj-card">
-        <div className="aj-fila"><span>Proveedor</span><b>{PROVEEDOR.nombre}</b></div>
-        <div className="aj-fila"><span>Línea</span><b>{PROVEEDOR.linea}</b></div>
-        <div className="aj-fila"><span>Contacto</span><b>{PROVEEDOR.contacto||"—"}</b></div>
-      </div>
-      <div className="aj-sec">Tu freelance</div>
-      <div className="aj-card">
-        <div className="aj-fila"><span>Nombre</span><b>{FREELANCE.nombre}</b></div>
-        <div className="aj-fila"><span>Zona</span><b>{FREELANCE.zona}</b></div>
-      </div>
-      <div className="aj-nota">Los acuerdos comerciales y tu cuenta corriente viven en el módulo Acuerdos.</div>
-    </>)}
+    {pest==="perfil" && <PerfilNegocioProv decir={decir}/>}
 
     {pest==="avisos" && (<>
       <div className="aj-sec">Preferencias</div>
