@@ -1374,7 +1374,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"42", fecha:"25 jul 2026", desc:"Perfil en 3 tarjetas: Datos de la Piladora, Colaboradores y Con el Freelance (datos vivos con sesion)" };
+const VERSION = { n:"43", fecha:"25 jul 2026", desc:"Perfil: cada piladora ve SOLO lo suyo (sin selector); identidad por cuenta con usuarios.prov_cod" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -5519,18 +5519,22 @@ function PerfilNegocioProv({decir}){
         if(!vivo) return;
         setSes(s);
         if(!s) return;
-        const [{data:ps},{data:fs},{data:cs},{data:ds},{data:og},{data:cf}] = await Promise.all([
-          window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
-          window.SB.from("proveedor_fichas").select("*"),
-          window.SB.from("proveedor_contactos").select("*").eq("activo",true).order("orden"),
-          window.SB.from("proveedor_documentos").select("*").eq("activo",true).order("creado",{ascending:false}),
+        /* b43 · la cuenta manda: usuarios.prov_cod dice qué piladora es. La app
+           SOLO trae los datos de esa piladora (nunca los de las demás). Mientras
+           no existan cuentas de piladora, se usa San Agustín (AGU) para probar. */
+        const { data:u } = await window.SB.from("usuarios").select("prov_cod").eq("auth_uid", s.user.id).maybeSingle();
+        const cod=(u&&u.prov_cod)||"AGU";
+        const [{data:pv},{data:fs},{data:cs},{data:ds},{data:og},{data:cf}] = await Promise.all([
+          window.SB.from("proveedores").select("prov_cod,nombre").eq("prov_cod",cod).maybeSingle(),
+          window.SB.from("proveedor_fichas").select("*").eq("prov_cod",cod),
+          window.SB.from("proveedor_contactos").select("*").eq("prov_cod",cod).eq("activo",true).order("orden"),
+          window.SB.from("proveedor_documentos").select("*").eq("prov_cod",cod).eq("activo",true).order("creado",{ascending:false}),
           window.SB.from("organizaciones").select("nombre,ruc,tel,correo").eq("org_id","ORG-001").maybeSingle(),
           window.SB.from("config_sistema").select("valor").eq("clave","colaboradores").maybeSingle(),
         ]);
         if(!vivo) return;
-        const lista=(ps||[]).map(p=>({id:p.prov_cod,nombre:p.nombre}));
-        setProvs(lista);
-        if(lista.length) setSel(lista[0].id);
+        setProvs([{id:cod, nombre:(pv&&pv.nombre)||("Piladora "+cod)}]);
+        setSel(cod);
         const f={}; (fs||[]).forEach(x=>{ f[x.prov_cod]=x; }); setFichas(f);
         const c={}; (cs||[]).forEach(x=>{ (c[x.prov_cod]=c[x.prov_cod]||[]).push(x); }); setContactos(c);
         const dd={}; (ds||[]).forEach(x=>{ (dd[x.prov_cod]=dd[x.prov_cod]||[]).push(x); }); setDocs(dd);
@@ -5619,20 +5623,10 @@ function PerfilNegocioProv({decir}){
   const org=(flx&&flx.org)||null;
   const colabsF=(flx&&flx.colabs)||[];
   return (<>
-    {provs.length>1 && (<>
-      <div className="aj-sec">Piladora <SelloVivoP vivo={true}/></div>
-      <div className="seg" style={{marginBottom:4}}>
-        {provs.map(p=>(
-          <button key={p.id} className={sel===p.id?"on":""}
-            onClick={()=>{ setSel(p.id); setEditF(null); setEditC(null); }}>{p.nombre.replace("Piladora ","")}</button>
-        ))}
-      </div>
-      <div className="aj-sub" style={{margin:"0 2px 4px"}}>Selector temporal: cuando cada piladora tenga su cuenta, verá solo la suya.</div>
-    </>)}
-
-    <div className="aj-sec">Datos de la Piladora</div>
+    <div className="aj-sec">Datos de la Piladora <SelloVivoP vivo={true}/></div>
     {!editF && (<>
       <div className="aj-card">
+        <div className="aj-fila"><span>Piladora</span><b>{(provs[0]&&provs[0].nombre)||"—"}</b></div>
         <div className="aj-fila"><span>Representante</span><b>{ficha.representante||"—"}</b></div>
         <div className="aj-fila"><span>RUC</span><b className="num">{ficha.ruc||"—"}</b></div>
         <div className="aj-fila"><span>Teléfono</span><b className="num">{ficha.telefono||"—"}</b></div>
