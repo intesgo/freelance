@@ -578,6 +578,35 @@ function PantallaLogin({ onAutenticado }) {
     });
   };
 
+  /* b45 · Restauración de sesión (patrón de fc b335): si ya entraste por el
+     portal, esta app no vuelve a pedir usuario — va directo a sincronizar.
+     La piladora de la cuenta sale de usuarios.prov_cod (AGU si aún no tiene). */
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        if (!window.SB) return;
+        const { data } = await window.SB.auth.getSession();
+        const s = (data && data.session) || null;
+        if (!vivo || !s) return;
+        let fila = null;
+        try {
+          const { data: u } = await window.SB.from("usuarios")
+            .select("nombre,rol,prov_cod").eq("auth_uid", s.user.id).maybeSingle();
+          fila = u || null;
+        } catch (e) {}
+        if (!vivo) return;
+        usuarioAuthRef.current = {
+          nombre: (fila && fila.nombre) || s.user.email,
+          codigo: (fila && fila.prov_cod) || "AGU",
+          zona: "Sesión real", rol: "proveedor", real: true,
+        };
+        setPaso("sync");
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
+
   React.useEffect(() => {
     if (paso !== "sync" || syncRef.current) return;
     syncRef.current = true;
@@ -1374,7 +1403,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"44", fecha:"25 jul 2026", desc:"Con el Freelance muestra cupo usado y disponible: credito vigente calculado de los pedidos reales" };
+const VERSION = { n:"45", fecha:"25 jul 2026", desc:"Restauracion de sesion: si entraste por el portal, la app no vuelve a pedir usuario" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
