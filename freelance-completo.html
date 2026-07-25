@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"345", fecha:"25 jul 2026", desc:"Acceso directo a la tarjeta de negocios desde Ajustes > Negocio (Richard la buscaba ahi): abre el modulo Proveedores con las piladoras reales" };
+const VERSION = { n:"346", fecha:"25 jul 2026", desc:"Ajustes > Negocio reestructurado (diseno de Richard): 1) Empresa Freelance (representante/RUC/telefono/correo) 2) Colaboradores (agregar, con copia de recibos) 3) Piladoras. Se elimino Recibos de cobro" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16207,14 +16207,64 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     setBuscandoImp(false);
   };
 
-  const [destRec,setDestRec]=useState(()=>{   /* b336: persiste en este teléfono */
-    try{ const g=JSON.parse(localStorage.getItem("freelance_dest_recibo")||"null");
-      if(Array.isArray(g)&&g.length===DESTINATARIOS_RECIBO.length) return g.map(d=>({...d})); }catch(e){}
-    return DESTINATARIOS_RECIBO.map(d=>({...d}));
+  /* ═ b346 · COLABORADORES de la empresa (reemplazan a los "destinatarios de recibos") ═
+     Lista abierta (nombre, cargo, WhatsApp, correo). Se guarda en el teléfono y, con
+     sesión, en config_sistema (clave colaboradores) con AU-. Los recibos de cobro les
+     llegan en copia: DESTINATARIOS_RECIBO se sincroniza desde representante+colaboradores. */
+  const [colabs,setColabs]=useState(()=>{
+    try{ const g=JSON.parse(localStorage.getItem("freelance_colaboradores")||"null");
+      if(Array.isArray(g)) return g; }catch(e){}
+    return [];
   });
-  /* b341 · El CIERRE DIARIO se mudó a Mi Caja (TarjetaCierreDiario): el cierre de caja
-     es operación, no configuración (decisión de Richard). Aquí solo quedan los
-     destinatarios de recibos; con sesión se leen de config_sistema. */
+  const [editColab,setEditColab]=useState(null);
+  const [ultColab,setUltColab]=useState(null);
+  const sincronizarDestinatarios=(per,lista)=>{
+    DESTINATARIOS_RECIBO.length=0;
+    DESTINATARIOS_RECIBO.push({rol:"Freelance", nombre:(per&&per.nombre)||"", tel:(per&&per.tel)||""});
+    (lista||[]).forEach(c=>DESTINATARIOS_RECIBO.push({rol:c.cargo||"Colaborador", nombre:c.nombre, tel:c.tel||""}));
+  };
+  React.useEffect(()=>{ sincronizarDestinatarios(perfil, colabs); },[perfil, colabs]);
+  const persistirColabs=async(lista)=>{
+    setColabs(lista);
+    try{ localStorage.setItem("freelance_colaboradores", JSON.stringify(lista)); }catch(e){}
+    try{
+      if(window.SB && window.SB.auth){
+        const { data:s } = await window.SB.auth.getSession();
+        if(s && s.session){
+          let au=null;
+          try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
+          const valor={ lista, au };
+          const { error } = await window.SB.from("config_sistema").upsert({ clave:"colaboradores", valor,
+            descripcion:"Colaboradores de la empresa freelance (reciben copia de los recibos de cobro)" });
+          if(!error){
+            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
+              usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
+              registro_id:"colaboradores", valor_nuevo:valor }); }catch(e3){} }
+            setUltColab({donde:"base", au});
+            toast("Colaboradores guardados en la base"+(au?" · "+au:""));
+            return;
+          }
+        }
+      }
+    }catch(e){}
+    setUltColab({donde:"telefono", au:null});
+    toast("Colaboradores guardados en este teléfono ✓");
+  };
+  const guardarColab=()=>{
+    if(!editColab.nombre || !editColab.nombre.trim()){ toast("El nombre es obligatorio."); return; }
+    const c={nombre:editColab.nombre.trim(), cargo:(editColab.cargo||"").trim(), tel:(editColab.tel||"").trim(), correo:(editColab.correo||"").trim()};
+    const lista=editColab._i>=0 ? colabs.map((x,j)=>j===editColab._i?c:x) : [...colabs, c];
+    setEditColab(null);
+    persistirColabs(lista);
+  };
+  const quitarColab=()=>{
+    if(editColab._i<0){ setEditColab(null); return; }
+    const lista=colabs.filter((x,j)=>j!==editColab._i);
+    setEditColab(null);
+    persistirColabs(lista);
+  };
+  /* b346 · Carga de colaboradores con sesión; si aún no existen, se siembran desde la
+     clave vieja destinatarios_recibo (menos la fila Freelance: ese es el representante). */
   React.useEffect(()=>{
     if(!window.SB || !window.SB.auth) return;
     let activo=true;
@@ -16222,47 +16272,25 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       try{
         const { data:s } = await window.SB.auth.getSession();
         if(!activo || !s || !s.session) return;
-        const { data:cfgs } = await window.SB.from("config_sistema").select("valor").eq("clave","destinatarios_recibo").limit(1);
+        const { data:cfgs } = await window.SB.from("config_sistema").select("clave,valor").in("clave",["colaboradores","destinatarios_recibo"]);
         if(!activo) return;
-        const dCfg=cfgs && cfgs[0];
-        if(dCfg && dCfg.valor && Array.isArray(dCfg.valor.lista) && dCfg.valor.lista.length===DESTINATARIOS_RECIBO.length){
-          setDestRec(dCfg.valor.lista.map(d=>({...d})));
-          dCfg.valor.lista.forEach((d,i)=>{ DESTINATARIOS_RECIBO[i]={...d}; });
-          setUltDest({donde:"base", au:dCfg.valor.au||null});
-          try{ localStorage.setItem("freelance_dest_recibo", JSON.stringify(dCfg.valor.lista)); }catch(e4){}
+        const nueva=(cfgs||[]).find(x=>x.clave==="colaboradores");
+        const vieja=(cfgs||[]).find(x=>x.clave==="destinatarios_recibo");
+        if(nueva && nueva.valor && Array.isArray(nueva.valor.lista)){
+          setColabs(nueva.valor.lista);
+          setUltColab({donde:"base", au:nueva.valor.au||null});
+          try{ localStorage.setItem("freelance_colaboradores", JSON.stringify(nueva.valor.lista)); }catch(e4){}
+        } else if(vieja && vieja.valor && Array.isArray(vieja.valor.lista)){
+          const semilla=vieja.valor.lista.filter(d=>d.rol!=="Freelance" && (d.nombre||"").trim())
+            .map(d=>({nombre:d.nombre, cargo:d.rol||"Colaborador", tel:d.tel||"", correo:d.correo||""}));
+          if(semilla.length){ setColabs(semilla);
+            try{ localStorage.setItem("freelance_colaboradores", JSON.stringify(semilla)); }catch(e5){} }
         }
       }catch(e){}
     })();
     return ()=>{ activo=false; };
   },[]);
-  /* b340 · destinatarios con doble persistencia (teléfono + config_sistema con sesión) */
-  const [ultDest,setUltDest]=useState(null);
-  const guardarDest=async()=>{
-    destRec.forEach((d,i)=>{ DESTINATARIOS_RECIBO[i]={...d}; });
-    try{ localStorage.setItem("freelance_dest_recibo", JSON.stringify(destRec)); }catch(e){}
-    try{
-      if(window.SB && window.SB.auth){
-        const { data:s } = await window.SB.auth.getSession();
-        if(s && s.session){
-          let au=null;
-          try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
-          const valor={ lista:destRec, au };
-          const { error } = await window.SB.from("config_sistema").upsert({ clave:"destinatarios_recibo", valor,
-            descripcion:"Destinatarios fijos de los recibos de cobro (app de campo)" });
-          if(!error){
-            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
-              usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
-              registro_id:"destinatarios_recibo", valor_nuevo:valor }); }catch(e3){} }
-            setUltDest({donde:"base", au});
-            toast("Destinatarios guardados en la base"+(au?" · "+au:""));
-            return;
-          }
-        }
-      }
-    }catch(e){}
-    setUltDest({donde:"telefono", au:null});
-    toast("Destinatarios guardados en este teléfono ✓");
-  };
+
   return (<>
     <div className="h1">Ajustes</div>
 
@@ -16283,46 +16311,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       ))}
     </div>
 
-    {pestAj==="negocio" && (<>
-    {/* b341 · La tarjeta "Cierre diario" se MUDÓ a Mi Caja. b345 · acceso directo a la
-        tarjeta de negocios: Richard la buscó aquí (la pestaña se llama "Negocio"). */}
-    <div className="ficha-sec">Tarjeta de negocios</div>
-    <div className="card" style={{padding:"13px 15px",marginBottom:14,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}
-      onClick={()=>{ if(go) go("proveedores"); }}>
-      <span style={{fontSize:24,flexShrink:0}}>🏭</span>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontWeight:800,fontSize:14}}>Piladoras · representantes, condiciones y documentos</div>
-        <div className="meta" style={{fontSize:11.5}}>Cupos, días de crédito, zona comercial, contratos y pagarés por piladora. También en Menú ☰ → Proveedores.</div>
-      </div>
-      <span style={{color:"var(--muted)",fontSize:20}}>›</span>
-    </div>
-    <div className="ficha-sec">Recibos de cobro</div>
-    <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
-      <div className="meta" style={{marginBottom:10}}>Reciben copia virtual de cada recibo de cobro. El cliente y el proveedor del cobro se agregan automáticamente.</div>
-      {destRec.map((d,i)=>(
-        <div key={d.rol} style={{marginBottom:12}}>
-          <div style={{fontWeight:700,fontSize:13,marginBottom:5}}>{d.rol}</div>
-          <div className="row" style={{gap:8}}>
-            <input value={d.nombre} placeholder="Nombre"
-              style={{flex:1.2,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,minWidth:0}}
-              onChange={e=>setDestRec(ds=>ds.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))}/>
-            <input value={d.tel} placeholder="WhatsApp (09…)" inputMode="tel"
-              style={{flex:1,padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,minWidth:0}}
-              onChange={e=>setDestRec(ds=>ds.map((x,j)=>j===i?{...x,tel:e.target.value}:x))}/>
-          </div>
-        </div>
-      ))}
-      <button className="ghost" style={{width:"100%"}} onClick={guardarDest}>Guardar destinatarios</button>
-      {ultDest && (
-        <div style={{marginTop:9,padding:"8px 11px",borderRadius:9,fontSize:11.5,
-          background:ultDest.donde==="base"?"rgba(28,122,68,.10)":"rgba(138,138,149,.12)",
-          color:ultDest.donde==="base"?"#1c7a44":"#6b7280"}}>
-          {ultDest.donde==="base"?"🟢":"⚪"} <b>Guardados {ultDest.donde==="base"?"en la base":"solo en este teléfono"}</b>{ultDest.au?" · "+ultDest.au:""}
-        </div>
-      )}
-    </div>
-
-    </>)}
+    {/* b346 · Reestructura de Richard: Empresa → Colaboradores → Piladoras (ver el otro fragmento "negocio"). La tarjeta "Recibos de cobro" fue ELIMINADA: las copias van al representante y colaboradores. */}
 
     {pestAj==="apariencia" && (<>
     <div className="ficha-sec">Color de la app</div>
@@ -16461,20 +16450,20 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     </>)}
 
     {pestAj==="negocio" && (<>
-    <div className="ficha-sec">Datos del perfil / negocio</div>
+    <div className="ficha-sec">Empresa Freelance</div>
     <div className="fcard" style={{marginBottom:14}}>
       {/* b337 · Dónde se guarda: con sesión de correo van a la base; sin sesión, solo a este teléfono */}
       <div style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,marginBottom:8,
         background:sesionBase?"rgba(28,122,68,.13)":"rgba(138,138,149,.15)",color:sesionBase?"#1c7a44":"#6b7280"}}>
         {sesionBase ? "🟢 Con tu sesión: se leen y guardan en la base" : "⚪ Sin sesión de correo: solo se guardan en este teléfono"}</div>
       {!editPerfil ? (<>
-        <div className="cu-line"><span>Nombre</span><b>{perfil.nombre}</b></div>
+        <div className="cu-line"><span>Representante</span><b>{perfil.nombre}</b></div>
         <div className="cu-line"><span>RUC</span><b className="num">{perfil.ruc}</b></div>
         <div className="cu-line"><span>Teléfono</span><b className="num">{perfil.tel}</b></div>
         <div className="cu-line"><span>Correo</span><b style={{fontSize:12}}>{perfil.correo}</b></div>
         <button className="ghost" style={{width:"100%",marginTop:8}} onClick={()=>setEditPerfil(true)}>Editar datos</button>
       </>) : (<>
-        <div className="field"><label>Nombre</label><input value={perfil.nombre} onChange={e=>setPerfil({...perfil,nombre:e.target.value})}/></div>
+        <div className="field"><label>Representante</label><input value={perfil.nombre} onChange={e=>setPerfil({...perfil,nombre:e.target.value})}/></div>
         <div className="field"><label>RUC</label><input value={perfil.ruc} onChange={e=>setPerfil({...perfil,ruc:e.target.value})}/></div>
         <div className="field"><label>Teléfono</label><input value={perfil.tel} onChange={e=>setPerfil({...perfil,tel:e.target.value})}/></div>
         <div className="field"><label>Correo</label><input value={perfil.correo} onChange={e=>setPerfil({...perfil,correo:e.target.value})}/></div>
@@ -16484,6 +16473,53 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
         </div>
         <div className="meta" style={{marginTop:8}}>Se guardan en este teléfono y, con tu sesión de correo, también en la base (tabla organizaciones).</div>
       </>)}
+    </div>
+
+    {/* ═ b346 · Tarjeta 2: COLABORADORES de la empresa (reciben copia de los recibos) ═ */}
+    <div className="ficha-sec">Colaboradores</div>
+    <div className="card" style={{padding:"13px 15px",marginBottom:14}}>
+      {colabs.map((c,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:i>0?"1px solid var(--line)":"none"}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:13.5}}>{c.nombre}</div>
+            <div className="meta" style={{fontSize:11.5}}>{c.cargo||"—"}{c.tel?" · "+c.tel:""}{c.correo?" · "+c.correo:""}</div>
+          </div>
+          <button className="ghost" style={{padding:"7px 10px"}} onClick={()=>setEditColab({...c,_i:i})}>✎</button>
+        </div>
+      ))}
+      {!colabs.length && !editColab && <div className="meta" style={{marginBottom:8}}>Sin colaboradores aún. Agrega a tu equipo: reciben copia virtual de cada recibo de cobro.</div>}
+      {!editColab && <button className="cta" style={{width:"100%"}} onClick={()=>setEditColab({nombre:"",cargo:"",tel:"",correo:"",_i:-1})}>+ Agregar colaborador</button>}
+      {editColab && (<div style={{marginTop:8}}>
+        <div className="field"><label>Nombre *</label><input value={editColab.nombre} onChange={e=>setEditColab({...editColab,nombre:e.target.value})}/></div>
+        <div className="field"><label>Cargo</label><input placeholder="Financiero / Logística / Asistente…" value={editColab.cargo} onChange={e=>setEditColab({...editColab,cargo:e.target.value})}/></div>
+        <div className="field"><label>WhatsApp</label><input inputMode="tel" placeholder="09…" value={editColab.tel} onChange={e=>setEditColab({...editColab,tel:e.target.value})}/></div>
+        <div className="field"><label>Correo</label><input inputMode="email" value={editColab.correo} onChange={e=>setEditColab({...editColab,correo:e.target.value})}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="back" style={{flex:1}} onClick={()=>setEditColab(null)}>Cancelar</button>
+          {editColab._i>=0 && <button className="back" style={{flex:1}} onClick={quitarColab}>Quitar</button>}
+          <button className="cta" style={{flex:1,margin:0}} onClick={guardarColab}>Guardar</button>
+        </div>
+      </div>)}
+      {ultColab && !editColab && (
+        <div style={{marginTop:9,padding:"8px 11px",borderRadius:9,fontSize:11.5,
+          background:ultColab.donde==="base"?"rgba(28,122,68,.10)":"rgba(138,138,149,.12)",
+          color:ultColab.donde==="base"?"#1c7a44":"#6b7280"}}>
+          {ultColab.donde==="base"?"🟢":"⚪"} <b>Guardados {ultColab.donde==="base"?"en la base":"solo en este teléfono"}</b>{ultColab.au?" · "+ultColab.au:""}
+        </div>
+      )}
+      <div className="meta" style={{marginTop:8}}>Cada recibo de cobro les llega en copia (además del cliente y la piladora del cobro, que se agregan solos).</div>
+    </div>
+
+    {/* ═ b346 · Tarjeta 3: PILADORAS (tarjeta de negocios) ═ */}
+    <div className="ficha-sec">Piladoras</div>
+    <div className="card" style={{padding:"13px 15px",marginBottom:14,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}
+      onClick={()=>{ if(go) go("proveedores"); }}>
+      <span style={{fontSize:24,flexShrink:0}}>🏭</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:800,fontSize:14}}>Representantes, condiciones y documentos</div>
+        <div className="meta" style={{fontSize:11.5}}>Cupos, días de crédito, zona comercial, contratos y pagarés por piladora.</div>
+      </div>
+      <span style={{color:"var(--muted)",fontSize:20}}>›</span>
     </div>
 
     </>)}
