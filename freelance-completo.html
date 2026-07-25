@@ -4580,7 +4580,7 @@ function crearSolicitudAut(datos){
     estado:"pendiente",          // pendiente | aprobada | condicionada | rechazada | usada | vencida
     creada:new Date().toISOString(),
     codigo:null, caduca:null, tope:null, motivoDecision:null,
-    au:"AU-260713-"+Math.floor(1000+Math.random()*9000),
+    au:auDemo(),   /* b352: flujo demo hasta Fase 4 (app del proveedor) — rotulado, no finge */
   };
   AUTORIZACIONES.unshift(s);
   return s;
@@ -4983,7 +4983,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"351", fecha:"25 jul 2026", desc:"Mi Dia con auditoria honesta: cierre, cuadre y anulacion piden AU real a la base; sin sesion el codigo dice DEMO" };
+const VERSION = { n:"352", fecha:"25 jul 2026", desc:"Barrido final de AU inventados: verificacion de cobros, solicitudes del equipo y autorizaciones demo usan AU real o AU-DEMO rotulado" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -7118,11 +7118,11 @@ function Boveda({toast, yo}){
       ? "Código generado · el cheque sigue bajo tu responsabilidad hasta que lo confirmen"
       : "Código generado · el cheque sigue en tus manos hasta que lo confirmen");
   };
-  const confirmarRecibo=()=>{
+  const confirmarRecibo=async()=>{
     const i = TRASPASOS_PEND.findIndex(t=>t.para===yo && t.cod===codigoIng.trim());
     if(i<0){ toast("Código incorrecto o no es para ti"); return; }
     const t = TRASPASOS_PEND[i];
-    const au = `AU-260719-${Math.floor(1000+Math.random()*9000)}`;
+    const au = (await auReal("cheques","TRASPASO",t.numero,{de:t.de,para:yo,via:t.via}))||auDemo();
     const ahora = new Date().toISOString().slice(0,16).replace("T"," ");
     const ch = CHEQUES_POSF.find(c=>c.numero===t.numero);
     if(ch){
@@ -7137,15 +7137,15 @@ function Boveda({toast, yo}){
       despacho:t.cuando, confirmado:ahora, au });
     TRASPASOS_PEND.splice(i,1);
     setRecibiendo(false); setCodigoIng(""); setTick(x=>x+1);
-    toast(`Cheque ${t.numero} recibido · auditado ${au}`);
+    toast(esAuDemo(au) ? `Cheque ${t.numero} recibido (demo · sin sesión)` : `Cheque ${t.numero} recibido · auditado ${au}`);
   };
 
   /* PROTESTO: el cobro SÍ ocurrió, así que el recibo queda intacto. El valor del cheque
      más los gastos bancarios (los asume el cliente) vuelven como cargo nuevo a su cartera. */
-  const ejecutarProtesto=()=>{
+  const ejecutarProtesto=async()=>{
     const c = protestando;
     if(!c) return;
-    const au = "AU-260719-"+Math.floor(1000+Math.random()*9000);
+    const au = (await auReal("cheques","PROTESTO",c.numero,{motivo:motProt,cli:c.cli}))||auDemo();
     const gastos = Math.max(0, parseFloat(String(gastosProt).replace(",","."))||0);
     const ahora = new Date().toISOString().slice(0,16).replace("T"," ");
     const ficha = (typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[c.cli]) || {};
@@ -7176,7 +7176,7 @@ function Boveda({toast, yo}){
     };
     setProtestando(null); setMotProt(""); setGastosProt("");
     setProtestado(aviso); setSel(null); setTick(x=>x+1);
-    toast(`Cheque ${c.numero} protestado · cargado a la cartera de ${c.cli} · auditado ${au}`);
+    toast(esAuDemo(au) ? `Cheque ${c.numero} protestado (demo · sin sesión) · cargado a la cartera de ${c.cli}` : `Cheque ${c.numero} protestado · cargado a la cartera de ${c.cli} · auditado ${au}`);
   };
 
   /* ── FICHA DE UN CHEQUE (sirve para las dos pestañas) ── */
@@ -7981,9 +7981,10 @@ function Verificacion({toast, yo}){
   const suma   = e => COBROS_EQUIPO.filter(c=>c.estado===e).reduce((s,c)=>s+c.monto,0);
 
   /* el COBRADOR corrige solo datos de identificación y el cobro vuelve a pendiente */
-  const guardarCorreccion=()=>{
+  const guardarCorreccion=async()=>{
     const c=corrigiendo; if(!c) return;
-    const au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+    const au=(await auReal("verificacion_cobros","CORRECCION",c.nRecibo,
+      {numero:cNumero.trim(),banco:cBanco.trim(),fecha:cFecha}))||auDemo();
     const antes={numero:c.numero, banco:c.banco, fecha:c.fechaDoc};
     c.numero=cNumero.trim()||c.numero;
     c.banco=cBanco.trim()||c.banco;
@@ -7993,21 +7994,24 @@ function Verificacion({toast, yo}){
     c.estado="pendiente";
     c.motivo=null; c.nota=null;
     setCorrigiendo(null); setSel(null); setTick(t=>t+1);
-    toast(`Corregido y devuelto a verificación · auditado ${au}`);
+    toast(esAuDemo(au) ? "Corregido y devuelto a verificación (demo · sin sesión)" : `Corregido y devuelto a verificación · auditado ${au}`);
   };
 
   /* el FREELANCE resuelve un rechazo: o lo anula, o lo devuelve a pendiente */
-  const resolverRechazo=(accion)=>{
+  const resolverRechazo=async(accion)=>{
     const c=resolviendo; if(!c) return;
-    const au="AU-260612-"+Math.floor(1000+Math.random()*9000);
+    const au=(await auReal("verificacion_cobros", accion==="anular"?"ANULAR":"DEVOLVER",
+      c.nRecibo, {}))||auDemo();
     if(accion==="anular"){
       c.estado="anulado";
       (c.hist=c.hist||[]).push({ev:"anulado por el Freelance", quien:yo, f:"12 jun 2026", au});
-      toast(`Cobro ${c.nRecibo} anulado · envía la constancia al cliente · ${au}`);
+      toast(esAuDemo(au) ? `Cobro ${c.nRecibo} anulado (demo · sin sesión) · envía la constancia al cliente`
+                         : `Cobro ${c.nRecibo} anulado · envía la constancia al cliente · ${au}`);
     }else{
       c.estado="pendiente"; c.motivo=null; c.nota=null;
       (c.hist=c.hist||[]).push({ev:"devuelto a verificación", quien:yo, f:"12 jun 2026", au});
-      toast(`Devuelto al proveedor para nueva revisión · auditado ${au}`);
+      toast(esAuDemo(au) ? "Devuelto al proveedor para nueva revisión (demo · sin sesión)"
+                         : `Devuelto al proveedor para nueva revisión · auditado ${au}`);
     }
     setResolviendo(null); setSel(null); setTick(t=>t+1);
   };
@@ -17459,7 +17463,7 @@ function Solicitudes({toast, verCliente}){
 
   const tipoDe=k=>TIPO_SOL[k]||TIPO_SOL.otro;
   const estDe=k=>ESTADO_SOL[k]||ESTADO_SOL.pendiente;
-  const au=()=>"AU-260718-"+Math.floor(1000+Math.random()*9000);
+  /* b352: el AU inventado se fue; auReal()||auDemo() decide según la sesión */
 
   /* ── borradores ── */
   const limpiarForm=()=>{ setNBorrador(null); setNCli(""); setNDetalle(""); setNMotivo(""); setNTipo("posfechar"); };
@@ -17517,7 +17521,10 @@ function Solicitudes({toast, verCliente}){
     else setMias(arr=>[reg,...arr]);
     setAvisoDup(null);
     cerrarCrear();
-    toast(`Solicitud enviada al proveedor · auditado ${au()}`);
+    auReal("solicitudes_equipo","ENVIAR",reg.id,{tipo:reg.tipo,cli:reg.cli}).then(cod=>{
+      toast(cod ? `Solicitud enviada al proveedor · auditado ${cod}`
+                : "Solicitud enviada al proveedor (demo · sin sesión)");
+    });
   };
   const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const lista = pestana==="aprobar" ? sols : mias;
@@ -17555,13 +17562,17 @@ function Solicitudes({toast, verCliente}){
     if(a==="aprobar"){
       setEstado(s.id,"aprobada");
       if(motivo.trim()) agregarComentario(s.id,motivo);
-      toast(`${s.num} aprobada · auditado AU-260718-${Math.floor(1000+Math.random()*9000)}`);
+      auReal("solicitudes_equipo","APROBAR",s.num,{motivo:motivo.trim()||null}).then(cod=>{
+        toast(cod ? `${s.num} aprobada · auditado ${cod}` : `${s.num} aprobada (demo · sin sesión)`);
+      });
     }
     if(a==="rechazar"){
       if(!motivo.trim()){ toast("El motivo del rechazo es obligatorio"); return; }
       setEstado(s.id,"rechazada");
       agregarComentario(s.id,"Rechazada: "+motivo);
-      toast(`${s.num} rechazada · auditado AU-260718-${Math.floor(1000+Math.random()*9000)}`);
+      auReal("solicitudes_equipo","RECHAZAR",s.num,{motivo:motivo.trim()}).then(cod=>{
+        toast(cod ? `${s.num} rechazada · auditado ${cod}` : `${s.num} rechazada (demo · sin sesión)`);
+      });
     }
     if(a==="correccion"){
       if(!motivo.trim()){ toast("Indica qué debe corregir"); return; }
