@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"336", fecha:"25 jul 2026", desc:"El perfil del negocio POR FIN se guarda: en este telefono (siempre) y en la base con sesion (organizaciones: nombre/ruc/tel/correo). Destinatarios de recibos tambien persisten" };
+const VERSION = { n:"337", fecha:"25 jul 2026", desc:"Perfil del negocio: indicador de DONDE se guarda (base con sesion / solo telefono sin sesion). Datos reales de Richard sembrados en organizaciones (AU-260725-0093)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -15919,6 +15919,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     return PERFIL_DEMO;
   });
   const [orgIdPerfil,setOrgIdPerfil]=useState("ORG-001");
+  const [sesionBase,setSesionBase]=useState(false);   /* b337: para mostrar DÓNDE se guarda */
   React.useEffect(()=>{
     if(!window.SB || !window.SB.auth) return;
     let activo=true;
@@ -15926,6 +15927,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       try{
         const { data:s } = await window.SB.auth.getSession();
         if(!activo || !s || !s.session) return;
+        setSesionBase(true);
         const { data } = await window.SB.from("organizaciones").select("org_id,nombre,ruc,tel,correo").limit(1);
         if(!activo || !data || !data[0]) return;
         const o=data[0];
@@ -16311,6 +16313,10 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     {pestAj==="negocio" && (<>
     <div className="ficha-sec">Datos del perfil / negocio</div>
     <div className="fcard" style={{marginBottom:14}}>
+      {/* b337 · Dónde se guarda: con sesión de correo van a la base; sin sesión, solo a este teléfono */}
+      <div style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,marginBottom:8,
+        background:sesionBase?"rgba(28,122,68,.13)":"rgba(138,138,149,.15)",color:sesionBase?"#1c7a44":"#6b7280"}}>
+        {sesionBase ? "🟢 Con tu sesión: se leen y guardan en la base" : "⚪ Sin sesión de correo: solo se guardan en este teléfono"}</div>
       {!editPerfil ? (<>
         <div className="cu-line"><span>Nombre</span><b>{perfil.nombre}</b></div>
         <div className="cu-line"><span>RUC</span><b className="num">{perfil.ruc}</b></div>
