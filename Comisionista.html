@@ -1230,7 +1230,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"157", fecha:"25 jul 2026", desc:"Mensajes: chat real con el freelance (texto, foto y audio) en tiempo real" };
+const VERSION = { n:"158", fecha:"25 jul 2026", desc:"Chat con mejor cara: separadores por dia, palomitas de leido, burbujas agrupadas y barra de escritura nueva" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -10376,11 +10376,22 @@ function ChatEquipo({ usuario, toast }){
     }catch(e){ toast && toast("Permite el micrófono para grabar."); }
   };
 
-  const VERDE="#2E7D52", LINEA="#E2E8E2", GRIS="#6B7A70";
-  const TIT={ fontSize:21, fontWeight:800, margin:"0 0 4px" };
-  const NOTA={ fontSize:13, color:GRIS, lineHeight:1.5, background:"#F4F7F4",
-    border:"1px solid "+LINEA, borderRadius:12, padding:"14px 15px" };
-  const TARJETA={ background:"#fff", border:"1px solid "+LINEA, borderRadius:14 };
+  const VERDE="#2E7D52", VERDE_OSC="#25634153", LINEA="#E4EAE4", GRIS="#6B7A70", TINTA="#1E2B23";
+  const TIT={ fontSize:21, fontWeight:800, margin:"0 0 4px", color:TINTA };
+  const NOTA={ fontSize:13, color:GRIS, lineHeight:1.5, background:"#F5F8F5",
+    border:"1px solid "+LINEA, borderRadius:14, padding:"16px 16px" };
+  const TARJETA={ background:"#fff", border:"1px solid "+LINEA, borderRadius:16,
+    boxShadow:"0 1px 3px rgba(20,40,30,.05)" };
+  /* separadores por día, como en cualquier mensajería */
+  const etiquetaDia=(f)=>{
+    const hoy=new Date().toISOString().slice(0,10);
+    const ayer=new Date(new Date().getTime()-86400000).toISOString().slice(0,10);
+    if(f===hoy) return "Hoy";
+    if(f===ayer) return "Ayer";
+    const MES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const p=String(f||"").split("-");
+    return p.length===3 ? (Number(p[2])+" "+MES[Number(p[1])-1]) : f;
+  };
   if(estado==="cargando") return (<><div style={TIT}>Mensajes</div><div style={NOTA}>Abriendo tus conversaciones…</div></>);
   if(estado==="sin-sesion") return (<>
     <div style={TIT}>Mensajes</div>
@@ -10390,25 +10401,36 @@ function ChatEquipo({ usuario, toast }){
 
   if(!sel) return (<>
     <div style={{...TIT,marginBottom:2}}>Mensajes</div>
-    <div style={{fontSize:12.5,color:GRIS}}>Tu equipo · en tiempo real
-      {" "}<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:10.5,
-        fontWeight:700,background:"rgba(28,122,68,.13)",color:"#1c7a44"}}>🟢 En vivo</span></div>
-    <div style={{height:12}} />
+    <div style={{fontSize:12.5,color:GRIS,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+      Tu equipo · en tiempo real
+      <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 9px",borderRadius:20,
+        fontSize:10.5,fontWeight:700,background:"rgba(46,125,82,.12)",color:"#1c7a44"}}>
+        <span style={{width:6,height:6,borderRadius:"50%",background:"#1c7a44",display:"inline-block"}}></span>
+        En vivo</span></div>
+    <div style={{height:14}} />
     {contactos.map(c=>{
       const u=ultimo(c.id), n=noLeidos(c.id);
       return (
-        <div key={c.id} style={{...TARJETA,padding:"12px 14px",marginBottom:8,display:"flex",
-          alignItems:"center",gap:12,cursor:"pointer"}} onClick={()=>abrir(c.id)}>
-          <span style={{width:42,height:42,borderRadius:"50%",background:"#E4F1E9",display:"flex",
-            alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{c.ico}</span>
+        <div key={c.id} style={{...TARJETA,padding:"13px 14px",marginBottom:9,display:"flex",
+          alignItems:"center",gap:12,cursor:"pointer",
+          borderColor: n>0 ? "rgba(46,125,82,.35)" : LINEA}} onClick={()=>abrir(c.id)}>
+          <span style={{width:46,height:46,borderRadius:"50%",background:"#E9F3EC",display:"flex",
+            alignItems:"center",justifyContent:"center",fontSize:21,flexShrink:0,
+            border:"2px solid "+(n>0?VERDE:"#DCEAE1")}}>{c.ico}</span>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:800,fontSize:14}}>{c.nombre}
-              <span style={{fontWeight:600,fontSize:11,color:GRIS}}> · {c.rol}</span></div>
-            <div style={{fontSize:12,color:GRIS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-              {u ? (u.tipo==="imagen"?"📷 Foto":u.tipo==="audio"?"🎤 Audio":u.texto) : "Sin mensajes aún"}</div>
+            <div style={{display:"flex",alignItems:"baseline",gap:7}}>
+              <span style={{fontWeight:800,fontSize:14.5,color:TINTA,whiteSpace:"nowrap",
+                overflow:"hidden",textOverflow:"ellipsis"}}>{c.nombre}</span>
+              {u && <span style={{fontSize:10.5,color:GRIS,marginLeft:"auto",flexShrink:0}}>{u.hora}</span>}
+            </div>
+            <div style={{fontSize:11.5,color:GRIS,marginTop:1}}>{c.rol}</div>
+            <div style={{fontSize:12.5,color: n>0?TINTA:GRIS, fontWeight: n>0?700:400, marginTop:3,
+              whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {u ? ((u.mio?"Tú: ":"")+(u.tipo==="imagen"?"📷 Foto":u.tipo==="audio"?"🎤 Audio":u.texto)) : "Escríbele el primer mensaje"}</div>
           </div>
-          {n>0 && <span style={{minWidth:22,padding:"2px 7px",borderRadius:999,background:VERDE,
-            color:"#fff",fontSize:11,fontWeight:800,textAlign:"center",flexShrink:0}}>{n}</span>}
+          {n>0 && <span style={{minWidth:23,height:23,padding:"0 7px",borderRadius:999,background:VERDE,
+            color:"#fff",fontSize:11.5,fontWeight:800,display:"flex",alignItems:"center",
+            justifyContent:"center",flexShrink:0}}>{n}</span>}
         </div>
       );
     })}
@@ -10419,53 +10441,93 @@ function ChatEquipo({ usuario, toast }){
   const c=contactos.find(x=>x.id===sel) || { nombre:sel, rol:"—", ico:"👤" };
   const hilo=msgs.filter(m=>m.con===sel);
   return (<>
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-      <button onClick={()=>setSel(null)} style={{padding:"7px 13px",borderRadius:10,border:"1px solid "+LINEA,background:"#fff",fontSize:15,fontWeight:800}}>‹</button>
-      <span style={{width:34,height:34,borderRadius:"50%",background:"#E4F1E9",display:"flex",
-        alignItems:"center",justifyContent:"center",fontSize:17}}>{c.ico}</span>
+    <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:12,padding:"9px 11px",
+      background:"#fff",border:"1px solid "+LINEA,borderRadius:16,boxShadow:"0 1px 3px rgba(20,40,30,.05)"}}>
+      <button onClick={()=>setSel(null)} aria-label="Volver"
+        style={{width:34,height:34,borderRadius:11,border:"1px solid "+LINEA,background:"#F7F9F7",
+          fontSize:17,fontWeight:800,color:TINTA,flexShrink:0,lineHeight:1}}>‹</button>
+      <span style={{width:38,height:38,borderRadius:"50%",background:"#E9F3EC",display:"flex",
+        alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,border:"2px solid #DCEAE1"}}>{c.ico}</span>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontWeight:800,fontSize:14.5}}>{c.nombre}</div>
-        <div style={{fontSize:11.5,color:GRIS}}>{c.rol}</div>
+        <div style={{fontWeight:800,fontSize:15,color:TINTA,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.nombre}</div>
+        <div style={{fontSize:11.5,color:GRIS,display:"flex",alignItems:"center",gap:5}}>
+          <span style={{width:6,height:6,borderRadius:"50%",background:"#1c7a44",display:"inline-block"}}></span>
+          {c.rol}</div>
       </div>
     </div>
-    <div ref={hiloRef} style={{background:"#F4F7F4",border:"1px solid "+LINEA,borderRadius:14,
-      padding:"10px 10px",height:"52vh",overflowY:"auto",marginBottom:10}}>
-      {!hilo.length && <div style={{textAlign:"center",color:GRIS,fontSize:12.5,padding:"20px 10px"}}>
-        Escríbele a {c.nombre}. Le llega al instante, esté en la web o en su app.</div>}
-      {hilo.map(m=>{
-        if(m.aviso) return (
-          <div key={m.id} style={{textAlign:"center",margin:"9px 0"}}>
-            <span style={{display:"inline-block",background:"#EEF1F4",color:GRIS,borderRadius:10,
-              padding:"6px 11px",fontSize:11.5,maxWidth:"85%"}}>🔔 {m.texto} · {m.hora}</span></div>
-        );
-        return (
-          <div key={m.id} style={{display:"flex",justifyContent:m.mio?"flex-end":"flex-start",margin:"6px 0"}}>
-            <div style={{maxWidth:"80%",background:m.mio?VERDE:"#fff",color:m.mio?"#fff":"#1E1B14",
+    <div ref={hiloRef} style={{background:"#F1F5F1",
+      backgroundImage:"radial-gradient(rgba(46,125,82,.055) 1px, transparent 1px)",
+      backgroundSize:"18px 18px",
+      border:"1px solid "+LINEA,borderRadius:16,padding:"12px 11px",
+      height:"clamp(300px, 54vh, 620px)",overflowY:"auto",marginBottom:11,
+      display:"flex",flexDirection:"column",justifyContent:hilo.length?"flex-start":"center"}}>
+      {!hilo.length && (
+        <div style={{textAlign:"center",color:GRIS,padding:"10px 16px"}}>
+          <div style={{fontSize:34,marginBottom:8}}>💬</div>
+          <div style={{fontSize:13.5,fontWeight:700,color:TINTA,marginBottom:3}}>Escríbele a {c.nombre}</div>
+          <div style={{fontSize:12.5,lineHeight:1.5}}>Le llega al instante, esté en la web o en su app.</div>
+        </div>
+      )}
+      {hilo.map((m,idx)=>{
+        const diaNuevo = idx===0 || hilo[idx-1].fecha !== m.fecha;
+        const seguido = !diaNuevo && idx>0 && hilo[idx-1].mio===m.mio && !hilo[idx-1].aviso && !m.aviso;
+        const sep = diaNuevo ? (
+          <div key={m.id+"-d"} style={{textAlign:"center",margin:"10px 0 8px"}}>
+            <span style={{display:"inline-block",background:"rgba(255,255,255,.9)",color:GRIS,
+              border:"1px solid "+LINEA,borderRadius:999,padding:"3px 12px",fontSize:11,fontWeight:700}}>
+              {etiquetaDia(m.fecha)}</span></div>
+        ) : null;
+        if(m.aviso) return (<React.Fragment key={m.id}>{sep}
+          <div style={{textAlign:"center",margin:"9px 0"}}>
+            <span style={{display:"inline-block",background:"rgba(255,255,255,.92)",color:GRIS,
+              border:"1px solid "+LINEA,borderRadius:12,padding:"7px 12px",fontSize:11.5,maxWidth:"88%"}}>
+              🔔 {m.texto} · {m.hora}</span></div></React.Fragment>);
+        return (<React.Fragment key={m.id}>{sep}
+          <div style={{display:"flex",justifyContent:m.mio?"flex-end":"flex-start",margin:(seguido?"2px":"7px")+" 0"}}>
+            <div style={{maxWidth:"82%",background:m.mio?VERDE:"#fff",color:m.mio?"#fff":TINTA,
               border:m.mio?"none":"1px solid "+LINEA,
-              borderRadius:m.mio?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"9px 12px"}}>
+              borderRadius: m.mio ? (seguido?"16px 6px 6px 16px":"16px 16px 6px 16px")
+                                  : (seguido?"6px 16px 16px 6px":"16px 16px 16px 6px"),
+              padding:"9px 12px 7px",boxShadow:"0 1px 2px rgba(20,40,30,.07)"}}>
               {m.adjunto && <AdjuntoChatApp ruta={m.adjunto} tipo={m.tipo} dur={m.texto} mio={m.mio}/>}
-              {m.texto && m.tipo!=="audio" && <p style={{margin:0,fontSize:13.5,lineHeight:1.4}}>{m.texto}</p>}
-              <p style={{margin:"3px 0 0",fontSize:10,opacity:.7,textAlign:"right"}}>{m.hora}</p>
+              {m.texto && m.tipo!=="audio" && <p style={{margin:0,fontSize:14,lineHeight:1.42,
+                whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.texto}</p>}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4,marginTop:3}}>
+                <span style={{fontSize:10,opacity:.72}}>{m.hora}</span>
+                {m.mio && <span style={{fontSize:10.5,opacity:.9,letterSpacing:"-1px"}}>{m.leido?"✓✓":"✓"}</span>}
+              </div>
             </div>
-          </div>
-        );
+          </div></React.Fragment>);
       })}
     </div>
-    <div style={{display:"flex",gap:7,alignItems:"center"}}>
-      <label style={{width:40,height:40,borderRadius:11,border:"1px solid "+LINEA,display:"flex",
-        alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0,cursor:"pointer",background:"#fff"}}>📷
+    {grabando && (
+      <div style={{display:"flex",alignItems:"center",gap:8,background:"#FBECE8",border:"1px solid #EFC9BF",
+        borderRadius:12,padding:"9px 13px",marginBottom:9}}>
+        <span style={{width:9,height:9,borderRadius:"50%",background:"#B5432C",flexShrink:0}}></span>
+        <span style={{fontSize:13,fontWeight:700,color:"#8C2E1E",flex:1}}>Grabando… toca ⏹ para enviar</span>
+      </div>
+    )}
+    <div style={{display:"flex",gap:8,alignItems:"flex-end",background:"#fff",border:"1px solid "+LINEA,
+      borderRadius:18,padding:"7px 8px",boxShadow:"0 1px 3px rgba(20,40,30,.05)"}}>
+      <label style={{width:38,height:38,borderRadius:"50%",display:"flex",alignItems:"center",
+        justifyContent:"center",fontSize:17,flexShrink:0,cursor:"pointer",background:"#F1F5F1"}}
+        title="Enviar una foto">📷
         <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
           onChange={e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(f) enviarFoto(f); }}/>
       </label>
-      <button onClick={alternarAudio} style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,
-        background:grabando?"#B5432C":"#EFF2EF",color:grabando?"#fff":"#1E1B14",fontSize:17}}>
+      <button onClick={alternarAudio} title="Grabar un audio"
+        style={{width:38,height:38,borderRadius:"50%",border:"none",flexShrink:0,
+          background:grabando?"#B5432C":"#F1F5F1",color:grabando?"#fff":TINTA,fontSize:17}}>
         {grabando?"⏹":"🎤"}</button>
-      <input value={txt} onChange={e=>setTxt(e.target.value)}
-        onKeyDown={e=>{ if(e.key==="Enter") enviarTexto(); }}
+      <textarea value={txt} onChange={e=>setTxt(e.target.value)} rows={1}
+        onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); enviarTexto(); } }}
         placeholder="Escribe un mensaje…"
-        style={{flex:1,minWidth:0,padding:"11px 13px",borderRadius:11,border:"1px solid "+LINEA,fontSize:14}}/>
-      <button onClick={enviarTexto} disabled={enviando} style={{padding:"11px 16px",borderRadius:11,border:"none",
-        background:VERDE,color:"#fff",fontWeight:800,fontSize:14,flexShrink:0}}>Enviar</button>
+        style={{flex:1,minWidth:0,padding:"10px 6px",border:"none",outline:"none",fontSize:14.5,
+          fontFamily:"inherit",resize:"none",maxHeight:96,lineHeight:1.4,background:"transparent",color:TINTA}}/>
+      <button onClick={enviarTexto} disabled={enviando || !txt.trim()} aria-label="Enviar"
+        style={{width:40,height:40,borderRadius:"50%",border:"none",flexShrink:0,
+          background: txt.trim()? VERDE : "#CFDCD4", color:"#fff", fontSize:17, fontWeight:800,
+          transition:"background .15s"}}>➤</button>
     </div>
   </>);
 }
