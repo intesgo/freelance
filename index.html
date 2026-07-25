@@ -73,6 +73,24 @@
           <button class="btn" id="btnEntrar" type="submit">Entrar</button>
         </form>
         <div class="msj-error" id="msjError"></div>
+        <button class="btn-suave" id="btnOlvido" type="button">¿Olvidaste tu clave?</button>
+      </div>
+      <!-- v2.1 · Recuperación: correo → enlace al buzón → clave nueva aquí mismo -->
+      <div id="vistaOlvido" class="oculto">
+        <h2>Recuperar tu clave</h2>
+        <div class="sub">Te enviamos un enlace a tu correo. Al abrirlo vuelves aquí y defines tu clave nueva.</div>
+        <div class="campo"><input id="inCorreoRec" type="email" inputmode="email" autocomplete="username" placeholder="Tu correo"></div>
+        <button class="btn" id="btnEnviarEnlace" type="button">Enviarme el enlace</button>
+        <button class="btn-suave" id="btnVolverLogin" type="button">Volver</button>
+        <div class="msj-error" id="msjOlvido"></div>
+      </div>
+      <div id="vistaNueva" class="oculto">
+        <h2>Crea tu clave nueva</h2>
+        <div class="sub">Mínimo 8 caracteres, con letra y número. Vale para toda la plataforma.</div>
+        <div class="campo"><input id="inNueva" type="password" autocomplete="new-password" placeholder="Clave nueva"></div>
+        <div class="campo"><input id="inNueva2" type="password" autocomplete="new-password" placeholder="Repítela"></div>
+        <button class="btn" id="btnGuardarNueva" type="button">Guardar clave nueva</button>
+        <div class="msj-error" id="msjNueva"></div>
       </div>
       <!-- Con sesión: continuar -->
       <div id="vistaSesion" class="oculto">
@@ -114,7 +132,7 @@
     </a>
 
     <div class="nota">🔒 Con tu cuenta, la app <b>Freelance</b> ya trabaja con datos reales (catálogo, clientes y pedidos). Sin cuenta, todas las apps abren en modo demostración. El <b>Sistema Web central</b> sigue privado.</div>
-    <div class="pie">v2.0 · Portal único · © 2026 FREELANCE</div>
+    <div class="pie">v2.1 · Portal único · Recuperación de clave · © 2026 FREELANCE</div>
   </div>
 
 <script>
@@ -207,6 +225,64 @@
   $("btnSalir").addEventListener("click", function(){
     if(SB){ SB.auth.signOut().then(mostrarLogin).catch(mostrarLogin); } else mostrarLogin();
   });
+
+  /* ══ v2.1 · RECUPERACIÓN DE CLAVE ══
+     1) "¿Olvidaste tu clave?" → correo → SB manda el enlace al buzón.
+     2) El enlace vuelve a este portal: SB avisa PASSWORD_RECOVERY → formulario
+        de clave nueva → updateUser. La clave vale para toda la plataforma. */
+  var vistaOlvido = $("vistaOlvido"), vistaNueva = $("vistaNueva");
+  function soloVista(v){
+    [vistaLogin, vistaSesion, vistaOlvido, vistaNueva].forEach(function(x){ x.classList.add("oculto"); });
+    v.classList.remove("oculto");
+  }
+  $("btnOlvido").addEventListener("click", function(){
+    $("inCorreoRec").value = $("inCorreo").value.trim();
+    $("msjOlvido").textContent = "";
+    soloVista(vistaOlvido);
+  });
+  $("btnVolverLogin").addEventListener("click", function(){ soloVista(vistaLogin); });
+  $("btnEnviarEnlace").addEventListener("click", function(){
+    if(!SB){ $("msjOlvido").textContent = "Sin conexión con el servidor."; return; }
+    var correo = $("inCorreoRec").value.trim().toLowerCase();
+    if(!correo || correo.indexOf("@") < 1){ $("msjOlvido").textContent = "Escribe tu correo."; return; }
+    $("btnEnviarEnlace").disabled = true; $("msjOlvido").textContent = "";
+    SB.auth.resetPasswordForEmail(correo, { redirectTo: location.origin + location.pathname })
+      .then(function(r){
+        $("btnEnviarEnlace").disabled = false;
+        if(r.error){ $("msjOlvido").textContent = "No se pudo enviar: " + (r.error.message || "error"); return; }
+        $("msjOlvido").style.color = "var(--ok)";
+        $("msjOlvido").textContent = "Enlace enviado ✓ Revisa tu correo (también la carpeta de no deseados).";
+      })
+      .catch(function(){ $("btnEnviarEnlace").disabled = false; $("msjOlvido").textContent = "No se pudo conectar. Intenta de nuevo."; });
+  });
+  function fuerzaOk(t){ return t.length >= 8 && /[a-zA-Z]/.test(t) && /[0-9]/.test(t); }
+  $("btnGuardarNueva").addEventListener("click", function(){
+    var c1 = $("inNueva").value, c2 = $("inNueva2").value;
+    if(!fuerzaOk(c1)){ $("msjNueva").textContent = "Mínimo 8 caracteres, con letra y número."; return; }
+    if(c1 !== c2){ $("msjNueva").textContent = "Las dos claves no coinciden."; return; }
+    $("btnGuardarNueva").disabled = true; $("msjNueva").textContent = "";
+    SB.auth.updateUser({ password: c1 }).then(function(r){
+      $("btnGuardarNueva").disabled = false;
+      if(r.error){ $("msjNueva").textContent = "No se pudo guardar: " + (r.error.message || "error"); return; }
+      SB.auth.getSession().then(function(s){
+        var ses = s.data && s.data.session;
+        if(ses) cargarPadron(ses.user.id, ses.user.email || "Cuenta activa", function(nombre, rol){
+          mostrarSesion(nombre, rol);
+          $("msjSesion").style.color = "var(--ok)";
+          $("msjSesion").textContent = "Clave actualizada ✓ Ya vale en todas las apps.";
+        });
+        else soloVista(vistaLogin);
+      });
+    }).catch(function(){ $("btnGuardarNueva").disabled = false; $("msjNueva").textContent = "No se pudo conectar."; });
+  });
+  if(SB){
+    /* el enlace del correo dispara este evento al aterrizar de vuelta */
+    SB.auth.onAuthStateChange(function(evento){
+      if(evento === "PASSWORD_RECOVERY") soloVista(vistaNueva);
+    });
+  }
+  /* las apps mandan aquí con #olvido desde su enlace "¿Olvidó su contraseña?" */
+  if(location.hash === "#olvido") soloVista(vistaOlvido);
 })();
 </script>
 </body>
