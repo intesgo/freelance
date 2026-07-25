@@ -4983,7 +4983,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"352", fecha:"25 jul 2026", desc:"Barrido final de AU inventados: verificacion de cobros, solicitudes del equipo y autorizaciones demo usan AU real o AU-DEMO rotulado" };
+const VERSION = { n:"353", fecha:"25 jul 2026", desc:"Cupo usado por piladora en la tarjeta de negocios: credito vigente calculado de pedidos reales, con disponible y barra" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19378,6 +19378,7 @@ function PiladorasReales({toast, usuario}){
   const [editC,setEditC]=useState(null);   /* contacto en edición (nuevo o existente) */
   /* b343 · Documentos de negociación (contratos, pagarés…) en bucket PRIVADO docs-piladora */
   const [docs,setDocs]=useState({});
+  const [usado,setUsado]=useState({});   /* b353 · cupo usado: crédito vigente por piladora */
   const [formDoc,setFormDoc]=useState(null);   /* {file, nombre, tipo} elegido, por confirmar */
   const [subiendo,setSubiendo]=useState(false);
   const fileRef=React.useRef(null);
@@ -19392,17 +19393,25 @@ function PiladorasReales({toast, usuario}){
     let activo=true;
     (async()=>{
       try{
-        const [{ data:ps }, { data:fs }, { data:cs }, { data:ds }] = await Promise.all([
+        const [{ data:ps }, { data:fs }, { data:cs }, { data:ds }, { data:pd }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("proveedor_fichas").select("*"),
           window.SB.from("proveedor_contactos").select("*").eq("activo",true).order("orden"),
           window.SB.from("proveedor_documentos").select("*").eq("activo",true).order("creado",{ascending:false}),
+          /* b353 · crédito vigente: pedidos a crédito reales sin cerrar ni anular */
+          window.SB.from("pedidos").select("prov_cod,estado,pedido_items(cantidad_qq,precio_usd)")
+            .eq("condicion","credito").eq("es_demo",false)
+            .neq("estado","anulado").neq("estado","cerrado"),
         ]);
         if(!activo) return;
         setProvs((ps||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})));
         const f={}; (fs||[]).forEach(x=>{ f[x.prov_cod]=x; }); setFichas(f);
         const c={}; (cs||[]).forEach(x=>{ (c[x.prov_cod]=c[x.prov_cod]||[]).push(x); }); setContactos(c);
         const dd={}; (ds||[]).forEach(x=>{ (dd[x.prov_cod]=dd[x.prov_cod]||[]).push(x); }); setDocs(dd);
+        const uu={}; (pd||[]).forEach(p=>{
+          const m=(p.pedido_items||[]).reduce((a,i)=>a+(Number(i.cantidad_qq)||0)*(Number(i.precio_usd)||0),0);
+          uu[p.prov_cod]=(uu[p.prov_cod]||0)+m;
+        }); setUsado(uu);
       }catch(e){}
     })();
     return ()=>{ activo=false; };
@@ -19563,6 +19572,24 @@ function PiladorasReales({toast, usuario}){
       <div className="ficha-sec">Negociación</div>
       <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
         <div className="cu-line"><span>Cupo de crédito</span><b className="num">{ficha.cupo_usd!=null?money(ficha.cupo_usd):"—"}</b></div>
+        {(()=>{ /* b353 · cupo usado en vivo: pedidos a crédito vigentes de esta piladora */
+          const u=usado[selCod]||0;
+          const cupo=ficha.cupo_usd!=null?Number(ficha.cupo_usd):null;
+          const disp=cupo!=null?cupo-u:null;
+          const pct=cupo>0?Math.min(100,Math.round(u/cupo*100)):0;
+          return (<>
+            <div className="cu-line"><span>Usado</span><b className="num" style={u>0?{color:"#B07C10"}:null}>{money(u)}</b></div>
+            {cupo!=null && (<>
+              <div className="cu-line"><span>Disponible</span>
+                <b className="num" style={{color:disp<0?"#B5432C":"#2E7D52"}}>{money(disp)}</b></div>
+              <div style={{height:7,background:"var(--line)",borderRadius:6,margin:"6px 0 2px",overflow:"hidden"}}>
+                <div style={{height:"100%",width:pct+"%",borderRadius:6,
+                  background:pct>=90?"#B5432C":pct>=70?"#B07C10":"#2E7D52"}}/></div>
+              {disp<0 && <div className="meta" style={{color:"#B5432C",fontWeight:700}}>⚠ Cupo excedido: coordina un abono o una ampliación.</div>}
+            </>)}
+            <div className="meta" style={{marginTop:6}}>Usado = pedidos a crédito vigentes (aún sin cerrar ni anular), calculado de la base.</div>
+          </>);
+        })()}
         <div className="cu-line"><span>Días de crédito</span><b className="num">{ficha.dias_credito!=null?ficha.dias_credito+" días":"—"}</b></div>
         <div className="cu-line"><span>Zona comercial</span><b>{ficha.zona_comercial||"—"}</b></div>
         {ficha.notas && <div className="meta" style={{marginTop:8}}>📝 {ficha.notas}</div>}

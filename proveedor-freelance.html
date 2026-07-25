@@ -1374,7 +1374,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"43", fecha:"25 jul 2026", desc:"Perfil: cada piladora ve SOLO lo suyo (sin selector); identidad por cuenta con usuarios.prov_cod" };
+const VERSION = { n:"44", fecha:"25 jul 2026", desc:"Con el Freelance muestra cupo usado y disponible: credito vigente calculado de los pedidos reales" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -5507,6 +5507,7 @@ function PerfilNegocioProv({decir}){
   const [contactos,setContactos]=useState({});
   const [docs,setDocs]=useState({});
   const [flx,setFlx]=useState(null);               /* {org, colabs} del freelance */
+  const [usado,setUsado]=useState(0);              /* b44 · crédito vigente con el freelance */
   const [editF,setEditF]=useState(null);
   const [editC,setEditC]=useState(null);
   useEffect(()=>{
@@ -5524,13 +5525,17 @@ function PerfilNegocioProv({decir}){
            no existan cuentas de piladora, se usa San Agustín (AGU) para probar. */
         const { data:u } = await window.SB.from("usuarios").select("prov_cod").eq("auth_uid", s.user.id).maybeSingle();
         const cod=(u&&u.prov_cod)||"AGU";
-        const [{data:pv},{data:fs},{data:cs},{data:ds},{data:og},{data:cf}] = await Promise.all([
+        const [{data:pv},{data:fs},{data:cs},{data:ds},{data:og},{data:cf},{data:pd}] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("prov_cod",cod).maybeSingle(),
           window.SB.from("proveedor_fichas").select("*").eq("prov_cod",cod),
           window.SB.from("proveedor_contactos").select("*").eq("prov_cod",cod).eq("activo",true).order("orden"),
           window.SB.from("proveedor_documentos").select("*").eq("prov_cod",cod).eq("activo",true).order("creado",{ascending:false}),
           window.SB.from("organizaciones").select("nombre,ruc,tel,correo").eq("org_id","ORG-001").maybeSingle(),
           window.SB.from("config_sistema").select("valor").eq("clave","colaboradores").maybeSingle(),
+          /* b44 · crédito vigente con el freelance: pedidos a crédito sin cerrar ni anular */
+          window.SB.from("pedidos").select("estado,pedido_items(cantidad_qq,precio_usd)")
+            .eq("prov_cod",cod).eq("condicion","credito").eq("es_demo",false)
+            .neq("estado","anulado").neq("estado","cerrado"),
         ]);
         if(!vivo) return;
         setProvs([{id:cod, nombre:(pv&&pv.nombre)||("Piladora "+cod)}]);
@@ -5539,6 +5544,7 @@ function PerfilNegocioProv({decir}){
         const c={}; (cs||[]).forEach(x=>{ (c[x.prov_cod]=c[x.prov_cod]||[]).push(x); }); setContactos(c);
         const dd={}; (ds||[]).forEach(x=>{ (dd[x.prov_cod]=dd[x.prov_cod]||[]).push(x); }); setDocs(dd);
         setFlx({ org:og||null, colabs:(cf&&cf.valor&&cf.valor.lista)||[] });
+        setUsado((pd||[]).reduce((a,p)=>a+(p.pedido_items||[]).reduce((b,i)=>b+(Number(i.cantidad_qq)||0)*(Number(i.precio_usd)||0),0),0));
       }catch(e){ if(vivo) setSes(null); }
     })();
     return ()=>{ vivo=false; };
@@ -5689,6 +5695,13 @@ function PerfilNegocioProv({decir}){
     </div>
     <div className="aj-card" style={{marginTop:8}}>
       <div className="aj-fila"><span>Cupo de crédito</span><b className="num">{ficha.cupo_usd!=null?money(ficha.cupo_usd):"—"}</b></div>
+      <div className="aj-fila"><span>Usado</span><b className="num">{money(usado)}</b></div>
+      {ficha.cupo_usd!=null && (
+        <div className="aj-fila"><span>Disponible</span>
+          <b className="num" style={{color:(Number(ficha.cupo_usd)-usado)<0?"var(--alerta,#B5432C)":"var(--ok,#2E7D52)"}}>
+            {money(Number(ficha.cupo_usd)-usado)}</b></div>
+      )}
+      <div className="aj-sub">Usado = pedidos a crédito vigentes con el freelance (sin cerrar ni anular).</div>
       <div className="aj-fila"><span>Días de crédito</span><b className="num">{ficha.dias_credito!=null?ficha.dias_credito+" días":"—"}</b></div>
       <div className="aj-fila"><span>Zona comercial</span><b>{ficha.zona_comercial||"—"}</b></div>
       <div className="aj-sub">Las condiciones de la negociación las administra el freelance.</div>
