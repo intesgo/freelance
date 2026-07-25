@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"341", fecha:"25 jul 2026", desc:"El cierre diario se MUDO de Ajustes a Mi Caja (el cierre de caja es operacion, no configuracion). El desglose por piladora ya vivia en Mi Caja > Detalle; se elimino el duplicado" };
+const VERSION = { n:"342", fecha:"25 jul 2026", desc:"Tarjeta de negocios REAL por piladora: selector + Contactos (negociadores con WhatsApp) + Condiciones (campos fijos + notas), editable desde la app, guardado en la base con AU-" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19124,14 +19124,191 @@ function PantallaLogin({ onAutenticado }) {
   );
 }
 
-function Proveedores({toast}){
+/* ══ TARJETA DE NEGOCIOS REAL (b342) ══
+   Diseño de Richard 25 jul: selector de piladora + pestaña CONTACTOS (negociadores y
+   responsables, con WhatsApp directo) + pestaña CONDICIONES (campos fijos + notas).
+   Datos en proveedor_fichas / proveedor_contactos (RLS: leer autenticados, escribir
+   solo freelance/admin). Editable desde la app; cada guardado audita con AU- real. */
+function PiladorasReales({toast, usuario}){
+  const [provs,setProvs]=useState([]);
+  const [selCod,setSelCod]=useState(null);
+  const [pestP,setPestP]=useState("contactos");
+  const [fichas,setFichas]=useState({});
+  const [contactos,setContactos]=useState({});
+  const [editF,setEditF]=useState(null);   /* copia de la ficha en edición */
+  const [editC,setEditC]=useState(null);   /* contacto en edición (nuevo o existente) */
   useRetroceso(()=>{
+    if(editC){ setEditC(null); return true; }
+    if(editF){ setEditF(null); return true; }
+    if(selCod){ setSelCod(null); return true; }
+    return false;
+  });
+  React.useEffect(()=>{
+    let activo=true;
+    (async()=>{
+      try{
+        const [{ data:ps }, { data:fs }, { data:cs }] = await Promise.all([
+          window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
+          window.SB.from("proveedor_fichas").select("*"),
+          window.SB.from("proveedor_contactos").select("*").eq("activo",true).order("orden"),
+        ]);
+        if(!activo) return;
+        setProvs((ps||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})));
+        const f={}; (fs||[]).forEach(x=>{ f[x.prov_cod]=x; }); setFichas(f);
+        const c={}; (cs||[]).forEach(x=>{ (c[x.prov_cod]=c[x.prov_cod]||[]).push(x); }); setContactos(c);
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  const audit=async(tabla, op, regId, valor)=>{
+    try{ const { data:cod } = await window.SB.rpc("au_codigo");
+      if(cod){ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+        usuario:(usuario&&usuario.nombre)||"freelance", tabla, operacion:op, registro_id:regId, valor_nuevo:valor }); }
+      return cod||null;
+    }catch(e){ return null; }
+  };
+  const waNum=t=>{ const d=String(t||"").replace(/\D/g,""); return d.startsWith("0")?"593"+d.slice(1):d; };
+  const guardarFicha=async()=>{
+    const f={...editF, actualizado:new Date().toISOString()};
+    f.pedido_minimo_qq = f.pedido_minimo_qq===""||f.pedido_minimo_qq==null ? null : Number(f.pedido_minimo_qq);
+    const { error } = await window.SB.from("proveedor_fichas").upsert(f);
+    if(error){ toast("No se pudo guardar: "+(error.message||"error")); return; }
+    const au=await audit("proveedor_fichas","UPDATE",f.prov_cod,f);
+    setFichas(prev=>({...prev,[f.prov_cod]:f})); setEditF(null);
+    toast("Ficha guardada en la base"+(au?" · "+au:""));
+  };
+  const guardarContacto=async()=>{
+    if(!editC.nombre || !editC.nombre.trim()){ toast("El nombre es obligatorio."); return; }
+    const c={...editC, prov_cod:selCod, activo:true, es_demo:false};
+    if(!c.contacto_id) c.contacto_id="PC-"+selCod+"-"+String(((contactos[selCod]||[]).length+1)).padStart(2,"0")+"-"+String(Math.abs(new Date().getTime())%10000);
+    const { error } = await window.SB.from("proveedor_contactos").upsert(c);
+    if(error){ toast("No se pudo guardar: "+(error.message||"error")); return; }
+    const au=await audit("proveedor_contactos","UPSERT",c.contacto_id,c);
+    setContactos(prev=>{ const l=(prev[selCod]||[]).filter(x=>x.contacto_id!==c.contacto_id);
+      return {...prev,[selCod]:[...l,c].sort((a,b)=>(a.orden||0)-(b.orden||0))}; });
+    setEditC(null);
+    toast("Contacto guardado"+(au?" · "+au:""));
+  };
+  const quitarContacto=async(c)=>{
+    const { error } = await window.SB.from("proveedor_contactos").update({activo:false}).eq("contacto_id",c.contacto_id);
+    if(error){ toast("No se pudo quitar: "+(error.message||"error")); return; }
+    await audit("proveedor_contactos","BAJA",c.contacto_id,{activo:false});
+    setContactos(prev=>({...prev,[selCod]:(prev[selCod]||[]).filter(x=>x.contacto_id!==c.contacto_id)}));
+    toast("Contacto quitado");
+  };
+  const inp={width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4};
+  const lblS={fontSize:11.5,color:"var(--muted)",fontWeight:700,display:"block",marginBottom:8};
+  const CAMPOS_COND=[["pedido_minimo_qq","Pedido mínimo (qq)","numérico"],["plazo_pago","Plazo de pago","Ej. Cheque a 30 días"],
+    ["despacho","Despacho","Ej. 48h tras facturación"],["devoluciones","Devoluciones","Ej. Solo daño, 72h"],["notas","Notas","Acuerdos particulares…"]];
+
+  if(!selCod) return (<>
+    <div className="h1">Piladoras</div>
+    <div className="sub">Tu tarjeta de negocios: contactos y condiciones por piladora.
+      {" "}<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:10.5,fontWeight:700,background:"rgba(28,122,68,.13)",color:"#1c7a44"}}>🟢 Datos vivos</span></div>
+    {provs.map(p=>(
+      <div key={p.id} className="card" style={{padding:"13px 15px",marginBottom:9,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}
+        onClick={()=>{setSelCod(p.id);setPestP("contactos");}}>
+        <span style={{width:40,height:40,borderRadius:11,background:"var(--field)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800}}>{p.nombre.replace("Piladora ","")[0]}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:800,fontSize:14.5}}>{p.nombre}</div>
+          <div className="meta" style={{fontSize:11.5}}>{(contactos[p.id]||[]).length} contacto(s) · {fichas[p.id]&&(fichas[p.id].plazo_pago||fichas[p.id].pedido_minimo_qq!=null)?"condiciones registradas":"condiciones por llenar"}</div>
+        </div>
+        <span style={{color:"var(--muted)",fontSize:20}}>›</span>
+      </div>
+    ))}
+    {!provs.length && <div className="ph">Cargando piladoras…</div>}
+  </>);
+
+  const prov=provs.find(p=>p.id===selCod)||{nombre:selCod};
+  const ficha=fichas[selCod]||{prov_cod:selCod};
+  const lista=contactos[selCod]||[];
+  return (<>
+    <div className="h1" style={{marginBottom:2}}>{prov.nombre}</div>
+    <div className="sub">RUC {ficha.ruc||"—"}{ficha.ciudad?" · "+ficha.ciudad:""}</div>
+    <div className="eq-tabs" style={{margin:"12px 0 14px"}}>
+      <button className={pestP==="contactos"?"on":""} onClick={()=>setPestP("contactos")}>Contactos</button>
+      <button className={pestP==="condiciones"?"on":""} onClick={()=>setPestP("condiciones")}>Condiciones</button>
+    </div>
+
+    {pestP==="contactos" && (<>
+      {lista.map(c=>(
+        <div key={c.contacto_id} className="card" style={{padding:"12px 14px",marginBottom:9}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:800,fontSize:14}}>{c.nombre}</div>
+              <div className="meta" style={{fontSize:11.5}}>{c.cargo||"—"}{c.correo?" · "+c.correo:""}</div>
+            </div>
+            {c.tel && <a href={"https://wa.me/"+waNum(c.tel)} target="_blank" rel="noreferrer"
+              style={{textDecoration:"none",background:"#25D366",color:"#fff",borderRadius:9,padding:"8px 12px",fontSize:12.5,fontWeight:800}}>💬 {c.tel}</a>}
+            <button className="ghost" style={{padding:"8px 10px"}} onClick={()=>setEditC({...c})}>✎</button>
+          </div>
+        </div>
+      ))}
+      {!lista.length && !editC && <div className="ph">Sin contactos aún. Agrega a tus negociadores y responsables.</div>}
+      {!editC && <button className="cta" style={{width:"100%"}} onClick={()=>setEditC({nombre:"",cargo:"",tel:"",correo:"",orden:lista.length})}>+ Agregar contacto</button>}
+      {editC && (
+        <div className="card" style={{padding:"13px 15px",marginTop:6}}>
+          <label style={lblS}>Nombre *<input style={inp} value={editC.nombre||""} onChange={e=>setEditC({...editC,nombre:e.target.value})}/></label>
+          <label style={lblS}>Cargo<input style={inp} placeholder="Gerente comercial / Despachos / Pagos…" value={editC.cargo||""} onChange={e=>setEditC({...editC,cargo:e.target.value})}/></label>
+          <label style={lblS}>WhatsApp<input style={inp} inputMode="tel" placeholder="09…" value={editC.tel||""} onChange={e=>setEditC({...editC,tel:e.target.value})}/></label>
+          <label style={lblS}>Correo<input style={inp} inputMode="email" value={editC.correo||""} onChange={e=>setEditC({...editC,correo:e.target.value})}/></label>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button className="back" style={{flex:1}} onClick={()=>setEditC(null)}>Cancelar</button>
+            {editC.contacto_id && <button className="back" style={{flex:1}} onClick={()=>quitarContacto(editC).then(()=>setEditC(null))}>Quitar</button>}
+            <button className="cta" style={{flex:1,margin:0}} onClick={guardarContacto}>Guardar</button>
+          </div>
+        </div>
+      )}
+    </>)}
+
+    {pestP==="condiciones" && !editF && (<>
+      <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
+        <div className="cu-line"><span>Pedido mínimo</span><b className="num">{ficha.pedido_minimo_qq!=null?ficha.pedido_minimo_qq+" qq":"—"}</b></div>
+        <div className="cu-line"><span>Plazo de pago</span><b>{ficha.plazo_pago||"—"}</b></div>
+        <div className="cu-line"><span>Despacho</span><b>{ficha.despacho||"—"}</b></div>
+        <div className="cu-line"><span>Devoluciones</span><b>{ficha.devoluciones||"—"}</b></div>
+        <div className="cu-line"><span>Dirección</span><b style={{fontSize:12}}>{ficha.direccion||"—"}</b></div>
+        {ficha.notas && <div className="meta" style={{marginTop:8}}>📝 {ficha.notas}</div>}
+      </div>
+      <button className="ghost" style={{width:"100%"}} onClick={()=>setEditF({...ficha})}>Editar condiciones</button>
+    </>)}
+    {pestP==="condiciones" && editF && (
+      <div className="card" style={{padding:"13px 15px"}}>
+        <label style={lblS}>RUC<input style={inp} inputMode="numeric" value={editF.ruc||""} onChange={e=>setEditF({...editF,ruc:e.target.value})}/></label>
+        <label style={lblS}>Dirección<input style={inp} value={editF.direccion||""} onChange={e=>setEditF({...editF,direccion:e.target.value})}/></label>
+        <label style={lblS}>Ciudad<input style={inp} value={editF.ciudad||""} onChange={e=>setEditF({...editF,ciudad:e.target.value})}/></label>
+        {CAMPOS_COND.map(([k,t,ph])=>(
+          <label key={k} style={lblS}>{t}<input style={inp} placeholder={ph} inputMode={k==="pedido_minimo_qq"?"numeric":undefined}
+            value={editF[k]==null?"":editF[k]} onChange={e=>setEditF({...editF,[k]:e.target.value})}/></label>
+        ))}
+        <div style={{display:"flex",gap:8,marginTop:4}}>
+          <button className="back" style={{flex:1}} onClick={()=>setEditF(null)}>Cancelar</button>
+          <button className="cta" style={{flex:1,margin:0}} onClick={guardarFicha}>Guardar</button>
+        </div>
+      </div>
+    )}
+  </>);
+}
+
+function Proveedores({toast, usuario}){
+  /* b342 · Con sesión, la tarjeta de negocios REAL (PiladorasReales) reemplaza al
+     directorio demo. Sin sesión: demo intacta. */
+  const [vivoProv,setVivoProv]=useState(false);
+  React.useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    window.SB.auth.getSession().then(({data:s})=>{ if(activo && s && s.session) setVivoProv(true); }).catch(()=>{});
+    return ()=>{ activo=false; };
+  },[]);
+  useRetroceso(()=>{
+      if(vivoProv) return false;            /* el modo real maneja su propio retroceso */
       if(sel){ setSel(null); return true; }
       return false;
     });
   const [sel,setSel]=useState(null);
   const [pest,setPest]=useState("datos"); // datos | catalogo | promos | docs
   const [qProv,setQProv]=useState("");
+  if(vivoProv) return <PiladorasReales toast={toast} usuario={usuario}/>;
   const normP=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const provFiltrados=PROVEEDORES.filter(p=>{
     if(!qProv.trim()) return true;
@@ -20320,7 +20497,7 @@ function App({usuario, onSalir}){
         {tab==="cartera" && <Cartera toast={show} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
         {tab==="clientes" && <Clientes toast={show} cliIni={cliFicha} secIni={secFicha} onCliConsumido={()=>{setCliFicha(null);setSecFicha(null);}} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
         {tab==="potenciales" && <Potenciales toast={show}/>}
-        {tab==="proveedores" && <Proveedores toast={show}/>}
+        {tab==="proveedores" && <Proveedores toast={show} usuario={usuario}/>}
         {tab==="documentos" && <Documentos toast={show} usuario={usuario}/>}
         {/* ═══ Campana de notificaciones (flotante, visible en toda la app) ═══ */}
         <button onClick={()=>setVerNotifs(true)} aria-label="Notificaciones"
