@@ -3714,6 +3714,114 @@ async function auReal(tabla, operacion, regId, valor){
   }catch(e){ return null; }
 }
 
+/* ═════ b356 · AVISOS AL TELÉFONO (push real, nivel 3) ═════
+   El teléfono se suscribe al canal (llave pública VAPID) y guarda su dirección
+   en la base con la cuenta. El servidor (función empujar-avisos + reloj cada
+   5 min) empuja los fallos urgentes aunque la app esté cerrada. */
+const VAPID_PUBLICA = "BH6rClWELQLw7218YApJHAanTLkyL6NZ230pYsTnkrbv8EEBsVg-3IjoYm_8c0LzyfmMuSvqOI6AGWSaFPp6y7Y";
+function b64aUint8(b64){
+  const p = "=".repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + p).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+function TarjetaAvisosTelefono({toast}){
+  const [estado,setEstado]=useState("cargando");   /* cargando | apagado | activo | no-soporta */
+  const [correo,setCorreo]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        if(!("serviceWorker" in navigator) || !("PushManager" in window) || location.protocol!=="https:"){
+          if(vivo) setEstado("no-soporta"); return;
+        }
+        if(window.SB){
+          const { data } = await window.SB.auth.getSession();
+          if(vivo && data && data.session) setCorreo(data.session.user.email);
+        }
+        const reg = await navigator.serviceWorker.ready;
+        const sus = await reg.pushManager.getSubscription();
+        if(vivo) setEstado(sus ? "activo" : "apagado");
+      }catch(e){ if(vivo) setEstado("no-soporta"); }
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const activar=async()=>{
+    if(ocupado) return;
+    if(!correo){ toast("Entra con tu cuenta (portal) para activar los avisos."); return; }
+    setOcupado(true);
+    try{
+      const permiso = await Notification.requestPermission();
+      if(permiso!=="granted"){ toast("Sin permiso de avisos: actívalo en los ajustes del teléfono."); setOcupado(false); return; }
+      const reg = await navigator.serviceWorker.ready;
+      let sus = await reg.pushManager.getSubscription();
+      if(!sus) sus = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64aUint8(VAPID_PUBLICA) });
+      const j = sus.toJSON();
+      const { error } = await window.SB.from("push_suscripciones").upsert(
+        { sus_id:"PS-"+new Date().getTime(), usuario:correo, endpoint:j.endpoint,
+          p256dh:j.keys.p256dh, auth:j.keys.auth, activo:true },
+        { onConflict:"endpoint" });
+      if(error){ toast("No se pudo registrar: "+(error.message||"error")); setOcupado(false); return; }
+      await auReal("push_suscripciones","ALTA",correo,{nota:"avisos activados en un teléfono"});
+      setEstado("activo");
+      toast("Avisos activados en este teléfono ✓");
+    }catch(e){ toast("No se pudo activar: "+(e.message||"error")); }
+    setOcupado(false);
+  };
+  const apagar=async()=>{
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const reg = await navigator.serviceWorker.ready;
+      const sus = await reg.pushManager.getSubscription();
+      if(sus){
+        const ep = sus.endpoint;
+        await sus.unsubscribe();
+        try{ await window.SB.from("push_suscripciones").update({activo:false}).eq("endpoint", ep); }catch(e){}
+      }
+      setEstado("apagado");
+      toast("Avisos apagados en este teléfono");
+    }catch(e){ toast("No se pudo apagar."); }
+    setOcupado(false);
+  };
+  const probar=async()=>{
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const { data, error } = await window.SB.functions.invoke("empujar-avisos", { body:{ modo:"prueba" } });
+      if(error){ toast("No se pudo probar: "+(error.message||"error")); }
+      else if(data && data.enviados>0){ toast("Aviso de prueba enviado ✓ Mira la bandeja del teléfono."); }
+      else { toast((data&&data.motivo) || "No llegó a ningún teléfono."); }
+    }catch(e){ toast("No se pudo probar el aviso."); }
+    setOcupado(false);
+  };
+  return (
+    <div className="fcard" style={{marginBottom:14}}>
+      <div className="aj-row" style={{alignItems:"flex-start",padding:"4px 0"}}>
+        <div style={{flex:1,minWidth:0,paddingRight:10}}>
+          <div className="aj-k">📳 Avisos en este teléfono</div>
+          <div className="aj-s">
+            {estado==="cargando" ? "Comprobando…"
+             : estado==="no-soporta" ? "Disponible en la app instalada (HTTPS)"
+             : estado==="activo" ? "Suena aunque la app esté cerrada: fallos urgentes del sistema"
+             : "Actívalos y el teléfono avisará aunque la app esté cerrada"}</div>
+        </div>
+        {(estado==="activo"||estado==="apagado") && (
+          <button className={"aj-switch"+(estado==="activo"?" on":"")} disabled={ocupado}
+            onClick={()=>{ estado==="activo" ? apagar() : activar(); }}><span className="aj-knob"></span></button>
+        )}
+      </div>
+      {estado==="activo" && (
+        <button className="ghost" style={{width:"100%",marginTop:8}} disabled={ocupado}
+          onClick={probar}>🔔 Probar aviso ahora</button>
+      )}
+    </div>
+  );
+}
+
 /* b350 · Aviso de fallos abiertos: apenas Richard abre la app, si hay reportes
    FA- sin resolver aparece la banda roja con el conteo. Con sesión; sin sesión
    o sin reportes, no ocupa espacio. */
@@ -4983,7 +5091,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"355", fecha:"25 jul 2026", desc:"Asistente: di ver todas las preguntas y se abre el modulo; preguntas editables (ocultar, agregar propias con respuesta, restaurar)" };
+const VERSION = { n:"356", fecha:"25 jul 2026", desc:"Avisos push reales: activa los avisos en Ajustes-Avisos y el telefono suena aunque la app este cerrada (fallos urgentes + boton de prueba)" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16824,6 +16932,8 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     </>)}
 
     {pestAj==="avisos" && (<>
+    <div className="ficha-sec">Avisos del sistema</div>
+    <TarjetaAvisosTelefono toast={toast}/>
     <div className="ficha-sec">Preferencias</div>
     <div className="fcard" style={{marginBottom:14}}>
       <div className="aj-row" style={{padding:"4px 0"}}>
