@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"342", fecha:"25 jul 2026", desc:"Tarjeta de negocios REAL por piladora: selector + Contactos (negociadores con WhatsApp) + Condiciones (campos fijos + notas), editable desde la app, guardado en la base con AU-" };
+const VERSION = { n:"343", fecha:"25 jul 2026", desc:"Ficha de piladora con pestana DOCUMENTOS: sube contratos, pagares firmados y otros (PDF/foto, 10 MB) a almacen PRIVADO; se ven con enlace firmado de 1h; baja logica; todo auditado" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19137,7 +19137,13 @@ function PiladorasReales({toast, usuario}){
   const [contactos,setContactos]=useState({});
   const [editF,setEditF]=useState(null);   /* copia de la ficha en edición */
   const [editC,setEditC]=useState(null);   /* contacto en edición (nuevo o existente) */
+  /* b343 · Documentos de negociación (contratos, pagarés…) en bucket PRIVADO docs-piladora */
+  const [docs,setDocs]=useState({});
+  const [formDoc,setFormDoc]=useState(null);   /* {file, nombre, tipo} elegido, por confirmar */
+  const [subiendo,setSubiendo]=useState(false);
+  const fileRef=React.useRef(null);
   useRetroceso(()=>{
+    if(formDoc){ setFormDoc(null); return true; }
     if(editC){ setEditC(null); return true; }
     if(editF){ setEditF(null); return true; }
     if(selCod){ setSelCod(null); return true; }
@@ -19147,15 +19153,17 @@ function PiladorasReales({toast, usuario}){
     let activo=true;
     (async()=>{
       try{
-        const [{ data:ps }, { data:fs }, { data:cs }] = await Promise.all([
+        const [{ data:ps }, { data:fs }, { data:cs }, { data:ds }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("proveedor_fichas").select("*"),
           window.SB.from("proveedor_contactos").select("*").eq("activo",true).order("orden"),
+          window.SB.from("proveedor_documentos").select("*").eq("activo",true).order("creado",{ascending:false}),
         ]);
         if(!activo) return;
         setProvs((ps||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})));
         const f={}; (fs||[]).forEach(x=>{ f[x.prov_cod]=x; }); setFichas(f);
         const c={}; (cs||[]).forEach(x=>{ (c[x.prov_cod]=c[x.prov_cod]||[]).push(x); }); setContactos(c);
+        const dd={}; (ds||[]).forEach(x=>{ (dd[x.prov_cod]=dd[x.prov_cod]||[]).push(x); }); setDocs(dd);
       }catch(e){}
     })();
     return ()=>{ activo=false; };
@@ -19200,6 +19208,51 @@ function PiladorasReales({toast, usuario}){
   const lblS={fontSize:11.5,color:"var(--muted)",fontWeight:700,display:"block",marginBottom:8};
   const CAMPOS_COND=[["pedido_minimo_qq","Pedido mínimo (qq)","numérico"],["plazo_pago","Plazo de pago","Ej. Cheque a 30 días"],
     ["despacho","Despacho","Ej. 48h tras facturación"],["devoluciones","Devoluciones","Ej. Solo daño, 72h"],["notas","Notas","Acuerdos particulares…"]];
+  /* b343 · documentos: subir (bucket privado, máx 10 MB, PDF/imagen), ver (URL firmada 1h), quitar (baja lógica) */
+  const TIPOS_DOC=[["contrato","📄 Contrato"],["pagare","🧾 Pagaré"],["otro","📎 Otro"]];
+  const icoDoc=t=>({contrato:"📄",pagare:"🧾"}[t]||"📎");
+  const elegirArchivo=(e)=>{
+    const f=e.target.files && e.target.files[0];
+    e.target.value="";
+    if(!f) return;
+    if(f.size>10*1024*1024){ toast("El archivo supera 10 MB."); return; }
+    setFormDoc({file:f, nombre:f.name.replace(/\.[^.]+$/,""), tipo:"contrato"});
+  };
+  const subirDoc=async()=>{
+    if(!formDoc || !formDoc.file || subiendo) return;
+    setSubiendo(true);
+    try{
+      const ext=((formDoc.file.name.match(/\.[^.]+$/)||[""])[0]).toLowerCase();
+      const ruta=selCod+"/"+new Date().getTime()+ext;
+      const { error:e1 } = await window.SB.storage.from("docs-piladora")
+        .upload(ruta, formDoc.file, { contentType: formDoc.file.type || undefined });
+      if(e1){ toast("No se pudo subir: "+(e1.message||"error")); setSubiendo(false); return; }
+      const fila={ doc_id:"PD-DOC-"+new Date().getTime(), prov_cod:selCod,
+        nombre:(formDoc.nombre||formDoc.file.name).trim()||formDoc.file.name, tipo:formDoc.tipo,
+        ruta, activo:true, es_demo:false, creado:new Date().toISOString() };
+      const { error:e2 } = await window.SB.from("proveedor_documentos").insert(fila);
+      if(e2){ toast("Se subió el archivo pero no se registró: "+(e2.message||"error")); setSubiendo(false); return; }
+      const au=await audit("proveedor_documentos","INSERT",fila.doc_id,{nombre:fila.nombre,tipo:fila.tipo,ruta});
+      setDocs(prev=>({...prev,[selCod]:[fila,...(prev[selCod]||[])]}));
+      setFormDoc(null);
+      toast("Documento guardado"+(au?" · "+au:""));
+    }catch(e){ toast("No se pudo subir el archivo."); }
+    setSubiendo(false);
+  };
+  const verDoc=async(d)=>{
+    try{
+      const { data, error } = await window.SB.storage.from("docs-piladora").createSignedUrl(d.ruta, 3600);
+      if(error || !data || !data.signedUrl){ toast("No se pudo abrir el documento."); return; }
+      window.open(data.signedUrl, "_blank");
+    }catch(e){ toast("No se pudo abrir el documento."); }
+  };
+  const quitarDoc=async(d)=>{
+    const { error } = await window.SB.from("proveedor_documentos").update({activo:false}).eq("doc_id",d.doc_id);
+    if(error){ toast("No se pudo quitar: "+(error.message||"error")); return; }
+    await audit("proveedor_documentos","BAJA",d.doc_id,{activo:false});
+    setDocs(prev=>({...prev,[selCod]:(prev[selCod]||[]).filter(x=>x.doc_id!==d.doc_id)}));
+    toast("Documento quitado (el archivo queda respaldado)");
+  };
 
   if(!selCod) return (<>
     <div className="h1">Piladoras</div>
@@ -19228,6 +19281,7 @@ function PiladorasReales({toast, usuario}){
     <div className="eq-tabs" style={{margin:"12px 0 14px"}}>
       <button className={pestP==="contactos"?"on":""} onClick={()=>setPestP("contactos")}>Contactos</button>
       <button className={pestP==="condiciones"?"on":""} onClick={()=>setPestP("condiciones")}>Condiciones</button>
+      <button className={pestP==="documentos"?"on":""} onClick={()=>setPestP("documentos")}>Documentos</button>
     </div>
 
     {pestP==="contactos" && (<>
@@ -19272,6 +19326,42 @@ function PiladorasReales({toast, usuario}){
       </div>
       <button className="ghost" style={{width:"100%"}} onClick={()=>setEditF({...ficha})}>Editar condiciones</button>
     </>)}
+    {pestP==="documentos" && (<>
+      <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{display:"none"}} onChange={elegirArchivo}/>
+      {(docs[selCod]||[]).map(d=>(
+        <div key={d.doc_id} className="card" style={{padding:"12px 14px",marginBottom:9}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22,flexShrink:0}}>{icoDoc(d.tipo)}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:800,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.nombre}</div>
+              <div className="meta" style={{fontSize:11}}>{(TIPOS_DOC.find(t=>t[0]===d.tipo)||["","Otro"])[1].replace(/^..\s/,"")} · {String(d.creado||"").slice(0,10)}</div>
+            </div>
+            <button className="ghost" style={{padding:"8px 12px",fontWeight:800}} onClick={()=>verDoc(d)}>Ver</button>
+            <button className="ghost" style={{padding:"8px 10px",color:"#B3261E"}} onClick={()=>{ if(window.confirm("¿Quitar \""+d.nombre+"\" de la lista? El archivo queda respaldado.")) quitarDoc(d); }}>✕</button>
+          </div>
+        </div>
+      ))}
+      {!(docs[selCod]||[]).length && !formDoc && <div className="ph">Sin documentos aún. Sube el contrato de negociación, pagarés firmados u otros respaldos (PDF o foto, máx 10 MB).</div>}
+      {!formDoc && <button className="cta" style={{width:"100%"}} onClick={()=>fileRef.current && fileRef.current.click()}>+ Subir documento</button>}
+      {formDoc && (
+        <div className="card" style={{padding:"13px 15px",marginTop:6}}>
+          <div className="meta" style={{marginBottom:8}}>Archivo: <b>{formDoc.file.name}</b> · {(formDoc.file.size/1024/1024).toFixed(2)} MB</div>
+          <label style={lblS}>Nombre del documento<input style={inp} value={formDoc.nombre} onChange={e=>setFormDoc({...formDoc,nombre:e.target.value})}/></label>
+          <div style={{fontSize:11.5,color:"var(--muted)",fontWeight:700,marginBottom:6}}>Tipo</div>
+          <div className="nchips" style={{marginBottom:10}}>
+            {TIPOS_DOC.map(([k,t])=>(
+              <button key={k} className={"nchip"+(formDoc.tipo===k?" on":"")} onClick={()=>setFormDoc({...formDoc,tipo:k})}>{t}</button>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="back" style={{flex:1}} disabled={subiendo} onClick={()=>setFormDoc(null)}>Cancelar</button>
+            <button className="cta" style={{flex:1,margin:0}} disabled={subiendo} onClick={subirDoc}>{subiendo?"Subiendo…":"Guardar documento"}</button>
+          </div>
+        </div>
+      )}
+      <div className="meta" style={{marginTop:10}}>🔒 Los archivos se guardan en privado: solo se abren con tu sesión, con enlace temporal de 1 hora.</div>
+    </>)}
+
     {pestP==="condiciones" && editF && (
       <div className="card" style={{padding:"13px 15px"}}>
         <label style={lblS}>RUC<input style={inp} inputMode="numeric" value={editF.ruc||""} onChange={e=>setEditF({...editF,ruc:e.target.value})}/></label>
