@@ -1403,7 +1403,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"46", fecha:"25 jul 2026", desc:"Olvido su contrasena ahora lleva a la recuperacion real del portal" };
+const VERSION = { n:"47", fecha:"25 jul 2026", desc:"Avisos al telefono: activalos en Ajustes-Avisos y recibe lo que te toca aunque la app este cerrada" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -5523,6 +5523,118 @@ const GUIAS_INI = [];
    Con sesión real (portal): datos vivos de la base. Mientras las piladoras no
    tengan cuenta propia, un selector temporal permite elegir cuál piladora ver.
    Sin sesión: demostración rotulada. */
+/* ═════ b47 · Avisos al teléfono (canal push del sistema) ═════
+   Con sesión del portal, este teléfono queda suscrito al canal y recibe los
+   avisos que le tocan por su rol, aunque la app esté cerrada. */
+const VAPID_PUBLICA = "BH6rClWELQLw7218YApJHAanTLkyL6NZ230pYsTnkrbv8EEBsVg-3IjoYm_8c0LzyfmMuSvqOI6AGWSaFPp6y7Y";
+function b64aUint8(b64){
+  const p = "=".repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + p).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+function TarjetaAvisosTelefono({ avisar }){
+  const [estado,setEstado]=useState("cargando");
+  const [correo,setCorreo]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        if(!("serviceWorker" in navigator) || !("PushManager" in window) || location.protocol!=="https:"){
+          if(vivo) setEstado("no-soporta"); return;
+        }
+        if(window.SB){
+          const { data } = await window.SB.auth.getSession();
+          if(vivo && data && data.session) setCorreo(data.session.user.email);
+        }
+        const reg = await navigator.serviceWorker.ready;
+        const sus = await reg.pushManager.getSubscription();
+        if(vivo) setEstado(sus ? "activo" : "apagado");
+      }catch(e){ if(vivo) setEstado("no-soporta"); }
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const activar=async()=>{
+    if(ocupado) return;
+    if(!correo){ avisar("Entra con tu cuenta (portal) para activar los avisos."); return; }
+    setOcupado(true);
+    try{
+      const permiso = await Notification.requestPermission();
+      if(permiso!=="granted"){ avisar("Sin permiso de avisos: actívalo en los ajustes del teléfono."); setOcupado(false); return; }
+      const reg = await navigator.serviceWorker.ready;
+      let sus = await reg.pushManager.getSubscription();
+      if(!sus) sus = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64aUint8(VAPID_PUBLICA) });
+      const j = sus.toJSON();
+      let quien = {};
+      try{
+        const { data:s2 } = await window.SB.auth.getSession();
+        const { data:u } = await window.SB.from("usuarios").select("usr_id,rol").eq("auth_uid", s2.session.user.id).maybeSingle();
+        if(u) quien = { rol:u.rol, usr_id:u.usr_id };
+      }catch(e){}
+      const { error } = await window.SB.from("push_suscripciones").upsert(
+        { sus_id:"PS-"+new Date().getTime(), usuario:correo, endpoint:j.endpoint,
+          p256dh:j.keys.p256dh, auth:j.keys.auth, activo:true, ...quien },
+        { onConflict:"endpoint" });
+      if(error){ avisar("No se pudo registrar: "+(error.message||"error")); setOcupado(false); return; }
+      setEstado("activo");
+      avisar("Avisos activados en este teléfono ✓");
+    }catch(e){ avisar("No se pudo activar: "+(e.message||"error")); }
+    setOcupado(false);
+  };
+  const apagar=async()=>{
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const reg = await navigator.serviceWorker.ready;
+      const sus = await reg.pushManager.getSubscription();
+      if(sus){
+        const ep = sus.endpoint;
+        await sus.unsubscribe();
+        try{ await window.SB.from("push_suscripciones").update({activo:false}).eq("endpoint", ep); }catch(e){}
+      }
+      setEstado("apagado");
+      avisar("Avisos apagados en este teléfono");
+    }catch(e){ avisar("No se pudo apagar."); }
+    setOcupado(false);
+  };
+  const probar=async()=>{
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const { data, error } = await window.SB.functions.invoke("empujar-avisos", { body:{ modo:"prueba" } });
+      if(error) avisar("No se pudo probar: "+(error.message||"error"));
+      else if(data && data.enviados>0) avisar("Aviso de prueba enviado ✓ Mira la bandeja del teléfono.");
+      else avisar((data&&data.motivo) || "No llegó a ningún teléfono.");
+    }catch(e){ avisar("No se pudo probar el aviso."); }
+    setOcupado(false);
+  };
+  return (
+    <div className="aj-card" style={{marginBottom:14}}>
+      <div className="aj-fila" style={{alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:0,paddingRight:10}}>
+          <div style={{fontWeight:700,fontSize:13.5}}>📳 Avisos en este teléfono</div>
+          <div className="aj-sub">
+            {estado==="cargando" ? "Comprobando…"
+             : estado==="no-soporta" ? "Disponible en la app instalada (HTTPS)"
+             : estado==="activo" ? "Suena aunque la app esté cerrada"
+             : "Actívalos y el teléfono avisará aunque la app esté cerrada"}</div>
+        </div>
+        {(estado==="activo"||estado==="apagado") && (
+          <button className={"aj-sw"+(estado==="activo"?" on":"")} disabled={ocupado}
+            onClick={()=>{ estado==="activo" ? apagar() : activar(); }}><span className="aj-kn"></span></button>
+        )}
+      </div>
+      {estado==="activo" && (
+        <button className="btn btn-ghost" style={{width:"100%",marginTop:8}} disabled={ocupado}
+          onClick={probar}>🔔 Probar aviso ahora</button>
+      )}
+    </div>
+  );
+}
+
 function SelloVivoP({vivo}){
   return (<span style={{display:"inline-block",padding:"2px 9px",borderRadius:20,fontSize:10.5,fontWeight:700,
     background:vivo?"rgba(28,122,68,.13)":"var(--papel-2)",color:vivo?"#1c7a44":"var(--texto-3)",
@@ -5816,6 +5928,8 @@ function AjustesProv(){
     {pest==="perfil" && <PerfilNegocioProv decir={decir}/>}
 
     {pest==="avisos" && (<>
+      <div className="aj-sec">Avisos del sistema</div>
+      <TarjetaAvisosTelefono avisar={decir}/>
       <div className="aj-sec">Preferencias</div>
       <div className="aj-card">
         <div className="aj-fila"><span>Sonidos de avisos</span><Sw on={sonido} set={setSonido}/></div>

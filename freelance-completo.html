@@ -3760,9 +3760,16 @@ function TarjetaAvisosTelefono({toast}){
       let sus = await reg.pushManager.getSubscription();
       if(!sus) sus = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64aUint8(VAPID_PUBLICA) });
       const j = sus.toJSON();
+      /* b357 · quién es: el servidor dirige los avisos por rol y por persona */
+      let quien = {};
+      try{
+        const { data:s2 } = await window.SB.auth.getSession();
+        const { data:u } = await window.SB.from("usuarios").select("usr_id,rol").eq("auth_uid", s2.session.user.id).maybeSingle();
+        if(u) quien = { rol:u.rol, usr_id:u.usr_id };
+      }catch(e){}
       const { error } = await window.SB.from("push_suscripciones").upsert(
         { sus_id:"PS-"+new Date().getTime(), usuario:correo, endpoint:j.endpoint,
-          p256dh:j.keys.p256dh, auth:j.keys.auth, activo:true },
+          p256dh:j.keys.p256dh, auth:j.keys.auth, activo:true, ...quien },
         { onConflict:"endpoint" });
       if(error){ toast("No se pudo registrar: "+(error.message||"error")); setOcupado(false); return; }
       await auReal("push_suscripciones","ALTA",correo,{nota:"avisos activados en un teléfono"});
@@ -3806,7 +3813,7 @@ function TarjetaAvisosTelefono({toast}){
           <div className="aj-s">
             {estado==="cargando" ? "Comprobando…"
              : estado==="no-soporta" ? "Disponible en la app instalada (HTTPS)"
-             : estado==="activo" ? "Suena aunque la app esté cerrada: fallos urgentes del sistema"
+             : estado==="activo" ? "Suena con la app cerrada: fallos urgentes, pedidos nuevos, solicitudes y cobros que vencen hoy"
              : "Actívalos y el teléfono avisará aunque la app esté cerrada"}</div>
         </div>
         {(estado==="activo"||estado==="apagado") && (
@@ -5091,7 +5098,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"356", fecha:"25 jul 2026", desc:"Avisos push reales: activa los avisos en Ajustes-Avisos y el telefono suena aunque la app este cerrada (fallos urgentes + boton de prueba)" };
+const VERSION = { n:"357", fecha:"25 jul 2026", desc:"Avisos dirigidos: la suscripcion guarda rol y persona; el servidor avisa pedidos nuevos, solicitudes y cobros que vencen hoy" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},

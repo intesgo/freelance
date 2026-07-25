@@ -506,7 +506,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"17", fecha:"25 jul 2026", desc:"Restauracion de sesion del portal: con sesion entra directo con el nombre real" };
+const VERSION = { n:"18", fecha:"25 jul 2026", desc:"Avisos al telefono: pestana Avisos nueva en Ajustes, con la app cerrada tambien suena" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -2824,6 +2824,118 @@ function SecSolicitud({ tipo, chofer, refrescar }){
 /* ══ AJUSTES DEL TRANSPORTISTA ══
    4 pestanas segun el rol: el chofer maneja y entrega, no gestiona cartera.
    Seguridad reutiliza los helpers de huella que ya existen en la app. */
+/* ═════ b18 · Avisos al teléfono (canal push del sistema) ═════
+   Con sesión del portal, este teléfono queda suscrito al canal y recibe los
+   avisos que le tocan por su rol, aunque la app esté cerrada. */
+const VAPID_PUBLICA = "BH6rClWELQLw7218YApJHAanTLkyL6NZ230pYsTnkrbv8EEBsVg-3IjoYm_8c0LzyfmMuSvqOI6AGWSaFPp6y7Y";
+function b64aUint8(b64){
+  const p = "=".repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + p).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+function TarjetaAvisosTelefono({ avisar }){
+  const [estado,setEstado]=useState("cargando");
+  const [correo,setCorreo]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        if(!("serviceWorker" in navigator) || !("PushManager" in window) || location.protocol!=="https:"){
+          if(vivo) setEstado("no-soporta"); return;
+        }
+        if(window.SB){
+          const { data } = await window.SB.auth.getSession();
+          if(vivo && data && data.session) setCorreo(data.session.user.email);
+        }
+        const reg = await navigator.serviceWorker.ready;
+        const sus = await reg.pushManager.getSubscription();
+        if(vivo) setEstado(sus ? "activo" : "apagado");
+      }catch(e){ if(vivo) setEstado("no-soporta"); }
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const activar=async()=>{
+    if(ocupado) return;
+    if(!correo){ avisar("Entra con tu cuenta (portal) para activar los avisos."); return; }
+    setOcupado(true);
+    try{
+      const permiso = await Notification.requestPermission();
+      if(permiso!=="granted"){ avisar("Sin permiso de avisos: actívalo en los ajustes del teléfono."); setOcupado(false); return; }
+      const reg = await navigator.serviceWorker.ready;
+      let sus = await reg.pushManager.getSubscription();
+      if(!sus) sus = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64aUint8(VAPID_PUBLICA) });
+      const j = sus.toJSON();
+      let quien = {};
+      try{
+        const { data:s2 } = await window.SB.auth.getSession();
+        const { data:u } = await window.SB.from("usuarios").select("usr_id,rol").eq("auth_uid", s2.session.user.id).maybeSingle();
+        if(u) quien = { rol:u.rol, usr_id:u.usr_id };
+      }catch(e){}
+      const { error } = await window.SB.from("push_suscripciones").upsert(
+        { sus_id:"PS-"+new Date().getTime(), usuario:correo, endpoint:j.endpoint,
+          p256dh:j.keys.p256dh, auth:j.keys.auth, activo:true, ...quien },
+        { onConflict:"endpoint" });
+      if(error){ avisar("No se pudo registrar: "+(error.message||"error")); setOcupado(false); return; }
+      setEstado("activo");
+      avisar("Avisos activados en este teléfono ✓");
+    }catch(e){ avisar("No se pudo activar: "+(e.message||"error")); }
+    setOcupado(false);
+  };
+  const apagar=async()=>{
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const reg = await navigator.serviceWorker.ready;
+      const sus = await reg.pushManager.getSubscription();
+      if(sus){
+        const ep = sus.endpoint;
+        await sus.unsubscribe();
+        try{ await window.SB.from("push_suscripciones").update({activo:false}).eq("endpoint", ep); }catch(e){}
+      }
+      setEstado("apagado");
+      avisar("Avisos apagados en este teléfono");
+    }catch(e){ avisar("No se pudo apagar."); }
+    setOcupado(false);
+  };
+  const probar=async()=>{
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const { data, error } = await window.SB.functions.invoke("empujar-avisos", { body:{ modo:"prueba" } });
+      if(error) avisar("No se pudo probar: "+(error.message||"error"));
+      else if(data && data.enviados>0) avisar("Aviso de prueba enviado ✓ Mira la bandeja del teléfono.");
+      else avisar((data&&data.motivo) || "No llegó a ningún teléfono.");
+    }catch(e){ avisar("No se pudo probar el aviso."); }
+    setOcupado(false);
+  };
+  return (
+    <div className="aj-card" style={{marginBottom:14}}>
+      <div className="aj-fila" style={{alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:0,paddingRight:10}}>
+          <div style={{fontWeight:700,fontSize:13.5}}>📳 Avisos en este teléfono</div>
+          <div className="aj-sub">
+            {estado==="cargando" ? "Comprobando…"
+             : estado==="no-soporta" ? "Disponible en la app instalada (HTTPS)"
+             : estado==="activo" ? "Suena aunque la app esté cerrada"
+             : "Actívalos y el teléfono avisará aunque la app esté cerrada"}</div>
+        </div>
+        {(estado==="activo"||estado==="apagado") && (
+          <button className={"aj-sw"+(estado==="activo"?" on":"")} disabled={ocupado}
+            onClick={()=>{ estado==="activo" ? apagar() : activar(); }}><span className="aj-kn"></span></button>
+        )}
+      </div>
+      {estado==="activo" && (
+        <button className="ghost" style={{width:"100%",marginTop:8}} disabled={ocupado}
+          onClick={probar}>🔔 Probar aviso ahora</button>
+      )}
+    </div>
+  );
+}
+
 function SecAjustes({ chofer }){
   const [pest,setPest]=useState("apariencia");
   const [tema,setTema]=useState(temaGuardado());
@@ -2848,7 +2960,7 @@ function SecAjustes({ chofer }){
 
   return (<>
     <div className="pest-aj">
-      {[["apariencia","Colores"],["perfil","Perfil"],["seguridad","Seguridad"],["impresora","Impresora"]].map(([k,t])=>(
+      {[["apariencia","Colores"],["perfil","Perfil"],["avisos","Avisos"],["seguridad","Seguridad"],["impresora","Impresora"]].map(([k,t])=>(
         <button key={k} className={pest===k?"on":""} onClick={()=>setPest(k)}>{t}</button>
       ))}
     </div>
@@ -2873,6 +2985,12 @@ function SecAjustes({ chofer }){
         );
       })}
       <div className="aj-nota">El color queda guardado en este teléfono: al volver a abrir la app sigue igual.</div>
+    </>)}
+
+    {pest==="avisos" && (<>
+      <div className="sect-h">Avisos del sistema</div>
+      <TarjetaAvisosTelefono avisar={toast}/>
+      <div className="aj-nota">Los avisos llegan aunque la app esté cerrada, con tu cuenta iniciada desde el portal.</div>
     </>)}
 
     {pest==="perfil" && (<>
