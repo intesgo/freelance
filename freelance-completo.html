@@ -4928,7 +4928,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"343", fecha:"25 jul 2026", desc:"Ficha de piladora con pestana DOCUMENTOS: sube contratos, pagares firmados y otros (PDF/foto, 10 MB) a almacen PRIVADO; se ven con enlace firmado de 1h; baja logica; todo auditado" };
+const VERSION = { n:"344", fecha:"25 jul 2026", desc:"Tarjeta de negocios reestructurada (diseno de Richard): pestana Representantes (+ Agregar colaborador) y Condiciones con lo PRINCIPAL comercial (cupo USD, dias de credito, zona comercial) + bloque Operativo" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19179,6 +19179,8 @@ function PiladorasReales({toast, usuario}){
   const guardarFicha=async()=>{
     const f={...editF, actualizado:new Date().toISOString()};
     f.pedido_minimo_qq = f.pedido_minimo_qq===""||f.pedido_minimo_qq==null ? null : Number(f.pedido_minimo_qq);
+    f.cupo_usd = f.cupo_usd===""||f.cupo_usd==null ? null : Number(f.cupo_usd);
+    f.dias_credito = f.dias_credito===""||f.dias_credito==null ? null : parseInt(f.dias_credito,10);
     const { error } = await window.SB.from("proveedor_fichas").upsert(f);
     if(error){ toast("No se pudo guardar: "+(error.message||"error")); return; }
     const au=await audit("proveedor_fichas","UPDATE",f.prov_cod,f);
@@ -19206,8 +19208,11 @@ function PiladorasReales({toast, usuario}){
   };
   const inp={width:"100%",padding:"10px 12px",border:"1px solid var(--line)",borderRadius:10,marginTop:4};
   const lblS={fontSize:11.5,color:"var(--muted)",fontWeight:700,display:"block",marginBottom:8};
-  const CAMPOS_COND=[["pedido_minimo_qq","Pedido mínimo (qq)","numérico"],["plazo_pago","Plazo de pago","Ej. Cheque a 30 días"],
-    ["despacho","Despacho","Ej. 48h tras facturación"],["devoluciones","Devoluciones","Ej. Solo daño, 72h"],["notas","Notas","Acuerdos particulares…"]];
+  /* b344 · Reestructura de Richard: lo PRINCIPAL de la negociación es comercial-financiero */
+  const CAMPOS_PRINC=[["cupo_usd","Cupo de crédito (USD)","Ej. 20000"],["dias_credito","Días de crédito","Ej. 30"],
+    ["zona_comercial","Zona comercial","Ej. Corredor Norte · Quito"]];
+  const CAMPOS_OPER=[["pedido_minimo_qq","Pedido mínimo (qq)","Ej. 20"],["despacho","Despacho","Ej. 48h tras facturación"],
+    ["devoluciones","Devoluciones","Ej. Solo daño, 72h"]];
   /* b343 · documentos: subir (bucket privado, máx 10 MB, PDF/imagen), ver (URL firmada 1h), quitar (baja lógica) */
   const TIPOS_DOC=[["contrato","📄 Contrato"],["pagare","🧾 Pagaré"],["otro","📎 Otro"]];
   const icoDoc=t=>({contrato:"📄",pagare:"🧾"}[t]||"📎");
@@ -19264,7 +19269,7 @@ function PiladorasReales({toast, usuario}){
         <span style={{width:40,height:40,borderRadius:11,background:"var(--field)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800}}>{p.nombre.replace("Piladora ","")[0]}</span>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontWeight:800,fontSize:14.5}}>{p.nombre}</div>
-          <div className="meta" style={{fontSize:11.5}}>{(contactos[p.id]||[]).length} contacto(s) · {fichas[p.id]&&(fichas[p.id].plazo_pago||fichas[p.id].pedido_minimo_qq!=null)?"condiciones registradas":"condiciones por llenar"}</div>
+          <div className="meta" style={{fontSize:11.5}}>{(contactos[p.id]||[]).length} contacto(s) · {fichas[p.id]&&(fichas[p.id].cupo_usd!=null||fichas[p.id].dias_credito!=null||fichas[p.id].zona_comercial)?"condiciones registradas":"condiciones por llenar"}</div>
         </div>
         <span style={{color:"var(--muted)",fontSize:20}}>›</span>
       </div>
@@ -19279,7 +19284,7 @@ function PiladorasReales({toast, usuario}){
     <div className="h1" style={{marginBottom:2}}>{prov.nombre}</div>
     <div className="sub">RUC {ficha.ruc||"—"}{ficha.ciudad?" · "+ficha.ciudad:""}</div>
     <div className="eq-tabs" style={{margin:"12px 0 14px"}}>
-      <button className={pestP==="contactos"?"on":""} onClick={()=>setPestP("contactos")}>Contactos</button>
+      <button className={pestP==="contactos"?"on":""} onClick={()=>setPestP("contactos")}>Representantes</button>
       <button className={pestP==="condiciones"?"on":""} onClick={()=>setPestP("condiciones")}>Condiciones</button>
       <button className={pestP==="documentos"?"on":""} onClick={()=>setPestP("documentos")}>Documentos</button>
     </div>
@@ -19298,8 +19303,8 @@ function PiladorasReales({toast, usuario}){
           </div>
         </div>
       ))}
-      {!lista.length && !editC && <div className="ph">Sin contactos aún. Agrega a tus negociadores y responsables.</div>}
-      {!editC && <button className="cta" style={{width:"100%"}} onClick={()=>setEditC({nombre:"",cargo:"",tel:"",correo:"",orden:lista.length})}>+ Agregar contacto</button>}
+      {!lista.length && !editC && <div className="ph">Sin representantes aún. Agrega a los negociadores y colaboradores de esta piladora.</div>}
+      {!editC && <button className="cta" style={{width:"100%"}} onClick={()=>setEditC({nombre:"",cargo:"",tel:"",correo:"",orden:lista.length})}>+ Agregar colaborador</button>}
       {editC && (
         <div className="card" style={{padding:"13px 15px",marginTop:6}}>
           <label style={lblS}>Nombre *<input style={inp} value={editC.nombre||""} onChange={e=>setEditC({...editC,nombre:e.target.value})}/></label>
@@ -19316,13 +19321,19 @@ function PiladorasReales({toast, usuario}){
     </>)}
 
     {pestP==="condiciones" && !editF && (<>
+      <div className="ficha-sec">Negociación</div>
+      <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
+        <div className="cu-line"><span>Cupo de crédito</span><b className="num">{ficha.cupo_usd!=null?money(ficha.cupo_usd):"—"}</b></div>
+        <div className="cu-line"><span>Días de crédito</span><b className="num">{ficha.dias_credito!=null?ficha.dias_credito+" días":"—"}</b></div>
+        <div className="cu-line"><span>Zona comercial</span><b>{ficha.zona_comercial||"—"}</b></div>
+        {ficha.notas && <div className="meta" style={{marginTop:8}}>📝 {ficha.notas}</div>}
+      </div>
+      <div className="ficha-sec">Operativo</div>
       <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
         <div className="cu-line"><span>Pedido mínimo</span><b className="num">{ficha.pedido_minimo_qq!=null?ficha.pedido_minimo_qq+" qq":"—"}</b></div>
-        <div className="cu-line"><span>Plazo de pago</span><b>{ficha.plazo_pago||"—"}</b></div>
         <div className="cu-line"><span>Despacho</span><b>{ficha.despacho||"—"}</b></div>
         <div className="cu-line"><span>Devoluciones</span><b>{ficha.devoluciones||"—"}</b></div>
         <div className="cu-line"><span>Dirección</span><b style={{fontSize:12}}>{ficha.direccion||"—"}</b></div>
-        {ficha.notas && <div className="meta" style={{marginTop:8}}>📝 {ficha.notas}</div>}
       </div>
       <button className="ghost" style={{width:"100%"}} onClick={()=>setEditF({...ficha})}>Editar condiciones</button>
     </>)}
@@ -19367,10 +19378,17 @@ function PiladorasReales({toast, usuario}){
         <label style={lblS}>RUC<input style={inp} inputMode="numeric" value={editF.ruc||""} onChange={e=>setEditF({...editF,ruc:e.target.value})}/></label>
         <label style={lblS}>Dirección<input style={inp} value={editF.direccion||""} onChange={e=>setEditF({...editF,direccion:e.target.value})}/></label>
         <label style={lblS}>Ciudad<input style={inp} value={editF.ciudad||""} onChange={e=>setEditF({...editF,ciudad:e.target.value})}/></label>
-        {CAMPOS_COND.map(([k,t,ph])=>(
+        <div style={{fontWeight:800,fontSize:12.5,margin:"6px 0 8px"}}>Negociación</div>
+        {CAMPOS_PRINC.map(([k,t,ph])=>(
+          <label key={k} style={lblS}>{t}<input style={inp} placeholder={ph} inputMode={(k==="cupo_usd"||k==="dias_credito")?"numeric":undefined}
+            value={editF[k]==null?"":editF[k]} onChange={e=>setEditF({...editF,[k]:e.target.value})}/></label>
+        ))}
+        <div style={{fontWeight:800,fontSize:12.5,margin:"6px 0 8px"}}>Operativo</div>
+        {CAMPOS_OPER.map(([k,t,ph])=>(
           <label key={k} style={lblS}>{t}<input style={inp} placeholder={ph} inputMode={k==="pedido_minimo_qq"?"numeric":undefined}
             value={editF[k]==null?"":editF[k]} onChange={e=>setEditF({...editF,[k]:e.target.value})}/></label>
         ))}
+        <label style={lblS}>Notas<input style={inp} placeholder="Acuerdos particulares…" value={editF.notas==null?"":editF.notas} onChange={e=>setEditF({...editF,notas:e.target.value})}/></label>
         <div style={{display:"flex",gap:8,marginTop:4}}>
           <button className="back" style={{flex:1}} onClick={()=>setEditF(null)}>Cancelar</button>
           <button className="cta" style={{flex:1,margin:0}} onClick={guardarFicha}>Guardar</button>
