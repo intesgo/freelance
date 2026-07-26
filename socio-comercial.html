@@ -1474,7 +1474,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"35", fecha:"26 jul 2026", desc:"Cotizacion: la arma frente al cliente y la manda" };
+const VERSION = { n:"36", fecha:"26 jul 2026", desc:"La cotizacion dice que piladora surte de verdad" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -7429,13 +7429,15 @@ function cargarBaseCotiza(){
       if(!window.SB) return null;
       const yo = await yoUsuario();
       if(!yo) return null;
-      const [rc, rb, rp, rd, ro] = await Promise.all([
+      const [rc, rb, rp, rd, ro, rf, rv] = await Promise.all([
         window.SB.from("clientes")
           .select("cli_id,nombre,razon_social,ruc,tel,tel2,plazo,condicion_pago,activo").limit(2000),
         window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,direccion,principal").limit(2000),
         window.SB.from("precios").select("prod_id,producto,base_contado,base_credito,vigente_hasta").limit(2000),
         window.SB.from("productos").select("prod_id,marca,linea,proveedor,estado").limit(2000),
         window.SB.from("organizaciones").select("nombre,ruc,tel,correo").limit(1),
+        window.SB.from("ofertas_piladora").select("prod_id,prov_cod,activo").limit(2000),
+        window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
       ]);
       const cls = ((rc && rc.data) || []).filter(c => c.activo !== false);
       const vig = ((rp && rp.data) || []).filter(x => !x.vigente_hasta);
@@ -7455,9 +7457,28 @@ function cargarBaseCotiza(){
                  condicion:/contado/i.test(String(c.condicion_pago||"")) ? "contado" : "credito" };
       }).sort((a,b)=> a.nombre.localeCompare(b.nombre,"es"));
 
+      /* ── Quién surte de verdad ──
+         El campo `proveedor` del producto es solo una etiqueta y en 141 de 149
+         dice "POR ASIGNAR", aunque la piladora sí exista. Quien manda es la
+         OFERTA activa: de ahí sale el prov_cod con el que viaja el pedido. Se
+         mira ahí primero, y la etiqueta queda de respaldo. */
+      const nProv = {};
+      ((rv && rv.data) || []).forEach(x=>{ nProv[x.prov_cod] = x.nombre; });
+      const surten = {};
+      ((rf && rf.data) || []).forEach(o=>{
+        if(o.activo === false) return;
+        const n = nProv[o.prov_cod] || o.prov_cod;
+        if(!n) return;
+        (surten[o.prod_id] = surten[o.prod_id] || new Set()).add(n);
+      });
+
       const productos = vig.map(x=>{
         const d = prod[x.prod_id] || {};
-        const piladora = (!d.proveedor || /por asignar/i.test(d.proveedor)) ? "" : d.proveedor;
+        const suyas = surten[x.prod_id] ? [...surten[x.prod_id]] : [];
+        const etiqueta = (!d.proveedor || /por asignar/i.test(d.proveedor)) ? "" : d.proveedor;
+        const piladora = suyas.length === 1 ? suyas[0]
+          : suyas.length > 1 ? (suyas.length + " piladoras lo tienen")
+          : etiqueta;
         return { id:x.prod_id || x.producto, nombre:x.producto || d.marca || "—",
                  linea:d.linea || "", piladora,
                  contado:Number(x.base_contado || 0), credito:Number(x.base_credito || x.base_contado || 0) };
