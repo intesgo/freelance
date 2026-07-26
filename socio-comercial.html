@@ -1090,7 +1090,16 @@
 .cupo-cols .cupo-barra{margin-bottom:0;margin-top:6px;height:7px}
 .cupo-cols .cupo-lines{justify-content:center;gap:3px;border-left:1px solid var(--line);padding-left:11px}
 .cupo-cols{grid-template-columns:1fr}
-</style>
+
+/* ── Cotización: al imprimir (o "guardar como PDF" del celular) sale SOLO la hoja ── */
+@media print{
+  body *{ visibility:hidden !important; }
+  .cot-hoja, .cot-hoja *{ visibility:visible !important; }
+  .cot-hoja{ position:absolute !important; left:0 !important; top:0 !important; right:0 !important;
+             width:100% !important; max-height:none !important; overflow:visible !important;
+             border-radius:0 !important; box-shadow:none !important; }
+  .cot-noprint{ display:none !important; }
+}</style>
 <link rel="manifest" href="./pwa/manifest-socio.json">
 <meta name="theme-color" content="#123B2C">
 <link rel="apple-touch-icon" href="./pwa/socio-192.png">
@@ -1406,7 +1415,7 @@ const ordUso = (cat, lista) => {
    Nada se borra: los ocultos siguen aquí, listos para encenderse.
    En Fase 4 esta lista viene de Supabase (tabla usuarios). */
 const MODULOS_PERMITIDOS = [
-  "inicio", "clientes", "pedido", "pedidos", "cobros", "cartera", "cheques", "cuenta", "ajustes", "mensajes",
+  "inicio", "clientes", "cotizacion", "pedido", "pedidos", "cobros", "cartera", "cheques", "cuenta", "ajustes", "mensajes",
   /* ocultos por ahora — los activa el sistema web:
      "portafolio", "stock", "precios", "productos", "agenda", "novedades", "comisiones" */
 ];
@@ -1465,7 +1474,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"34", fecha:"26 jul 2026", desc:"Una sola puerta: se entra por el portal con la cuenta de verdad" };
+const VERSION = { n:"35", fecha:"26 jul 2026", desc:"Cotizacion: la arma frente al cliente y la manda" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -7399,6 +7408,395 @@ function useBarraAlLeer(){
 }
 /* FA-0003 · App recibe al usuario de la sesión: el chat lo necesita y sin él
    la app entera se caía en blanco al tocar Mensajes. */
+/* ══════════════════════════════════════════════════════════════════════════
+   COTIZACIÓN (b35) · el vendedor la arma frente al cliente y la manda.
+
+   Pedido de Richard: "que cualquiera del equipo la genere solo escogiendo
+   cliente y productos, sin pedírmela a mí".
+
+   Con sesión toma los clientes y los precios de VERDAD (los vigentes, con su
+   piladora). Sin sesión usa la demostración, igual que el resto de la app.
+   No se guarda nada: se arma, se muestra y se manda. Fue decisión de Richard —
+   una cotización que nadie vuelve a abrir no necesita ocupar la base.
+   ══════════════════════════════════════════════════════════════════════════ */
+let _baseCotiza;      /* { org, clientes[], productos[] } ya listos */
+let _cargaCotiza;     /* la PROMESA, no el valor: dos pantallas, una consulta */
+
+function cargarBaseCotiza(){
+  if(_cargaCotiza !== undefined) return _cargaCotiza;
+  _cargaCotiza = (async()=>{
+    try{
+      if(!window.SB) return null;
+      const yo = await yoUsuario();
+      if(!yo) return null;
+      const [rc, rb, rp, rd, ro] = await Promise.all([
+        window.SB.from("clientes")
+          .select("cli_id,nombre,razon_social,ruc,tel,tel2,plazo,condicion_pago,activo").limit(2000),
+        window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,direccion,principal").limit(2000),
+        window.SB.from("precios").select("prod_id,producto,base_contado,base_credito,vigente_hasta").limit(2000),
+        window.SB.from("productos").select("prod_id,marca,linea,proveedor,estado").limit(2000),
+        window.SB.from("organizaciones").select("nombre,ruc,tel,correo").limit(1),
+      ]);
+      const cls = ((rc && rc.data) || []).filter(c => c.activo !== false);
+      const vig = ((rp && rp.data) || []).filter(x => !x.vigente_hasta);
+      if(!cls.length || !vig.length) return null;
+
+      const ubic = {};
+      ((rb && rb.data) || []).forEach(u=>{ if(!ubic[u.cli_id] || u.principal) ubic[u.cli_id] = u; });
+      const prod = {};
+      ((rd && rd.data) || []).forEach(x=>{ prod[x.prod_id] = x; });
+
+      const org = ((ro && ro.data) || [])[0] || null;
+      const clientes = cls.map(c=>{
+        const u = ubic[c.cli_id] || {};
+        return { id:c.cli_id, nombre:c.nombre, razon:c.razon_social || c.nombre, ruc:c.ruc || "",
+                 tel:c.tel || c.tel2 || "", ciudad:u.ciudad || "", dir:u.direccion || "",
+                 plazo:Number(c.plazo || 0),
+                 condicion:/contado/i.test(String(c.condicion_pago||"")) ? "contado" : "credito" };
+      }).sort((a,b)=> a.nombre.localeCompare(b.nombre,"es"));
+
+      const productos = vig.map(x=>{
+        const d = prod[x.prod_id] || {};
+        const piladora = (!d.proveedor || /por asignar/i.test(d.proveedor)) ? "" : d.proveedor;
+        return { id:x.prod_id || x.producto, nombre:x.producto || d.marca || "—",
+                 linea:d.linea || "", piladora,
+                 contado:Number(x.base_contado || 0), credito:Number(x.base_credito || x.base_contado || 0) };
+      }).filter(x => x.contado > 0)
+        .sort((a,b)=> (a.linea+a.nombre).localeCompare(b.linea+b.nombre,"es"));
+
+      _baseCotiza = { org, clientes, productos, viva:true };
+      return _baseCotiza;
+    }catch(e){ return null; }
+  })();
+  return _cargaCotiza;
+}
+
+/* La demostración, con la misma forma, para que la pantalla no sepa la diferencia */
+function baseCotizaDemo(){
+  const clientes = CLIENTES_MAESTRO.map(c=>({
+    id:c.cliId, nombre:c.nombre, razon:c.nombre, ruc:c.ruc || "", tel:c.tel || "",
+    ciudad:c.ciudad || "", dir:"", plazo: c.forma === "contado" ? 0 : 30,
+    condicion: c.forma === "contado" ? "contado" : "credito",
+  }));
+  const productos = [];
+  PRODUCTOS.forEach(p=>{
+    const qq = (p.presentaciones || []).find(x => /quintal/i.test(x.tam || "") && !x.inhabilitada);
+    if(qq) productos.push({ id:p.id, nombre:p.marca, linea:p.linea || "", piladora:"",
+      contado:Number(qq.baseContado || 0), credito:Number(qq.baseCredito || qq.baseContado || 0) });
+  });
+  return { org:null, clientes, productos, viva:false };
+}
+
+function Cotizacion({ toast }){
+  const [base, setBase]       = useState(null);
+  const [cargando, setCarg]   = useState(true);
+  const [cliente, setCliente] = useState(null);
+  const [condicion, setCond]  = useState("credito");
+  const [lineas, setLineas]   = useState([]);          /* {id, nombre, piladora, qq} */
+  const [buscaCli, setBCli]   = useState("");
+  const [buscaPro, setBPro]   = useState("");
+  const [verHoja, setVerHoja] = useState(false);
+
+  React.useEffect(()=>{
+    let vivo = true;
+    (async()=>{
+      let b = null;
+      try{ b = await cargarBaseCotiza(); }catch(e){}
+      if(!vivo) return;
+      setBase(b || baseCotizaDemo());
+      setCarg(false);
+    })();
+    return ()=>{ vivo = false; };
+  },[]);
+
+  /* al escoger cliente, la condición viene de su ficha: es lo que ya acordaron */
+  const escoger = (c)=>{ setCliente(c); setCond(c.condicion || "credito"); setBCli(""); };
+
+  const precioDe = (p)=> condicion === "contado" ? p.contado : p.credito;
+  const agregar = (p)=>{
+    setBPro("");
+    setLineas(ls => ls.some(x=>x.id===p.id) ? ls
+      : ls.concat([{ id:p.id, nombre:p.nombre, piladora:p.piladora, qq:10 }]));
+  };
+  const quitar = (id)=> setLineas(ls => ls.filter(x=>x.id!==id));
+  const cambiarQq = (id,v)=>{
+    const n = Math.max(0, Math.round(Number(String(v).replace(/[^0-9]/g,"")) || 0));
+    setLineas(ls => ls.map(x => x.id===id ? {...x, qq:n} : x));
+  };
+
+  const prods = (base && base.productos) || [];
+  const conPrecio = lineas.map(l=>{
+    const p = prods.find(x=>x.id===l.id) || { contado:0, credito:0 };
+    const precio = precioDe(p);
+    return {...l, precio, total: precio * l.qq };
+  });
+  const totalQq  = conPrecio.reduce((a,l)=>a+l.qq,0);
+  const totalUsd = conPrecio.reduce((a,l)=>a+l.total,0);
+
+  const listaCli = ((base && base.clientes) || []).filter(c=>{
+    const t = buscaCli.trim().toLowerCase();
+    return !t || c.nombre.toLowerCase().includes(t) || (c.ruc||"").includes(t) || (c.ciudad||"").toLowerCase().includes(t);
+  }).slice(0, 30);
+  const listaPro = prods.filter(p=>{
+    const t = buscaPro.trim().toLowerCase();
+    if(lineas.some(x=>x.id===p.id)) return false;
+    return !t || p.nombre.toLowerCase().includes(t) || (p.linea||"").toLowerCase().includes(t);
+  }).slice(0, 30);
+
+  const hoy = new Date();
+  const FECHA = hoy.toLocaleDateString("es-EC",{ day:"2-digit", month:"long", year:"numeric" });
+  const NUMERO = "COT-" + hoy.getFullYear() + "-" +
+    String(hoy.getMonth()+1).padStart(2,"0") + String(hoy.getDate()).padStart(2,"0") + "-" +
+    String(hoy.getHours()).padStart(2,"0") + String(hoy.getMinutes()).padStart(2,"0");
+
+  const textoWhats = ()=>{
+    const l = ["*Cotización " + NUMERO + "*", (cliente ? cliente.nombre : ""), ""];
+    conPrecio.forEach(x=> l.push("• " + x.nombre + ": " + x.qq + " qq × " + money(x.precio) + " = " + money(x.total)));
+    l.push("", "*Total: " + money(totalUsd) + "* (" + totalQq + " qq)");
+    l.push(condicion === "contado" ? "Precio de contado." : "Precio a crédito" + (cliente && cliente.plazo ? " a " + cliente.plazo + " días." : "."));
+    l.push("Válida por 7 días, sujeta a disponibilidad.");
+    return l.join("\n");
+  };
+
+  const listo = !!cliente && conPrecio.length > 0 && totalQq > 0;
+
+  const et = { fontFamily:BODY, fontSize:11, fontWeight:700, color:CL.grisTenue,
+    letterSpacing:".1em", textTransform:"uppercase", display:"block", marginBottom:7 };
+  const inp = { width:"100%", padding:"11px 13px", borderRadius:10, border:"1px solid "+CL.linea,
+    fontFamily:BODY, fontSize:14.5, color:CL.tinta, background:"#fff", boxSizing:"border-box" };
+  const tarjeta = { background:CL.papel, border:"1px solid "+CL.linea, borderRadius:14,
+    padding:"14px 15px", marginBottom:12 };
+
+  if(cargando) return <div style={{padding:18, fontFamily:BODY, color:CL.grisTexto}}>Cargando tus precios…</div>;
+
+  return (
+    <div style={{padding:"14px 14px 96px"}}>
+      <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:4}}>
+        <h2 style={{fontFamily:SERIF, fontSize:20, color:CL.tinta, margin:0}}>Cotización</h2>
+        {base && base.viva
+          ? <span style={{fontFamily:BODY, fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20,
+              background:"rgba(46,125,82,.13)", color:CL.medio}}>🟢 Datos vivos</span>
+          : <span style={{fontFamily:BODY, fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20,
+              background:CL.ambarBg, color:CL.ambar}}>Demostración</span>}
+      </div>
+      <p style={{fontFamily:BODY, fontSize:13, color:CL.grisTexto, margin:"0 0 14px"}}>
+        Escoge el cliente, agrega productos y manda la cotización. No se guarda: se arma y se manda.
+      </p>
+
+      {/* ── 1 · Cliente ── */}
+      <div style={tarjeta}>
+        <label style={et}>1 · ¿Para quién?</label>
+        {cliente ? (
+          <div style={{display:"flex", alignItems:"center", gap:10}}>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontFamily:BODY, fontSize:15, fontWeight:700, color:CL.tinta}}>{cliente.nombre}</div>
+              <div style={{fontFamily:BODY, fontSize:12.5, color:CL.grisTexto}}>
+                {[cliente.ruc && ("RUC " + cliente.ruc), cliente.ciudad].filter(Boolean).join(" · ") || "sin datos"}
+              </div>
+            </div>
+            <button onClick={()=>{ setCliente(null); setBCli(""); }}
+              style={{padding:"7px 12px", borderRadius:9, border:"1px solid "+CL.linea, background:"#fff",
+                fontFamily:BODY, fontSize:12.5, fontWeight:700, color:CL.grisTexto, cursor:"pointer"}}>Cambiar</button>
+          </div>
+        ) : (<>
+          <input style={inp} value={buscaCli} onChange={e=>setBCli(e.target.value)}
+            placeholder="Busca por nombre, RUC o ciudad" />
+          <div style={{marginTop:8, maxHeight:230, overflowY:"auto"}}>
+            {listaCli.length === 0 && <div style={{fontFamily:BODY, fontSize:13, color:CL.grisTenue, padding:"8px 2px"}}>
+              Ningún cliente coincide.</div>}
+            {listaCli.map(c=>(
+              <button key={c.id} onClick={()=>escoger(c)}
+                style={{display:"block", width:"100%", textAlign:"left", padding:"9px 2px",
+                  borderBottom:"1px solid "+CL.linea, background:"none", border:"none", cursor:"pointer"}}>
+                <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta}}>{c.nombre}</div>
+                <div style={{fontFamily:BODY, fontSize:12, color:CL.grisTenue}}>
+                  {[c.ciudad, c.condicion === "contado" ? "contado" : ("crédito " + (c.plazo||30) + " días")].filter(Boolean).join(" · ")}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>)}
+      </div>
+
+      {/* ── 2 · Condición ── */}
+      <div style={tarjeta}>
+        <label style={et}>2 · ¿Cómo paga?</label>
+        <div style={{display:"flex", gap:8}}>
+          {[["credito","A crédito"],["contado","De contado"]].map(([k,t])=>(
+            <button key={k} onClick={()=>setCond(k)}
+              style={{flex:1, padding:"11px 8px", borderRadius:10, cursor:"pointer",
+                border:"1.5px solid " + (condicion===k ? CL.medio : CL.linea),
+                background: condicion===k ? CL.veloLila : "#fff",
+                fontFamily:BODY, fontSize:14, fontWeight:700,
+                color: condicion===k ? CL.principal : CL.grisTexto}}>{t}</button>
+          ))}
+        </div>
+        <p style={{fontFamily:BODY, fontSize:12, color:CL.grisTenue, margin:"8px 0 0"}}>
+          De contado el quintal sale más barato. Al escoger el cliente se pone lo que él ya tiene acordado.
+        </p>
+      </div>
+
+      {/* ── 3 · Productos ── */}
+      <div style={tarjeta}>
+        <label style={et}>3 · ¿Qué lleva?</label>
+        {conPrecio.map(l=>(
+          <div key={l.id} style={{display:"flex", alignItems:"center", gap:9, padding:"9px 0",
+            borderBottom:"1px solid "+CL.linea}}>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{l.nombre}</div>
+              <div style={{fontFamily:BODY, fontSize:11.5, color:CL.grisTenue}}>
+                {money(l.precio)} el qq{l.piladora ? " · " + l.piladora : ""}</div>
+            </div>
+            <input value={l.qq} onChange={e=>cambiarQq(l.id, e.target.value)}
+              inputMode="numeric" aria-label={"Quintales de " + l.nombre}
+              style={{width:62, textAlign:"center", padding:"9px 4px", borderRadius:9,
+                border:"1px solid "+CL.linea, fontFamily:BODY, fontSize:15, color:CL.tinta}} />
+            <div style={{width:78, textAlign:"right", fontFamily:BODY, fontSize:13.5,
+              fontWeight:700, color:CL.tinta}}>{money(l.total)}</div>
+            <button onClick={()=>quitar(l.id)} aria-label={"Quitar " + l.nombre}
+              style={{background:"none", border:"none", fontSize:17, color:CL.grisTenue, cursor:"pointer", padding:"0 2px"}}>×</button>
+          </div>
+        ))}
+        <input style={{...inp, marginTop:10}} value={buscaPro} onChange={e=>setBPro(e.target.value)}
+          placeholder="Busca un producto para agregarlo" />
+        {buscaPro.trim() !== "" && (
+          <div style={{marginTop:8, maxHeight:210, overflowY:"auto"}}>
+            {listaPro.length === 0 && <div style={{fontFamily:BODY, fontSize:13, color:CL.grisTenue, padding:"8px 2px"}}>
+              Ningún producto coincide.</div>}
+            {listaPro.map(p=>(
+              <button key={p.id} onClick={()=>agregar(p)}
+                style={{display:"flex", width:"100%", gap:10, alignItems:"center", textAlign:"left",
+                  padding:"9px 2px", borderBottom:"1px solid "+CL.linea, background:"none", border:"none", cursor:"pointer"}}>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta}}>{p.nombre}</div>
+                  <div style={{fontFamily:BODY, fontSize:11.5, color:CL.grisTenue}}>{p.linea || "—"}</div>
+                </div>
+                <span style={{fontFamily:BODY, fontSize:13, fontWeight:700, color:CL.medio}}>{money(precioDe(p))}</span>
+                <span style={{fontSize:17, color:CL.medio}}>＋</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Total y acción ── */}
+      {/* El botón va en su propia línea y con aire abajo: el micrófono del
+          asistente flota en esa esquina y le tapaba media palabra. */}
+      <div style={{...tarjeta, marginBottom:82}}>
+        <div style={{display:"flex", alignItems:"baseline", gap:10, marginBottom:11}}>
+          <div style={{fontFamily:SERIF, fontSize:23, fontWeight:800, color:CL.medio}}>{money(totalUsd)}</div>
+          <div style={{fontFamily:BODY, fontSize:12.5, color:CL.grisTexto}}>{totalQq} quintales</div>
+        </div>
+        <button onClick={()=>{ if(!listo){ toast && toast("Falta el cliente o los productos"); return; } setVerHoja(true); }}
+          disabled={!listo}
+          style={{width:"100%", padding:"13px 18px", borderRadius:11, border:"none", cursor:"pointer",
+            background: listo ? CL.medio : CL.linea, color: listo ? "#fff" : CL.grisTenue,
+            fontFamily:BODY, fontSize:14.5, fontWeight:800}}>Ver cotización ›</button>
+      </div>
+
+      {/* ── La hoja, para mostrar, imprimir o mandar ── */}
+      {verHoja && cliente && (
+        <div onClick={()=>setVerHoja(false)}
+          style={{position:"fixed", inset:0, background:"rgba(10,20,15,.5)", zIndex:1400,
+            display:"flex", alignItems:"flex-start", justifyContent:"center", overflowY:"auto", padding:"18px 10px 30px"}}>
+          <div className="cot-hoja" onClick={e=>e.stopPropagation()}
+            style={{width:"min(660px,100%)", background:"#fff", borderRadius:14, overflow:"hidden",
+              boxShadow:"0 18px 50px rgba(0,0,0,.3)"}}>
+
+            <div style={{background:"linear-gradient(160deg,#15392B 0%,#1E4D3A 100%)", color:"#fff",
+              padding:"20px 18px 16px", position:"relative"}}>
+              <div style={{position:"absolute", top:18, right:18, textAlign:"right",
+                fontFamily:BODY, fontSize:11, color:"rgba(255,255,255,.8)"}}>
+                Cotización<b style={{display:"block", fontSize:13, color:"#fff"}}>{NUMERO}</b>{FECHA}
+              </div>
+              <div style={{fontSize:20}}>🌾</div>
+              <div style={{fontFamily:SERIF, fontSize:18, fontWeight:800, letterSpacing:".05em", marginTop:2}}>FREELANCE</div>
+              <div style={{fontFamily:BODY, fontSize:11.5, color:"rgba(255,255,255,.8)", marginTop:6, lineHeight:1.6}}>
+                {base && base.org ? (<>{base.org.nombre}{base.org.ruc ? " · RUC " + base.org.ruc : ""}<br/>
+                  {[base.org.tel, base.org.correo].filter(Boolean).join(" · ")}</>) : "Ventas · Distribución · Cobranza"}
+              </div>
+            </div>
+
+            <div style={{padding:"14px 18px", borderBottom:"1px solid "+CL.linea, fontFamily:BODY, fontSize:13}}>
+              <div style={{fontSize:10.5, fontWeight:700, color:CL.grisTenue, letterSpacing:".11em",
+                textTransform:"uppercase", marginBottom:7}}>Para</div>
+              <div style={{fontWeight:700, fontSize:14.5, color:CL.tinta}}>{cliente.razon || cliente.nombre}</div>
+              <div style={{color:CL.grisTexto, marginTop:3, lineHeight:1.6}}>
+                {cliente.ruc && <>RUC {cliente.ruc}<br/></>}
+                {[cliente.dir, cliente.ciudad].filter(Boolean).join(" · ")}
+                {cliente.tel && <><br/>{cliente.tel}</>}
+                <br/>{condicion === "contado" ? "De contado" : ("Crédito " + (cliente.plazo || 30) + " días")}
+              </div>
+            </div>
+
+            <div style={{padding:"14px 18px", borderBottom:"1px solid "+CL.linea}}>
+              <table style={{width:"100%", borderCollapse:"collapse", fontFamily:BODY, fontSize:13}}>
+                <thead><tr>
+                  <th style={{textAlign:"left", fontSize:10, color:CL.grisTenue, letterSpacing:".08em",
+                    textTransform:"uppercase", padding:"0 0 6px", borderBottom:"2px solid "+CL.linea}}>Producto</th>
+                  <th style={{textAlign:"right", fontSize:10, color:CL.grisTenue, letterSpacing:".08em",
+                    textTransform:"uppercase", padding:"0 0 6px", borderBottom:"2px solid "+CL.linea}}>qq</th>
+                  <th style={{textAlign:"right", fontSize:10, color:CL.grisTenue, letterSpacing:".08em",
+                    textTransform:"uppercase", padding:"0 0 6px", borderBottom:"2px solid "+CL.linea}}>Precio</th>
+                  <th style={{textAlign:"right", fontSize:10, color:CL.grisTenue, letterSpacing:".08em",
+                    textTransform:"uppercase", padding:"0 0 6px", borderBottom:"2px solid "+CL.linea}}>Total</th>
+                </tr></thead>
+                <tbody>
+                  {conPrecio.map(l=>(
+                    <tr key={l.id}>
+                      <td style={{padding:"8px 0", borderBottom:"1px solid "+CL.linea}}>
+                        <span style={{fontWeight:700}}>{l.nombre}</span>
+                        {l.piladora && <span style={{display:"block", fontSize:11, color:CL.grisTenue}}>{l.piladora}</span>}
+                      </td>
+                      <td style={{padding:"8px 0", borderBottom:"1px solid "+CL.linea, textAlign:"right"}}>{l.qq}</td>
+                      <td style={{padding:"8px 0", borderBottom:"1px solid "+CL.linea, textAlign:"right"}}>{money(l.precio)}</td>
+                      <td style={{padding:"8px 0", borderBottom:"1px solid "+CL.linea, textAlign:"right"}}>{money(l.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr><td colSpan={2}></td>
+                    <td style={{textAlign:"right", paddingTop:11, paddingRight:14, color:CL.grisTexto}}>Quintales</td>
+                    <td style={{textAlign:"right", paddingTop:11, fontWeight:700}}>{totalQq} qq</td></tr>
+                  <tr><td colSpan={2}></td>
+                    <td style={{textAlign:"right", paddingTop:5, paddingRight:14, color:CL.grisTexto,
+                      fontSize:16, fontWeight:800}}>Total</td>
+                    <td style={{textAlign:"right", paddingTop:5, fontSize:17, fontWeight:800, color:CL.medio}}>{money(totalUsd)}</td></tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div style={{padding:"14px 18px", fontFamily:BODY, fontSize:12.5, color:CL.grisTexto, lineHeight:1.7}}>
+              · Precios por quintal (100 lb), en dólares{condicion === "contado" ? ", de contado." : ", a crédito."}<br/>
+              · Válida por 7 días. Los precios del grano se mueven con el mercado.<br/>
+              · Sujeta a disponibilidad de la piladora al confirmar el pedido.<br/>
+              · El flete se confirma al cerrar el pedido.
+            </div>
+
+            <div className="cot-noprint" style={{display:"flex", gap:8, flexWrap:"wrap",
+              padding:"12px 18px 18px", borderTop:"1px solid "+CL.linea}}>
+              <a href={"https://wa.me/?text=" + encodeURIComponent(textoWhats())}
+                target="_blank" rel="noreferrer"
+                style={{flex:"1 1 140px", textAlign:"center", padding:"12px", borderRadius:10,
+                  background:"#25D366", color:"#fff", fontFamily:BODY, fontSize:14, fontWeight:800,
+                  textDecoration:"none"}}>Enviar por WhatsApp</a>
+              <button onClick={()=>{ try{ window.print(); }catch(e){ toast && toast("No se pudo abrir la impresión"); } }}
+                style={{flex:"1 1 120px", padding:"12px", borderRadius:10, border:"1px solid "+CL.linea,
+                  background:"#fff", color:CL.principal, fontFamily:BODY, fontSize:14, fontWeight:800, cursor:"pointer"}}>
+                Imprimir o PDF</button>
+              <button onClick={()=>setVerHoja(false)}
+                style={{flex:"1 1 90px", padding:"12px", borderRadius:10, border:"1px solid "+CL.linea,
+                  background:"#fff", color:CL.grisTexto, fontFamily:BODY, fontSize:14, fontWeight:700, cursor:"pointer"}}>
+                Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App({usuario}){
   const [tab,setTab]=useState("inicio");
   const [toast,setToast]=useState(null);
@@ -7658,6 +8056,7 @@ function App({usuario}){
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="portafolio" && <Portafolio modo="comisionista" miSector="Sierra Centro" miDistribuidor="Distribuidora Ríos"/>}
         {tab==="precios" && <ListaPrecios/>}
+        {tab==="cotizacion" && <Cotizacion toast={show}/>}
         {tab==="comisiones" && <Comisiones toast={show}/>}
         {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
 
@@ -7794,6 +8193,7 @@ function App({usuario}){
             {/* b26 · orden por uso: primero lo diario, luego el dinero, después consulta */
             [
               ["clientes","👥","#E8F0F7","Clientes","Tu cartera de clientes"],
+              ["cotizacion","📄","#EAF0F6","Cotización","Ármala y mándala al cliente"],
               ["cartera","💵","#E5F0EA","Cartera","Lo que te deben tus clientes"],
               ["cheques","🔐","#EFEAF7","Mis cheques","Cheques en tu poder"],
               ["comisiones","💰","#F3ECF9","Comisiones","Lo que has ganado"],
