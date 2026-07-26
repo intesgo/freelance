@@ -8,6 +8,9 @@
      · queda a nombre de QUIEN lo tomó, por su código del padrón (no por texto);
      · las cantidades se convierten a quintales por el equivalente de la oferta,
        y el precio se guarda POR QUINTAL — que es como lo lee todo el sistema;
+     · la COMISIÓN DEL VENDEDOR viaja con la línea, tal como se la mostró su
+       app: es la diferencia sobre la base de ese día, y esa base ya no se
+       puede reconstruir después;
      · si el cliente o el producto son de demostración, NO se escribe nada;
      · sin sesión tampoco, y en los dos casos la app sigue funcionando igual;
      · si fallan los ítems, el pedido se deshace: nunca queda una cabecera sola.
@@ -88,8 +91,10 @@ const guardar = (m, carrito, cliNombre) => vm.runInContext(
   /* ── un pedido de verdad ── */
   const m = montar();
   const r = await guardar(m, [
-    { prod:PROD_REAL, prodNombre:"Arroz Dallis · Quintal", cant:60, precio:48, tipo:"P1", credito:true, gratis:0 },
-    { prod:PROD_ARR,  prodNombre:"Arroz Dallis · Arroba",  cant:8,  precio:12, tipo:"P1", credito:true, gratis:2 },
+    /* 60 qq a $48 con base $46 → el vendedor gana $2 × 60 = $120 */
+    { prod:PROD_REAL, prodNombre:"Arroz Dallis · Quintal", cant:60, precio:48, tipo:"P1", credito:true, gratis:0, comisionTotal:120 },
+    /* 8 arrobas a $12 con base $11,50, menos 2 de regalo que paga él (P3) */
+    { prod:PROD_ARR,  prodNombre:"Arroz Dallis · Arroba",  cant:8,  precio:12, tipo:"P3", credito:true, gratis:2, comisionTotal:-19 },
   ], "Comercial Nilo");
 
   comprobar("guarda el pedido y devuelve su código", r.ok === true && r.pedId === "PD-0013");
@@ -110,9 +115,17 @@ const guardar = (m, carrito, cliNombre) => vm.runInContext(
   comprobar("cada ítem cuelga de su pedido", items.every(i => i.ped_id === "PD-0013") &&
     items[0].item_id === "PD-0013-I1" && items[1].item_id === "PD-0013-I2");
 
+  /* ── la comisión del vendedor se guarda, no se recalcula ── */
+  comprobar("guarda la comisión que la app ya le mostró al vendedor",
+    items[0] && items[0].comision_usd === 120);
+  comprobar("y la guarda TAL CUAL, aunque sea negativa por los regalos que él paga",
+    items[1] && items[1].comision_usd === -19);
+  comprobar("NO la recalcula con el precio ni con la cantidad: la base de ese día ya no está",
+    items[0].comision_usd !== items[0].cantidad_qq * items[0].precio_usd);
+
   /* ── cliente de demostración: no se escribe nada ── */
   const d1 = montar();
-  const r1 = await guardar(d1, [{ prod:PROD_REAL, prodNombre:"x", cant:1, precio:48, tipo:"P1" }], "Cliente Inventado");
+  const r1 = await guardar(d1, [{ prod:PROD_REAL, prodNombre:"x", cant:1, precio:48, tipo:"P1", comisionTotal:2 }], "Cliente Inventado");
   comprobar("cliente de demostración: no escribe y dice por qué",
     r1.ok === false && r1.motivo === "cliente_demo" && d1.escrito.pedidos.length === 0);
 
