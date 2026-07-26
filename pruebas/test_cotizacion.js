@@ -81,7 +81,7 @@ function montar(conSesion) {
     if (t === "precios")             return PRECIOS_BD;
     if (t === "productos")           return PRODUCTOS_BD;
     if (t === "organizaciones")      return ORG_BD;
-    if (t === "ofertas_piladora")    return OFERTAS_BD;
+    if (t === "v_ofertas_vigentes")  return OFERTAS_BD;   /* la vista: solo lo que rige hoy */
     if (t === "proveedores")         return PROVEEDORES_BD;
     if (t === "usuarios")            return [{ usr_id:"SC1", nombre:"Carlos Andrade", rol:"subcomisionista", activo:true }];
     return [];

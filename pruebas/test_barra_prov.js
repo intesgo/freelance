@@ -27,7 +27,7 @@ const FIX=(provCod)=>({
   solicitudes:[{sol_id:"SL-0003",tipo:"credito",origen_id:"FRL-RR",destino:"proveedor",prov_cod:"AGU",
      cli_id:null,detalle:"Ampliar crédito de $20.000 a $30.000",estado:"pendiente",motivo_resp:null,
      creado:"2026-07-08T10:00:00+00:00",es_demo:true}],
-  ofertas_piladora:[
+  v_ofertas_vigentes:[   /* la app lee la vista: solo lo que rige hoy */
     {oferta_id:"P-00017-QQ-AGU",prod_id:"P-00017",pres_cod:"QQ",presentacion:"Quintal",equiv_qq:1,
      prov_cod:"AGU",costo:29,precio_contado:35,precio_credito:36,activo:true,es_demo:false},
     {oferta_id:"P-00018-QQ-ROS",prod_id:"P-00018",pres_cod:"QQ",presentacion:"Quintal",equiv_qq:1,
