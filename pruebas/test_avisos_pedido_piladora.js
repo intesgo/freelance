@@ -15,11 +15,11 @@
        una semana y aprobado hoy también se avisa;
      · nunca dos veces.
 
-   Uso: AVISOS_TS=/ruta/empujar-avisos-v7.ts node test_avisos_pedido_piladora.js
+   Uso: AVISOS_TS=/ruta/empujar-avisos-v8.ts node test_avisos_pedido_piladora.js
    ═══════════════════════════════════════════════════════════════════════ */
 const fs = require("fs"), path = require("path");
 
-const RUTA = process.env.AVISOS_TS || "/tmp/freelance_work/Freelance-Sistema/empujar-avisos-v7.ts";
+const RUTA = process.env.AVISOS_TS || "/tmp/freelance_work/Freelance-Sistema/empujar-avisos-v8.ts";
 if (!fs.existsSync(RUTA)) { console.log("✗ no está el archivo de la función: " + RUTA); process.exit(1); }
 
 let ok = 0, mal = 0;

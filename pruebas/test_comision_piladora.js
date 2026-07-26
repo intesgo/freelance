@@ -50,7 +50,8 @@ const DETALLE = [{
   qq: 80, venta: 2920, costo: 2340, comision: 580, gratis_qq: 5, sin_costo: 0,
 }, {
   ped_id: "PD-0021", cliente: "Abarrotes Don Pepe", dia_cobro: MES + "-22", pago_prov: "credito",
-  qq: 80, venta: 2920, costo: 2420, comision: 500, gratis_qq: 0, sin_costo: 0,
+  qq: 70, venta: 2555, costo: 2117.50, comision: 437.50, gratis_qq: 0, sin_costo: 0,
+  qq_pedido: 80, qq_devuelto: 10,
 }];
 
 function montar({ hayReal = true, hayPractica = true } = {}) {
@@ -162,6 +163,10 @@ const tocar = (m, t) => vm.runInContext(`window.__tocar(${JSON.stringify(t)})`, 
   comprobar("dice cómo se le pagó a la piladora en cada pedido",
     /le pagaste de contado/.test(t) && /le pagaste a crédito/.test(t));
   comprobar("y cuándo terminó de pagar el cliente", /cobrado el 14\/|cobrado el 22\//.test(t));
+  comprobar("si hubo devolución, la muestra y dice que ya está descontada",
+    /10 qq devueltos con nota de crédito/.test(t) && /ya están descontados/.test(t));
+  comprobar("y no la inventa donde no la hubo",
+    (t.match(/qq devueltos con nota de crédito/g) || []).length === 1);
   tocar(m, "Ocultar el respaldo");
   await esperar(200);
   comprobar("el respaldo se puede volver a cerrar", !/Abarrotes Don Pepe/.test(txt(m)));
