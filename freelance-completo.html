@@ -5404,7 +5404,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"364", fecha:"26 jul 2026", desc:"Barra inferior que se esconde al leer: se va al bajar y vuelve al subir, al tocar o si entra un aviso" };
+const VERSION = { n:"365", fecha:"26 jul 2026", desc:"Los 4 modulos de la barra inferior leen del sistema: pedidos, novedades, agenda y solicitudes" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10290,7 +10290,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   );
 }
 
-function Pedidos({pedidos=PEDIDOS_INI, toast}){
+function Pedidos({pedidos=PEDIDOS_INI, toast, vivo}){
   useRetroceso(()=>{
       if(verFechas){ setVerFechas(false); return true; }
       if(sel){ setSel(null); return true; }
@@ -10335,7 +10335,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast}){
   const cambiarPestana=(p,mantenerEstado)=>{setPestana(p);setPagina(1);if(!mantenerEstado)setEstado("Todos");};
 
   return (<>
-    <div className="h1">Mis pedidos</div>
+    <div className="h1">Mis pedidos <SelloVivo vivo={!!vivo}/></div>
 
     {/* indicadores del estado del embudo de pedidos */}
     {(()=>{
@@ -15217,8 +15217,10 @@ function FichaMarca({marca, volver, vender}){
   </>);
 }
 
-function Agenda({toast, verCliente}){
-  const HOY="2026-06-13";
+function Agenda({toast, verCliente, datos}){
+  /* b365 · con datos del sistema, "hoy" es hoy de verdad; en la demostración
+     se queda en el día del guion para que el ejemplo siga cuadrando */
+  const HOY = datos ? new Date().toISOString().slice(0,10) : "2026-06-13";
   /* ── datos demo enriquecidos ── */
   const inicial=[
     {id:1, fecha:"2026-06-11", hora:"15:00", cli:"Bodega El Agricultor", tipo:"Cobro",
@@ -15238,6 +15240,8 @@ function Agenda({toast, verCliente}){
      objetivo:"Negociar espacio en góndola", ubic:"Guayaquil, Norte", estado:"pendiente", dur:60, recordatorio:30},
   ];
   const [tareas,setTareas]=useState(inicial);
+  /* b365 · lo agendado en el sistema (y lo que la app te sugiere) manda */
+  React.useEffect(()=>{ if(datos) setTareas(datos); },[datos]);
   const [nueva,setNueva]=useState(false);
   const [sel,setSel]=useState(null);          // actividad abierta (acciones rápidas)
   const [completando,setCompletando]=useState(null);  // actividad en proceso de completar
@@ -15343,7 +15347,12 @@ function Agenda({toast, verCliente}){
   const proxima=[...grupos.hoy].filter(t=>t.hora>="00:00").sort((a,b)=>a.hora<b.hora?-1:1)[0];
 
   /* ── acciones ── */
-  const actualizar=(id,cambios)=>setTareas(ts=>ts.map(t=>t.id===id?{...t,...cambios}:t));
+  const actualizar=(id,cambios)=>{
+    setTareas(ts=>ts.map(t=>t.id===id?{...t,...cambios}:t));
+    /* b365 · todo cambio se guarda; una sugerencia se vuelve actividad real al tocarla */
+    const t=tareas.find(x=>x.id===id);
+    if(t && datos) guardarActividad({...t,...cambios});
+  };
   const iniciar=(t)=>{ actualizar(t.id,{estado:"proceso"}); setSel(null); toast("Actividad iniciada"); };
   const abrirMapa=(t)=>{ window.open("https://www.google.com/maps/search/?api=1&query="+encodeURIComponent((t.ubic||t.cli)+", Ecuador"),"_blank"); };
   const llamar=(t)=>{ const f=FICHA_CLIENTE[t.cli]||{}; if(!f.tel){ toast("Este cliente no tiene teléfono registrado"); return; } window.location.href="tel:"+f.tel; };
@@ -15375,10 +15384,12 @@ function Agenda({toast, verCliente}){
   const formOk = cli && fecha && tipo && objetivo.trim().length>0;
   const agregar=()=>{
     if(!formOk) return;
-    const id=Math.max(0,...tareas.map(t=>t.id))+1;
-    setTareas([...tareas,{id, fecha, hora:todoDia?"":(hora||"08:00"), cli, tipo, objetivo,
+    const id=Math.max(0,...tareas.map(t=>Number(t.id)||0))+1;
+    const nueva={id, act_id:"AG-"+Date.now(), fecha, hora:todoDia?"":(hora||"08:00"), cli, tipo, objetivo,
       ubic:ubicF||((FICHA_CLIENTE[cli]||{}).ciudad||""), estado:"pendiente", dur, recordatorio:recor,
-      todoDia, recurrente, detalle:detalleTipo}]);
+      todoDia, recurrente, detalle:detalleTipo};
+    setTareas([...tareas,nueva]);
+    if(datos) guardarActividad(nueva);   /* b365 · queda en el sistema */
     setNueva(false);
     setCli(null); setObjetivo(""); setUbicF(""); setDetalleTipo("");
     /* vuelve a los valores por defecto, no a vacío */
@@ -15440,7 +15451,7 @@ function Agenda({toast, verCliente}){
     const delDia=filtradas.filter(t=>t.fecha===HOY);
     const HORAS=["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"];
     return (<>
-      <div className="h1">Agenda</div>
+      <div className="h1">Agenda <SelloVivo vivo={!!datos}/></div>
       <div className="eq-tabs" style={{marginBottom:12}}>
         <button className={vista==="lista"?"on":""} onClick={()=>setVista("lista")}>Lista</button>
         <button className={vista==="dia"?"on":""} onClick={()=>setVista("dia")}>Día</button>
@@ -15466,7 +15477,7 @@ function Agenda({toast, verCliente}){
 
   /* ══ VISTA LISTA (principal) ══ */
   return (<>
-    <div className="h1">Agenda</div>
+    <div className="h1">Agenda <SelloVivo vivo={!!datos}/></div>
 
     {/* resumen compacto */}
     <div className="neu" style={{padding:"12px 14px",marginBottom:11}}>
@@ -16264,7 +16275,283 @@ function Cuenta({usuario, onSalir}){
   </>);
 }
 
-function Novedades({toast, go}){
+/* ═══════════════════════════════════════════════════════════════════════
+   PUENTE DE DATOS · los módulos de la barra inferior leen del sistema
+   (b365 · pedido de Richard: "conecta cada módulo de la barra ya al
+   funcionamiento del sistema, que se integre")
+
+   Novedades, Mis pedidos, Agenda y Solicitudes dejan de vivir solo de la
+   demostración: piden sus datos a la base y muestran lo que hay de verdad.
+   Mensajes ya estaba en vivo desde la b362.
+
+   REGLAS DE ORO de este puente:
+   1. NUNCA revienta una pantalla. Ante cualquier problema devuelve null y
+      el módulo se queda con lo que ya tenía. Un vendedor en el campo
+      prefiere ver la demostración antes que una pantalla en blanco.
+   2. Devuelve los datos con la MISMA forma que la demostración, para no
+      tocar pantallas que ya están probadas.
+   3. Las filas sembradas para practicar (es_demo) vuelven marcadas con
+      demo:true, para poder distinguirlas de una venta de verdad.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* quién soy en el padrón de usuarios (se resuelve una sola vez por sesión) */
+let _yoPuente;
+async function yoUsuario(){
+  if(_yoPuente!==undefined) return _yoPuente;
+  _yoPuente=null;
+  try{
+    const { data:s } = await window.SB.auth.getSession();
+    if(s && s.session){
+      const { data:u } = await window.SB.from("usuarios").select("usr_id,nombre,rol")
+        .eq("auth_uid", s.session.user.id).maybeSingle();
+      _yoPuente = u || null;
+    }
+  }catch(e){}
+  return _yoPuente;
+}
+
+const MES3_P=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+function selloCorto(iso){
+  if(!iso) return "—";
+  const d=new Date(iso); if(isNaN(d)) return "—";
+  const p=n=>("0"+n).slice(-2);
+  return p(d.getDate())+" "+MES3_P[d.getMonth()]+" · "+p(d.getHours())+":"+p(d.getMinutes());
+}
+const soloDia = (iso)=> String(iso||"").slice(0,10);
+const hoyISO  = ()=> new Date().toISOString().slice(0,10);
+
+/* ── MIS PEDIDOS ───────────────────────────────────────────────────────
+   Se arma con pedidos + sus ítems + el nombre del cliente y del proveedor
+   + la comisión. La línea de tiempo se deduce del estado guardado: la base
+   no guarda la hora de cada paso, así que lo cumplido se marca con ✓ y no
+   se inventan fechas. */
+const ETAPAS_PEDIDO=["Pedido ingresado","Acuerdo de comisión","Aprobación del freelance",
+  "Aprobación de crédito","Enviado al proveedor","Facturado","Despachado","Entregado",
+  "Cobrado y validado","Comisión liberada"];
+const PED_MAPA={
+  ingresado:            {linea:2,  etapa:1, t:"Esperando aprobación"},
+  esperando_aprobacion: {linea:2,  etapa:1, t:"Esperando aprobación"},
+  enviado_proveedor:    {linea:4,  etapa:2, t:"Enviado al proveedor"},
+  facturado:            {linea:5,  etapa:3, t:"Facturado"},
+  despachado:           {linea:6,  etapa:4, t:"Despachado"},
+  entregado:            {linea:7,  etapa:5, t:"Entregado"},
+  cliente_pago:         {linea:8,  etapa:6, t:"Cobrado y validado"},
+  cerrado:              {linea:10, etapa:7, t:"Comisión liberada"},
+  anulado:              {linea:0,  etapa:0, t:"Anulado"},
+};
+async function vivoPedidos(){
+  try{
+    const [rp, ri, rc, rv, rm] = await Promise.all([
+      window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
+      window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
+      window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
+    ]);
+    const peds=rp&&rp.data; if(!peds || !peds.length) return null;
+    const nCli={}, nProv={}, com={};
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
+    ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
+    const items=(ri&&ri.data)||[];
+    return peds.map(p=>{
+      const its=items.filter(i=>i.ped_id===p.ped_id);
+      const cant=its.reduce((s,i)=>s+Number(i.cantidad_qq||0),0);
+      const importe=its.reduce((s,i)=>s+Number(i.cantidad_qq||0)*Number(i.precio_usd||0),0);
+      const m=PED_MAPA[p.estado]||{linea:1,etapa:1,t:p.estado||"—"};
+      const c=com[p.ped_id];
+      return {
+        id:p.ped_id,
+        cli:nCli[p.cli_id]||p.cli_id||"Cliente",
+        prov:nProv[p.prov_cod]||p.prov_cod||"—",
+        fecha:soloDia(p.creado),
+        prod: its.length ? (its[0].descripcion + (its.length>1 ? " y "+(its.length-1)+" más" : "")) : "Sin detalle",
+        cant, precio: cant ? Number((importe/cant).toFixed(2)) : 0,
+        cond: p.condicion==="contado" ? "Contado" : "Crédito",
+        comision: c ? Number(c.monto||0) : 0,
+        estado:m.t, etapa:m.etapa, sync:"ok",
+        comisionLiberada: p.estado==="cerrado" || (c && c.estado==="pagada"),
+        factura:p.factura||"", ciudad:p.ciudad||"", demo:!!p.es_demo,
+        linea: ETAPAS_PEDIDO.map((t,i)=>({
+          t,
+          f: i===0 ? selloCorto(p.creado) : (i<m.linea ? "✓ cumplido" : "—"),
+          st: i<m.linea ? "ok" : (i===m.linea ? "now" : "wait"),
+          d: (i===5 && p.factura) ? ("Factura "+p.factura) : "",
+        })),
+      };
+    });
+  }catch(e){ return null; }
+}
+
+/* ── SOLICITUDES ───────────────────────────────────────────────────────
+   Recibidas = las que llegan a ti para decidir (destino freelance).
+   Mías      = las que tú enviaste al proveedor. */
+async function vivoSolicitudes(){
+  try{
+    const yo=await yoUsuario();
+    const [rs, ru, rc, rv] = await Promise.all([
+      window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
+      window.SB.from("usuarios").select("usr_id,nombre,rol").limit(500),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
+    ]);
+    const sols=rs&&rs.data; if(!sols || !sols.length) return null;
+    const usr={}, nCli={}, nProv={};
+    ((ru&&ru.data)||[]).forEach(u=>{ usr[u.usr_id]=u; });
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
+    const CARGO={ subcomisionista:"Subcomisionista", freelance:"Freelance", proveedor:"Proveedor",
+                  socio:"Socio comercial", transportista:"Transportista", admin:"Administrador" };
+    const armar=(s)=>{
+      const de=usr[s.origen_id]||{};
+      return {
+        id:s.sol_id, num:s.sol_id, sc:de.nombre||s.origen_id||"—",
+        cargo:CARGO[de.rol]||de.rol||"—", tipo:s.tipo,
+        cli:nCli[s.cli_id]||"", proveedor:nProv[s.prov_cod]||"",
+        detalle:s.detalle||"", fecha:selloCorto(s.creado), estado:s.estado,
+        prioridad:"normal",
+        d:{ motivo:s.detalle||"", respuesta:s.motivo_resp||"" },
+        nivel: s.destino==="proveedor" ? "Aprueba: Proveedor" : "Aprueba: Freelance",
+        comentarios: s.motivo_resp ? [{de:"Respuesta", txt:s.motivo_resp, f:selloCorto(s.resuelto_en)}] : [],
+        demo:!!s.es_demo,
+      };
+    };
+    const recibidas=sols.filter(s=>s.destino==="freelance").map(armar);
+    const mias=sols.filter(s=>s.destino==="proveedor" && (!yo || s.origen_id===yo.usr_id)).map(armar);
+    if(!recibidas.length && !mias.length) return null;
+    return { recibidas, mias };
+  }catch(e){ return null; }
+}
+
+/* responde una solicitud recibida (aprobar / rechazar) */
+async function responderSolicitud(solId, estado, motivo){
+  try{
+    const { error } = await window.SB.from("solicitudes")
+      .update({ estado, motivo_resp:motivo||null, resuelto_en:new Date().toISOString() })
+      .eq("sol_id", solId);
+    return !error;
+  }catch(e){ return false; }
+}
+
+/* ── NOVEDADES ─────────────────────────────────────────────────────────
+   Una sola tabla para las dos clases (decisión de Richard, 26 jul):
+   origen 'comercial' = reclamo al proveedor · 'entrega' = lo que reporta
+   el transportista en ruta. */
+const NOV_ESTADO_BD={ abierta:"enviada", en_revision:"revision", resuelta:"aprobada",
+                      enviada:"enviada", aprobada:"aprobada", rechazada:"rechazada" };
+async function vivoNovedades(){
+  try{
+    const [rn, rc] = await Promise.all([
+      window.SB.from("novedades").select("*").order("creado",{ascending:false}).limit(200),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+    ]);
+    const novs=rn&&rn.data; if(!novs || !novs.length) return null;
+    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    return novs.map(n=>({
+      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", tipo:n.tipo||"producto",
+      detalle:n.detalle||"", fecha:selloCorto(n.creado),
+      estado:NOV_ESTADO_BD[n.estado]||"enviada",
+      origen:n.origen||"entrega", monto:n.monto?Number(n.monto):null,
+      factura:n.factura||"", demo:!!n.es_demo,
+    }));
+  }catch(e){ return null; }
+}
+
+/* guarda un reclamo comercial y devuelve la fila lista para la lista de la app */
+async function guardarNovedad(nv){
+  try{
+    const yo=await yoUsuario(); if(!yo) return null;
+    const { data:ult } = await window.SB.from("novedades").select("nov_id")
+      .like("nov_id","NV-%").order("nov_id",{ascending:false}).limit(1);
+    const n=(ult && ult[0]) ? (parseInt(String(ult[0].nov_id).slice(3),10)||0)+1 : 1;
+    const id="NV-"+String(n).padStart(4,"0");
+    /* el cliente y la piladora se guardan por su código del padrón, no por su
+       nombre escrito: así el reclamo queda amarrado a la ficha de verdad */
+    let cliId=nv.cli_id||null, provCod=nv.prov_cod||null;
+    if(!cliId && nv.cli){
+      const { data:c } = await window.SB.from("clientes").select("cli_id").eq("nombre",nv.cli).limit(1);
+      if(c && c[0]) cliId=c[0].cli_id;
+    }
+    if(!provCod && nv.prov){
+      const { data:v } = await window.SB.from("proveedores").select("prov_cod").eq("nombre",nv.prov).limit(1);
+      if(v && v[0]) provCod=v[0].prov_cod;
+    }
+    const fila={ nov_id:id, org_id:"ORG-001", cli_id:cliId, tipo:nv.tipo||"producto",
+      detalle:nv.detalle||"", estado:"enviada", origen:"comercial", prov_cod:provCod,
+      factura:nv.factura||null, monto:(nv.monto||nv.monto===0)?nv.monto:null, reporto:yo.usr_id };
+    const { error } = await window.SB.from("novedades").insert(fila);
+    if(error) return null;
+    return { id, cli:nv.cli||"—", tipo:fila.tipo, detalle:fila.detalle,
+             fecha:selloCorto(new Date().toISOString()), estado:"enviada", origen:"comercial" };
+  }catch(e){ return null; }
+}
+
+/* ── AGENDA ────────────────────────────────────────────────────────────
+   Programadas: lo que tú agendas, guardado en agenda_actividades.
+   Sugeridas:   se calculan al vuelo con la cartera que vence y los pedidos
+                despachados sin entregar. No ocupan lugar en la base hasta
+                que tocas una: ahí recién se guarda (act_id SG-…). */
+function _actDeFila(f, i){
+  return { id:1000+i, act_id:f.act_id, cli:f.cliente||"—", cli_id:f.cli_id||null,
+    fecha:soloDia(f.fecha), hora:f.hora||"", tipo:f.tipo||"Otro", objetivo:f.objetivo||"",
+    ubic:f.ubic||"", estado:f.estado||"pendiente", dur:Number(f.dur)||30,
+    recordatorio:Number(f.recordatorio)||15, resultado:f.resultado||"", obs:f.obs||"" };
+}
+async function vivoAgenda(){
+  try{
+    const yo=await yoUsuario();
+    const hoy=hoyISO();
+    const [ra, rc, rk, rp] = await Promise.all([
+      window.SB.from("agenda_actividades").select("*").order("fecha").limit(500),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(500),
+      window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,barrio,principal").limit(2000),
+    ]);
+    const nCli={}, ubi={};
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rp&&rp.data)||[]).forEach(u=>{ if(!ubi[u.cli_id]||u.principal) ubi[u.cli_id]=[u.ciudad,u.barrio].filter(Boolean).join(", "); });
+
+    const propias=((ra&&ra.data)||[]).filter(a=>!yo || !a.usr_id || a.usr_id===yo.usr_id);
+    const lista=propias.map(_actDeFila);
+
+    /* sugerencia: cobros cuya factura vence hoy o ya venció */
+    const cart=((rk&&rk.data)||[]).filter(m=>m.estado!=="pagada" && m.vence && soloDia(m.vence)<=hoy);
+    cart.slice(0,12).forEach((m,i)=>{
+      const act="SG-"+m.mov_id;
+      if(lista.some(t=>t.act_id===act)) return;
+      lista.push({ id:2000+i, act_id:act, cli:nCli[m.cli_id]||m.cli_id||"—", cli_id:m.cli_id,
+        fecha:hoy, hora:"", tipo:"Cobro",
+        objetivo:"Sugerido · cobrar "+(m.doc||"factura")+" ($"+Number(m.monto||0).toFixed(2)+")",
+        ubic:ubi[m.cli_id]||"", estado:"pendiente", dur:20, recordatorio:15, sug:true });
+    });
+    return lista.length ? lista : null;
+  }catch(e){ return null; }
+}
+
+/* guarda (crea o actualiza) una actividad de la agenda */
+async function guardarActividad(t){
+  try{
+    const yo=await yoUsuario(); if(!yo || !t) return false;
+    const fila={ act_id:t.act_id||("AG-"+Date.now()), org_id:"ORG-001", usr_id:yo.usr_id,
+      cli_id:t.cli_id||null, cliente:t.cli||null, fecha:t.fecha, hora:t.hora||null,
+      tipo:t.tipo||"Otro", objetivo:t.objetivo||null, ubic:t.ubic||null,
+      dur:Number(t.dur)||30, recordatorio:Number(t.recordatorio)||15,
+      estado:t.estado||"pendiente", resultado:t.resultado||null, obs:t.obs||null };
+    const { error } = await window.SB.from("agenda_actividades").upsert(fila,{onConflict:"act_id"});
+    return !error;
+  }catch(e){ return false; }
+}
+
+/* sello que dice de dónde salen los datos que estás viendo */
+function SelloVivo({vivo}){
+  return <span style={{marginLeft:8,display:"inline-block",padding:"2px 8px",borderRadius:20,
+    fontSize:10.5,fontWeight:700,verticalAlign:"middle",
+    background:vivo?"rgba(28,122,68,.13)":"#EFF1F3", color:vivo?"#1c7a44":"#6B7280"}}>
+    {vivo?"🟢 Datos vivos":"⚪ Demostración"}</span>;
+}
+
+
+function Novedades({toast, go, datos}){
   useRetroceso(()=>{
       if(prodSel){ setProdSel(null); return true; }
       if(paso!=="menu"){ setPaso("menu"); return true; }
@@ -16275,6 +16562,8 @@ function Novedades({toast, go}){
   const [tipo,setTipo]=useState(null);       // cambio-mismo | cambio-otro | producto | descuento
   const [paso,setPaso]=useState("menu");      // menu | form
   const [lista,setLista]=useState(NOVEDADES_INI);
+  /* b365 · si el sistema tiene novedades guardadas, mandan esas */
+  React.useEffect(()=>{ if(datos) setLista(datos); },[datos]);
   const [cheques,setCheques]=useState(CHEQUES_DEVUELTOS);
   const [pestana,setPestana]=useState("recibidas"); // recibidas | enviadas
 
@@ -16320,7 +16609,12 @@ function Novedades({toast, go}){
   const enviar=(detalle)=>{
     const nueva={id:Date.now(), cli, tipo, detalle, fecha:"hoy", estado:"enviada"};
     setLista([nueva,...lista]); reset();
-    toast("Solicitud enviada al proveedor. Quedó en seguimiento.");
+    /* b365 · el reclamo queda guardado en el sistema, no solo en la pantalla */
+    guardarNovedad({cli, tipo, detalle, prov: prov && prov.nombre}).then(g=>{
+      toast(g ? ("Reclamo enviado al proveedor · queda en seguimiento con el número "+g.id)
+              : "Solicitud enviada al proveedor. Quedó en seguimiento.");
+      if(g) setLista(l=>[g,...l.filter(x=>x.id!==nueva.id)]);
+    });
   };
 
   const totalFactura=()=>{
@@ -16334,7 +16628,7 @@ function Novedades({toast, go}){
   };
 
   return (<>
-    <div className="h1">Novedades</div>
+    <div className="h1">Novedades <SelloVivo vivo={!!datos}/></div>
 
     <div className="eq-tabs">
       <button className={pestana==="recibidas"?"on":""} onClick={()=>setPestana("recibidas")}>
@@ -16387,7 +16681,25 @@ function Novedades({toast, go}){
           </div>
         ))}
 
-      {cheques.filter(c=>c.estado==="pendiente").length===0 && lista.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length===0 && (
+      {/* b365 · lo que reporta el transportista en ruta llega aquí: es la misma
+          tabla de novedades, marcada como de entrega. Así te enteras el mismo día
+          de que un producto llegó mojado o faltó en la descarga. */}
+      {lista.filter(n=>n.origen==="entrega").length>0 && (<>
+        <div className="sec-h"><h2>🚚 Novedades de entrega</h2><div className="grain"></div></div>
+        {lista.filter(n=>n.origen==="entrega").slice(0,12).map((n,i)=>(
+          <div className="card" key={"ent"+i} style={{padding:"11px 13px",marginBottom:8,
+            borderLeft:"4px solid #D98324"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.cli}</div>
+              <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
+            </div>
+          </div>
+        ))}
+      </>)}
+
+      {cheques.filter(c=>c.estado==="pendiente").length===0
+        && lista.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length===0
+        && lista.filter(n=>n.origen==="entrega").length===0 && (
         <div className="card"><div className="ph" style={{padding:"8px 0"}}>No hay novedades recibidas por ahora.</div></div>
       )}
     </>)}
@@ -17963,9 +18275,15 @@ function GraficoDona({cobrado, porCobrar}){
   );
 }
 
-function Solicitudes({toast, verCliente}){
+function Solicitudes({toast, verCliente, datos}){
   const [sols,setSols]=useState(SOLICITUDES_INI);
   const [mias,setMias]=useState(MIS_SOLICITUDES_INI);
+  /* b365 · lo que llega del sistema reemplaza a la demostración */
+  React.useEffect(()=>{
+    if(!datos) return;
+    if(datos.recibidas && datos.recibidas.length) setSols(datos.recibidas);
+    if(datos.mias && datos.mias.length) setMias(datos.mias);
+  },[datos]);
   const [pestana,setPestana]=useState("aprobar");   // aprobar | mias
   const [sel,setSel]=useState(null);                // solicitud abierta (detalle)
   const [accion,setAccion]=useState(null);          // aprobar | rechazar | correccion | comentar
@@ -18090,6 +18408,8 @@ function Solicitudes({toast, verCliente}){
   const setEstado=(id,estado,extra)=>{
     const upd=(arr)=>arr.map(s=>s.id===id?{...s,estado,...(extra||{})}:s);
     if(pestana==="aprobar") setSols(upd); else setMias(upd);
+    /* b365 · la decisión queda guardada en el sistema, no solo en pantalla */
+    if(datos && (estado==="aprobada"||estado==="rechazada")) responderSolicitud(id, estado, motivo);
   };
   const agregarComentario=(id,txt)=>{
     const c={de:"Daniel Ríos", txt, f:"ahora"};
@@ -18338,7 +18658,7 @@ function Solicitudes({toast, verCliente}){
 
   /* ══ RENDER ══ */
   return (<>
-    <div className="h1">Solicitudes</div>
+    <div className="h1">Solicitudes <SelloVivo vivo={!!datos}/></div>
     <div className="sub">Revisa, aprueba y consulta el estado de las solicitudes comerciales.</div>
 
     {/* resumen compacto */}
@@ -21176,7 +21496,28 @@ function App({usuario, onSalir}){
   const [oscuro,setOscuro]=useState(false);
   const [fontGrande,setFontGrande]=useState(false);
   const [pedidos,setPedidos]=useState(PEDIDOS_INI); // lista viva de pedidos (Mis pedidos)
-  const badgeSolicitudes=SOLICITUDES_INI.filter(s=>s.estado==="pendiente").length; // pendientes por aprobar
+  /* ── b365 · LOS MÓDULOS DE LA BARRA LEEN DEL SISTEMA ──
+     Una sola carga al abrir la app alimenta las cuatro pantallas y sus globos,
+     para que el número de la barra y lo que ves adentro sean lo mismo.
+     Si algo no responde, ese módulo se queda con su demostración. */
+  const [pedidosVivos,setPedidosVivos]=useState(false);
+  const [novedadesApp,setNovedadesApp]=useState(null);
+  const [solicitudesApp,setSolicitudesApp]=useState(null);
+  const [agendaApp,setAgendaApp]=useState(null);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      const [pd,nv,so,ag]=await Promise.all([vivoPedidos(),vivoNovedades(),vivoSolicitudes(),vivoAgenda()]);
+      if(!vivo) return;
+      if(pd && pd.length){ setPedidos(pd); setPedidosVivos(true); }
+      if(nv) setNovedadesApp(nv);
+      if(so) setSolicitudesApp(so);
+      if(ag) setAgendaApp(ag);
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const badgeSolicitudes=(((solicitudesApp&&solicitudesApp.recibidas)||SOLICITUDES_INI)
+    .filter(s=>s.estado==="pendiente")).length; // pendientes por aprobar (del sistema si lo hay)
   const [toast,setToast]=useState(null);
   const [prodInicial,setProdInicial]=useState(null); // presentación precargada desde Productos
   const [cobroInicial,setCobroInicial]=useState(null); // cliente precargado desde Cartera → Cobrar
@@ -21374,8 +21715,11 @@ function App({usuario, onSalir}){
   const enSub = tab in subPantallas;
 
   const HOY="2026-06-13";
-  const badgeNovedades = NOVEDADES_INI.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length; // respuestas del proveedor
-  const badgePedidos = pedidos.filter(p=>p.sync==="pend").length;                                    // pendientes de enviar
+  const badgeNovedades = (novedadesApp||NOVEDADES_INI)
+    .filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length;   // respuestas del proveedor
+  /* con datos del sistema no existe el "pendiente de enviar": lo que pide tu
+     atención es el pedido esperando tu aprobación */
+  const badgePedidos = pedidos.filter(p=>p.sync==="pend" || p.estado==="Esperando aprobación").length;
   const badgeEntregados = pedidos.filter(p=>p.estado==="Entregado").length;                          // entregados (para el panel del Inicio)
   const badgePedidosTotal = badgePedidos;                                                            // la barra solo refleja lo que sí se lista (en proceso)
   const [verDetalle,setVerDetalle]=useState(null);
@@ -21387,7 +21731,10 @@ function App({usuario, onSalir}){
     ultClic.current={tab:t,t:ahora};
     navegar(t);
   };
-  const badgeAgenda = 2;   // tareas pendientes de hoy (ejemplo del prototipo)
+  const badgeAgenda = agendaApp
+    ? agendaApp.filter(t=>t.fecha===new Date().toISOString().slice(0,10)
+        && t.estado!=="completada" && t.estado!=="norealizada").length
+    : 2;   // sin sistema, el ejemplo del prototipo
   const badgeComision = 1; // comisiones recién liberadas (ejemplo del prototipo)
   /* si el total de cosas por ver SUBE, la barra vuelve aunque estés leyendo */
   const totalAvisos = (badgeNovedades||0)+(badgePedidosTotal||0)+(badgeAgenda||0)+(badgeSolicitudes||0)+(sinLeerChat||0);
@@ -21489,17 +21836,17 @@ function App({usuario, onSalir}){
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           go={navegar}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
-        {tab==="pedidos" && <Pedidos pedidos={pedidos} toast={show}/>}
+        {tab==="pedidos" && <Pedidos pedidos={pedidos} vivo={pedidosVivos} toast={show}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="midia" && <MiDia toast={show} usuario={usuario}/>}
         {tab==="boveda" && <Boveda toast={show} yo="Daniel Ríos (Freelance)"/>}
         {tab==="verificacion" && <Verificacion toast={show} yo="Daniel Ríos (Freelance)"/>}
         {tab==="cuenta" && <Cuenta usuario={usuario} onSalir={onSalir}/>}
         {tab==="equipo" && <Equipo toast={show}/>}
-        {tab==="solicitudes" && <Solicitudes toast={show} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
+        {tab==="solicitudes" && <Solicitudes toast={show} datos={solicitudesApp} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
         {tab==="autorizaciones" && <Autorizaciones toast={show} usuario={usuario}/>}
         {tab==="ruta" && <Ruta toast={show}/>}
-        {tab==="agenda" && <Agenda toast={show} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
+        {tab==="agenda" && <Agenda toast={show} datos={agendaApp} verCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}/>}
         {tab==="stock" && <Stock toast={show}/>}
         {tab==="cartera" && <Cartera toast={show} clienteIni={carteraCliente} onClienteConsumido={()=>setCarteraCliente(null)} onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}/>}
         {tab==="clientes" && <Clientes toast={show} cliIni={cliFicha} secIni={secFicha} onCliConsumido={()=>{setCliFicha(null);setSecFicha(null);}} nuevoPedido={(c)=>{setCliInicial(c);navegar("pedido");}} verCartera={(c)=>{setCarteraCliente(c);navegar("cartera");}}/>}
@@ -21559,7 +21906,7 @@ function App({usuario, onSalir}){
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
-        {tab==="novedades" && <Novedades toast={show} go={navegar}/>}
+        {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
       </div>
       {toast && <div className="toast">{toast}</div>}
 
