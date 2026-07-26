@@ -175,7 +175,14 @@
     estado.rol = rol;
     var destino = APP_POR_ROL[rol];
     $("btnMiApp").textContent = destino ? "Entrar a mi app ›" : "Tu módulo es el Sistema Web de escritorio";
-    if(!destino){ $("btnMiApp").disabled = true; $("msjSesion").textContent = "El Sistema Web es privado; se abre desde el computador de la oficina."; }
+    if(!destino){
+      $("btnMiApp").disabled = true;
+      /* sin rol = la cuenta no está vinculada al padrón: no se adivina, se avisa */
+      $("btnMiApp").textContent = rol ? "Tu módulo es el Sistema Web de escritorio" : "Tu cuenta aún no tiene app asignada";
+      $("msjSesion").textContent = rol
+        ? "El Sistema Web es privado; se abre desde el computador de la oficina."
+        : "Tu cuenta entró bien, pero todavía no está vinculada a un rol. Avísale a Richard para que la habilite.";
+    }
     else { $("btnMiApp").disabled = false; $("msjSesion").textContent = ""; }
     vistaLogin.classList.add("oculto");
     vistaSesion.classList.remove("oculto");
@@ -185,11 +192,16 @@
     vistaLogin.classList.remove("oculto");
   }
 
+  /* OJO: si el padrón no responde o la cuenta no está vinculada, NO se asume
+     "freelance". Antes se hacía y era al revés de lo prudente: ante la duda, la
+     persona terminaba en la app con más poder del negocio. Ahora se queda sin
+     rol y la pantalla lo dice. */
   function cargarPadron(uid, correo, listo){
-    SB.from("usuarios").select("usr_id,nombre,rol").eq("auth_uid", uid).limit(1)
+    SB.from("usuarios").select("usr_id,nombre,rol,activo").eq("auth_uid", uid).limit(1)
       .then(function(r){ var f = (r.data && r.data[0]) || null;
-        listo((f && f.nombre) || correo, (f && f.rol) || "freelance"); })
-      .catch(function(){ listo(correo, "freelance"); });
+        if(f && f.activo === false){ SB.auth.signOut(); listo(correo, ""); return; }
+        listo((f && f.nombre) || correo, (f && f.rol) || ""); })
+      .catch(function(){ listo(correo, ""); });
   }
 
   /* Al abrir: ¿ya hay sesión? */

@@ -506,7 +506,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"23", fecha:"25 jul 2026", desc:"Mensajes con acceso fijo abajo a la derecha y globo de no leidos (esta app no tiene barra inferior)" };
+const VERSION = { n:"24", fecha:"26 jul 2026", desc:"Una sola puerta: se entra por el portal con la cuenta de verdad" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -562,9 +562,9 @@ function svgRostro(t, color, grosor){
 }
 
 const CHOFERES = [
-  { nombre:"Marlon Cedeño", cedula:"0912543889", telefono:"099 110 2233", placas:["GBC-7790"], usuario:"marlon", clave:"1234" },
-  { nombre:"Wilson Brito",  cedula:"0913876541", telefono:"098 220 4455", placas:["PXT-2231"], usuario:"wilson", clave:"1234" },
-  { nombre:"Galo Andrade",  cedula:"1709334521", telefono:"096 778 9090", placas:["TRL-1000"], usuario:"galo",   clave:"1234" },
+  { nombre:"Marlon Cedeño", cedula:"0912543889", telefono:"099 110 2233", placas:["GBC-7790"] },
+  { nombre:"Wilson Brito",  cedula:"0913876541", telefono:"098 220 4455", placas:["PXT-2231"] },
+  { nombre:"Galo Andrade",  cedula:"1709334521", telefono:"096 778 9090", placas:["TRL-1000"] },
 ];
 
 /* ====================== PUENTE DE INTEGRACIÓN (diccionario común) ======================
@@ -899,216 +899,68 @@ function retrocederEnModulo(){
 }
 
 /* ---------- Login: 3 caras + biometría real + tarjeta banca + registro por link ---------- */
-function PantallaLogin({ onEntrar }){
-  const [vista, setVista] = useState("menu");
-  const [usr, setUsr] = useState(""); const [pwd, setPwd] = useState("");
-  const [err, setErr] = useState("");
-  const [oferta, setOferta] = useState(null);      /* chofer validado esperando decidir biometría */
-  const [ocupado, setOcupado] = useState(false);
-  const [nom, setNom] = useState(""); const [ced, setCed] = useState("");
-  const [tel, setTel] = useState(""); const [pla, setPla] = useState("");
-  const [huellaReg, setHuellaReg] = useState(huellaGuardada());
-  const bio = puedeHuellaReal();
-
-  /* b17 · Restauración de sesión (patrón fc b335): con sesión del portal se
-     entra directo con el nombre real, sin pedir usuario. */
-  React.useEffect(() => {
+/* ═══════════════════════════════════════════════════════════════════════
+   UNA SOLA PUERTA (26 jul 2026 · decisión de Richard)
+   Esta app ya no tiene ingreso propio. Antes entraba con usuario y clave
+   escritos en el archivo —publicado en internet—, con la huella compartida
+   entre apps, e incluso permitía darse de alta como transportista nuevo y
+   quedarse con la primera ruta libre, sin ninguna credencial.
+   Ahora se entra por el portal, con la cuenta de verdad.
+   ═══════════════════════════════════════════════════════════════════════ */
+function PuertaPortal({ onEntrar }){
+  const [mirando, setMirando] = React.useState(true);
+  React.useEffect(()=>{
     let vivo = true;
-    (async () => {
-      try {
-        if (!window.SB) return;
-        const { data } = await window.SB.auth.getSession();
-        const s = (data && data.session) || null;
-        if (!vivo || !s) return;
-        let fila = null;
-        try {
-          const { data: u } = await window.SB.from("usuarios")
-            .select("nombre").eq("auth_uid", s.user.id).maybeSingle();
-          fila = u || null;
-        } catch (e) {}
-        if (!vivo) return;
-        onEntrar((fila && fila.nombre) || s.user.email, null);
-      } catch (e) {}
+    (async ()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!vivo) return;
+        if(s && s.session){
+          const { data:f } = await window.SB.from("usuarios")
+            .select("nombre,activo").eq("auth_uid", s.session.user.id).maybeSingle();
+          if(f && f.activo === false){ await window.SB.auth.signOut(); setMirando(false); return; }
+          onEntrar((f && f.nombre) || s.session.user.email, null);
+          return;
+        }
+      }catch(e){}
+      if(vivo) setMirando(false);
     })();
-    return () => { vivo = false; };
-  }, []);
-
-  const subtitulo = vista==="recurrente" ? "Acceso de transportista"
-    : vista==="nuevo" ? "Registro por enlace de ruta" : "Conectamos el campo con tu negocio";
-
-  const entrarComo = (c, nuevo) => onEntrar(c.nombre, nuevo || null);
-
-  const usarBiometria = () => {
-    const reg = huellaGuardada();
-    if (bio && reg) {
-      setOcupado(true);
-      verificarHuella(reg.credId).then((ok) => {
-        setOcupado(false);
-        if (!ok) { setErr("No se pudo verificar. Intenta de nuevo o entra con tu clave."); return; }
-        const c = CHOFERES.find((x) => x.usuario === reg.usuario);
-        entrarComo(c || { nombre: reg.nombre || "Chofer" }, null);
-      });
-      return;
-    }
-    entrarComo(CHOFERES[0], null);   /* demo local: entra el primer chofer */
-  };
-
-  const entrarConClave = () => {
-    const c = choferPorUsuario(usr);
-    if (!c || c.clave !== pwd) { setErr("Usuario o clave incorrectos."); setPwd(""); return; }
-    setErr("");
-    if (bio && !huellaGuardada()) { setOferta(c); return; }   /* tarjeta banca, una sola vez */
-    entrarComo(c, null);
-  };
-
-  const activarBio = () => {
-    const c = oferta; setOcupado(true);
-    crearHuella(c.usuario, c.nombre).then((credId) => {
-      setOcupado(false);
-      if (credId) guardarHuella({ credId: credId, usuario: c.usuario, nombre: c.nombre });
-      setOferta(null); entrarComo(c, null);
-    });
-  };
-
-  const entrarNuevo = (r) => {
-    const datos = { nombre: nom.trim(), cedula: ced.trim(), telefono: tel.trim(),
-                    placas: [pla.trim().toUpperCase()], nuevo: true };
-    r.chofer = datos.nombre; r.placa = datos.placas[0];   /* como haría logística al recibir el registro */
-    guardarChoferNuevo(datos);      /* para que su cédula no se pierda al recargar */
-    onEntrar(datos.nombre, datos);
-    toast("Bienvenido, " + datos.nombre.split(" ")[0]);
-  };
-
-  const okClave = usr.trim().length >= 2 && pwd.length >= 1;
-  const okNuevo = nom.trim().length >= 3 && /^[0-9]{10}$/.test(ced.trim()) && tel.trim().length >= 7 && pla.trim().length >= 5;
-  const rLink = rutasSinChofer()[0];
-
+    return ()=>{ vivo = false; };
+  },[]);
+  const caja = { maxWidth:340, margin:"0 auto", textAlign:"center", padding:"0 22px" };
+  if(mirando) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"#123024",color:"#fff",fontFamily:"system-ui,sans-serif"}}>
+      <div style={caja}><div style={{fontSize:15,opacity:.85}}>Un momento…</div></div>
+    </div>
+  );
   return (
-    <div className="shell" style={{ background:"linear-gradient(180deg,#1E4D3A 0%,#15392B 100%)" }}>
-      <Franja subtitulo={subtitulo} />
-      <div className="body" style={{ background:"transparent", padding:"0 16px 4px" }}>
-        <div style={{ background:"#fff", borderRadius:22, padding:"20px 18px", boxShadow:"0 10px 30px rgba(0,0,0,.28)" }}>
-
-          {vista==="menu" && bio && huellaReg && (<>
-            <div style={{ display:"flex", justifyContent:"center", margin:"2px 0 10px" }}>
-              <div style={{ width:60, height:60, borderRadius:30, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <HuellaIcono t={36} c="#15181B" g={1.5} marco /></div>
-            </div>
-            <div style={{ fontSize:19, fontWeight:800, color:"var(--field)", marginBottom:3, textAlign:"center" }}>Hola, {(huellaReg.nombre||"").split(" ")[0]}</div>
-            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:14, textAlign:"center" }}>Usa tu huella o rostro para ingresar</div>
-            <button onClick={usarBiometria} disabled={ocupado}
-              style={{ width:"100%", background:"#123B2C", color:"#fff", border:"none", borderRadius:11, padding:16, fontSize:15.5, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:11, cursor:"pointer", boxShadow:"0 8px 22px rgba(18,59,44,.3)", opacity: ocupado ? .6 : 1, fontFamily:"inherit" }}>
-              <span style={{ display:"inline-flex", width:30, height:30, borderRadius:15, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:4 }}><HuellaIcono t={18} c="#F2A900" g={2} /></span>
-              {ocupado ? "Verificando…" : "Ingresar con huella o rostro"}
-            </button>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginTop:11, color:"var(--muted)" }}>
-              <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><HuellaIcono t={14} c="#5C6B60" g={2} /><span style={{ fontSize:11.5, fontWeight:600 }}>Huella</span></span>
-              <span style={{ fontSize:11, fontStyle:"italic", color:"#8A968D" }}>o</span>
-              <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><RostroIcono t={14} c="#5C6B60" g={2} /><span style={{ fontSize:11.5, fontWeight:600 }}>Rostro</span></span>
-            </div>
-            <div style={{ fontSize:10.5, color:"#8A968D", textAlign:"center", margin:"4px 0 12px" }}>El teléfono usa la biometría que tengas configurada.</div>
-            {err && <div className="login-error" style={{ textAlign:"center" }}>{err}</div>}
-            <div style={{ textAlign:"center" }}><button onClick={()=>{ setErr(""); setVista("recurrente"); }} style={{ background:"none", border:"none", fontSize:12.5, fontWeight:600, color:"var(--field)", textDecoration:"underline", textUnderlineOffset:3, padding:6, cursor:"pointer", fontFamily:"inherit" }}>Ingresar con usuario y clave</button></div>
-            <div style={{ textAlign:"center" }}><button onClick={()=>{ try{localStorage.removeItem(HUELLA_KEY);}catch(e){}; setHuellaReg(null); setErr(""); }} style={{ background:"none", border:"none", fontSize:11.5, fontWeight:600, color:"#8A968D", textDecoration:"underline", textUnderlineOffset:3, padding:"4px 6px", cursor:"pointer", fontFamily:"inherit" }}>¿No eres tú? Cambiar de cuenta</button></div>
-          </>)}
-
-          {vista==="menu" && !(bio && huellaReg) && (<>
-            {bio ? (<>
-              <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", marginBottom:4 }}>¿Cómo ingresas hoy?</div>
-              <div style={{ fontSize:13, color:"var(--muted)", marginBottom:18 }}>Elige una opción para continuar</div>
-            </>) : (<>
-              <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", marginBottom:4 }}>Bienvenido</div>
-              <div style={{ fontSize:13, color:"var(--muted)", marginBottom:16 }}>Usa tu huella o rostro para ingresar</div>
-              <button onClick={usarBiometria}
-                style={{ width:"100%", background:"#123B2C", color:"#fff", border:"none", borderRadius:11, padding:16, fontSize:15.5, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:11, cursor:"pointer", boxShadow:"0 8px 22px rgba(18,59,44,.3)", marginBottom:16, fontFamily:"inherit" }}>
-                <span style={{ display:"inline-flex", width:30, height:30, borderRadius:15, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:4 }}><HuellaIcono t={18} c="#F2A900" g={2} /></span>
-                Ingresar con huella o rostro
-              </button>
-              <div style={{ fontSize:11.5, color:"var(--muted)", margin:"0 0 10px", textAlign:"center" }}>Primera vez o nuevo equipo:</div>
-            </>)}
-            <div className="chofer-card" onClick={()=>setVista("recurrente")}>
-              <div className="avatar">👤</div>
-              <div className="chofer-info"><div className="chofer-nom">Soy de la empresa</div>
-                <div className="chofer-meta">Ingresa con tu usuario y clave</div></div>
-              <div className="chofer-go">›</div>
-            </div>
-            <div className="chofer-card" onClick={()=>setVista("nuevo")}>
-              <div className="avatar">🔗</div>
-              <div className="chofer-info"><div className="chofer-nom">Tengo un link de ruta</div>
-                <div className="chofer-meta">Transportista nuevo · registra tus datos</div></div>
-              <div className="chofer-go">›</div>
-            </div>
-          </>)}
-
-          {vista==="recurrente" && (<>
-            <button className="login-back" style={{ color:"var(--field)" }} onClick={()=>{ setErr(""); setVista("menu"); }}>‹ Volver</button>
-            <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", margin:"10px 0 4px" }}>Ingreso</div>
-            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:18 }}>Escribe tu usuario y clave</div>
-            <div className="nuevo-form">
-              <div className="field"><label>Usuario <span className="req">*</span></label>
-                <input className="inp" value={usr} autoCapitalize="none" autoComplete="username" onChange={(e)=>setUsr(e.target.value)} /></div>
-              <div className="field"><label>Clave <span className="req">*</span></label>
-                <input className="inp" type="password" value={pwd} autoComplete="current-password" onChange={(e)=>setPwd(e.target.value)}
-                  onKeyDown={(e)=>{ if(e.key==="Enter" && okClave) entrarConClave(); }} /></div>
-              <div className="login-error">{err}</div>
-              <button className={"b-confirm" + (okClave ? "" : " dis")} onClick={()=>{ if(okClave) entrarConClave(); }}>Entrar</button>
-            </div>
-            <div className="login-demo" style={{ color:"var(--muted)" }}>Demo: <b>marlon</b> / <b>wilson</b> / <b>galo</b> · clave <b>1234</b></div>
-          </>)}
-
-          {vista==="nuevo" && !rLink && (<>
-            <button className="login-back" style={{ color:"var(--field)" }} onClick={()=>setVista("menu")}>‹ Volver</button>
-            <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", margin:"10px 0 4px" }}>Sin ruta disponible</div>
-            <div style={{ fontSize:13, color:"var(--muted)" }}>No hay rutas pendientes de transportista en este momento.</div>
-          </>)}
-
-          {vista==="nuevo" && rLink && (<>
-            <button className="login-back" style={{ color:"var(--field)" }} onClick={()=>setVista("menu")}>‹ Volver</button>
-            <div style={{ fontSize:18, fontWeight:700, color:"var(--field)", margin:"10px 0 4px" }}>Registro de transportista</div>
-            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:16 }}>Estás por tomar esta ruta. Completa tus datos para empezar.</div>
-            <div className="ruta-link-card" style={{ background:"rgba(242,169,0,.12)", border:"1px solid rgba(242,169,0,.45)" }}>
-              <div className="rl-nom" style={{ color:"var(--maize-deep)" }}>{rLink.nombre}</div>
-              <div className="rl-meta" style={{ color:"var(--muted)" }}>{rLink.pedidos.length} paradas · {Math.round(qqDeKg(rLink.pedidos.reduce((a,id)=>a+pesoPedido(ped(id)),0)))} qq · {rLink.fecha}</div>
-            </div>
-            <div className="nuevo-form">
-              <div className="field"><label>Nombre completo <span className="req">*</span></label>
-                <input className="inp" value={nom} placeholder="Nombre y apellido" onChange={(e)=>setNom(e.target.value)} /></div>
-              <div className="field"><label>Cédula <span className="req">*</span></label>
-                <input className="inp" value={ced} type="tel" inputMode="numeric" maxLength={10} placeholder="10 dígitos" onChange={(e)=>setCed(e.target.value)} /></div>
-              <div className="field"><label>Teléfono <span className="req">*</span></label>
-                <input className="inp" value={tel} type="tel" inputMode="numeric" placeholder="09xxxxxxxx" onChange={(e)=>setTel(e.target.value)} /></div>
-              <div className="field"><label>Placa del vehículo <span className="req">*</span></label>
-                <input className="inp" value={pla} maxLength={8} placeholder="ABC-1234" style={{ textTransform:"uppercase" }} onChange={(e)=>setPla(e.target.value)} /></div>
-              <button className={"b-confirm" + (okNuevo ? "" : " dis")} onClick={()=>{ if(okNuevo) entrarNuevo(rLink); }}>Entrar a la ruta</button>
-            </div>
-          </>)}
-
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"linear-gradient(160deg,#123024,#1E5B3C)",color:"#fff",fontFamily:"system-ui,sans-serif"}}>
+      <div style={caja}>
+        <div style={{fontSize:44,marginBottom:10}}>🚚</div>
+        <div style={{fontSize:26,fontWeight:800,letterSpacing:"-.02em",marginBottom:6}}>FREELANCE</div>
+        <div style={{fontSize:14.5,lineHeight:1.55,opacity:.9,marginBottom:24}}>
+          Para entrar usa tu correo y tu clave en el portal.<br/>Una sola vez, y tu ruta te espera aquí.
         </div>
+        <a href="./index.html" style={{display:"block",background:"#F2A900",color:"#123024",
+          fontWeight:800,fontSize:16,padding:"15px 18px",borderRadius:14,textDecoration:"none"}}>
+          Ir al portal e ingresar
+        </a>
+        <a href="./index.html#olvido" style={{display:"inline-block",marginTop:16,color:"#CFE6D8",
+          fontSize:13.5,textDecoration:"underline"}}>¿Olvidaste tu clave?</a>
       </div>
-      <div style={{ textAlign:"center", fontSize:10.5, color:"rgba(255,255,255,.55)", padding:"10px 0 16px" }}>v1.0.0 · © 2026 FREELANCE</div>
-
-      {oferta && (
-        <div style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(10,25,18,.55)", display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ background:"#fff", borderRadius:16, padding:"26px 22px", width:"min(340px,92vw)", boxShadow:"0 20px 60px rgba(0,0,0,.35)", textAlign:"center" }}>
-            <div style={{ display:"flex", justifyContent:"center", marginBottom:12 }}>
-              <div style={{ width:74, height:74, borderRadius:37, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <HuellaIcono t={46} c="#15181B" g={1.4} marco /></div>
-            </div>
-            <div style={{ fontSize:19, fontWeight:800, color:"#123B2C", marginBottom:6 }}>Proteger tu ingreso</div>
-            <div style={{ fontSize:13, color:"#5C6B60", marginBottom:18, lineHeight:1.5 }}>Activa tu huella o rostro y la próxima vez entras con un solo toque, como en tu banca. Tu biometría nunca sale del teléfono.</div>
-            <button onClick={activarBio} disabled={ocupado}
-              style={{ width:"100%", background:"#123B2C", color:"#fff", border:"none", borderRadius:10, padding:15, fontSize:15, fontWeight:800, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10, opacity: ocupado ? .6 : 1, fontFamily:"inherit" }}>
-              <span style={{ display:"inline-flex", width:26, height:26, borderRadius:13, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", padding:3 }}><HuellaIcono t={15} c="#F2A900" g={2} /></span>
-              {ocupado ? "Registrando…" : "Activar huella o rostro"}
-            </button>
-            <button onClick={()=>{ const c=oferta; setOferta(null); entrarComo(c, null); }}
-              style={{ background:"none", border:"none", fontSize:12.5, fontWeight:600, color:"#456", padding:"12px 6px 0", textDecoration:"underline", textUnderlineOffset:3, cursor:"pointer", fontFamily:"inherit" }}>Ahora no · continuar</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
+function salirDeVerdad(){
+  try{
+    if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(irAlPortal).catch(irAlPortal); return; }
+  }catch(e){}
+  irAlPortal();
+}
+function irAlPortal(){ try{ location.href = "./index.html"; }catch(e){ location.reload(); } }
 
 /* ---------- Cascarón interior (barra superior + cuerpo) ---------- */
 /* La campanilla flota por encima de todo (zIndex 1200) y vive fuera del Shell.
@@ -2336,7 +2188,7 @@ function App(){
   /* El motor necesita saber quién está logueado para "mi ruta / mis entregas". */
   React.useEffect(()=>{ CHOFER_ACTIVO = chofer || null; }, [chofer]);
 
-  const salir = () => { setChofer(null); setChoferNuevo(null); setRutaId(null); setSeccion(null); };
+  const salir = () => { salirDeVerdad(); setChofer(null); setChoferNuevo(null); setRutaId(null); setSeccion(null); };
   /* onIr del asistente: solo navega a la sección del drawer. */
   const irDesdeAsist = (destino) => {
     setAsistAbierto(false); setAsistVozBurbuja(false); setAsistLista(false);
@@ -2397,7 +2249,7 @@ function App(){
     window.scrollTo(0,0);
   };
 
-  if (!chofer) return <PantallaLogin onEntrar={(nombre, nuevo)=>{ setChofer(nombre); setChoferNuevo(nuevo); setRutaId(null); setSeccion(null); }} />;
+  if (!chofer) return <PuertaPortal onEntrar={(nombre, nuevo)=>{ setChofer(nombre); setChoferNuevo(nuevo); setRutaId(null); setSeccion(null); }} />;
 
   let pantalla;
   if (seccion) pantalla = <PantallaSeccion seccion={seccion} chofer={chofer}

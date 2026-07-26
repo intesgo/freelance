@@ -5405,7 +5405,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"366", fecha:"26 jul 2026", desc:"Corregido: deslizar para refrescar tumbaba la app entera (setTick no existia)" };
+const VERSION = { n:"367", fecha:"26 jul 2026", desc:"Una sola puerta: solo cuentas de verdad, sin usuarios de demostracion ni huella que de rol" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19331,13 +19331,9 @@ function Equipo({toast}){
 const SERIF   = "'Playfair Display', Georgia, serif";  // títulos / marca
 const BODY    = "'Lora', Georgia, serif";              // texto / inputs / labels
 
-const USUARIOS = {
-  "VENDEDOR": { nombre:"Carlos Mendoza",  codigo:"V-041", zona:"Norte Quito", rol:"vendedor", clave:"1234" },
-  "ADMIN":    { nombre:"Patricia Flores", codigo:"A-001", zona:"Empresa",     rol:"admin",    clave:"admin123" },
-  "V041":     { nombre:"Carlos Mendoza",  codigo:"V-041", zona:"Norte Quito", rol:"vendedor", clave:"1234" },
-  "V042":     { nombre:"Luis Guamán",     codigo:"V-042", zona:"Sur Quito",   rol:"vendedor", clave:"1234" },
-  "V043":     { nombre:"Ana Torres",      codigo:"V-043", zona:"Centro",      rol:"vendedor", clave:"1234" },
-};
+/* Los usuarios de demostración con clave en texto plano se retiraron: este
+   archivo se publica en internet. Aquí se entra con la cuenta de verdad —
+   correo y clave— o por el portal. */
 
 const CL = {
   tinta:"#15392B",      // verde institucional (texto fuerte / franja)
@@ -19961,25 +19957,16 @@ function PantallaLogin({ onAutenticado }) {
   }, []);
 
   const esCorreo  = usr.includes("@");   // FASE 4: con correo se entra por Supabase Auth
-  const usrValido = USUARIOS[usr.toUpperCase()];
+  const usrValido = usr.includes("@");   /* la cuenta es un correo */
   const usrColor  = usr.length === 0 || esCorreo ? CL.tinta : usrValido ? CL.tinta : CL.error;
   const pwdColor  = pwd.length === 0 || esCorreo ? CL.tinta : (usrValido && usrValido.clave === pwd) ? CL.tinta : CL.error;
 
   const handleLogin = (conHuella = false) => {
     /* ── HUELLA REAL: el sensor del sistema, igual que al entrar a tu banca ── */
-    if (conHuella && puedeHuellaReal()) {
-      const reg = huellaGuardada();
-      if (!reg) { setConClave(true); setError("Activa tu huella: ingresa por primera vez con usuario y clave."); return; }
-      setError(""); setCargando(true);
-      verificarHuella(reg.credId).then((ok) => {
-        setCargando(false);
-        if (!ok) { setError("No se pudo verificar la huella. Intenta de nuevo o entra con tu clave."); return; }
-        const u = USUARIOS[reg.usuario] || { nombre: reg.nombre, codigo: reg.usuario, zona: "—", rol: "freelance", clave: "" };
-        usuarioAuthRef.current = u;
-        setPaso("sync");
-      });
-      return;
-    }
+    /* La huella dejó de ser una puerta: antes, una huella registrada en otra
+       app abría esta y entregaba el rol de freelance sin clave y sin pasar por
+       la base. Ahora solo se entra con la cuenta de verdad. */
+    if (conHuella) { setConClave(true); setError("Entra con tu correo y tu clave."); return; }
     if (!usr.trim()) { setError("Ingresa tu usuario"); return; }
     if (!pwd.trim()) { setError("Ingresa tu contraseña"); return; }
     /* ── FASE 4 · Con CORREO entra por Supabase Auth (cuenta real) ──
@@ -20008,15 +19995,8 @@ function PantallaLogin({ onAutenticado }) {
       })();
       return;
     }
-    const u = USUARIOS[usr.toUpperCase()];
-    if (!u || u.clave !== pwd) { setError("Usuario o contraseña incorrectos"); return; }
-    setError(""); setCargando(true);
-    setTimeout(() => {
-      setCargando(false);
-      usuarioAuthRef.current = u;
-      try { localStorage.setItem("freelance_ultimo_usr", JSON.stringify({ usuario: usr.toUpperCase(), nombre: u.nombre })); } catch(e){}
-      setPaso(conHuella ? "huella" : "sync");
-    }, 900);
+    /* Sin correo no hay a quién comprobar: la cuenta es la del sistema. */
+    setError("Escribe tu correo completo, el mismo del portal.");
   };
 
 
@@ -20141,7 +20121,7 @@ function PantallaLogin({ onAutenticado }) {
                 onChange={e => {
                   const val = e.target.value.toUpperCase();
                   setUsr(val); setError("");
-                  if (USUARIOS[val]) setTimeout(() => pwdRef.current && pwdRef.current.focus(), 80);
+                  if (val.includes("@")) setTimeout(() => pwdRef.current && pwdRef.current.focus(), 80);
                 }}
                 onKeyDown={e => e.key === "Enter" && pwdRef.current && pwdRef.current.focus()}
                 autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck="false"
@@ -20173,7 +20153,7 @@ function PantallaLogin({ onAutenticado }) {
           )}
 
           <div style={{ textAlign:"right", margin:"clamp(6px,1.2vh,12px) 0 clamp(8px,1.6vh,14px)" }}>
-            <button style={{ background:"none", border:"none", fontFamily:BODY, fontSize:"clamp(11px,1.5vh,12.5px)", color:CL.medio, cursor:"pointer", padding:0, textDecoration:"underline", textUnderlineOffset:3 }}>¿Olvidó su contraseña?</button>
+            <button onClick={()=>{ location.href="./index.html#olvido"; }} style={{ background:"none", border:"none", fontFamily:BODY, fontSize:"clamp(11px,1.5vh,12.5px)", color:CL.medio, cursor:"pointer", padding:0, textDecoration:"underline", textUnderlineOffset:3 }}>¿Olvidó su contraseña?</button>
           </div>
 
           <button onClick={() => handleLogin(false)} disabled={cargando}

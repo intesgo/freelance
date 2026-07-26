@@ -354,13 +354,8 @@ const {useState,useEffect,useMemo} = React;
 const SERIF   = "'Playfair Display', Georgia, serif";  // títulos / marca
 const BODY    = "'Lora', Georgia, serif";              // texto / inputs / labels
 
-const USUARIOS = {
-  "PROVEEDOR": { nombre:"Ing. Carmen Salas", codigo:"PROV-A", zona:"Agrícola del Valle", rol:"proveedor", clave:"1234" },
-  "VENTAS":    { nombre:"Luis Pérez",        codigo:"PROV-A", zona:"Despachos",          rol:"proveedor", clave:"1234" },
-  "VALLE":     { nombre:"Ing. Carmen Salas", codigo:"PROV-A", zona:"Agrícola del Valle", rol:"proveedor", clave:"1234" },
-  "ADMIN":     { nombre:"Ing. Carmen Salas", codigo:"PROV-A", zona:"Agrícola del Valle", rol:"proveedor", clave:"admin123" },
-};
-
+/* El objeto de usuarios de demostración se retiró: sus claves estaban en
+   texto plano dentro de un archivo publicado en internet. Se entra por el portal. */
 const CL = {
   tinta:"#15392B",      // verde institucional (texto fuerte / franja)
   principal:"#1E4D3A",  // verde principal
@@ -511,349 +506,85 @@ async function verificarHuellaP(credId){
   } catch(e){ return false; }
 }
 
-function PantallaLogin({ onAutenticado }) {
-  const [paso, setPaso]                 = useState("login");
-  const [usr, setUsr]                   = useState("");
-  const [pwd, setPwd]                   = useState("");
-  const [verPwd, setVerPwd]             = useState(false);
-  const [error, setError]               = useState("");
-  const [cargando, setCargando]         = useState(false);
-  const [huellaEstado, setHuellaEstado] = useState("espera");
-  const [syncing, setSyncing]           = useState(false);
-  const [syncDone, setSyncDone]         = useState(false);
-  const [focusField, setFocusField]     = useState(null);
+/* ═══════════════════════════════════════════════════════════════════════
+   UNA SOLA PUERTA (26 jul 2026 · decisión de Richard)
 
-  const usuarioAuthRef = React.useRef(null);
-  const syncRef        = React.useRef(false);
-  const pwdRef         = React.useRef(null);
+   Esta app ya no tiene ingreso propio. Antes traía usuarios y claves escritos
+   dentro del archivo —y el archivo está publicado en internet, con la clave
+   impresa en la propia pantalla—, más una entrada por huella que se compartía
+   entre apps: la huella registrada en una servía para abrir otra y podía dar
+   un rol que la persona no tenía.
 
-  const syncItems = ["Precios y promociones","Clientes (284)","Agenda · 4 visitas hoy","Stock actualizado"];
-
-  const usrValido = USUARIOS[usr.toUpperCase()];
-  const usrColor  = usr.length === 0 ? CL.tinta : usrValido ? CL.tinta : CL.error;
-  const pwdColor  = pwd.length === 0 ? CL.tinta : (usrValido && usrValido.clave === pwd) ? CL.tinta : CL.error;
-
-  const [conClave, setConClave] = useState(false);   /* huella = puerta principal diaria; clave = solo primera vez / nuevo equipo */
-  const handleLogin = (conHuella = false) => {
-    if (!usr.trim()) { setError("Ingresa tu usuario"); return; }
-    if (!pwd.trim()) { setError("Ingresa tu contraseña"); return; }
-    const u = USUARIOS[usr.toUpperCase()];
-    if (!u || u.clave !== pwd) { setError("Usuario o contraseña incorrectos"); return; }
-    setError(""); setCargando(true);
-    setTimeout(() => {
-      setCargando(false);
-      usuarioAuthRef.current = u;
-      /* Tras entrar con clave se ofrece registrar la huella UNA sola vez, si el
-         telefono la soporta y aun no hay credencial en este equipo. */
-      const ofrecer = puedeHuellaRealP() && !huellaGuardadaP();
-      setPaso(ofrecer ? "huella" : "sync");
-    }, 900);
-  };
-
-  /* Registro REAL de la huella: la credencial la crea y custodia el telefono. */
-  const registrarHuella = () => {
-    const u = usuarioAuthRef.current;
-    if(!u){ setPaso("sync"); return; }
-    setHuellaEstado("leyendo");
-    crearHuellaP(u.usuario || usr.toUpperCase(), u.nombre || "").then((credId)=>{
-      if(!credId){
-        setHuellaEstado("espera");
-        setError("No se pudo registrar. Revisa que el teléfono tenga huella o rostro configurado.");
-        return;
-      }
-      guardarHuellaP({ credId, usuario: usr.toUpperCase(), nombre: u.nombre || "" });
-      setHuellaEstado("ok");
-      setTimeout(() => setPaso("sync"), 700);
-    });
-  };
-
-  /* Entrada por huella: sin escribir usuario ni clave. */
-  const [entrandoBio, setEntrandoBio] = useState(false);
-  const huellaReg = huellaGuardadaP();
-  const entrarConHuella = () => {
-    const reg = huellaGuardadaP();
-    if(!reg) return;
-    setError(""); setEntrandoBio(true);
-    verificarHuellaP(reg.credId).then((ok)=>{
-      setEntrandoBio(false);
-      if(!ok){ setError("No se pudo verificar. Entra con tu clave."); return; }
-      const u = USUARIOS[String(reg.usuario||"").toUpperCase()];
-      if(!u){ borrarHuellaP(); setError("Tu acceso cambió. Entra con tu clave."); return; }
-      usuarioAuthRef.current = u;
-      setPaso("sync");
-    });
-  };
-
-  /* b45 · Restauración de sesión (patrón de fc b335): si ya entraste por el
-     portal, esta app no vuelve a pedir usuario — va directo a sincronizar.
-     La piladora de la cuenta sale de usuarios.prov_cod (AGU si aún no tiene). */
-  useEffect(() => {
+   Ahora: se entra por el portal, con la cuenta de verdad. Si ya hay sesión
+   abierta, esta pantalla ni se ve — la app entra sola, como siempre.
+   ═══════════════════════════════════════════════════════════════════════ */
+function PuertaPortal({ onAutenticado }){
+  const [mirando, setMirando] = React.useState(true);
+  React.useEffect(()=>{
     let vivo = true;
-    (async () => {
-      try {
-        if (!window.SB) return;
-        const { data } = await window.SB.auth.getSession();
-        const s = (data && data.session) || null;
-        if (!vivo || !s) return;
-        let fila = null;
-        try {
-          const { data: u } = await window.SB.from("usuarios")
-            .select("nombre,rol,prov_cod").eq("auth_uid", s.user.id).maybeSingle();
-          fila = u || null;
-        } catch (e) {}
-        if (!vivo) return;
-        usuarioAuthRef.current = {
-          nombre: (fila && fila.nombre) || s.user.email,
-          codigo: (fila && fila.prov_cod) || "AGU",
-          zona: "Sesión real", rol: "proveedor", real: true,
-        };
-        setPaso("sync");
-      } catch (e) {}
+    (async ()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!vivo) return;
+        if(s && s.session){
+          const { data:f } = await window.SB.from("usuarios")
+            .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).maybeSingle();
+          /* una cuenta dada de baja no entra, aunque su sesión siga viva */
+          if(f && f.activo === false){ await window.SB.auth.signOut(); setMirando(false); return; }
+          onAutenticado({
+            nombre: (f && f.nombre) || s.session.user.email,
+            codigo: (f && f.usr_id) || "",
+            rol: (f && f.rol) || "",      /* el rol lo dice el padrón, no el código */
+            zona: "Sesión real", real: true, correo: s.session.user.email,
+          });
+          return;
+        }
+      }catch(e){}
+      if(vivo) setMirando(false);
     })();
-    return () => { vivo = false; };
-  }, []);
+    return ()=>{ vivo = false; };
+  },[]);
 
-  React.useEffect(() => {
-    if (paso !== "sync" || syncRef.current) return;
-    syncRef.current = true;
-    setSyncing(true);
-    setTimeout(() => {
-      setSyncing(false);
-      setSyncDone(true);
-      setTimeout(() => {
-        const u = usuarioAuthRef.current;
-        if (u) onAutenticado(u);
-      }, 1500);
-    }, 2200);
-  }, [paso]);
-
-  const Franja = ({ titulo, subtitulo }) => (
-    <div className="fx-entrar" style={{ background:`linear-gradient(160deg, ${CL.tinta} 0%, ${CL.principal} 100%)`, padding:"54px 26px 30px", position:"relative", overflow:"hidden" }}>
-      <StatusBar light />
-      
-      <div style={{ position:"absolute", left:0, right:0, bottom:0, height:3, background:`linear-gradient(90deg, ${CL.ambar}, ${CL.suave})` }} />
-      <div style={{ display:"flex", justifyContent:"center", marginBottom:12 }}>
-        <LogoFreelance size={84} />
-      </div>
-      <p style={{ fontFamily:SERIF, fontSize:30, fontWeight:800, color:"#fff", margin:0, letterSpacing:"0.01em", lineHeight:1.05, textAlign:"center" }}>FREELANCE</p>
-      <p style={{ fontFamily:BODY, fontSize:11, color:"rgba(255,255,255,0.7)", margin:"5px 0 0", letterSpacing:"0.22em", textTransform:"uppercase", textAlign:"center" }}>Ventas · Distribución · Cobranza</p>
-      {titulo && <p style={{ fontFamily:SERIF, fontStyle:"italic", fontSize:15, color:"rgba(255,255,255,0.85)", margin:"12px 0 0", textAlign:"center" }}>{subtitulo}</p>}
-      <div style={{ width:64, height:4, borderRadius:2, background:"#7FD69A", margin:"12px auto 0" }} />
+  const caja = { maxWidth:340, margin:"0 auto", textAlign:"center", padding:"0 22px" };
+  if(mirando) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"#123024",color:"#fff",fontFamily:"system-ui,sans-serif"}}>
+      <div style={caja}><div style={{fontSize:15,opacity:.85}}>Un momento…</div></div>
     </div>
   );
-
-  if (paso === "sync") return (
-    <div style={{ background:CL.fondo, minHeight:"100%", display:"flex", flexDirection:"column" }}>
-      <Franja titulo subtitulo={syncDone ? "Sesión establecida" : "Estableciendo sesión segura"} />
-      <div style={{ flex:1, padding:"26px 26px 30px", display:"flex", flexDirection:"column" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:24 }}>
-          <div style={{ width:54, height:54, borderRadius:"50%", border:`1px solid ${CL.linea}`, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 10px rgba(46,16,101,0.06)" }}>
-            {syncDone ? <LogoFreelance size={34} /> : <span style={{ fontSize:26 }}>🔄</span>}
-          </div>
-          <div>
-            <p style={{ fontFamily:SERIF, fontSize:21, fontWeight:700, color:CL.tinta, margin:"0 0 2px" }}>{syncDone ? "Todo listo" : "Preparando jornada"}</p>
-            <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, margin:0 }}>{syncDone ? "Dispositivo sincronizado" : `Bienvenido, ${usuarioAuthRef.current?.nombre?.split(" ")[0]}`}</p>
-          </div>
-        </div>
-
-        <div style={{ background:CL.papel, border:`1px solid ${CL.linea}`, borderRadius:14, padding:"18px 20px", marginBottom:14 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${CL.linea}` }}>
-            <span style={{ fontFamily:BODY, fontSize:11, color:CL.grisTenue, fontWeight:600, letterSpacing:"0.14em", textTransform:"uppercase" }}>Sincronización</span>
-            {syncing  && <span style={{ fontFamily:BODY, fontSize:11, color:CL.ambar, fontWeight:700 }}>En curso</span>}
-            {syncDone && <span style={{ fontFamily:BODY, fontSize:11, color:CL.okVerde, fontWeight:700 }}>Completa</span>}
-          </div>
-          {syncItems.map((item, i) => (
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:12, marginBottom: i < syncItems.length-1 ? 13 : 0 }}>
-              <div style={{ width:20, height:20, borderRadius:"50%", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800,
-                background: syncDone ? CL.principal : syncing ? CL.ambarBg : "#efeaf8",
-                color: syncDone ? "#fff" : syncing ? CL.ambar : CL.grisTenue, transition:"all .3s" }}>
-                {syncDone ? "✓" : syncing ? "·" : "○"}
-              </div>
-              <span style={{ fontFamily:BODY, fontSize:14, color: syncDone ? CL.tinta : syncing ? CL.grisTexto : CL.grisTenue }}>{item}</span>
-            </div>
-          ))}
-        </div>
-
-        {syncDone && (
-          <div style={{ background:CL.veloLila, border:`1px solid ${CL.linea}`, borderRadius:12, padding:"12px 16px", marginBottom:14, display:"flex", gap:12, alignItems:"center" }}>
-            <span style={{ fontSize:18 }}>📍</span>
-            <div>
-              <p style={{ fontFamily:BODY, fontSize:13, color:CL.tinta, fontWeight:600, margin:0 }}>GPS registrado · Carcelén, Quito</p>
-              <p style={{ fontFamily:BODY, fontSize:11, color:CL.grisTexto, margin:0 }}>Jornada iniciada · {new Date().toLocaleTimeString("es-EC",{hour:"2-digit",minute:"2-digit"})}</p>
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop:"auto", textAlign:"center", padding:"15px", borderRadius:12,
-          background: syncDone ? CL.tinta : "#fff", border: syncDone ? "none" : `1px solid ${CL.linea}` }}>
-          <p style={{ fontFamily:SERIF, fontStyle:"italic", fontSize:14, fontWeight:600, margin:0, color: syncDone ? "#fff" : CL.grisTexto }}>
-            {syncDone ? "Ingresando a su cuenta…" : "Sincronizando datos…"}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (paso === "huella") return (
-    <div style={{ background:CL.fondo, minHeight:"100%", display:"flex", flexDirection:"column" }}>
-      <Franja titulo subtitulo="Acceso biométrico" />
-      <div style={{ flex:1, padding:"24px 26px 28px", display:"flex", flexDirection:"column", alignItems:"center" }}>
-        <div style={{ background:CL.papel, border:`1px solid ${CL.linea}`, borderRadius:14, padding:"18px 20px", width:"100%", boxSizing:"border-box", marginBottom:24 }}>
-          <p style={{ fontFamily:SERIF, fontSize:17, fontWeight:700, color:CL.tinta, margin:"0 0 4px" }}>Registrar huella dactilar</p>
-          <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, margin:"0 0 16px", lineHeight:1.5 }}>Regístrela una vez para ingresar de forma rápida y segura en adelante.</p>
-          {[
-            ["Identidad verificada","Usuario y contraseña validados"],
-            ["Registrar huella","Toque el sensor para registrar"],
-            ["Acceso rápido activado","La próxima vez solo toque el sensor"],
-          ].map(([tit,sub],i) => (
-            <div key={i} style={{ display:"flex", gap:14, alignItems:"flex-start", padding:"10px 0", borderBottom: i<2 ? `1px solid ${CL.linea}` : "none" }}>
-              <span style={{ fontFamily:SERIF, fontSize:13, fontWeight:800, color:CL.medio, width:18, flexShrink:0 }}>{i+1}</span>
-              <div>
-                <p style={{ fontFamily:BODY, fontSize:14, fontWeight:600, color:CL.tinta, margin:"0 0 1px" }}>{tit}</p>
-                <p style={{ fontFamily:BODY, fontSize:12, color:CL.grisTenue, margin:0 }}>{sub}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <button onClick={registrarHuella}
-          style={{ width:96, height:96, borderRadius:"50%", border:`1px solid ${CL.linea}`, cursor: huellaEstado==="leyendo"?"not-allowed":"pointer", marginBottom:10,
-            background: huellaEstado==="ok" ? CL.principal : huellaEstado==="leyendo" ? CL.ambarBg : "#fff",
-            boxShadow: huellaEstado==="ok" ? `0 8px 28px ${CL.principal}55` : "0 4px 14px rgba(46,16,101,0.08)", transition:"all .3s" }}>
-          <span style={{ fontSize:40 }}>{huellaEstado==="ok"?"✓":huellaEstado==="leyendo"?"·":"☉"}</span>
-        </button>
-        <p style={{ fontFamily:SERIF, fontStyle:"italic", fontSize:14, textAlign:"center", margin:"0 0 18px",
-          color: huellaEstado==="ok" ? CL.okVerde : huellaEstado==="leyendo" ? CL.ambar : CL.grisTexto }}>
-          {huellaEstado==="ok" ? "Huella registrada" : huellaEstado==="leyendo" ? "Leyendo huella…" : "Toque el sensor para registrar"}
-        </p>
-        {huellaEstado !== "ok" && (
-          <button onClick={() => setPaso("sync")} style={{ background:"none", border:"none", fontFamily:BODY, fontSize:13, color:CL.grisTexto, cursor:"pointer", textDecoration:"underline", textUnderlineOffset:3 }}>
-            Continuar sin huella
-          </button>
-        )}
-      </div>
-    </div>
-  );
-
-  const lineInput = (focused, color) => ({
-    width:"100%", boxSizing:"border-box", background:"transparent",
-    border:"none", borderBottom:`1.5px solid ${focused ? CL.medio : CL.linea}`,
-    borderRadius:0, padding:"9px 30px 9px 2px", fontSize:15, color,
-    outline:"none", fontFamily:BODY, transition:"border-color .2s",
-  });
-
   return (
-    <div style={{ background:`linear-gradient(180deg, ${CL.principal} 0%, #15392B 100%)`, minHeight:"100%", display:"flex", flexDirection:"column" }}>
-      <Franja titulo subtitulo="Conectamos el campo con tu negocio" />
-
-      <div style={{ flex:1, padding:"0 22px 22px", marginTop:-16, position:"relative", zIndex:2 }}>
-        <div style={{ background:CL.papel, borderRadius:16, padding:"24px 22px", boxShadow:"0 10px 30px rgba(46,16,101,0.10)", border:`1px solid ${CL.linea}` }}>
-
-          <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}>
-            <div style={{ width:54, height:54, borderRadius:27, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>👤</div>
-          </div>
-          <p style={{ fontFamily:SERIF, fontSize:24, fontWeight:700, color:CL.tinta, margin:"0 0 2px", textAlign:"center" }}>{conClave ? "Iniciar sesión" : "Bienvenido"}</p>
-          <p style={{ fontFamily:BODY, fontSize:13, color:CL.grisTexto, margin:"0 0 22px", textAlign:"center" }}>{conClave ? "Ingrese sus credenciales para continuar" : "Toque el sensor para ingresar"}</p>
-
-          {conClave && (<>
-          <div style={{ marginBottom:18 }}>
-            <label style={{ fontFamily:BODY, fontSize:11, fontWeight:600, color:CL.grisTenue, letterSpacing:"0.14em", textTransform:"uppercase", display:"block", marginBottom:2, paddingLeft:44 }}>Usuario</label>
-            <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:0, top:"50%", transform:"translateY(-50%)", width:32, height:32, borderRadius:16, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>👤</span>
-              <input type="text" value={usr}
-                onFocus={() => setFocusField("usr")} onBlur={() => setFocusField(null)}
-                onChange={e => {
-                  const val = e.target.value.toUpperCase();
-                  setUsr(val); setError("");
-                  if (USUARIOS[val]) setTimeout(() => pwdRef.current && pwdRef.current.focus(), 80);
-                }}
-                onKeyDown={e => e.key === "Enter" && pwdRef.current && pwdRef.current.focus()}
-                autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck="false"
-                style={{ ...lineInput(focusField==="usr", usrColor), textTransform:"uppercase", letterSpacing:"0.04em", paddingLeft:44 }} />
-            </div>
-          </div>
-
-          <div style={{ marginBottom:8 }}>
-            <label style={{ fontFamily:BODY, fontSize:11, fontWeight:600, color:CL.grisTenue, letterSpacing:"0.14em", textTransform:"uppercase", display:"block", marginBottom:2, paddingLeft:44 }}>Contraseña</label>
-            <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:0, top:"50%", transform:"translateY(-50%)", width:32, height:32, borderRadius:16, background:"#EAF3ED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>🔒</span>
-              <input ref={pwdRef} type={verPwd?"text":"password"} value={pwd}
-                onFocus={() => setFocusField("pwd")} onBlur={() => setFocusField(null)}
-                onChange={e => { setPwd(e.target.value); setError(""); }}
-                onKeyDown={e => e.key === "Enter" && handleLogin()}
-                autoCapitalize="none" autoCorrect="off" autoComplete="current-password" spellCheck="false"
-                style={{ ...lineInput(focusField==="pwd", pwdColor), paddingLeft:44 }} />
-              <button onClick={() => setVerPwd(v=>!v)}
-                style={{ position:"absolute", right:2, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", fontFamily:BODY, fontSize:11, fontWeight:600, color:CL.medio, padding:"12px 10px", letterSpacing:"0.05em" }}>
-                {verPwd ? "OCULTAR" : "VER"}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div style={{ background:"#fef2f2", borderLeft:`3px solid ${CL.error}`, borderRadius:"0 6px 6px 0", padding:"8px 12px", margin:"12px 0 0", display:"flex", gap:8, alignItems:"center" }}>
-              <p style={{ fontFamily:BODY, fontSize:12.5, color:CL.error, fontWeight:500, margin:0 }}>{error}</p>
-            </div>
-          )}
-
-          <div style={{ textAlign:"right", margin:"14px 0 20px" }}>
-            <button style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, color:CL.medio, cursor:"pointer", padding:0, textDecoration:"underline", textUnderlineOffset:3 }} onClick={()=>{ location.href="./index.html#olvido"; }}>¿Olvidó su contraseña?</button>
-          </div>
-
-          <button onClick={() => handleLogin(false)} disabled={cargando}
-            style={{ width:"100%", background: cargando ? "#d9d2ec" : CL.tinta,
-              border:"none", borderRadius:10, padding:"15px", fontFamily:SERIF, fontSize:16, fontWeight:700,
-              letterSpacing:"0.03em", color: cargando ? CL.grisTexto : "#fff", cursor: cargando ? "not-allowed" : "pointer",
-              boxShadow: cargando ? "none" : `0 8px 22px ${CL.tinta}30`, transition:"all .2s" }}>
-            {cargando ? "Verificando…" : (<span style={{ display:"inline-flex", alignItems:"center", gap:10, justifyContent:"center" }}>
-              <span style={{ display:"inline-flex", width:24, height:24, borderRadius:12, border:"2px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", fontSize:12, lineHeight:1 }}>→</span>
-              Ingresar</span>)}
-          </button>
-          <div style={{ textAlign:"center", marginTop:14 }}>
-            <button onClick={() => setConClave(false)}
-              style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, fontWeight:600, color:CL.medio, cursor:"pointer", padding:6, textDecoration:"underline", textUnderlineOffset:3 }}>‹ Volver al ingreso con huella</button>
-          </div>
-          </>)}
-
-          {!conClave && (<>
-          {/* Entrada por huella REAL: solo si ya se registro en este equipo.
-              Sin credencial guardada, no se ofrece: se entra con clave y se registra
-              al final, para no prometer algo que no va a funcionar. */}
-          <button onClick={() => { if(huellaReg && puedeHuellaRealP()) entrarConHuella(); else setConClave(true); }}
-            disabled={cargando || entrandoBio}
-            style={{ width:"100%", background: cargando ? "#d9d2ec" : CL.tinta, border:"none", borderRadius:10, padding:"16px",
-              fontFamily:SERIF, fontSize:16.5, fontWeight:700, letterSpacing:"0.03em", color: cargando ? CL.grisTexto : "#fff",
-              cursor: cargando ? "not-allowed" : "pointer", boxShadow: cargando ? "none" : `0 8px 22px ${CL.tinta}30`,
-              display:"flex", alignItems:"center", justifyContent:"center", gap:11, transition:"all .2s" }}>
-            <span style={{ display:"inline-flex", width:28, height:28, borderRadius:14, border:"2.5px solid #F2A900", alignItems:"center", justifyContent:"center", color:"#F2A900", fontSize:14, lineHeight:1 }}>☉</span>
-            {entrandoBio ? "Verificando…"
-              : (huellaReg && puedeHuellaRealP()) ? "Ingresar con huella dactilar"
-              : "Ingresar con usuario y clave"}
-          </button>
-          {(huellaReg && puedeHuellaRealP()) && (
-            <div style={{ textAlign:"center", marginTop:16 }}>
-              <button onClick={() => setConClave(true)}
-                style={{ background:"none", border:"none", fontFamily:BODY, fontSize:12.5, fontWeight:600, color:CL.medio, cursor:"pointer", padding:6, textDecoration:"underline", textUnderlineOffset:3 }}>Primera vez o nuevo equipo · Ingresar con usuario y clave</button>
-            </div>
-          )}
-          {!puedeHuellaRealP() && (
-            <p style={{ fontFamily:BODY, fontSize:11.5, color:CL.grisTenue, textAlign:"center", margin:"14px 6px 0", lineHeight:1.5 }}>
-              El ingreso con huella funciona en la app publicada.</p>
-          )}
-          </>)}
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"linear-gradient(160deg,#123024,#1E5B3C)",color:"#fff",fontFamily:"system-ui,sans-serif"}}>
+      <div style={caja}>
+        <div style={{fontSize:44,marginBottom:10}}>🌾</div>
+        <div style={{fontSize:26,fontWeight:800,letterSpacing:"-.02em",marginBottom:6}}>FREELANCE</div>
+        <div style={{fontSize:14.5,lineHeight:1.55,opacity:.9,marginBottom:24}}>
+          Para entrar usa tu correo y tu clave en el portal.<br/>Una sola vez, y todas tus apps te reconocen.
         </div>
-
-        <div style={{ textAlign:"center", padding:"18px 10px 4px" }}>
-          <p style={{ fontFamily:BODY, fontSize:11.5, color:CL.grisTenue, margin:"0 0 3px" }}>
-            {/* decía VENDEDOR, que no existe en esta app: nadie podía entrar con lo que anunciaba */}
-            Demostración — <strong style={{ color:CL.grisTexto, fontWeight:600 }}>PROVEEDOR</strong> / <strong style={{ color:CL.grisTexto, fontWeight:600 }}>1234</strong>
-          </p>
-          <p style={{ fontFamily:BODY, fontSize:10.5, color:"rgba(255,255,255,0.55)", margin:0, letterSpacing:"0.04em" }}>v1.0.0 · © 2026 FREELANCE</p>
-        </div>
+        <a href="./index.html" style={{display:"block",background:"#F2A900",color:"#123024",
+          fontWeight:800,fontSize:16,padding:"15px 18px",borderRadius:14,textDecoration:"none"}}>
+          Ir al portal e ingresar
+        </a>
+        <a href="./index.html#olvido" style={{display:"inline-block",marginTop:16,color:"#CFE6D8",
+          fontSize:13.5,textDecoration:"underline"}}>¿Olvidaste tu clave?</a>
       </div>
     </div>
   );
 }
 
+/* Cerrar sesión de verdad: hasta hoy solo se recargaba la pantalla, la sesión
+   seguía viva y la app volvía a entrar sola. En un teléfono prestado o perdido
+   eso dejaba la cuenta abierta para siempre. */
+function salirDeVerdad(){
+  try{
+    if(window.SB && window.SB.auth) {
+      window.SB.auth.signOut().then(irAlPortal).catch(irAlPortal);
+      return;
+    }
+  }catch(e){}
+  irAlPortal();
+}
+function irAlPortal(){ try{ location.href = "./index.html"; }catch(e){ location.reload(); } }
 
 /* ===== FIN LOGIN UNIFICADO ===== */
 
@@ -1410,7 +1141,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"57", fecha:"26 jul 2026", desc:"El pie anunciaba un usuario de demostracion que no existia en esta app" };
+const VERSION = { n:"58", fecha:"26 jul 2026", desc:"Una sola puerta: se entra por el portal con la cuenta de verdad" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -3181,7 +2912,7 @@ const TAREAS_NOTIF=[
             <div className="h2" style={{marginBottom:6}}>¿Cerrar sesión?</div>
             <div className="sub" style={{marginBottom:16}}>Saldrás de la app y volverás a la pantalla de ingreso.</div>
             <button className="btn btn-maiz"
-              onClick={()=>{setConfirmarSalir(false); if(onSalir){onSalir();} else {location.reload();} }}>Sí, cerrar sesión</button>
+              onClick={()=>{ setConfirmarSalir(false); salirDeVerdad(); }}>Sí, cerrar sesión</button>
             <div style={{height:10}} />
             <button className="btn btn-ghost" onClick={()=>setConfirmarSalir(false)}>Cancelar</button>
           </div>
@@ -7377,7 +7108,7 @@ function Cuenta({ctx,setLogueado,onSalir,setOnline,online,cola}){
       </div>
 
       <div className="sec-gap" />
-      <button className="btn btn-ghost" onClick={()=> onSalir ? onSalir() : setLogueado(false)}>Cerrar sesión</button>
+      <button className="btn btn-ghost" onClick={()=> salirDeVerdad()}>Cerrar sesión</button>
       <div style={{textAlign:"center",marginTop:16,fontSize:11.5,color:"var(--texto-3)",lineHeight:1.6}}>
         FREELANCE · Proveedor · offline-first<br/>
         Versión {VERSION.fecha} b{VERSION.n} · {VERSION.desc}</div>
@@ -7389,7 +7120,7 @@ function Root(){
   const [sesion,setSesion]=useState(null);
   if(!sesion) return (
     <div style={{minHeight:"100vh", background:CL.fondo, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto"}}>
-      <PantallaLogin onAutenticado={(u)=>setSesion(u)} />
+      <PuertaPortal onAutenticado={(u)=>setSesion(u)} />
     </div>
   );
   return <App usuario={sesion} onSalir={()=>setSesion(null)} />;
