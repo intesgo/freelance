@@ -85,8 +85,8 @@
         <div class="msj-error" id="msjOlvido"></div>
       </div>
       <div id="vistaNueva" class="oculto">
-        <h2>Crea tu clave nueva</h2>
-        <div class="sub">Mínimo 8 caracteres, con letra y número. Vale para toda la plataforma.</div>
+        <h2 id="tituloNueva">Crea tu clave nueva</h2>
+        <div class="sub" id="subNueva">Mínimo 8 caracteres, con letra y número. Vale para toda la plataforma.</div>
         <div class="campo"><input id="inNueva" type="password" autocomplete="new-password" placeholder="Clave nueva"></div>
         <div class="campo"><input id="inNueva2" type="password" autocomplete="new-password" placeholder="Repítela"></div>
         <button class="btn" id="btnGuardarNueva" type="button">Guardar clave nueva</button>
@@ -132,7 +132,7 @@
     </a>
 
     <div class="nota">🔒 Con tu cuenta, la app <b>Freelance</b> ya trabaja con datos reales (catálogo, clientes y pedidos). Sin cuenta, todas las apps abren en modo demostración. El <b>Sistema Web central</b> sigue privado.</div>
-    <div class="pie">v2.1 · Portal único · Recuperación de clave · © 2026 FREELANCE</div>
+    <div class="pie">v2.2 · Portal único · Invitación y recuperación de clave · © 2026 FREELANCE</div>
   </div>
 
 <script>
@@ -142,6 +142,19 @@
    directo. El RLS decide qué datos ve cada rol. Si el CDN falla, el portal sigue
    funcionando como directorio simple. */
 (function(){
+  /* ══ Aterrizaje de un enlace de correo ══
+     Se lee ANTES de crear el cliente: supabase-js consume la dirección y borra
+     el trozo del final (#access_token=…&type=invite). Si no se guarda ahora,
+     después ya no hay forma de saber a qué vino la persona.
+       type=invite   → la invitación de una cuenta nueva: TIENE que crear clave.
+       type=recovery → olvidó la clave.
+       error=…       → el enlace venció o ya se usó. */
+  var trozo = (location.hash || "") + "&" + (location.search || "");
+  var tipoEnlace  = (trozo.match(/[#&?]type=([a-z_]+)/) || [])[1] || "";
+  var falloEnlace = /[#&?]error(_code)?=/.test(trozo);
+  var esInvitacion = tipoEnlace === "invite";
+  var claveObligatoria = esInvitacion || tipoEnlace === "recovery";
+
   var SB = null;
   try{
     SB = window.supabase.createClient(
@@ -204,10 +217,14 @@
       .catch(function(){ listo(correo, ""); });
   }
 
-  /* Al abrir: ¿ya hay sesión? */
+  /* Al abrir: ¿ya hay sesión?
+     OJO: si la persona viene de un enlace de invitación o de recuperación, SÍ
+     tiene sesión válida, pero NO se la manda a su app: primero crea su clave.
+     Sin esto, el invitado entraba una vez y nunca más podía volver a entrar. */
   if(SB){
     SB.auth.getSession().then(function(r){
       var s = r.data && r.data.session;
+      if(claveObligatoria) return;
       if(s) cargarPadron(s.user.id, s.user.email || "Cuenta activa", mostrarSesion);
     }).catch(function(){});
   } else {
@@ -273,22 +290,48 @@
     if(!fuerzaOk(c1)){ $("msjNueva").textContent = "Mínimo 8 caracteres, con letra y número."; return; }
     if(c1 !== c2){ $("msjNueva").textContent = "Las dos claves no coinciden."; return; }
     $("btnGuardarNueva").disabled = true; $("msjNueva").textContent = "";
-    SB.auth.updateUser({ password: c1 }).then(function(r){
-      $("btnGuardarNueva").disabled = false;
-      if(r.error){ $("msjNueva").textContent = "No se pudo guardar: " + (r.error.message || "error"); return; }
-      SB.auth.getSession().then(function(s){
-        var ses = s.data && s.data.session;
-        if(ses) cargarPadron(ses.user.id, ses.user.email || "Cuenta activa", function(nombre, rol){
-          mostrarSesion(nombre, rol);
-          $("msjSesion").style.color = "var(--ok)";
-          $("msjSesion").textContent = "Clave actualizada ✓ Ya vale en todas las apps.";
+    /* Antes de intentar guardar hay que tener sesión: si el enlace venció o ya
+       se usó, updateUser respondería un error técnico. Mejor decirlo claro. */
+    SB.auth.getSession().then(function(p){
+      if(!(p.data && p.data.session)){
+        $("btnGuardarNueva").disabled = false;
+        $("msjNueva").textContent = "El enlace ya se usó o venció. Pide uno nuevo y ábrelo desde este mismo teléfono.";
+        return;
+      }
+      return SB.auth.updateUser({ password: c1 }).then(function(r){
+        $("btnGuardarNueva").disabled = false;
+        if(r.error){ $("msjNueva").textContent = "No se pudo guardar: " + (r.error.message || "error"); return; }
+        SB.auth.getSession().then(function(s){
+          var ses = s.data && s.data.session;
+          if(ses) cargarPadron(ses.user.id, ses.user.email || "Cuenta activa", function(nombre, rol){
+            /* Recién invitado: ya tiene clave, se lo lleva derecho a su app. */
+            var destino = APP_POR_ROL[rol];
+            if(esInvitacion && destino){ location.href = destino; return; }
+            mostrarSesion(nombre, rol);
+            $("msjSesion").style.color = "var(--ok)";
+            $("msjSesion").textContent = esInvitacion
+              ? "Listo ✓ Tu clave ya sirve para entrar cuando quieras."
+              : "Clave actualizada ✓ Ya vale en todas las apps.";
+          });
+          else soloVista(vistaLogin);
         });
-        else soloVista(vistaLogin);
       });
     }).catch(function(){ $("btnGuardarNueva").disabled = false; $("msjNueva").textContent = "No se pudo conectar."; });
   });
+
+  /* ══ Qué pantalla se ve al aterrizar de un enlace ══ */
+  if(esInvitacion){
+    $("tituloNueva").textContent = "Crea tu clave para entrar";
+    $("subNueva").textContent = "Bienvenido a FREELANCE. Elige una clave de mínimo 8 caracteres, con letra y número. Solo la sabes tú.";
+    $("btnGuardarNueva").textContent = "Guardar mi clave y entrar";
+  }
+  if(claveObligatoria) soloVista(vistaNueva);
+  if(falloEnlace && !claveObligatoria){
+    $("msjError").textContent = "Ese enlace ya se usó o venció. Pide uno nuevo, o entra con tu correo y clave.";
+  }
   if(SB){
-    /* el enlace del correo dispara este evento al aterrizar de vuelta */
+    /* Respaldo: si el trozo de la dirección llegó distinto, supabase-js igual
+       avisa cuando reconoce un enlace de recuperación. */
     SB.auth.onAuthStateChange(function(evento){
       if(evento === "PASSWORD_RECOVERY") soloVista(vistaNueva);
     });
@@ -299,4 +342,4 @@
 </script>
 </body>
 </html>
-<!-- v93 portal único b1 -->
+<!-- v94 portal único b2 · invitación -->

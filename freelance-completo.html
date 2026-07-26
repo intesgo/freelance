@@ -5405,7 +5405,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"367", fecha:"26 jul 2026", desc:"Una sola puerta: solo cuentas de verdad, sin usuarios de demostracion ni huella que de rol" };
+const VERSION = { n:"368", fecha:"26 jul 2026", desc:"Sin fila en el padron no se entra: se acabo el rol de freelance por defecto" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19943,13 +19943,23 @@ function PantallaLogin({ onAutenticado }) {
         let fila = null;
         try {
           const { data: filas } = await window.SB.from("usuarios")
-            .select("usr_id,nombre,rol").eq("auth_uid", s.session.user.id).limit(1);
+            .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).limit(1);
           fila = (filas && filas[0]) || null;
         } catch (e2) {}
-        if (!activo) return;
+        if (!activo) return;   /* "activo" aquí es la pantalla viva, no la cuenta */
+        /* NUNCA se asume el rol de freelance. Antes, una cuenta sin fila en el
+           padrón entraba con el rol de más poder del negocio. Sin fila no se
+           entra; dada de baja tampoco, y se le cierra la sesión. */
+        if (!fila || fila.activo === false) {
+          try { await window.SB.auth.signOut(); } catch (e5) {}
+          if (activo) setError(fila
+            ? "Tu cuenta está dada de baja. Habla con Richard."
+            : "Tu cuenta todavía no está habilitada en el sistema. Avísale a Richard.");
+          return;
+        }
         const em = (s.session.user && s.session.user.email) || "";
-        usuarioAuthRef.current = { nombre: (fila && fila.nombre) || em, codigo: (fila && fila.usr_id) || "AUTH",
-          zona: "Sesión real", rol: (fila && fila.rol) || "freelance", clave: "", real: true };
+        usuarioAuthRef.current = { nombre: fila.nombre || em, codigo: fila.usr_id || "AUTH",
+          zona: "Sesión real", rol: fila.rol || "", clave: "", real: true };
         setPaso("sync");
       } catch (e) {}
     })();
@@ -19982,12 +19992,20 @@ function PantallaLogin({ onAutenticado }) {
           let fila = null;
           try {
             const { data: filas } = await window.SB.from("usuarios")
-              .select("usr_id,nombre,rol").eq("auth_uid", data.session.user.id).limit(1);
+              .select("usr_id,nombre,rol,activo").eq("auth_uid", data.session.user.id).limit(1);
             fila = (filas && filas[0]) || null;
           } catch (e2) {}
           setCargando(false);
-          const u = { nombre: (fila && fila.nombre) || usr.trim(), codigo: (fila && fila.usr_id) || "AUTH",
-                      zona: "Sesión real", rol: (fila && fila.rol) || "freelance", clave: "", real: true };
+          /* Misma regla que arriba: sin fila en el padrón no se entra. */
+          if (!fila || fila.activo === false) {
+            try { await window.SB.auth.signOut(); } catch (e5) {}
+            setError(fila
+              ? "Tu cuenta está dada de baja. Habla con Richard."
+              : "Tu cuenta todavía no está habilitada en el sistema. Avísale a Richard.");
+            return;
+          }
+          const u = { nombre: fila.nombre || usr.trim(), codigo: fila.usr_id || "AUTH",
+                      zona: "Sesión real", rol: fila.rol || "", clave: "", real: true };
           usuarioAuthRef.current = u;
           try { localStorage.setItem("freelance_ultimo_usr", JSON.stringify({ usuario: usr.trim(), nombre: u.nombre })); } catch (e3) {}
           setPaso("sync");
