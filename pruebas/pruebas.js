@@ -38,6 +38,7 @@ const PLAN = [
   { arnes:"test_barra_conectada.js", que:"la barra lee del sistema",             apps:["freelance-completo"] },
   { arnes:"test_barra_equipo.js",    que:"la barra del equipo con datos reales", apps:DEL_EQUIPO },
   { arnes:"test_barra_prov.js",      que:"la barra de la piladora",              apps:["proveedor-freelance"] },
+  { arnes:"test_pedido_real.js",     que:"el pedido del vendedor llega a la base", apps:["Comisionista"] },
   { arnes:"test_cotizacion.js",      que:"la cotización",                        apps:["Comisionista","socio-comercial","freelance-completo"] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },

@@ -1262,7 +1262,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"169", fecha:"26 jul 2026", desc:"El area que responde al dedo llega a 44 px sin cambiar el diseno" };
+const VERSION = { n:"170", fecha:"26 jul 2026", desc:"El pedido del vendedor nace en la base, no solo en el telefono" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4486,6 +4486,85 @@ function ArcCupo({ total, usado, excede, money }){
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   EL PEDIDO DEL VENDEDOR NACE EN LA BASE (b170)
+
+   Hasta hoy la app del comisionista guardaba el pedido solo en el teléfono: la
+   app del freelance sí lo mandaba a la base desde la b334, pero la del campo
+   —la de quien de verdad toma pedidos— no. Por eso las tablas seguían vacías.
+
+   Mismo patrón probado de freelance-completo, a propósito: el flujo local NO
+   cambia en nada. La escritura es un AÑADIDO que solo ocurre si hay sesión, el
+   cliente es real y TODOS los productos son reales. Si algo es de demostración,
+   se devuelve el motivo y la app sigue exactamente igual que siempre.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* La oferta define QUÉ vende cada piladora; el precio de venta es ÚNICO del
+   freelance (regla sellada: un producto, un precio) × el equiv_qq de la oferta.
+   Sin producto activo o sin precio vigente, la oferta no se ofrece. */
+function construirCatalogoPedido(provs, ofertas, prods, precios){
+  const r2=n=>Math.round(n*100)/100;
+  const nomDe={}, lineaDe={}, precioDe={};
+  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; });
+  (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+  const pres=(ofertas||[]).map(o=>{
+    const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
+    if(!nom || !pr) return null;
+    const eq=Number(o.equiv_qq)||1;
+    return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
+      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, diasCredito:30,
+      baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
+      costo:o.costo!=null?r2(Number(o.costo)):null,
+      promosFreelance:[], promosProveedor:[] };
+  }).filter(Boolean);
+  return { provs:(provs||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})), pres };
+}
+
+/* nombre del cliente → su código real. Lo llena el módulo Pedido al cargar. */
+const CLI_ID_DE = {};
+
+async function guardarPedidoEnBase({cli, prov, carrito}){
+  try{
+    if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
+    const { data:s } = await window.SB.auth.getSession();
+    if(!s || !s.session) return { ok:false, motivo:"sin_sesion" };
+    const cliId = CLI_ID_DE[(cli && cli.nombre) || cli];
+    if(!cliId) return { ok:false, motivo:"cliente_demo" };
+    const items = (carrito||[]).filter(it=>it && it.prod);
+    if(!items.length || items.some(it=>!it.prod.prodId || !it.prod.equiv)) return { ok:false, motivo:"producto_demo" };
+    /* ped_id correlativo tras el mayor existente (mismo patrón que el freelance) */
+    const { data:ult } = await window.SB.from("pedidos").select("ped_id")
+      .like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
+    const n = ult && ult[0] ? (parseInt(String(ult[0].ped_id).replace(/\D/g,""),10)||0) : 0;
+    const pedId = "PD-"+String(n+1).padStart(4,"0");
+    const r2=x=>Math.round(x*100)/100;
+    /* el pedido queda a nombre de QUIEN lo tomó, por su código del padrón */
+    let subId=null;
+    try{
+      const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1);
+      if(yo && yo[0]) subId=yo[0].usr_id;
+    }catch(e0){}
+    const { error:e1 } = await window.SB.from("pedidos").insert({
+      ped_id:pedId, cli_id:cliId, sub_id:subId, prov_cod:(prov && prov.id)||null,
+      estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
+    if(e1) return { ok:false, motivo:e1.message||"error_pedido" };
+    const filas = items.map((it,i)=>({
+      item_id: pedId+"-I"+(i+1), ped_id:pedId, prod_id:it.prod.prodId,
+      descripcion: it.prodNombre,
+      cantidad_qq: r2(it.cant*it.prod.equiv),
+      precio_usd: r2(it.precio/it.prod.equiv),
+      tipo_precio: it.tipo, gratis_qq: r2((Number(it.gratis)||0)*it.prod.equiv),
+      es_demo:false }));
+    const { error:e2 } = await window.SB.from("pedido_items").insert(filas);
+    if(e2){
+      /* si fallan los ítems se deshace el pedido: nunca queda una cabecera huérfana */
+      try{ await window.SB.from("pedidos").delete().eq("ped_id",pedId); }catch(e3){}
+      return { ok:false, motivo:e2.message||"error_items" };
+    }
+    return { ok:true, pedId };
+  }catch(e){ return { ok:false, motivo:"error" }; }
+}
+
 function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido}){
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
@@ -4514,6 +4593,38 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const [codigo,setCodigo]=useState("");           // código de desbloqueo ingresado
   const [desbloqueado,setDesbloqueado]=useState(false);
 
+  /* ── b170 · con sesión, piladoras, catálogo y clientes vienen de la base ──
+     Si la base no responde o no hay sesión, se queda con la demostración de
+     siempre: la app nunca se queda sin catálogo en la mitad del campo. */
+  const [vivoPed,setVivoPed]=useState(null);
+  React.useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    (async ()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!s || !s.session) return;
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }] = await Promise.all([
+          window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
+          window.SB.from("ofertas_piladora").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo").eq("activo",true).limit(1000),
+          window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
+          window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
+          window.SB.from("clientes").select("cli_id,nombre").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
+        ]);
+        if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
+        const cat=construirCatalogoPedido(provs, ofertas, prods, precios);
+        if(!cat.pres.length) return;
+        (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; });
+        cat.clis = (clis||[]).map(c=>c.nombre);
+        setVivoPed(cat);
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
+  const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
+  const CLIS_PED  = (vivoPed && vivoPed.clis && vivoPed.clis.length) ? vivoPed.clis : CLIENTES;
+
   // bloqueo automático del cliente
   const motivos = cli ? motivosBloqueo(cli) : [];
   const bloqueado = motivos.length>0 && !desbloqueado;
@@ -4521,7 +4632,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   // precarga desde Productos: fija proveedor y producto, deja al vendedor elegir cliente y precio
   React.useEffect(()=>{
     if(prodInicial){
-      const pv=PROVEEDORES.find(x=>x.id===prodInicial.provId);
+      const pv=PROVS_PED.find(x=>x.id===prodInicial.provId);
       if(pv) setProv(pv);
       setProd(prodInicial);
       if(onConsumir) onConsumir();
@@ -4566,7 +4677,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     return 1;
   };
   const totalQuintalesCarrito = Math.round(carrito.reduce((s,it)=>s+(qqDeUnidad(it.unidad)*it.cant),0)*100)/100;
-  const productosDelProv = prov ? PRESENTACIONES.filter(p=>p.provId===prov.id) : [];
+  const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id) : [];
   // Productos que ESE cliente ya compró antes (con este proveedor), según su historial.
   // Se ocultan los que ya están en el pedido para no elegirlos dos veces.
   const enCarrito = new Set(carrito.map(it=>it.prod?it.prod.id:it.prodId));
@@ -4739,7 +4850,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     ) : (
     /* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */
     <div className="busc-cliente busc-grande">
-    <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra sinLabel
+    <SearchSelect label="Cliente" cat="clientes" items={CLIS_PED} value={cli} multiPalabra sinLabel
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
       render={{
@@ -4752,7 +4863,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     )}
 
     {/* en cascada: el proveedor aparece cuando ya hay cliente, igual que en la app del freelance */}
-    {cli && !prod && !bloqueado && !verFact && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} sinLabel value={prov}
+    {cli && !prod && !bloqueado && !verFact && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov}
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -4822,15 +4933,15 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       const tot=sub-(f.retencion||0)-(f.descuento||0);
       /* repetir: trae los mismos productos con el PRECIO VIGENTE de hoy;
          si el precio de la factura quedó bajo la base actual, se marca para corregir */
-      const buscarPres=(nombre)=> PRESENTACIONES.find(p=>p.nombre===nombre)
-        || PRESENTACIONES.find(p=>nombre.startsWith(p.marca))
-        || PRESENTACIONES.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
+      const buscarPres=(nombre)=> PRES_PED.find(p=>p.nombre===nombre)
+        || PRES_PED.find(p=>nombre.startsWith(p.marca))
+        || PRES_PED.find(p=>p.nombre.split(" · ")[0]===nombre.split(" · ")[0]);
       const repetir=()=>{
         const lineas=[], fuera=[]; let pv=null, nAjuste=0;
         f.items.forEach((it,k)=>{
           const pres=buscarPres(it.prod);
           if(!pres){ fuera.push(it.prod); return; }
-          if(!pv) pv=PROVEEDORES.find(x=>x.id===pres.provId);
+          if(!pv) pv=PROVS_PED.find(x=>x.id===pres.provId);
           const base=pres.baseCredito;
           const precio=it.precio;
           const com=Math.round((precio-base)*it.cant*100)/100;
@@ -5409,8 +5520,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
                     <span style={{fontWeight:700,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(it.prodNombre||"").split(" · ")[0]}</span></span>
                   <span style={{display:"flex",gap:4,flexShrink:0}}>
                     <button className="del" style={{background:"#EAF0F6",color:"#3A6EA5",borderColor:"#C9D8E6",padding:"5px 10px"}} onClick={()=>{
-                      const pres = PRESENTACIONES.find(p=>p.nombre===it.prodNombre);
-                      if(pres){ const pv=PROVEEDORES.find(x=>x.id===pres.provId); if(pv) setProv(pv); setProd(pres); }
+                      const pres = PRES_PED.find(p=>p.nombre===it.prodNombre);
+                      if(pres){ const pv=PROVS_PED.find(x=>x.id===pres.provId); if(pv) setProv(pv); setProd(pres); }
                       setCant(it.cant); setTipo(it.tipo||"P1"); setPrecio(String(it.precio));
                       if(it.tipo==="P3") setGratis(String(it.gratis||0));
                       setCarrito(carrito.filter(x=>x.id!==it.id));
@@ -12394,6 +12505,14 @@ function App({usuario}){
       };
     });
     setPedidos(prev=>[...nuevos, ...prev]);   // los nuevos arriba
+    /* b170 · y además nace en la base, si hay sesión y todo es real. Si algo es
+       de demostración o no hay señal, guardarPedidoEnBase lo detecta y la app
+       sigue igual que siempre: el vendedor nunca se queda sin poder cerrar. */
+    guardarPedidoEnBase({cli, prov, carrito}).then(r=>{
+      if(r.ok) show("✓ Pedido "+r.pedId+" guardado en el sistema");
+      else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
+        show("⚠ El pedido quedó solo en el teléfono: "+r.motivo);
+    }).catch(()=>{});
   };
   // pantallas secundarias (se llega desde Inicio, no están en la barra)
   const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",comisiones:"Mis comisiones",midia:"Mi día",boveda:"Mi bóveda"};
