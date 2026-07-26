@@ -5440,7 +5440,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"376", fecha:"26 jul 2026", desc:"Ya sabes cuánto le facturas a cada piladora en el mes, con su respaldo pedido por pedido" };
+const VERSION = { n:"377", fecha:"26 jul 2026", desc:"Ya puedes acordar cuánto gana cada vendedor por quintal, y su comisión nace sola al facturar" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10929,6 +10929,182 @@ function ComisionPiladora({toast}){
         (un dólar menos que el de crédito): cuando los ingreses de verdad, esta cifra cambia.
       </div>
     </>)}
+  </>);
+}
+
+/* ── LO QUE GANA CADA VENDEDOR ─────────────────────────────────────────
+   Una tarifa por quintal por vendedor, igual para todos sus clientes, con
+   excepciones pactadas para clientes puntuales que mandan sobre ella.
+   Lleva fecha: cambiar la tarifa hoy no reescribe lo que ya se le debe a
+   alguien por un pedido de la semana pasada. */
+function TarifaSheet({v, onClose, onGuardar, guardando}){
+  const [usd,setUsd]=useState(v.usd!=null ? String(v.usd) : "");
+  const [cuando,setCuando]=useState("hoy");        // hoy | fecha
+  const [fecha,setFecha]=useState("");
+  const [aQuien,setAQuien]=useState("todos");      // todos | uno
+  const [cli,setCli]=useState("");
+  const hoyISO = new Date().toISOString().slice(0,10);
+  const valido = usd!=="" && Number(usd)>=0 && (cuando==="hoy" || fecha) && (aQuien==="todos" || cli);
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="sheet" onClick={e=>e.stopPropagation()}>
+        <h3>¿Cuánto gana {v.nombre}?</h3>
+        <div className="sh-sub">Por cada quintal que venda y se facture</div>
+
+        <div className="field"><label>Dólares por quintal</label>
+          <input className="num" type="number" inputMode="decimal" step="0.01" min="0"
+            placeholder="1.50" value={usd} onChange={e=>setUsd(e.target.value)} autoFocus/></div>
+        <div className="meta" style={{margin:"-6px 2px 12px",fontSize:11.5}}>
+          Cero es válido: hay clientes que se atienden sin comisión.
+        </div>
+
+        <div className="eq-tabs" style={{marginBottom:12}}>
+          <button className={aQuien==="todos"?"on":""} onClick={()=>setAQuien("todos")}>Todos sus clientes</button>
+          <button className={aQuien==="uno"?"on":""} onClick={()=>setAQuien("uno")}>Solo un cliente</button>
+        </div>
+        {aQuien==="uno" && (
+          v.clientes.length ? (
+            <div className="field"><label>¿Con qué cliente?</label>
+              <select value={cli} onChange={e=>setCli(e.target.value)}
+                style={{width:"100%",minHeight:48,padding:"10px 12px",borderRadius:10,
+                  border:"1px solid var(--line)",background:"var(--paper)",fontFamily:"inherit",fontSize:14}}>
+                <option value="">Elige…</option>
+                {v.clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <div className="meta" style={{fontSize:11.5,marginTop:6}}>
+                Lo pactado con un cliente manda sobre su tarifa de siempre.
+              </div>
+            </div>
+          ) : (
+            <div className="meta" style={{margin:"0 2px 12px",fontSize:11.5}}>
+              {v.nombre} todavía no tiene clientes asignados, así que no hay con quién pactar aparte.
+            </div>
+          )
+        )}
+
+        <div className="eq-tabs" style={{marginBottom:12}}>
+          <button className={cuando==="hoy"?"on":""} onClick={()=>setCuando("hoy")}>Desde hoy</button>
+          <button className={cuando==="fecha"?"on":""} onClick={()=>setCuando("fecha")}>Desde una fecha</button>
+        </div>
+        {cuando==="fecha" && (
+          <div className="field"><label>Rige a partir de</label>
+            <input type="date" min={hoyISO} value={fecha} onChange={e=>setFecha(e.target.value)}/>
+            <div className="meta" style={{fontSize:11.5,marginTop:6}}>
+              No se puede poner una fecha pasada: los pedidos de esos días ya se tomaron con la
+              tarifa de entonces.
+            </div>
+          </div>
+        )}
+
+        <button className="cta" disabled={!valido || guardando}
+          onClick={()=>onGuardar({ usd, desde: cuando==="fecha" ? fecha : hoyISO,
+                                   cli: aQuien==="uno" ? cli : null })}>
+          {guardando ? "Guardando…" : "Guardar la comisión"}</button>
+        <button className="ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function ComisionesEquipo({toast}){
+  useRetroceso(()=>{ if(editando){ setEditando(null); return true; } return false; });
+  const [gente,setGente]=useState(null);
+  const [vacio,setVacio]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [guardando,setGuardando]=useState(false);
+  useModal(!!editando, React.useCallback(()=>setEditando(null),[]));
+
+  const cargar = React.useCallback(async()=>{
+    const r = await vivoTarifasEquipo();
+    if(r){ setGente(r); setVacio(false); } else { setGente(null); setVacio(true); }
+  },[]);
+  React.useEffect(()=>{ let vivo=true; (async()=>{ const r=await vivoTarifasEquipo();
+    if(!vivo) return; if(r){ setGente(r); setVacio(false); } else { setGente(null); setVacio(true); } })();
+    return ()=>{ vivo=false; }; },[]);
+
+  const guardar = async ({usd, desde, cli})=>{
+    setGuardando(true);
+    const r = await fijarTarifaEnBase({ sub:editando.id, usd, desde, cli, nota:null });
+    setGuardando(false);
+    if(!r.ok){ if(toast) toast(r.motivo); return; }
+    setEditando(null);
+    if(toast) toast(r.aviso);
+    await cargar();
+  };
+
+  const sinAcuerdo = (gente||[]).filter(v=>v.usd==null);
+  const dia=(f)=>{ const p=String(f||"").split("-"); return p.length===3 ? p[2]+"/"+p[1]+"/"+p[0] : (f||""); };
+
+  return (<>
+    <div className="h1">Comisiones del equipo <SelloVivo vivo={!!gente}/></div>
+
+    {gente===null && !vacio && <div className="ph">Buscando a tu equipo…</div>}
+    {vacio && <div className="ph">Todavía no tienes vendedores dados de alta en el sistema.</div>}
+
+    {gente && sinAcuerdo.length>0 && (
+      <div className="card" style={{marginBottom:12,borderLeft:"4px solid #C2603A",background:"#FDF6F3"}}>
+        <div style={{fontWeight:800,fontSize:14,color:"#C2603A"}}>
+          {sinAcuerdo.length} sin acuerdo</div>
+        <div className="meta" style={{fontSize:12,marginTop:3,lineHeight:1.45}}>
+          Mientras no digas cuánto ganan, <b>sus pedidos se facturan sin generar comisión</b>.
+          El sistema no inventa un valor: prefiere no pagar nada antes que pagar mal.
+        </div>
+      </div>
+    )}
+
+    {(gente||[]).map(v=>(
+      <div className="card" key={v.id} style={{padding:"14px 16px",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+          <span style={{fontWeight:800,fontSize:15,minWidth:0}}>{v.nombre}</span>
+          {v.usd!=null ? (
+            <span className="num" style={{fontWeight:800,fontSize:17,color:"var(--field)",whiteSpace:"nowrap"}}>
+              {money(v.usd)} <span style={{fontSize:11,fontWeight:600}}>/ qq</span></span>
+          ) : (
+            <span style={{fontWeight:700,fontSize:12.5,color:"#C2603A",whiteSpace:"nowrap"}}>Sin acuerdo</span>
+          )}
+        </div>
+        <div className="meta" style={{fontSize:11.5,marginTop:2}}>
+          {v.rol==="socio" ? "Socio comercial" : "Subcomisionista"}
+          {v.usd!=null && v.desde ? " · rige desde el "+dia(v.desde) : ""}
+        </div>
+
+        {v.pactadas.length>0 && (
+          <div style={{borderTop:"1px dashed #E0DBCE",marginTop:10,paddingTop:8}}>
+            <div className="meta" style={{fontSize:11,fontWeight:700,marginBottom:4}}>
+              Pactado aparte con {v.pactadas.length} cliente{v.pactadas.length!==1?"s":""}</div>
+            {v.pactadas.map(pc=>(
+              <div key={pc.cli} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}}>
+                <span className="meta" style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pc.nombre}</span>
+                <span className="num" style={{whiteSpace:"nowrap"}}>{money(pc.usd)} / qq</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(v.ganado>0 || v.porPagar>0) && (
+          <div style={{borderTop:"1px dashed #E0DBCE",marginTop:10,paddingTop:8,
+            display:"flex",justifyContent:"space-between",fontSize:12.5}}>
+            <span className="meta">Lleva ganado</span>
+            <span className="num">{money(v.ganado)}{v.porPagar>0 ? " · "+money(v.porPagar)+" sin pagarle" : ""}</span>
+          </div>
+        )}
+
+        <button className="ghost" style={{marginTop:10,marginBottom:0,minHeight:44}}
+          onClick={()=>setEditando(v)}>
+          {v.usd!=null ? "Cambiar su comisión" : "Acordar su comisión"}</button>
+      </div>
+    ))}
+
+    {editando && <TarifaSheet v={editando} guardando={guardando}
+      onClose={()=>{ if(!guardando) setEditando(null); }} onGuardar={guardar}/>}
+
+    {gente && (
+      <div className="meta" style={{fontSize:11,margin:"4px 2px 16px",lineHeight:1.5}}>
+        La comisión nace cuando la piladora emite la factura, y se calcula con la tarifa que
+        regía el día en que se tomó el pedido. <b>Los quintales de regalo no se comisionan</b>
+        {" "}mientras no definas quién absorbe cada promoción.
+      </div>
+    )}
   </>);
 }
 
@@ -16988,6 +17164,59 @@ async function vivoComisionDetalle(mesISO, provCod, practica){
   }catch(e){ return null; }
 }
 
+/* ── LO QUE GANA CADA VENDEDOR ─────────────────────────────────────────
+   Hasta hoy el sistema no sabía cuánto gana nadie: el paso "Acuerdo de
+   comisión" de la línea del pedido no tenía nada detrás, y por eso nunca
+   se generaba una comisión. Se lee el padrón, los acuerdos vigentes y lo
+   que cada uno lleva ganado. */
+async function vivoTarifasEquipo(){
+  try{
+    const hoy = new Date().toISOString().slice(0,10);
+    const [rg, ra, rc, rcl] = await Promise.all([
+      window.SB.from("usuarios").select("usr_id,nombre,rol,activo,es_demo")
+        .in("rol",["subcomisionista","socio"]).eq("activo",true).order("nombre").limit(500),
+      window.SB.from("acuerdos_comision").select("acu_id,sub_id,cli_id,usd_qq,vigente_desde,vigente_hasta,nota")
+        .lte("vigente_desde",hoy).limit(2000),
+      window.SB.from("comisiones").select("sub_id,monto,estado").limit(3000),
+      window.SB.from("clientes").select("cli_id,nombre,sub_id").limit(2000),
+    ]);
+    const gente=(rg&&rg.data)||[]; if(!gente.length) return null;
+    const acu=((ra&&ra.data)||[]).filter(a=>!a.vigente_hasta || a.vigente_hasta > hoy);
+    const nCli={}; ((rcl&&rcl.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const clisDe={}; ((rcl&&rcl.data)||[]).forEach(c=>{
+      if(!c.sub_id) return; (clisDe[c.sub_id]=clisDe[c.sub_id]||[]).push({id:c.cli_id,nombre:c.nombre}); });
+    const gan={}; ((rc&&rc.data)||[]).forEach(c=>{
+      const g=gan[c.sub_id]=gan[c.sub_id]||{total:0,porPagar:0};
+      g.total+=Number(c.monto||0);
+      if(c.estado!=="Pagada") g.porPagar+=Number(c.monto||0);
+    });
+    return gente.map(u=>{
+      const suyos=acu.filter(a=>a.sub_id===u.usr_id);
+      const estandar=suyos.filter(a=>!a.cli_id).sort((x,y)=>x.vigente_desde<y.vigente_desde?1:-1)[0]||null;
+      const pactadas=suyos.filter(a=>a.cli_id).map(a=>({
+        cli:a.cli_id, nombre:nCli[a.cli_id]||a.cli_id, usd:Number(a.usd_qq), desde:a.vigente_desde }));
+      const g=gan[u.usr_id]||{total:0,porPagar:0};
+      return { id:u.usr_id, nombre:u.nombre, rol:u.rol, demo:!!u.es_demo,
+        usd: estandar ? Number(estandar.usd_qq) : null,
+        desde: estandar ? estandar.vigente_desde : null,
+        pactadas, clientes: clisDe[u.usr_id]||[],
+        ganado:g.total, porPagar:g.porPagar };
+    });
+  }catch(e){ return null; }
+}
+
+/* Fijar la tarifa: cierra la anterior e inserta la nueva en una sola operación. */
+async function fijarTarifaEnBase({sub, usd, desde, cli, nota}){
+  try{
+    const { data, error } = await window.SB.rpc("fijar_tarifa", {
+      p_sub: sub, p_usd: Number(usd), p_desde: desde || null,
+      p_cli: cli || null, p_nota: nota || null });
+    if(error) return { ok:false, motivo:error.message||"No se pudo guardar" };
+    const r=(data&&data[0])||{};
+    return { ok:true, aviso:r.aviso||"Comisión guardada" };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
 /* ── SOLICITUDES ───────────────────────────────────────────────────────
    Recibidas = las que llegan a ti para decidir (destino freelance).
    Mías      = las que tú enviaste al proveedor. */
@@ -22929,6 +23158,7 @@ function App({usuario, onSalir}){
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="cotizacion" && <Cotizacion toast={show}/>}
         {tab==="comisionprov" && <ComisionPiladora toast={show}/>}
+        {tab==="comisionequipo" && <ComisionesEquipo toast={show}/>}
         {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
         {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
@@ -22967,6 +23197,12 @@ function App({usuario, onSalir}){
                 <span className="di-ic" style={{background:"#E4F1E9",color:"#2E7D52"}}>🧾</span>
                 <div style={{flex:1}}><div className="di-t">Lo que te deben las piladoras</div>
                   <div className="di-s">Tu comisión del mes, con su respaldo</div></div>
+                <span className="di-a">›</span>
+              </button>
+              <button className="drawer-it" onClick={()=>{irDesdeDrawer("comisionequipo")}}>
+                <span className="di-ic" style={{background:"#F3EDF9",color:"#7A5BA8"}}>🤝</span>
+                <div style={{flex:1}}><div className="di-t">Comisiones del equipo</div>
+                  <div className="di-s">Cuánto gana cada vendedor por quintal</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("verificacion")}}>
