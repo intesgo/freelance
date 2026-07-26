@@ -1167,7 +1167,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"62", fecha:"26 jul 2026", desc:"Al facturar dices cuántos quintales salieron de verdad de cada producto" };
+const VERSION = { n:"63", fecha:"26 jul 2026", desc:"Registras la nota de crédito por producto, diciendo de quién nació" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1448,6 +1448,23 @@ async function vivoDecidir(){
   }catch(e){ return null; }
 }
 
+/* ── LA NOTA DE CRÉDITO, DESPUÉS DE LA FACTURA ─────────────────────────
+   Una devolución ya facturada se corrige con una nota de crédito POR
+   PRODUCTO. Lo que decide si toca las comisiones NO es el motivo: es **de
+   quién nació**. Si la piladora la hace por su cuenta, la absorbe ella y
+   nadie del equipo pierde. Por eso el origen se pregunta siempre, y en
+   palabras claras, no con un código. */
+async function guardarNC({itemId, qq, valor, motivo, origen, numero}){
+  try{
+    const { data, error } = await window.SB.rpc("registrar_nc", {
+      p_item:itemId, p_qq:Number(qq), p_valor:Number(valor),
+      p_motivo:motivo, p_origen:origen, p_numero:numero||null });
+    if(error) return { ok:false, motivo:error.message||"No se pudo registrar" };
+    const r=(data&&data[0])||{};
+    return { ok:true, aviso:r.aviso||"Nota de crédito registrada", estado:r.estado };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
 /* ── FACTURAR ES DECIR CUÁNTO SALIÓ ────────────────────────────────────
    Un pedido puede salir corto. Si la piladora solo teclea el número de
    factura, el sistema sigue creyendo que salió todo: le paga al vendedor
@@ -1521,6 +1538,10 @@ function Decisiones({ctx, datos}){
   const [numFac,setNumFac]=useState({});          // id → número de factura digitado
   const [salio,setSalio]=useState({});            // "ped|item" → quintales que salieron
   const [facturando,setFacturando]=useState("");  // id del pedido que se está guardando
+  const [nc,setNC]=useState(null);                // {pedido, linea} al que se le hace la NC
+  const [ncQq,setNcQq]=useState(""); const [ncVal,setNcVal]=useState("");
+  const [ncMot,setNcMot]=useState(""); const [ncOri,setNcOri]=useState("");
+  const [ncNum,setNcNum]=useState(""); const [ncGuardando,setNcGuardando]=useState(false);
   const [rechazo,setRechazo]=useState(null);      // {id, motivo}
   const [aviso,setAviso]=useState("");
   /* lo que el sistema tenga guardado manda sobre la demostración */
@@ -1567,6 +1588,21 @@ function Decisiones({ctx, datos}){
     setFacturar(fs=>fs.map(x=>x.id===p.id?{...x,estado:"facturado",factura:num}:x));
     toca("Facturado ✓ Nace la comisión de Daniel y el pedido entra a Logística.");
   };
+  const abrirNC=(p,l)=>{ setNC({p,l}); setNcQq(""); setNcVal(""); setNcMot(""); setNcOri(""); setNcNum(""); };
+  const guardarNotaCredito=async ()=>{
+    if(!nc) return;
+    if(!ncOri){ toca("Falta decir de quién nació la nota de crédito."); return; }
+    if(!(parseFloat(ncQq)>0)){ toca("¿Cuántos quintales devolvieron?"); return; }
+    if(!(parseFloat(ncVal)>=0)){ toca("Falta el valor de la nota de crédito."); return; }
+    if(!ncMot.trim()){ toca("El motivo es obligatorio: alguien lo va a leer dentro de seis meses."); return; }
+    setNcGuardando(true);
+    const r = await guardarNC({ itemId:nc.l.itemId, qq:ncQq, valor:ncVal,
+      motivo:ncMot, origen:ncOri, numero:ncNum });
+    setNcGuardando(false);
+    if(!r.ok){ toca(r.motivo); return; }
+    setNC(null); toca(r.aviso);
+  };
+
   const confirmarPago=(p)=>{
     setPagos(ps=>ps.map(x=>x.id===p.id?{...x,estado:"confirmado"}:x));
     toca("Pago confirmado ✓ La comisión "+p.comId+" ("+money(p.comision)+") queda LIBERADA para Daniel.");
@@ -1614,6 +1650,25 @@ function Decisiones({ctx, datos}){
           {p.estado==="facturado" && (p.lineas||[]).some(l=>l.despachado!=null && l.despachado < l.pedido) && (
             <div style={{marginTop:8,fontSize:12,color:"#8A4B2A",fontWeight:600}}>
               Salió corto: {totalSalio(p)} de {totalPedido(p)} qq
+            </div>
+          )}
+
+          {/* ── Ya facturado: si hubo devolución, va nota de crédito ── */}
+          {p.estado==="facturado" && (p.lineas||[]).length>0 && datos && (
+            <div style={{marginTop:10,borderTop:"1px solid var(--linea)",paddingTop:10}}>
+              <div style={{fontSize:11.5,fontWeight:700,color:"#6B6455",marginBottom:6}}>
+                ¿Hubo devolución? Va una nota de crédito por producto</div>
+              {(p.lineas||[]).map(l=>(
+                <button key={l.itemId} onClick={()=>abrirNC(p,l)}
+                  style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
+                    gap:10,minHeight:48,padding:"10px 12px",marginBottom:6,borderRadius:10,
+                    border:"1px solid var(--linea)",background:"#fff",fontFamily:"inherit",
+                    textAlign:"left",cursor:"pointer"}}>
+                  <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {l.nombre}</span>
+                  <span style={{flexShrink:0,fontSize:11.5,color:"#8A6A00",fontWeight:700}}>🧾 Nota de crédito</span>
+                </button>
+              ))}
             </div>
           )}
 
@@ -1666,6 +1721,88 @@ function Decisiones({ctx, datos}){
           </>)}
         </div>
       ))}
+
+      {/* ══ LA HOJA DE LA NOTA DE CRÉDITO ══ */}
+      {nc && (
+        <div onClick={()=>{ if(!ncGuardando) setNC(null); }}
+          style={{position:"fixed",inset:0,background:"rgba(13,32,24,.5)",zIndex:70,
+            display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"var(--papel,#FAF7F0)",width:"100%",maxWidth:480,borderRadius:"20px 20px 0 0",
+              padding:"20px 18px 28px",maxHeight:"92vh",overflowY:"auto"}}>
+            <div style={{fontWeight:800,fontSize:17,marginBottom:2}}>Nota de crédito</div>
+            <div style={{fontSize:12.5,color:"#6B6455",marginBottom:16}}>
+              {nc.l.nombre} · {nc.p.cliente} · salieron {nc.l.despachado!=null?nc.l.despachado:nc.l.pedido} qq
+            </div>
+
+            <div style={{fontSize:12,fontWeight:700,color:"#6B6455",marginBottom:6}}>¿De quién nació?</div>
+            {[
+              {v:"vendedor",  t:"La pidió el vendedor",  d:"Baja su comisión y la del freelance"},
+              {v:"socio",     t:"La pidió el socio comercial", d:"Baja su comisión y la del freelance"},
+              {v:"freelance", t:"La pidió el freelance", d:"Baja la comisión de los involucrados"},
+              {v:"proveedor", t:"La hago yo, por mi cuenta", d:"La asumo yo: NO baja ninguna comisión"},
+            ].map(o=>(
+              <button key={o.v} onClick={()=>setNcOri(o.v)}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:10,textAlign:"left",
+                  padding:"12px",marginBottom:8,minHeight:56,borderRadius:11,cursor:"pointer",fontFamily:"inherit",
+                  background:ncOri===o.v?"#EAF3EC":"#fff",
+                  border:ncOri===o.v?"2px solid var(--ok)":"1px solid var(--linea)"}}>
+                <span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",display:"inline-flex",
+                  alignItems:"center",justifyContent:"center",fontSize:12,color:"#fff",
+                  background:ncOri===o.v?"var(--ok)":"#D8D2C6"}}>{ncOri===o.v?"✓":""}</span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontWeight:700,fontSize:13.5}}>{o.t}</span>
+                  <span style={{display:"block",fontSize:11.5,color:"#6B6455"}}>{o.d}</span>
+                </span>
+              </button>
+            ))}
+
+            <div style={{display:"flex",gap:10,marginTop:6}}>
+              <label style={{flex:1,fontSize:12,fontWeight:700,color:"#6B6455"}}>Quintales devueltos
+                <input className="num" type="number" inputMode="decimal" step="0.01" min="0"
+                  max={nc.l.despachado!=null?nc.l.despachado:nc.l.pedido}
+                  value={ncQq} onChange={e=>setNcQq(e.target.value)}
+                  style={{width:"100%",boxSizing:"border-box",minHeight:48,padding:"10px 12px",marginTop:4,
+                    border:"1px solid var(--linea)",borderRadius:10,fontSize:14,fontFamily:"inherit"}}/>
+              </label>
+              <label style={{flex:1,fontSize:12,fontWeight:700,color:"#6B6455"}}>Valor de la NC
+                <input className="num" type="number" inputMode="decimal" step="0.01" min="0"
+                  value={ncVal} onChange={e=>setNcVal(e.target.value)} placeholder="0.00"
+                  style={{width:"100%",boxSizing:"border-box",minHeight:48,padding:"10px 12px",marginTop:4,
+                    border:"1px solid var(--linea)",borderRadius:10,fontSize:14,fontFamily:"inherit"}}/>
+              </label>
+            </div>
+
+            <label style={{display:"block",fontSize:12,fontWeight:700,color:"#6B6455",marginTop:12}}>N° de la nota de crédito
+              <input value={ncNum} onChange={e=>setNcNum(e.target.value)} placeholder="ej: 001-001-0000123"
+                style={{width:"100%",boxSizing:"border-box",minHeight:48,padding:"10px 12px",marginTop:4,
+                  border:"1px solid var(--linea)",borderRadius:10,fontSize:14,fontFamily:"inherit"}}/>
+            </label>
+
+            <label style={{display:"block",fontSize:12,fontWeight:700,color:"#6B6455",marginTop:12}}>Motivo
+              <textarea value={ncMot} onChange={e=>setNcMot(e.target.value)} rows={2}
+                placeholder="Qué pasó, en una frase"
+                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",marginTop:4,
+                  border:"1px solid var(--linea)",borderRadius:10,fontSize:14,fontFamily:"inherit",resize:"vertical"}}/>
+            </label>
+
+            <div style={{fontSize:11.5,color:"#6B6455",margin:"10px 2px 14px",lineHeight:1.45}}>
+              {ncOri==="proveedor"
+                ? "Al cliente se le baja la deuda igual, pero la pérdida la asumes tú: ninguna comisión se toca."
+                : ncOri
+                ? "Al cliente se le baja la deuda y, cuando el freelance la apruebe, se reajustan las comisiones de todos los involucrados."
+                : "Según de quién nazca, las comisiones se tocan o no. Por eso hay que decirlo."}
+            </div>
+
+            <button onClick={guardarNotaCredito} disabled={ncGuardando}
+              style={{...btnOk, opacity:ncGuardando?.5:1}}>
+              {ncGuardando ? "Guardando…" : "Registrar la nota de crédito"}</button>
+            <button onClick={()=>{ if(!ncGuardando) setNC(null); }}
+              style={{width:"100%",padding:"12px",border:"1px solid var(--linea)",borderRadius:11,
+                background:"#fff",fontWeight:700,fontSize:13.5,fontFamily:"inherit",marginTop:8}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* ══ 2 · PAGOS POR CONFIRMAR (el gatillo de la comisión) ══ */}
       <div style={secH}>💵 Pagos por confirmar {pendP.length>0 && "· "+pendP.length}</div>

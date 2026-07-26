@@ -5444,7 +5444,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"379", fecha:"26 jul 2026", desc:"Si el pedido sale corto lo ves, y la comisión del vendedor se reajusta sola" };
+const VERSION = { n:"380", fecha:"26 jul 2026", desc:"Las notas de crédito que nacen de tu equipo esperan tu visto bueno antes de bajar comisiones" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10956,6 +10956,125 @@ function ComisionPiladora({toast}){
         (un dólar menos que el de crédito): cuando los ingreses de verdad, esta cifra cambia.
       </div>
     </>)}
+  </>);
+}
+
+/* ── NOTAS DE CRÉDITO ──────────────────────────────────────────────────
+   Lo que decide si una devolución te cuesta plata NO es el motivo: es de
+   quién nació. Por eso esta pantalla lo pone primero y con todas las
+   letras, antes que el monto. */
+function NotasCredito({toast}){
+  useRetroceso(()=>{ if(rechazando){ setRechazando(null); return true; } return false; });
+  const [lista,setLista]=useState(null);
+  const [vacio,setVacio]=useState(false);
+  const [rechazando,setRechazando]=useState(null);
+  const [motivo,setMotivo]=useState("");
+  const [obrando,setObrando]=useState("");
+  useModal(!!rechazando, React.useCallback(()=>setRechazando(null),[]));
+
+  const cargar = React.useCallback(async()=>{
+    const r=await vivoNotasCredito();
+    if(r){ setLista(r); setVacio(false); } else { setLista(null); setVacio(true); }
+  },[]);
+  React.useEffect(()=>{ let vivo=true; (async()=>{ const r=await vivoNotasCredito();
+    if(!vivo) return; if(r){ setLista(r); setVacio(false); } else { setLista(null); setVacio(true); } })();
+    return ()=>{ vivo=false; }; },[]);
+
+  const resolver = async (n, aprobar, mot)=>{
+    setObrando(n.id);
+    const r = await resolverNCEnBase(n.id, aprobar, mot);
+    setObrando("");
+    if(!r.ok){ if(toast) toast(r.motivo); return; }
+    setRechazando(null); setMotivo("");
+    if(toast) toast(r.aviso);
+    await cargar();
+  };
+
+  const pend=(lista||[]).filter(n=>n.estado==="pendiente");
+  const resto=(lista||[]).filter(n=>n.estado!=="pendiente");
+  const costo=pend.reduce((a,n)=>a+(n.afecta?n.valor:0),0);
+
+  return (<>
+    <div className="h1">Notas de crédito <SelloVivo vivo={!!lista}/></div>
+
+    {lista===null && !vacio && <div className="ph">Buscando…</div>}
+    {vacio && <div className="ph">No hay ninguna nota de crédito todavía. Aparecen aquí cuando una
+      piladora registra una devolución sobre un pedido ya facturado.</div>}
+
+    {pend.length>0 && (
+      <div className="card" style={{marginBottom:12,borderLeft:"4px solid #C9A227",background:"#FCF9EF"}}>
+        <div style={{fontWeight:800,fontSize:14}}>
+          {pend.length} esperando tu visto bueno</div>
+        <div className="meta" style={{fontSize:12,marginTop:3,lineHeight:1.45}}>
+          Nacieron de tu equipo, así que <b>bajan comisiones</b>. Mientras no las apruebes no se
+          mueve ni un centavo de nadie.
+        </div>
+      </div>
+    )}
+
+    {pend.map(n=>(
+      <div className="card" key={n.id} style={{padding:"14px 16px",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+          <span style={{fontWeight:800,fontSize:14.5,minWidth:0}}>{n.cli}</span>
+          <span className="num" style={{fontWeight:800,fontSize:16,color:"#C2603A",whiteSpace:"nowrap"}}>−{money(n.valor)}</span>
+        </div>
+        <div className="meta" style={{fontSize:11.5,marginTop:2}}>
+          {n.producto} · {n.qq} qq devueltos · {n.ped}{n.factura?" · factura "+n.factura:""}
+        </div>
+        <div style={{marginTop:8,fontSize:12.5,fontWeight:700,color:"#8A4B2A"}}>
+          La pidió {n.deQuien}</div>
+        <div className="meta" style={{fontSize:12,marginTop:4,lineHeight:1.45}}>“{n.motivo}”</div>
+        <div className="meta" style={{fontSize:11.5,marginTop:8,lineHeight:1.45}}>
+          Si la apruebas: al cliente se le baja {money(n.valor)} de su deuda y se reajusta la
+          comisión del vendedor y la tuya, en proporción a los {n.qq} qq que volvieron.
+        </div>
+        <div className="row" style={{gap:8,marginTop:12}}>
+          <button className="ghost" style={{flex:1,margin:0,minHeight:48}}
+            disabled={obrando===n.id} onClick={()=>{ setRechazando(n); setMotivo(""); }}>Rechazar</button>
+          <button className="cta" style={{flex:1,margin:0,minHeight:48}}
+            disabled={obrando===n.id} onClick={()=>resolver(n,true,null)}>
+            {obrando===n.id ? "…" : "Aprobar"}</button>
+        </div>
+      </div>
+    ))}
+
+    {resto.length>0 && (<>
+      <div className="sec-h"><h2>Historial</h2><div className="grain"></div></div>
+      {resto.map(n=>(
+        <div className="card" key={n.id} style={{padding:"12px 14px",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+            <span style={{fontWeight:700,fontSize:13.5,minWidth:0}}>{n.cli}</span>
+            <span className="num" style={{fontWeight:700,fontSize:13.5,whiteSpace:"nowrap",
+              color:n.estado==="rechazada"?"var(--muted)":"#C2603A",
+              textDecoration:n.estado==="rechazada"?"line-through":"none"}}>−{money(n.valor)}</span>
+          </div>
+          <div className="meta" style={{fontSize:11}}>
+            {n.producto} · {n.qq} qq · {n.fecha} · la pidió {n.deQuien}
+          </div>
+          <div className="meta" style={{fontSize:11,marginTop:3,fontWeight:700,
+            color:n.estado==="aprobada" ? (n.afecta?"#C2603A":"var(--field)") : "var(--muted)"}}>
+            {n.estado==="rechazada" ? "Rechazada" + (n.motivoResp?": "+n.motivoResp:"")
+              : n.afecta ? "Aprobada · bajó comisiones"
+              : "Aprobada · la asumió la piladora, no bajó ninguna comisión"}
+          </div>
+        </div>
+      ))}
+    </>)}
+
+    {rechazando && (
+      <div className="ov" onClick={()=>setRechazando(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Rechazar la nota de crédito</h3>
+          <div className="sh-sub">{rechazando.cli} · {rechazando.producto} · {money(rechazando.valor)}</div>
+          <div className="field"><label>¿Por qué?</label>
+            <textarea rows={3} value={motivo} onChange={e=>setMotivo(e.target.value)}
+              placeholder="La piladora lo va a leer tal cual"/></div>
+          <button className="cta" disabled={!motivo.trim() || obrando===rechazando.id}
+            onClick={()=>resolver(rechazando,false,motivo)}>Confirmar el rechazo</button>
+          <button className="ghost" onClick={()=>setRechazando(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
   </>);
 }
 
@@ -17023,6 +17142,47 @@ async function vivoComisionDetalle(mesISO, provCod, practica){
   }catch(e){ return null; }
 }
 
+/* ── NOTAS DE CRÉDITO ──────────────────────────────────────────────────
+   La piladora las registra; las que nacen del equipo esperan el visto bueno
+   de Richard porque bajan comisiones. Las que la piladora asume ella sola
+   entran directo y se muestran solo para que él sepa que existieron. */
+async function vivoNotasCredito(){
+  try{
+    const [rn, rp, rc, ri] = await Promise.all([
+      window.SB.from("notas_credito").select("*").order("creado",{ascending:false}).limit(300),
+      window.SB.from("pedidos").select("ped_id,cli_id,prov_cod,factura").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("pedido_items").select("item_id,descripcion").limit(3000),
+    ]);
+    const ns=(rn&&rn.data)||[]; if(!ns.length) return null;
+    const ped={}, nCli={}, nIt={};
+    ((rp&&rp.data)||[]).forEach(p=>{ ped[p.ped_id]=p; });
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((ri&&ri.data)||[]).forEach(i=>{ nIt[i.item_id]=i.descripcion; });
+    const DE={ vendedor:"el vendedor", socio:"el socio comercial",
+               freelance:"ti", proveedor:"la piladora, por su cuenta" };
+    return ns.map(n=>{
+      const p=ped[n.ped_id]||{};
+      return { id:n.nc_id, ped:n.ped_id, factura:p.factura||"",
+        cli:nCli[p.cli_id]||p.cli_id||"Cliente", producto:nIt[n.item_id]||n.item_id,
+        qq:Number(n.qq||0), valor:Number(n.valor||0), motivo:n.motivo||"",
+        origen:n.origen, deQuien:DE[n.origen]||n.origen, afecta:!!n.afecta_comision,
+        estado:n.estado, motivoResp:n.motivo_resp||"", numero:n.numero||"",
+        fecha:soloDia(n.creado), demo:!!n.es_demo };
+    });
+  }catch(e){ return null; }
+}
+
+async function resolverNCEnBase(ncId, aprobar, motivo){
+  try{
+    const { data, error } = await window.SB.rpc("resolver_nc",
+      { p_nc:ncId, p_aprobar:!!aprobar, p_motivo:motivo||null });
+    if(error) return { ok:false, motivo:error.message||"No se pudo resolver" };
+    const r=(data&&data[0])||{};
+    return { ok:true, aviso:r.aviso||"Resuelta" };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
 /* ── SOLICITUDES ───────────────────────────────────────────────────────
    Recibidas = las que llegan a ti para decidir (destino freelance).
    Mías      = las que tú enviaste al proveedor. */
@@ -22964,6 +23124,7 @@ function App({usuario, onSalir}){
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="cotizacion" && <Cotizacion toast={show}/>}
         {tab==="comisionprov" && <ComisionPiladora toast={show}/>}
+        {tab==="notascredito" && <NotasCredito toast={show}/>}
         {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
         {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
@@ -23002,6 +23163,12 @@ function App({usuario, onSalir}){
                 <span className="di-ic" style={{background:"#E4F1E9",color:"#2E7D52"}}>🧾</span>
                 <div style={{flex:1}}><div className="di-t">Lo que te deben las piladoras</div>
                   <div className="di-s">Tu comisión del mes, con su respaldo</div></div>
+                <span className="di-a">›</span>
+              </button>
+              <button className="drawer-it" onClick={()=>{irDesdeDrawer("notascredito")}}>
+                <span className="di-ic" style={{background:"#FBE9E4",color:"#C2603A"}}>🧾</span>
+                <div style={{flex:1}}><div className="di-t">Notas de crédito</div>
+                  <div className="di-s">Devoluciones y su efecto en las comisiones</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("verificacion")}}>
