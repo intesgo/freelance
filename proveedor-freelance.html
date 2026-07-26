@@ -1167,7 +1167,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"60", fecha:"26 jul 2026", desc:"Las ofertas se leen de la vista vigente: los costos viejos ya no se cuelan" };
+const VERSION = { n:"61", fecha:"26 jul 2026", desc:"La piladora cambia su costo con fecha, y entra solo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1482,6 +1482,10 @@ async function vivoPrecios(){
       id:o.oferta_id, prodId:o.prod_id, presId:o.oferta_id,
       nombre:nProd[o.prod_id]||o.prod_id, pres:o.presentacion||o.pres_cod||"—",
       base:Number(o.costo||0), sugerido:Number(o.precio_contado||o.costo||0),
+      /* b61 · lo que hace falta para cambiar el costo desde aquí */
+      presCod:o.pres_cod, provCod:o.prov_cod,
+      contado: o.costo_contado==null ? null : Number(o.costo_contado),
+      desde:o.vigente_desde,
       stock:0, promo:false, estado:"aceptado", propuesto:null, demo:!!o.es_demo,
     }));
   }catch(e){ return null; }
@@ -3154,6 +3158,34 @@ function Precios({ctx,irTab,vivo}){
       motivo:motivo||"Sin motivo", au, estado:"propuesto" });
     setCat(prev=>prev.map(x=>x.id===id?{...x,propuesto:valor,auProp:au,motivoProp:motivo}:x));
   });
+  /* ══ b61 · CON SESIÓN, EL CAMBIO ES DE VERDAD ══
+     Regla de Richard: el costo que pone la piladora ENTRA SOLO, con la fecha
+     que ella diga, y a él le llega el aviso. No espera aprobación — el flujo de
+     "propuesta" de abajo es el de la demostración y aquí no aplica.
+     Todo el encadenado (cerrar el vigente, abrir el nuevo) lo hace la base en
+     una sola operación: si se corta a mitad, no queda un producto sin costo. */
+  const [guardando,setGuardando]=useState(false);
+  const [avisoCambio,setAvisoCambio]=useState(null);
+  const cambiarEnBase = async (p, costo, contado, desde)=>{
+    setGuardando(true); setAvisoCambio(null);
+    try{
+      const { data, error } = await window.SB.rpc("cambiar_costo", {
+        p_prod:p.prodId, p_pres:p.presCod, p_costo:costo,
+        p_costo_contado: (contado===null || contado==="") ? null : Number(contado),
+        p_desde: desde, p_prov: null,
+      });
+      setGuardando(false);
+      if(error){ setAvisoCambio({ mal:true, txt: error.message || "No se pudo guardar." }); return false; }
+      const r = (data && data[0]) || {};
+      setAvisoCambio({ mal:false, txt: (r.aviso || "Guardado") + " · " + FREELANCE.nombre + " ya recibió el aviso." });
+      return true;
+    }catch(e){
+      setGuardando(false);
+      setAvisoCambio({ mal:true, txt:"No se pudo conectar. Intenta de nuevo." });
+      return false;
+    }
+  };
+
   const retirar =(id)=> accion(()=>{
     const p = cat.find(x=>x.id===id);
     const i = HIST_PRECIOS.findIndex(h=>h.au===p.auProp);
@@ -3168,7 +3200,17 @@ function Precios({ctx,irTab,vivo}){
       {/* margen derecho: la campanilla flota en esa esquina y tapaba el texto */}
       <div className="sub" style={{marginTop:4,paddingRight:58}}>Tu costo por producto.</div>
 
-      {pendientes.length>0 &&
+      {avisoCambio &&
+        <div className="card card-pad" style={{margin:"16px 0 0",border:"none",
+          background: avisoCambio.mal ? "#FBE9E4" : "rgba(28,122,68,.10)"}}>
+          <div style={{fontWeight:600,color: avisoCambio.mal ? "#B5613C" : "#1c7a44"}}>
+            {avisoCambio.mal ? "No se guardó" : "Costo actualizado ✓"}</div>
+          <div className="sub tiny" style={{marginTop:4}}>{avisoCambio.txt}</div>
+        </div>}
+
+      {/* el flujo de "esperando aprobación" es de la demostración: con datos de
+          verdad el costo entra solo y se avisa (regla de Richard, 26 jul) */}
+      {!vivo && pendientes.length>0 &&
         <div className="card card-pad" style={{margin:"16px 0 0",background:"var(--espera-suave)",border:"none"}}>
           <div style={{fontWeight:600,color:"#8A5A12"}}>{pendientes.length} {pendientes.length===1?"ajuste":"ajustes"} en espera</div>
           <div className="sub tiny" style={{marginTop:4}}>{FREELANCE.nombre} debe aprobarlos para que rijan.</div>
@@ -3248,7 +3290,11 @@ function Precios({ctx,irTab,vivo}){
       {grupoAbierto && <PresentacionesSheet g={grupoAbierto} onClose={()=>setAbierto(null)}
         onElegir={(p)=>{ setAbierto(null); setEdit(p); }} />}
 
-      {edit && <PrecioSheet p={edit} onClose={()=>setEdit(null)}
+      {edit && <PrecioSheet p={edit} onClose={()=>setEdit(null)} vivo={!!vivo} guardando={guardando}
+        onCambiar={async (costo,contado,desde)=>{
+          const ok = await cambiarEnBase(edit, costo, contado, desde);
+          if(ok){ setEdit(null); setAbierto(null); }   /* la lista se refresca al volver a entrar */
+        }}
         onProponer={(v,m)=>{proponer(edit.id,v,m);setEdit(null);}}
         onRetirar={()=>{retirar(edit.id);setEdit(null);}} />}
     </>
@@ -3296,11 +3342,16 @@ function PresentacionesSheet({g,onClose,onElegir}){
   );
 }
 
-function PrecioSheet({p,onClose,onProponer,onRetirar}){
+function PrecioSheet({p,onClose,onProponer,onRetirar,vivo,guardando,onCambiar}){
   const pend=p.propuesto!=null;
   const [val,setVal]=useState(pend? String(p.propuesto): String(p.base));
   const [motivo,setMotivo]=useState("");
   const [verHist,setVerHist]=useState(false);
+  /* b61 · modo real: costo de crédito, costo de contado y desde cuándo rige */
+  const hoyISO = new Date().toISOString().slice(0,10);
+  const [contado,setContado]=useState(p.contado==null?"":String(p.contado));
+  const [cuando,setCuando]=useState("hoy");          // hoy | fecha
+  const [fecha,setFecha]=useState(hoyISO);
   /* qué costos ha tenido este producto: el vigente no tiene fecha de fin */
   const hist = HIST_PRECIOS.filter(h=>h.prodId===p.prodId);
   const fCorta=(d)=>{
@@ -3350,7 +3401,56 @@ function PrecioSheet({p,onClose,onProponer,onRetirar}){
           )}
         </>)}
 
-        {pend
+        {vivo ? (<>
+          {/* ══ MODO REAL ══ El costo entra solo, con su fecha. No hay aprobación. */}
+          <div className="field">
+            <label>Costo a crédito (lo de siempre)</label>
+            <input type="number" inputMode="decimal" value={val} onChange={e=>setVal(e.target.value)} placeholder={String(p.base)} />
+          </div>
+          <div className="field">
+            <label>Costo si le pagan de contado</label>
+            <input type="number" inputMode="decimal" value={contado} onChange={e=>setContado(e.target.value)}
+              placeholder={p.contado==null ? "sin descuento" : String(p.contado)} />
+            <div className="sub tiny" style={{marginTop:4}}>
+              Déjalo vacío si no das precio distinto por pago de contado.</div>
+          </div>
+
+          <div className="sub tiny" style={{margin:"14px 0 8px",fontWeight:700}}>¿Desde cuándo rige?</div>
+          <div className="row" style={{gap:10}}>
+            <button className={"btn "+(cuando==="hoy"?"btn-maiz":"btn-ghost")} style={{flex:1}}
+              onClick={()=>setCuando("hoy")}>Desde hoy</button>
+            <button className={"btn "+(cuando==="fecha"?"btn-maiz":"btn-ghost")} style={{flex:1}}
+              onClick={()=>setCuando("fecha")}>Desde una fecha</button>
+          </div>
+          {cuando==="fecha" && (
+            <div className="field" style={{marginTop:10}}>
+              <label>Rige a partir del</label>
+              <input type="date" value={fecha} min={hoyISO} onChange={e=>setFecha(e.target.value)} />
+              <div className="sub tiny" style={{marginTop:4}}>
+                No se puede poner una fecha pasada: los pedidos de esos días ya se liquidaron
+                con el costo de entonces.</div>
+            </div>
+          )}
+
+          {valido &&
+            <div className="tiny num" style={{fontWeight:600,margin:"12px 2px 0",color:dif>0?"var(--alerta)":"var(--ok)"}}>
+              {dif>0?"Sube":"Baja"} {Math.abs(dif).toFixed(1)}% · {f(Math.abs(n-p.base))} {dif>0?"más caro":"más barato"}
+            </div>}
+
+          <div className="card card-pad" style={{margin:"14px 0",background:"rgba(28,122,68,.08)",border:"none"}}>
+            <div className="sub tiny">
+              El costo <b>entra solo</b> en la fecha que elijas. {FREELANCE.nombre} recibe el aviso;
+              su precio de venta al cliente <b>no cambia</b> — él decide si lo traslada.
+            </div>
+          </div>
+
+          <div className="row" style={{gap:10,marginTop:4}}>
+            <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-maiz" disabled={!valido || guardando}
+              onClick={()=>onCambiar(n, contado, cuando==="hoy" ? hoyISO : fecha)}>
+              {guardando ? "Guardando…" : "Guardar costo"}</button>
+          </div>
+        </>) : pend
           ? <>
               <div className="card card-pad" style={{background:"var(--espera-suave)",border:"none",marginBottom:14}}>
                 <div style={{fontWeight:600,color:"#8A5A12"}}>Esperando aprobación de {FREELANCE.nombre}</div>
