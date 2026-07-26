@@ -1695,7 +1695,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"31", fecha:"26 jul 2026", desc:"Los modulos de la barra inferior leen del sistema: pedidos, novedades, agenda y comisiones" };
+const VERSION = { n:"32", fecha:"26 jul 2026", desc:"Corregido: tocar Mensajes tumbaba la app entera (le faltaba el usuario de la sesion)" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -7153,7 +7153,9 @@ const MotorVoz = {
       resuelto = true;
       if(this.watchdog){ clearTimeout(this.watchdog); this.watchdog=null; }
       const frase = ev.results[0][0].transcript.trim();
-      const res = interpretarAsist(frase);
+      /* FA-0003 · interpretarAsist no existe en esta app: sin guarda, hablarle
+         al asistente tumbaba la app entera. */
+      const res = (typeof interpretarAsist==='function') ? interpretarAsist(frase) : null;
       if(!res){
         this.intentos += 1;
         if(this.intentos < 3){
@@ -7332,7 +7334,9 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     setNoEntendi(""); setEscuchando(true);
     r.onresult = ev=>{
       const frase = ev.results[0][0].transcript.trim();
-      const res = interpretarAsist(frase);
+      /* FA-0003 · interpretarAsist no existe en esta app: sin guarda, hablarle
+         al asistente tumbaba la app entera. */
+      const res = (typeof interpretarAsist==='function') ? interpretarAsist(frase) : null;
       if(!res){
         marcar();
         setNoEntendi("No entendí \""+frase+"\". Toca una pregunta o inténtalo de nuevo.");
@@ -7427,8 +7431,10 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     hablarTexto(texto);
     /* Si la pregunta fue sobre un cliente que sí tiene cartera, habilita "Ver cartera". */
     if(p.pide === "cliente" && valorDato){
-      const existe = CARTERA_INI.some(f => normAsist(f.cli) === normAsist(valorDato));
-      setCliResp(existe ? CARTERA_INI.find(f => normAsist(f.cli) === normAsist(valorDato)).cli : null);
+      /* FA-0003 · CARTERA_INI no existe en esta app; sin lista, no hay cliente que ofrecer. */
+      const cartera = (typeof CARTERA_INI!=='undefined') ? CARTERA_INI : [];
+      const hallado = cartera.find(f => normAsist(f.cli) === normAsist(valorDato));
+      setCliResp(hallado ? hallado.cli : null);
     } else {
       setCliResp(null);
     }
@@ -7440,7 +7446,8 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     hablarTexto(texto);
     let cli = null;
     if(p.pide === "cliente" && valorDato){
-      const f = CARTERA_INI.find(x => normAsist(x.cli) === normAsist(valorDato));
+      const cartera2 = (typeof CARTERA_INI!=='undefined') ? CARTERA_INI : [];
+      const f = cartera2.find(x => normAsist(x.cli) === normAsist(valorDato));
       cli = f ? f.cli : null;
     }
     if(p.ir && onIr){ onIr(p.ir, cli); return true; }  // saltó
@@ -7462,7 +7469,8 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
     : preg && preg.pide === "producto"
       ? PRODUCTOS.map(p=>p.marca)
       : preg && preg.pide === "vendedor"
-        ? [...new Set(CARTERA_INI.map(f=>f.vendedor).filter(Boolean))]
+        ? [...new Set((typeof CARTERA_INI!=="undefined" ? CARTERA_INI : [])
+            .map(f=>f.vendedor).filter(Boolean))]
         : preg && preg.pide === "linea"
           ? [...new Set(PRODUCTOS.map(p=>p.linea).filter(Boolean))]
           : [];
@@ -7619,7 +7627,9 @@ function useBarraAlLeer(){
   },[]);
   return [visible,setVisible];
 }
-function App(){
+/* FA-0003 · App recibe al usuario de la sesión: el chat lo necesita y sin él
+   la app entera se caía en blanco al tocar Mensajes. */
+function App({usuario}){
   const [tab,setTab]=useState("inicio");
   const [toast,setToast]=useState(null);
   const [prodInicial,setProdInicial]=useState(null); // presentación precargada desde Productos
