@@ -1403,7 +1403,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"51", fecha:"25 jul 2026", desc:"Chat a pantalla completa: la barra de escribir baja al borde y la barra inferior se oculta en el chat" };
+const VERSION = { n:"52", fecha:"25 jul 2026", desc:"Mensajes pasa a la barra inferior (Reportes se va al menu), con globo de no leidos en vivo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2686,6 +2686,34 @@ function App({usuario, onSalir}){
   const cuentasAct  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>="2026-07-20")).length;
   // ═══ NOTIFICACIONES · tareas del rol Proveedor ═══
   const [verNotifs,setVerNotifs]=useState(false);
+  /* b52 · Mensajes en la barra inferior: globo de no leídos, en vivo */
+  const [sinLeerChat,setSinLeerChat]=useState(0);
+  useEffect(()=>{
+    let vivo=true, canal=null, miId=null;
+    const contar=async()=>{
+      try{
+        if(!miId) return;
+        const { count } = await window.SB.from("chat_mensajes")
+          .select("msg_id",{count:"exact",head:true}).eq("para_usr",miId).eq("leido",false);
+        if(vivo) setSinLeerChat(count||0);
+      }catch(e){}
+    };
+    (async()=>{
+      try{
+        if(!window.SB) return;
+        const { data:s } = await window.SB.auth.getSession();
+        if(!vivo || !s || !s.session) return;
+        const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).maybeSingle();
+        if(!vivo || !yo) return;
+        miId = yo.usr_id;
+        await contar();
+        canal = window.SB.channel("chat-badge")
+          .on("postgres_changes", { event:"*", schema:"public", table:"chat_mensajes" }, contar)
+          .subscribe();
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; try{ if(canal) window.SB.removeChannel(canal); }catch(e){} };
+  },[]);
   const [tabNotif,setTabNotif]=useState("tareas");   // tareas | ayuda
 
 const TAREAS_NOTIF=[
@@ -2877,9 +2905,6 @@ const TAREAS_NOTIF=[
             {(()=>{
               /* b50 · mismo criterio que la app del freelance: cada cosa en su grupo */
               const GRUPOS = [
-                ["comunicacion","💬 Comunicación", [
-                  ["mensajes","💬","#E4F1E9","Mensajes","Chat con el freelance · en vivo",0],
-                ]],
                 ["docs","📄 Documentos", [
                   ["carga","📄","#E8F0F7","Cargar factura","Sube el XML del SRI",0],
                   ["notas","↩","#F7EFE6","Notas de crédito","Devoluciones y descuentos",notasPend],
@@ -2893,6 +2918,7 @@ const TAREAS_NOTIF=[
                 ["linea","🌾 Mi línea", [
                   ["prop","✎","#F3ECF9","Propuestas","Esperan a tu freelance",pendientes],
                   ["catalogo","▤","#EFEAF7","Catálogo","Productos de tu línea",0],
+                  ["reportes","◔","#E8F0F7","Reportes","Cómo va tu línea",0],
                 ]],
                 ["cuenta","⚙️ Mi cuenta", [
                   ["cuenta","📒","#EEF1F5","Acuerdos","Tu cuenta con el freelance",0],
@@ -2975,7 +3001,7 @@ const TAREAS_NOTIF=[
         <NavBtn on={tab==="decidir"}  ico="⚡" lab="Decidir"    badge={decidirPend} onClick={()=>irTab("decidir")} />
         <NavBtn on={tab==="creditos"} ico="✓" lab="Créditos"   badge={credPend} onClick={()=>irTab("creditos")} />
         <NavBtn on={tab==="precios"}  ico="$" lab="Precios"    badge={preciosPend} onClick={()=>irTab("precios")} />
-        <NavBtn on={tab==="reportes"} ico="◔" lab="Reportes"   onClick={()=>irTab("reportes")} />
+        <NavBtn on={tab==="mensajes"} ico="💬" lab="Mensajes"  badge={sinLeerChat} onClick={()=>irTab("mensajes")} />
       </nav>}
     </div>
   );

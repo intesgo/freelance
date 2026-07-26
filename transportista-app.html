@@ -506,7 +506,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"22", fecha:"25 jul 2026", desc:"Chat a pantalla completa: la barra de escribir baja al borde y la barra inferior se oculta en el chat" };
+const VERSION = { n:"23", fecha:"25 jul 2026", desc:"Mensajes con acceso fijo abajo a la derecha y globo de no leidos (esta app no tiene barra inferior)" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -2296,6 +2296,35 @@ function App(){
   const [choferNuevo, setChoferNuevo] = useState(null);
   const [rutaId, setRutaId] = useState(null);
   const [seccion, setSeccion] = useState(null);
+  /* b23 · Acceso fijo a Mensajes (esta app no tiene barra inferior): botón
+     abajo a la derecha con el globo de no leídos, en vivo. */
+  const [sinLeerChat,setSinLeerChat]=useState(0);
+  React.useEffect(()=>{
+    let vivo=true, canal=null, miId=null;
+    const contar=async()=>{
+      try{
+        if(!miId) return;
+        const { count } = await window.SB.from("chat_mensajes")
+          .select("msg_id",{count:"exact",head:true}).eq("para_usr",miId).eq("leido",false);
+        if(vivo) setSinLeerChat(count||0);
+      }catch(e){}
+    };
+    (async()=>{
+      try{
+        if(!window.SB) return;
+        const { data:s } = await window.SB.auth.getSession();
+        if(!vivo || !s || !s.session) return;
+        const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).maybeSingle();
+        if(!vivo || !yo) return;
+        miId = yo.usr_id;
+        await contar();
+        canal = window.SB.channel("chat-badge")
+          .on("postgres_changes", { event:"*", schema:"public", table:"chat_mensajes" }, contar)
+          .subscribe();
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; try{ if(canal) window.SB.removeChannel(canal); }catch(e){} };
+  },[]);
   const [faseCampana, setFaseCampana] = useState(null);   /* la campana puede pedir carga/entregas */
 
   /* Asistente de voz */
@@ -2384,6 +2413,16 @@ function App(){
 
   return (<>
     {pantalla}
+    {seccion!=="mensajes" && (
+      <button onClick={()=>setSeccion("mensajes")} aria-label="Mensajes"
+        style={{ position:"fixed", right:14, bottom:"calc(16px + env(safe-area-inset-bottom,0px))",
+          zIndex:1150, width:54, height:54, borderRadius:27, background:"#2E7D52", color:"#fff",
+          border:"none", boxShadow:"0 6px 18px rgba(20,60,40,.32)", fontSize:23, cursor:"pointer" }}>💬
+        {sinLeerChat>0 && <span style={{ position:"absolute", top:-3, right:-3, minWidth:20, height:20,
+          borderRadius:10, background:"#C0392B", color:"#fff", fontSize:11, fontWeight:800,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"0 5px" }}>{sinLeerChat}</span>}
+      </button>
+    )}
     <Campana rutaId={rutaId} onIr={irDesdeCampana} />
     {MotorVoz.soportado() && (
       <BurbujaAsistente
