@@ -132,7 +132,7 @@
     </a>
 
     <div class="nota">🔒 Con tu cuenta, la app <b>Freelance</b> ya trabaja con datos reales (catálogo, clientes y pedidos). Sin cuenta, todas las apps abren en modo demostración. El <b>Sistema Web central</b> sigue privado.</div>
-    <div class="pie">v2.2 · Portal único · Invitación y recuperación de clave · © 2026 FREELANCE</div>
+    <div class="pie">v2.3 · Portal único · Invitación y recuperación de clave · © 2026 FREELANCE</div>
   </div>
 
 <script>
@@ -152,8 +152,15 @@
   var trozo = (location.hash || "") + "&" + (location.search || "");
   var tipoEnlace  = (trozo.match(/[#&?]type=([a-z_]+)/) || [])[1] || "";
   var falloEnlace = /[#&?]error(_code)?=/.test(trozo);
-  var esInvitacion = tipoEnlace === "invite";
-  var claveObligatoria = esInvitacion || tipoEnlace === "recovery";
+  /* v2.3 · el enlace que reparte Richard viene armado por nosotros y apunta
+     DIRECTO aquí, con un vale de un solo uso. Es más seguro que el enlace que
+     arma Supabase: aquel rebota al "Site URL" del proyecto, que estaba puesto
+     en localhost y no habría llevado a nadie a ninguna parte. */
+  var valeInv = (trozo.match(/[#&?]invitacion=([^&]+)/) || [])[1] || "";
+  var valeRec = (trozo.match(/[#&?]recuperar=([^&]+)/) || [])[1] || "";
+  var vale = valeInv || valeRec;
+  var esInvitacion = tipoEnlace === "invite" || !!valeInv;
+  var claveObligatoria = esInvitacion || tipoEnlace === "recovery" || !!valeRec;
 
   var SB = null;
   try{
@@ -326,6 +333,26 @@
     $("btnGuardarNueva").textContent = "Guardar mi clave y entrar";
   }
   if(claveObligatoria) soloVista(vistaNueva);
+  /* Canjear el vale por una sesión. Hasta que responda, el botón espera: sin
+     sesión, guardar la clave fallaría con un error técnico. */
+  if(vale && SB){
+    $("btnGuardarNueva").disabled = true;
+    $("msjNueva").textContent = "Comprobando tu enlace…";
+    SB.auth.verifyOtp({ type: valeInv ? "invite" : "recovery", token_hash: decodeURIComponent(vale) })
+      .then(function(r){
+        if(r.error || !r.data || !r.data.session){
+          soloVista(vistaLogin);
+          $("msjError").textContent = "Ese enlace ya se usó o venció. Pide uno nuevo, o entra con tu correo y clave.";
+          return;
+        }
+        $("btnGuardarNueva").disabled = false;
+        $("msjNueva").textContent = "";
+      })
+      .catch(function(){
+        soloVista(vistaLogin);
+        $("msjError").textContent = "No se pudo comprobar el enlace. Revisa tu internet e intenta de nuevo.";
+      });
+  }
   if(falloEnlace && !claveObligatoria){
     $("msjError").textContent = "Ese enlace ya se usó o venció. Pide uno nuevo, o entra con tu correo y clave.";
   }
@@ -342,4 +369,4 @@
 </script>
 </body>
 </html>
-<!-- v94 portal único b2 · invitación -->
+<!-- v95 portal único b3 · el enlace apunta aquí -->
