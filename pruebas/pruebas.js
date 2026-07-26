@@ -41,6 +41,7 @@ const PLAN = [
   { arnes:"test_costo_piladora.js", que:"la piladora cambia su costo con fecha", apps:["proveedor-freelance"] },
   { arnes:"test_pedido_real.js",     que:"el pedido del vendedor llega a la base", apps:["Comisionista"] },
   { arnes:"test_aprobar_pedido.js",  que:"cómo le pagas a la piladora al aprobar", apps:["freelance-completo"] },
+  { arnes:"test_comision_piladora.js", que:"lo que le facturas a cada piladora",   apps:["freelance-completo"] },
   { arnes:"test_cotizacion.js",      que:"la cotización",                        apps:["Comisionista","socio-comercial","freelance-completo"] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },

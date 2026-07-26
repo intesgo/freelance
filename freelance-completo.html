@@ -5440,7 +5440,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"375", fecha:"26 jul 2026", desc:"Al aprobar un pedido decides cómo le pagas tú a la piladora: de contado o a crédito" };
+const VERSION = { n:"376", fecha:"26 jul 2026", desc:"Ya sabes cuánto le facturas a cada piladora en el mes, con su respaldo pedido por pedido" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10763,6 +10763,172 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
         </div>
       </>
     )}
+  </>);
+}
+
+/* ── LO QUE LE FACTURAS A LAS PILADORAS ────────────────────────────────
+   Tú ganas la diferencia completa entre tu precio de venta y el costo de la
+   piladora, por quintal. De ahí sale lo que le pagas al vendedor. Una
+   factura al mes por piladora, con los pedidos que el cliente ya pagó.
+   La pantalla no calcula nada: todo viene de la base, que es donde viven
+   las reglas del costo con fecha. */
+function ComisionPiladora({toast}){
+  useRetroceso(()=>{ if(abierta){ setAbierta(null); return true; } return false; });
+  const hoy = new Date();
+  const [mes,setMes]=useState(()=>{
+    const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  });
+  const [datos,setDatos]=useState(null);      // null = cargando
+  const [vacio,setVacio]=useState(false);
+  const [abierta,setAbierta]=useState(null);  // prov_cod del respaldo abierto
+  const [detalle,setDetalle]=useState(null);
+
+  React.useEffect(()=>{
+    let vivo=true;
+    setDatos(null); setVacio(false); setAbierta(null); setDetalle(null);
+    (async()=>{
+      const r = await vivoComisionPiladora(mes+"-01");
+      if(!vivo) return;
+      if(r) setDatos(r); else { setDatos(null); setVacio(true); }
+    })();
+    return ()=>{ vivo=false; };
+  },[mes]);
+
+  const abrir = async (cod)=>{
+    if(abierta===cod){ setAbierta(null); return; }
+    setAbierta(cod); setDetalle(null);
+    const d = await vivoComisionDetalle(mes+"-01", cod, datos && datos.practica);
+    setDetalle(d||[]);
+  };
+
+  const MESES=["enero","febrero","marzo","abril","mayo","junio","julio",
+               "agosto","septiembre","octubre","noviembre","diciembre"];
+  const nombreMes=(m)=>{ const p=String(m||"").split("-");
+    return p.length===2 ? MESES[Number(p[1])-1]+" de "+p[0] : m; };
+  const moverMes=(n)=>{
+    const p=mes.split("-"); const d=new Date(Number(p[0]), Number(p[1])-1+n, 1);
+    if(d > hoy) return;
+    setMes(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));
+  };
+  const esteMes = mes === (hoy.getFullYear()+"-"+String(hoy.getMonth()+1).padStart(2,"0"));
+  const filas = (datos && datos.filas) || [];
+  const total = filas.reduce((a,f)=>a+f.comision,0);
+  const totalQueda = filas.reduce((a,f)=>a+f.teQueda,0);
+  const dia=(f)=>{ const p=String(f||"").split("-"); return p.length===3 ? p[2]+"/"+p[1] : (f||""); };
+
+  return (<>
+    <div className="h1">Lo que te deben las piladoras <SelloVivo vivo={!!(datos && !datos.practica)}/></div>
+
+    {/* el mes */}
+    <div className="row" style={{gap:8,alignItems:"center",marginBottom:12}}>
+      <button className="ghost" style={{width:48,minHeight:44,margin:0,padding:0}}
+        onClick={()=>moverMes(-1)}>‹</button>
+      <div style={{flex:1,textAlign:"center",fontWeight:800,fontSize:15}}>{nombreMes(mes)}</div>
+      <button className="ghost" style={{width:48,minHeight:44,margin:0,padding:0,
+        opacity: esteMes ? 0.35 : 1}} disabled={esteMes} onClick={()=>moverMes(1)}>›</button>
+    </div>
+
+    {datos && datos.practica && (
+      <div className="card" style={{marginBottom:12,borderLeft:"4px solid #7A6F50",background:"#FAF7F0"}}>
+        <div style={{fontWeight:700,fontSize:13}}>⚪ Datos de práctica</div>
+        <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+          Todavía no hay ningún pedido real cobrado en este mes. Lo de abajo es la
+          demostración sembrada, para que veas cómo se va a ver.
+        </div>
+      </div>
+    )}
+
+    {datos===null && !vacio && <div className="ph">Sacando la cuenta…</div>}
+    {vacio && (
+      <div className="ph">En {nombreMes(mes)} no hay ningún pedido con el cliente ya pagado,
+        así que no hay nada que facturarle a ninguna piladora.</div>
+    )}
+
+    {filas.length>0 && (<>
+      <div className="card" style={{padding:"14px 16px",marginBottom:12}}>
+        <div className="meta" style={{fontSize:11.5}}>Total a facturar en {nombreMes(mes)}</div>
+        <div className="num" style={{fontSize:26,fontWeight:800,color:"var(--field)",lineHeight:1.2}}>{money(total)}</div>
+        <div className="meta" style={{fontSize:11.5,marginTop:4}}>
+          {filas.length} piladora{filas.length!==1?"s":""} · te quedan {money(totalQueda)} después de pagarle al equipo
+        </div>
+      </div>
+
+      {filas.map(f=>(
+        <div className="card" key={f.cod} style={{padding:"14px 16px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+            <span style={{fontWeight:800,fontSize:15,minWidth:0}}>{f.piladora}</span>
+            <span className="num" style={{fontWeight:800,fontSize:17,color:"var(--field)",whiteSpace:"nowrap"}}>{money(f.comision)}</span>
+          </div>
+          <div className="meta" style={{fontSize:11.5,marginTop:2}}>
+            {f.pedidos} pedido{f.pedidos!==1?"s":""} · {f.qq} qq · vendiste {money(f.venta)} y te costaron {money(f.costo)}
+          </div>
+
+          <div style={{borderTop:"1px dashed #E0DBCE",marginTop:10,paddingTop:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"2px 0"}}>
+              <span className="meta">Para tu equipo</span>
+              <span className="num">− {money(f.delVendedor)}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13.5,padding:"4px 0 0",fontWeight:700}}>
+              <span>Te queda</span>
+              <span className="num" style={{color:"var(--field)"}}>{money(f.teQueda)}</span>
+            </div>
+          </div>
+
+          {f.gratis>0 && (
+            <div className="meta" style={{fontSize:11.5,marginTop:8,color:"#7A6F50"}}>
+              🎁 {f.gratis} qq de regalo en estos pedidos. <b>No están descontados</b>:
+              falta definir quién absorbe cada promoción.
+            </div>
+          )}
+          {f.sinCosto>0 && (
+            <div className="meta" style={{fontSize:11.5,marginTop:6,color:"#C2603A",fontWeight:600}}>
+              ⚠️ A {f.sinCosto} línea{f.sinCosto!==1?"s":""} le falta el costo de esta piladora.
+              Esta cifra está incompleta.
+            </div>
+          )}
+          {f.aMedias>0 && (
+            <div className="meta" style={{fontSize:11.5,marginTop:6}}>
+              {f.aMedias} pedido{f.aMedias!==1?"s":""} cobrado{f.aMedias!==1?"s":""} a medias:
+              todavía no entra{f.aMedias!==1?"n":""}.
+            </div>
+          )}
+
+          <button className="ghost" style={{marginTop:10,marginBottom:0,minHeight:44}}
+            onClick={()=>abrir(f.cod)}>
+            {abierta===f.cod ? "Ocultar el respaldo" : "Ver el respaldo, pedido por pedido"}</button>
+
+          {abierta===f.cod && (
+            <div style={{marginTop:10}}>
+              {detalle===null && <div className="meta" style={{fontSize:12}}>Trayendo el detalle…</div>}
+              {detalle && detalle.length===0 && <div className="meta" style={{fontSize:12}}>Sin detalle.</div>}
+              {detalle && detalle.map(d=>(
+                <div key={d.ped} style={{borderTop:"1px solid #EFEBE0",padding:"8px 0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5}}>
+                    <span style={{fontWeight:700,minWidth:0}}>{d.cli}</span>
+                    <span className="num" style={{fontWeight:800,color:"var(--field)",whiteSpace:"nowrap"}}>{money(d.comision)}</span>
+                  </div>
+                  <div className="meta" style={{fontSize:11}}>
+                    {d.ped} · cobrado el {dia(d.dia)} · {d.qq} qq · le pagaste {d.pago==="contado"?"de contado":"a crédito"}
+                  </div>
+                  <div className="meta" style={{fontSize:11}}>
+                    venta {money(d.venta)} − costo {money(d.costo)}
+                    {d.gratis>0 ? " · 🎁 "+d.gratis+" qq de regalo aparte" : ""}
+                    {d.sinCosto>0 ? " · ⚠️ falta un costo" : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="meta" style={{fontSize:11,margin:"4px 2px 16px",lineHeight:1.5}}>
+        Entran los pedidos cuyo cliente terminó de pagar dentro del mes. El costo es el que
+        regía el día en que se tomó el pedido, de contado o a crédito según cómo le pagaste
+        tú a esa piladora. <b>Los costos de contado cargados hoy son provisionales</b>{" "}
+        (un dólar menos que el de crédito): cuando los ingreses de verdad, esta cifra cambia.
+      </div>
+    </>)}
   </>);
 }
 
@@ -16780,6 +16946,48 @@ async function aprobarPedidoEnBase(pedId, pago, recordar){
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
+/* ── LO QUE LE FACTURAS A CADA PILADORA ────────────────────────────────
+   Es el ingreso principal de Richard y hasta hoy el sistema no lo sabía
+   calcular. La cuenta la hace la base, que es donde viven las reglas del
+   costo; aquí solo se pide y se muestra.
+   Se pide primero con datos de verdad; si no hay nada que facturar todavía,
+   se pide lo sembrado para practicar y la pantalla lo rotula. */
+async function vivoComisionPiladora(mesISO){
+  try{
+    const pedir = async (demo) => {
+      const { data, error } = await window.SB.rpc("comision_piladora",
+        { p_mes: mesISO, p_demo: demo });
+      return (error || !data) ? null : data;
+    };
+    let filas = await pedir(false);
+    let practica = false;
+    if(!filas || !filas.length){ filas = await pedir(true); practica = true; }
+    if(!filas || !filas.length) return null;
+    return { practica, filas: filas.map(f=>({
+      cod:f.prov_cod, piladora:f.piladora, pedidos:Number(f.pedidos||0),
+      qq:Number(f.qq||0), venta:Number(f.venta||0), costo:Number(f.costo||0),
+      comision:Number(f.comision||0), gratis:Number(f.gratis_qq||0),
+      delVendedor:Number(f.del_vendedor||0), teQueda:Number(f.te_queda||0),
+      sinCosto:Number(f.sin_costo||0), aMedias:Number(f.a_medio_cobrar||0),
+    })) };
+  }catch(e){ return null; }
+}
+
+/* El respaldo, pedido por pedido: sin esto la cifra es un número sin defensa. */
+async function vivoComisionDetalle(mesISO, provCod, practica){
+  try{
+    const { data, error } = await window.SB.rpc("comision_piladora_detalle",
+      { p_mes: mesISO, p_prov: provCod, p_demo: !!practica });
+    if(error || !data) return null;
+    return data.map(d=>({
+      ped:d.ped_id, cli:d.cliente, dia:d.dia_cobro, pago:d.pago_prov,
+      qq:Number(d.qq||0), venta:Number(d.venta||0), costo:Number(d.costo||0),
+      comision:Number(d.comision||0), gratis:Number(d.gratis_qq||0),
+      sinCosto:Number(d.sin_costo||0),
+    }));
+  }catch(e){ return null; }
+}
+
 /* ── SOLICITUDES ───────────────────────────────────────────────────────
    Recibidas = las que llegan a ti para decidir (destino freelance).
    Mías      = las que tú enviaste al proveedor. */
@@ -22720,6 +22928,7 @@ function App({usuario, onSalir}){
           onAbrirPreguntas={()=>{ setAsistEscucha(false); setAsistVozBurbuja(false); setAsistLista(true); setAsistAbierto(true); }}/>}
         {tab==="productos" && <Productos toast={show} vender={vender}/>}
         {tab==="cotizacion" && <Cotizacion toast={show}/>}
+        {tab==="comisionprov" && <ComisionPiladora toast={show}/>}
         {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
         {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
@@ -22752,6 +22961,12 @@ function App({usuario, onSalir}){
                 <span className="di-ic" style={{background:"#E8F0F7",color:"#1B3A5C"}}><Ico n="stats" c="#1B3A5C" s={19}/></span>
                 <div style={{flex:1}}><div className="di-t">Mi caja</div>
                   <div className="di-s">Recibos, cuadre y cierre diario</div></div>
+                <span className="di-a">›</span>
+              </button>
+              <button className="drawer-it" onClick={()=>{irDesdeDrawer("comisionprov")}}>
+                <span className="di-ic" style={{background:"#E4F1E9",color:"#2E7D52"}}>🧾</span>
+                <div style={{flex:1}}><div className="di-t">Lo que te deben las piladoras</div>
+                  <div className="di-s">Tu comisión del mes, con su respaldo</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("verificacion")}}>
