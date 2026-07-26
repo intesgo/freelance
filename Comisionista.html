@@ -423,6 +423,9 @@
   /* bottom nav */
   .nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
     background:#fff;border-top:1px solid var(--line);display:flex;padding:8px 8px 20px;z-index:30}
+  /* b364 · la barra se desliza fuera al leer y vuelve sola */
+  .nav{transition:transform .22s ease, opacity .18s ease}
+  .nav.baja{transform:translate(-50%,120%);opacity:0;pointer-events:none}
   .nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
     font-size:10.5px;color:var(--muted);font-weight:500;padding:6px 0}
   .nav button.act{color:var(--field)}
@@ -1230,7 +1233,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"162", fecha:"25 jul 2026", desc:"Barra inferior oculta con asa: sube al tocarla o sola cuando entra algo nuevo" };
+const VERSION = { n:"163", fecha:"26 jul 2026", desc:"Barra inferior que se esconde al leer: se va al bajar y vuelve al subir, al tocar o si entra un aviso" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -11683,6 +11686,41 @@ function AsistenteVoz({ abierto, panelVisible=true, modoLista=false, onCerrar, o
   );
 }
 
+/* ── LA BARRA DE ABAJO SE ESCONDE AL LEER (b364 · recomendación acogida por Richard) ──
+   Al deslizar hacia ABAJO (estás leyendo) la barra se va y ganas pantalla.
+   Al deslizar hacia ARRIBA, al TOCAR la pantalla, al llegar al tope o cuando entra
+   un aviso nuevo, vuelve al instante. Nunca se pierde el acceso a los cinco módulos.
+   Escucha el scroll en fase de captura para que funcione tanto si desplaza la página
+   como si desplaza una tarjeta o lista interna. */
+function useBarraAlLeer(){
+  const [visible,setVisible]=React.useState(true);
+  const ref=React.useRef({el:null,y:0,t:0});
+  React.useEffect(()=>{
+    const alRodar=(e)=>{
+      const el=e.target;
+      const raiz=(el===document||el===document.documentElement||el===document.body||el===window);
+      const y=raiz ? (window.scrollY||document.documentElement.scrollTop||0) : (el.scrollTop||0);
+      ref.current.t=Date.now();
+      if(ref.current.el!==el){ ref.current.el=el; ref.current.y=y; return; }
+      const d=y-ref.current.y;
+      if(Math.abs(d)<8) return;                 /* temblores de dedo no cuentan */
+      ref.current.y=y;
+      if(y<=48){ setVisible(true); return; }    /* arriba del todo: siempre visible */
+      setVisible(d<0);                          /* bajando esconde · subiendo muestra */
+    };
+    /* un toque suelto (no el final de un desplazamiento) siempre trae la barra de vuelta */
+    const alTocar=()=>{ if(Date.now()-ref.current.t>250) setVisible(true); };
+    document.addEventListener("scroll",alRodar,true);
+    document.addEventListener("touchend",alTocar,true);
+    document.addEventListener("click",alTocar,true);
+    return ()=>{
+      document.removeEventListener("scroll",alRodar,true);
+      document.removeEventListener("touchend",alTocar,true);
+      document.removeEventListener("click",alTocar,true);
+    };
+  },[]);
+  return [visible,setVisible];
+}
 function App(){
   const [tab,setTab]=useState("inicio");
   const [toast,setToast]=useState(null);
@@ -11703,11 +11741,10 @@ function App(){
   /* ── Botón físico de Android: cierra ventanas y navega hacia atrás dentro de la app ── */
   const [hist,setHist]=useState([]);
   const [menuAbierto,setMenuAbierto]=useState(false);
-  /* b· La barra de abajo vive OCULTA: asa para subirla, y sube sola si entra algo nuevo. */
-  const [barraAbierta,setBarraAbierta]=useState(false);
-  const refAvisos = React.useRef(null);
-
   /* b· Mensajes en la barra inferior: globo de no leídos, en vivo */
+  /* b364 · La barra de abajo se esconde al leer y vuelve sola cuando entra algo nuevo. */
+  const [barraVisible,setBarraVisible]=useBarraAlLeer();
+  const refAvisos = React.useRef(null);
   const [sinLeerChat,setSinLeerChat]=useState(0);
   React.useEffect(()=>{
     let vivo=true, canal=null, miId=null;
@@ -11894,13 +11931,13 @@ function App(){
   };
   const badgeAgenda = 2;   // tareas pendientes de hoy (ejemplo del prototipo)
   const badgeComision = 1; // comisiones recién liberadas (ejemplo del prototipo)
+  /* si el total de cosas por ver SUBE, la barra vuelve aunque estés leyendo */
   const totalAvisos = (badgeNovedades||0)+(badgePedidosTotal||0)+(badgeAgenda||0)+(badgeComision||0)+(sinLeerChat||0);
   React.useEffect(()=>{
     if(refAvisos.current === null){ refAvisos.current = totalAvisos; return; }
-    if(totalAvisos > refAvisos.current) setBarraAbierta(true);
+    if(totalAvisos > refAvisos.current) setBarraVisible(true);
     refAvisos.current = totalAvisos;
   },[totalAvisos]);
-
 
   // pantalla de bloqueo total: si el freelance bloqueó al subcomisionista, no entra a nada
   if(bloqueado) return (
@@ -12227,32 +12264,17 @@ function App(){
           navegar(tab);
         }} />
 
-      {tab!=="mensajes" && !barraAbierta && (
-        <button onClick={()=>setBarraAbierta(true)} aria-label="Mostrar la barra de abajo"
-          style={{position:"fixed",left:"50%",transform:"translateX(-50%)",
-            bottom:"calc(7px + env(safe-area-inset-bottom,0px))",zIndex:29,
-            width:totalAvisos>0?112:92,height:28,borderRadius:999,background:"rgba(255,255,255,.94)",
-            border:"1px solid var(--line)",boxShadow:"0 2px 12px rgba(20,40,30,.16)",
-            display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
-          <span style={{width:32,height:4,borderRadius:2,background:"#C6D2C9",display:"block"}}></span>
-          {totalAvisos>0 && <span style={{minWidth:19,height:19,borderRadius:10,background:"#C0392B",
-            color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",
-            justifyContent:"center",padding:"0 5px"}}>{totalAvisos}</span>}
-        </button>
-      )}
-      {tab!=="mensajes" && barraAbierta && <div className="nav">
-        <button className={tab==="novedades"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("novedades"); }}>
+      {tab!=="mensajes" && <div className={"nav"+(barraVisible?"":" baja")}>
+        <button className={tab==="novedades"?"act":""} onClick={()=>tocarTab("novedades")}>
           <span className="nIco">📣{badgeNovedades>0 && <span className="badge">{badgeNovedades}</span>}</span>Novedades</button>
-        <button className={tab==="pedidos"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("pedidos"); }}>
+        <button className={tab==="pedidos"?"act":""} onClick={()=>tocarTab("pedidos")}>
           <span className="nIco">🚚{badgePedidosTotal>0 && <span className="badge">{badgePedidosTotal}</span>}</span>Mis pedidos</button>
-        <button className={tab==="agenda"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("agenda"); }}>
+        <button className={tab==="agenda"?"act":""} onClick={()=>tocarTab("agenda")}>
           <span className="nIco">🗓️{badgeAgenda>0 && <span className="badge">{badgeAgenda}</span>}</span>Agenda</button>
-        <button className={tab==="cuenta"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("cuenta"); }}>
+        <button className={tab==="cuenta"?"act":""} onClick={()=>tocarTab("cuenta")}>
           <span className="nIco">📒{badgeComision>0 && <span className="badge">{badgeComision}</span>}</span>Comisiones</button>
-        <button className={tab==="mensajes"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("mensajes"); }}>
+        <button className={tab==="mensajes"?"act":""} onClick={()=>tocarTab("mensajes")}>
           <span className="nIco">💬{sinLeerChat>0 && <span className="badge">{sinLeerChat}</span>}</span>Mensajes</button>
-        <button onClick={()=>setBarraAbierta(false)} aria-label="Ocultar la barra"
-          style={{flex:"0 0 26px",color:"var(--muted)",fontSize:15,paddingBottom:10}}>⌄</button>
       </div>}
     </div>
   );
