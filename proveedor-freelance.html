@@ -1409,7 +1409,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"54", fecha:"26 jul 2026", desc:"Barra inferior que se esconde al leer: se va al bajar y vuelve al subir, al tocar o si entra un aviso" };
+const VERSION = { n:"55", fecha:"26 jul 2026", desc:"Decidir y Precios leen del sistema: pedidos por facturar, solicitudes del freelance y tu lista de precios" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1617,7 +1617,128 @@ const CHEQ_AUT_INI=[
     fechaCobro:"2026-07-12", pide:"Daniel Ríos · Custodia de documentos", estado:"pendiente" },
 ];
 
-function Decisiones({ctx}){
+/* ═══════════════════════════════════════════════════════════════════════
+   PUENTE DE DATOS · la barra de la piladora lee del sistema
+
+   Decidir y Precios dejan de vivir solo de la demostración. Créditos e Inicio
+   siguen en demostración porque su información (carpeta de documentos del
+   cliente, stock en bodega) todavía no existe en la base; se ve con el sello.
+
+   REGLAS DE ORO: ante cualquier problema devuelve null y la pantalla se queda
+   con lo que tenía; los datos vuelven con la MISMA forma que la demostración.
+   ═══════════════════════════════════════════════════════════════════════ */
+let _yoPuente;
+function yoUsuario(){
+  if(_yoPuente!==undefined) return _yoPuente;
+  _yoPuente=(async()=>{
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      if(s && s.session){
+        const { data:u } = await window.SB.from("usuarios").select("usr_id,nombre,rol,prov_cod")
+          .eq("auth_uid", s.session.user.id).maybeSingle();
+        return u || null;
+      }
+    }catch(e){}
+    return null;
+  })();
+  return _yoPuente;
+}
+const soloDia = (iso)=> String(iso||"").slice(0,10);
+
+/* ── DECIDIR ────────────────────────────────────────────────────────────
+   Lo que espera tu firma: pedidos por facturar y solicitudes del freelance. */
+const TIPO_SOL_PROV={ credito:"💳 Ampliación de crédito", cupo:"💳 Ampliación de cupo",
+  devolucion:"↩ Devolución", precio:"🏷 Precio especial", descuento:"🏷 Descuento",
+  posfechar:"📅 Posfechar cheque", muestras:"🎁 Muestras", nc:"🧾 Nota de crédito" };
+async function vivoDecidir(){
+  try{
+    const yo=await yoUsuario(); if(!yo) return null;
+    const mio = yo.prov_cod || null;   /* si el usuario es de una piladora, solo lo suyo */
+    const [rp, ri, rc, rs] = await Promise.all([
+      window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
+      window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
+    ]);
+    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const items=(ri&&ri.data)||[];
+    let peds=((rp&&rp.data)||[]).filter(p=>p.estado==="enviado_proveedor" || p.estado==="facturado");
+    if(mio) peds=peds.filter(p=>p.prov_cod===mio);
+    const facturar=peds.map(p=>{
+      const its=items.filter(i=>i.ped_id===p.ped_id);
+      const qq=its.reduce((s,i)=>s+Number(i.cantidad_qq||0),0);
+      const monto=its.reduce((s,i)=>s+Number(i.cantidad_qq||0)*Number(i.precio_usd||0),0);
+      return { id:p.ped_id, cliente:nCli[p.cli_id]||p.cli_id||"Cliente",
+        detalle:(its.length?its[0].descripcion:"Pedido")+" · "+qq+" qq · "+(p.condicion==="contado"?"contado":"crédito"),
+        monto, fecha:soloDia(p.creado),
+        estado: p.estado==="facturado" ? "facturado" : "pendiente",
+        factura:p.factura||null, demo:!!p.es_demo };
+    });
+    let sols=((rs&&rs.data)||[]).filter(s=>s.destino==="proveedor");
+    if(mio) sols=sols.filter(s=>!s.prov_cod || s.prov_cod===mio);
+    const solics=sols.map(s=>({
+      id:s.sol_id, tipo:TIPO_SOL_PROV[s.tipo]||("📌 "+(s.tipo||"Solicitud")),
+      detalle:s.detalle||"", cliente:nCli[s.cli_id]||"—", fecha:soloDia(s.creado),
+      estado:s.estado, motivoResp:s.motivo_resp||null, demo:!!s.es_demo,
+    }));
+    if(!facturar.length && !solics.length) return null;
+    return { facturar, solics };
+  }catch(e){ return null; }
+}
+
+/* el pedido queda facturado en el sistema, no solo en la pantalla */
+async function guardarFactura(pedId, numero){
+  try{
+    const { error } = await window.SB.from("pedidos")
+      .update({ estado:"facturado", estado_comercial:"facturado", factura:numero })
+      .eq("ped_id", pedId);
+    return !error;
+  }catch(e){ return false; }
+}
+/* la respuesta a una solicitud queda guardada con su motivo y su fecha */
+async function responderSolicitud(solId, estado, motivo){
+  try{
+    const { error } = await window.SB.from("solicitudes")
+      .update({ estado, motivo_resp:motivo||null, resuelto_en:new Date().toISOString() })
+      .eq("sol_id", solId);
+    return !error;
+  }catch(e){ return false; }
+}
+
+/* ── PRECIOS ────────────────────────────────────────────────────────────
+   Tu lista de la piladora: lo que ofreces, a qué costo y a qué precio.
+   OJO: la base todavía no lleva el stock en bodega, así que sale en 0. */
+async function vivoPrecios(){
+  try{
+    const yo=await yoUsuario(); if(!yo) return null;
+    const mio = yo.prov_cod || null;
+    const [ro, rp] = await Promise.all([
+      window.SB.from("ofertas_piladora").select("*").eq("activo",true).limit(1000),
+      window.SB.from("productos").select("prod_id,nombre").limit(1000),
+    ]);
+    let ofs=(ro&&ro.data)||[];
+    if(mio) ofs=ofs.filter(o=>o.prov_cod===mio);
+    if(!ofs.length) return null;
+    const nProd={}; ((rp&&rp.data)||[]).forEach(p=>{ nProd[p.prod_id]=p.nombre; });
+    return ofs.map(o=>({
+      id:o.oferta_id, prodId:o.prod_id, presId:o.oferta_id,
+      nombre:nProd[o.prod_id]||o.prod_id, pres:o.presentacion||o.pres_cod||"—",
+      base:Number(o.costo||0), sugerido:Number(o.precio_contado||o.costo||0),
+      stock:0, promo:false, estado:"aceptado", propuesto:null, demo:!!o.es_demo,
+    }));
+  }catch(e){ return null; }
+}
+
+/* sello que dice de dónde salen los datos que estás viendo */
+function SelloVivo({vivo}){
+  return <span style={{marginLeft:8,display:"inline-block",padding:"2px 8px",borderRadius:20,
+    fontSize:10.5,fontWeight:700,verticalAlign:"middle",
+    background:vivo?"rgba(28,122,68,.13)":"#EFF1F3", color:vivo?"#1c7a44":"#6B7280"}}>
+    {vivo?"🟢 Datos vivos":"⚪ Demostración"}</span>;
+}
+
+
+function Decisiones({ctx, datos}){
   const [facturar,setFacturar]=useState(FACTURAR_INI);
   const [pagos,setPagos]=useState(PAGOS_CONF_INI);
   const [solics,setSolics]=useState(SOLIC_PROV_INI);
@@ -1625,6 +1746,12 @@ function Decisiones({ctx}){
   const [numFac,setNumFac]=useState({});          // id → número de factura digitado
   const [rechazo,setRechazo]=useState(null);      // {id, motivo}
   const [aviso,setAviso]=useState("");
+  /* lo que el sistema tenga guardado manda sobre la demostración */
+  React.useEffect(()=>{
+    if(!datos) return;
+    if(datos.facturar && datos.facturar.length) setFacturar(datos.facturar);
+    if(datos.solics && datos.solics.length) setSolics(datos.solics);
+  },[datos]);
   const toca=(m)=>{ setAviso(m); setTimeout(()=>setAviso(""),3400); if(ctx&&ctx.accion) ctx.accion(()=>{}); };
 
   const card={background:"#fff",border:"1px solid var(--linea)",borderRadius:14,padding:"14px 15px",marginBottom:10};
@@ -1637,6 +1764,8 @@ function Decisiones({ctx}){
     const num=(numFac[p.id]||"").trim();
     if(!num){ toca("Digita el número de factura para "+p.id+"."); return; }
     setFacturar(fs=>fs.map(x=>x.id===p.id?{...x,estado:"facturado",factura:num}:x));
+    /* el pedido queda facturado en el sistema, no solo en la pantalla */
+    if(datos) guardarFactura(p.id, num);
     toca("Facturado ✓ Nace la comisión de Daniel y el pedido entra a Logística.");
   };
   const confirmarPago=(p)=>{
@@ -1645,11 +1774,13 @@ function Decisiones({ctx}){
   };
   const aprobarSol=(s)=>{
     setSolics(ss=>ss.map(x=>x.id===s.id?{...x,estado:"aprobada",motivoResp:"Aprobada"}:x));
+    if(datos) responderSolicitud(s.id,"aprobada","Aprobada");
     toca("Solicitud aprobada · Daniel lo ve en su sistema.");
   };
   const confirmarRechazo=()=>{
     if(!rechazo.motivo.trim()){ toca("El motivo es obligatorio: Daniel lo leerá tal cual."); return; }
     setSolics(ss=>ss.map(x=>x.id===rechazo.id?{...x,estado:"rechazada",motivoResp:rechazo.motivo.trim()}:x));
+    if(datos) responderSolicitud(rechazo.id,"rechazada",rechazo.motivo.trim());
     setRechazo(null); toca("Rechazada con motivo · queda en el historial.");
   };
   const autorizarCheque=(c,ok)=>{
@@ -1669,7 +1800,7 @@ function Decisiones({ctx}){
       </div>
 
       {/* ══ 1 · PEDIDOS POR FACTURAR ══ */}
-      <div style={secH}>🧾 Pedidos por facturar {pendF.length>0 && "· "+pendF.length}</div>
+      <div style={secH}>🧾 Pedidos por facturar {pendF.length>0 && "· "+pendF.length} <SelloVivo vivo={!!datos}/></div>
       {facturar.map(p=>(
         <div key={p.id} style={card}>
           <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
@@ -2705,6 +2836,22 @@ function App({usuario, onSalir}){
   const [contado]=useState(CONTADO_INI);
   const [cola,setCola]=useState(0);
   const [online,setOnline]=useState(true);
+  /* ── LA BARRA LEE DEL SISTEMA ──
+     Decidir y Precios se alimentan de la base. Créditos e Inicio siguen en
+     demostración: la carpeta de documentos del cliente y el stock en bodega
+     todavía no viven en el sistema. El sello lo dice en cada pantalla. */
+  const [decidirApp,setDecidirApp]=useState(null);
+  const [preciosVivos,setPreciosVivos]=useState(false);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      const [dc,pr]=await Promise.all([vivoDecidir(),vivoPrecios()]);
+      if(!vivo) return;
+      if(dc) setDecidirApp(dc);
+      if(pr && pr.length){ setCat(pr); setPreciosVivos(true); }
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
 
   /* Asistente de voz */
   const [asistAbierto,setAsistAbierto]=useState(false);
@@ -2769,10 +2916,13 @@ const TAREAS_NOTIF=[
   const tareasActivas=TAREAS_NOTIF.filter(t=>t.n>0);   // qué llega lo define el Freelance
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
 
-  const decidirPend = FACTURAR_INI.filter(x=>x.estado==="pendiente").length
+  const decidirPend = decidirApp
+    ? (decidirApp.facturar.filter(x=>x.estado==="pendiente").length
+       + decidirApp.solics.filter(x=>x.estado==="pendiente").length)
+    : (FACTURAR_INI.filter(x=>x.estado==="pendiente").length
     + PAGOS_CONF_INI.filter(x=>x.estado==="pendiente").length
     + SOLIC_PROV_INI.filter(x=>x.estado==="pendiente").length
-    + CHEQ_AUT_INI.filter(x=>x.estado==="pendiente").length;
+    + CHEQ_AUT_INI.filter(x=>x.estado==="pendiente").length);
   /* si el total de cosas por ver SUBE, la barra vuelve aunque estés leyendo */
   const totalAvisos = (decidirPend||0)+(credPend||0)+(preciosPend||0)+(sinLeerChat||0);
   React.useEffect(()=>{
@@ -2916,14 +3066,14 @@ const TAREAS_NOTIF=[
       <div className="scroll" key={tab}>
         {tab==="mensajes" ? <ChatEquipo usuario={usuario} toast={toast}/>
         : tab==="inicio"   ? <Inicio ctx={ctx} irTab={irTab} credPend={credPend} />
-        : tab==="decidir" ? <Decisiones ctx={ctx} />
+        : tab==="decidir" ? <Decisiones ctx={ctx} datos={decidirApp} />
         : tab==="conciliacion"? <Conciliacion irTab={irTab} />
         : tab==="carga"? <CargaXML irTab={irTab} />
         : tab==="notas"? <NotasCredito irTab={irTab} />
         : tab==="retenciones"? <Retenciones irTab={irTab} />
         : tab==="bancos"? <CuentasBancarias irTab={irTab} />
         : tab==="creditos"? <Creditos ctx={ctx} />
-        : tab==="precios" ? <Precios ctx={ctx} irTab={irTab} />
+        : tab==="precios" ? <Precios ctx={ctx} irTab={irTab} vivo={preciosVivos} />
         : tab==="prop"    ? <Propuestas ctx={ctx} />
         : tab==="catalogo"? <Catalogo ctx={ctx} irTab={irTab} />
         : tab==="guias"? <GuiasRemision />
@@ -3217,7 +3367,7 @@ function Inicio({ctx,irTab,credPend}){
 function Mini({k,v}){return <div><div style={{fontFamily:"Space Grotesk",fontWeight:600,fontSize:16}}>{v}</div><div className="tiny" style={{color:"rgba(255,255,255,.6)"}}>{k}</div></div>;}
 
 /* ====== PRECIOS · el proveedor ajusta, el freelance aprueba ====== */
-function Precios({ctx,irTab}){
+function Precios({ctx,irTab,vivo}){
   const {cat,setCat,accion}=ctx;
   const [edit,setEdit]=useState(null);
   const [abierto,setAbierto]=useState(null);   // producto con hoja de presentaciones abierta
@@ -3254,7 +3404,7 @@ function Precios({ctx,irTab}){
   return (
     <>
       <div className="eyebrow">Precio base de venta</div>
-      <h1 className="h1">Precios</h1>
+      <h1 className="h1">Precios <SelloVivo vivo={!!vivo}/></h1>
       {/* margen derecho: la campanilla flota en esa esquina y tapaba el texto */}
       <div className="sub" style={{marginTop:4,paddingRight:58}}>Tu costo por producto.</div>
 

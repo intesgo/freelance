@@ -1233,7 +1233,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"163", fecha:"26 jul 2026", desc:"Barra inferior que se esconde al leer: se va al bajar y vuelve al subir, al tocar o si entra un aviso" };
+const VERSION = { n:"164", fecha:"26 jul 2026", desc:"Los modulos de la barra inferior leen del sistema: pedidos, novedades, agenda y comisiones" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -8136,7 +8136,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
 }
 
 // ---------- MIS PEDIDOS ----------
-function Pedidos({irInicio, pedidos=PEDIDOS_INI}){
+function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("activos");  // activos | historial
@@ -8187,18 +8187,18 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI}){
   const limpiarEnVentana=()=>{setTEstado("Todos");setTDesde("");setTHasta("");setTOrden("recientes");};
 
   return (<>
-    <div className="h1">Mis pedidos</div>
+    <div className="h1">Mis pedidos <SelloVivo vivo={!!vivo}/></div>
 
     {/* indicadores del embudo: qué está esperando y cuánto vale */}
     {(()=>{
-      const sinEnviar=PEDIDOS_INI.filter(p=>p.sync==="pend").length;
-      const esperando=PEDIDOS_INI.filter(p=>/aprobaci/i.test(p.estado||"")).length;
-      const enCamino=PEDIDOS_INI.filter(p=>/despach|facturad/i.test(p.estado||"")).length;
-      const comTotal=PEDIDOS_INI.reduce((s,p)=>s+(p.comision||0),0);
+      const sinEnviar=pedidos.filter(p=>p.sync==="pend").length;
+      const esperando=pedidos.filter(p=>/aprobaci/i.test(p.estado||"")).length;
+      const enCamino=pedidos.filter(p=>/despach|facturad/i.test(p.estado||"")).length;
+      const comTotal=pedidos.reduce((s,p)=>s+(p.comision||0),0);
       return (
         <div className="mini-kpi">
           <button onClick={()=>setEstado("Todos")}>
-            <span className="mk-v num">{PEDIDOS_INI.length}</span>
+            <span className="mk-v num">{pedidos.length}</span>
             <span className="mk-k">Pedidos</span></button>
           <button style={{cursor:"default"}}>
             <span className="mk-v num" style={{color:sinEnviar>0?"#C9A227":"var(--field)"}}>{sinEnviar}</span>
@@ -9435,8 +9435,10 @@ function FichaMarca({marca, volver, vender}){
 }
 
 // ---------- AGENDA (visitas y tareas del día) ----------
-function Agenda({toast}){
-  const HOY="2026-06-13";
+function Agenda({toast, datos}){
+  /* con datos del sistema "hoy" es hoy de verdad; en la demostración
+     se queda en el día del guion para que el ejemplo siga cuadrando */
+  const HOY = datos ? new Date().toISOString().slice(0,10) : "2026-06-13";
   const inicial=[
     {id:1, fecha:"2026-06-13", hora:"08:30", cli:"Comercial Mendoza", tipo:"Visita", nota:"Tomar pedido mensual de arroz", hecho:false},
     {id:2, fecha:"2026-06-13", hora:"10:00", cli:"Bodega El Agricultor", tipo:"Cobro", nota:"Retirar cheque · factura vence hoy", hecho:false},
@@ -9445,6 +9447,8 @@ function Agenda({toast}){
     {id:5, fecha:"2026-06-17", hora:"09:00", cli:"Mayorista Santa Rosa", tipo:"Visita", nota:"Presentar nueva línea de harina", hecho:false},
   ];
   const [tareas,setTareas]=useState(inicial);
+  /* lo agendado en el sistema (y lo que la app te sugiere) manda */
+  React.useEffect(()=>{ if(datos) setTareas(datos); },[datos]);
   const [nueva,setNueva]=useState(false);
   // filtros
   const [verFiltros,setVerFiltros]=useState(false);
@@ -9460,7 +9464,12 @@ function Agenda({toast}){
   const [nota,setNota]=useState("");
   const TIPOS=["Visita","Cobro","Stock","Entrega","Otro"];
 
-  const toggle=id=>setTareas(tareas.map(t=>t.id===id?{...t,hecho:!t.hecho}:t));
+  const toggle=id=>{
+    setTareas(tareas.map(t=>t.id===id?{...t,hecho:!t.hecho}:t));
+    /* marcar hecho queda guardado; una sugerencia se vuelve actividad real al tocarla */
+    const t=tareas.find(x=>x.id===id);
+    if(t && datos) guardarActividad({...t,hecho:!t.hecho});
+  };
   const colorTipo={Visita:"#15392B",Cobro:"#2E7D52",Stock:"#C77F00",Entrega:"#7A6F50",Otro:"#555"};
 
   // fin de semana (7 días desde hoy) para el filtro "esta semana"
@@ -9482,14 +9491,16 @@ function Agenda({toast}){
   const aplicar=()=>{setPeriodo(tPeriodo);setUbic(tUbic);setVerFiltros(false);};
 
   const guardar=()=>{
-    const nuevaTarea={id:Date.now(), fecha:fecha||"", hora:hora||"--:--", cli:cli||"Sin cliente", tipo, nota:nota||"", hecho:false};
+    const nuevaTarea={id:Date.now(), act_id:"AG-"+Date.now(), fecha:fecha||"", hora:hora||"--:--",
+      cli:cli||"Sin cliente", tipo, nota:nota||"", hecho:false};
     setTareas([...tareas, nuevaTarea].sort((a,b)=>a.hora.localeCompare(b.hora)));
+    if(datos) guardarActividad(nuevaTarea);   /* queda en el sistema */
     setFecha("");setHora("");setCli(null);setTipo("Visita");setNota("");setNueva(false);
     toast("Tarea agregada a tu agenda.");
   };
 
   return (<>
-    <div className="h1">Agenda</div>
+    <div className="h1">Agenda <SelloVivo vivo={!!datos}/></div>
 
     {/* indicadores del día: qué falta y qué ya se hizo */}
     {(()=>{
@@ -9625,11 +9636,14 @@ function Agenda({toast}){
 }
 
 // ---------- MI CUENTA ----------
-function Cuenta({onDemoBloquear}){
+function Cuenta({onDemoBloquear, datos}){
   const [modo,setModo]=useState("estandar"); // estandar | gamificada
   // datos del mes (ejemplo)
-  const neto=2.00, liberadas=64.00, pendientes=125.00, descuentos=62.00;
-  const nFactPend=14, clientesPorCobrar=8, valorPorCobrar=4500.00;
+  /* con datos del sistema mandan los de la base; si no, el ejemplo */
+  const neto=datos?datos.neto:2.00, liberadas=datos?datos.liberadas:64.00,
+        pendientes=datos?datos.pendientes:125.00, descuentos=datos?0:62.00;
+  const nFactPend=datos?datos.nFactPend:14, clientesPorCobrar=datos?datos.clientesPorCobrar:8,
+        valorPorCobrar=datos?datos.valorPorCobrar:4500.00;
   const metaPct=80, ventaActual=40000, metaTotal=50000;
   const rankPos=3, rankTotal=15;
   const variacion=12; // % vs mes anterior
@@ -9645,7 +9659,7 @@ function Cuenta({onDemoBloquear}){
 
   return (<>
     <div className="cu-head">
-      <div><div className="h1" style={{marginBottom:2}}>Comisiones</div>
+      <div><div className="h1" style={{marginBottom:2}}>Comisiones <SelloVivo vivo={!!datos}/></div>
         <div className="sub" style={{margin:0}}>Tu liquidación de junio</div></div>
       <div className="cu-toggle">
         <button className={modo==="estandar"?"on":""} onClick={()=>setModo("estandar")}>Resumen</button>
@@ -9747,12 +9761,222 @@ function Cuenta({onDemoBloquear}){
 }
 
 // ---------- NOVEDADES (solicitudes al proveedor) ----------
-function Novedades({toast, go}){
+/* ═══════════════════════════════════════════════════════════════════════
+   PUENTE DE DATOS · los módulos de la barra leen del sistema
+   (hermano del puente del Freelance, adaptado a esta app del equipo)
+
+   REGLAS DE ORO:
+   1. NUNCA revienta una pantalla: ante cualquier problema devuelve null y
+      el módulo se queda con su demostración.
+   2. Devuelve los datos con la MISMA forma que la demostración, para no
+      tocar pantallas ya probadas.
+   3. Quien es del equipo ve LO SUYO; el freelance y el administrador ven todo.
+   ═══════════════════════════════════════════════════════════════════════ */
+/* OJO (corregido el 26 jul): aquí se guarda la PROMESA, no el resultado.
+   Antes se marcaba el resultado como "null" al empezar, así que las otras
+   consultas que arrancaban al mismo tiempo se encontraban ese null y creían
+   que no había sesión: la Agenda y las Comisiones se quedaban en demostración
+   aunque sí hubiera datos. Guardando la promesa, todas esperan la misma
+   respuesta y ninguna se adelanta. */
+let _yoPuente;
+function yoUsuario(){
+  if(_yoPuente!==undefined) return _yoPuente;
+  _yoPuente=(async()=>{
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      if(s && s.session){
+        const { data:u } = await window.SB.from("usuarios").select("usr_id,nombre,rol")
+          .eq("auth_uid", s.session.user.id).maybeSingle();
+        return u || null;
+      }
+    }catch(e){}
+    return null;
+  })();
+  return _yoPuente;
+}
+/* ¿este usuario ve solo lo suyo? */
+const soloLoMio = (yo)=> !!(yo && yo.rol && ["subcomisionista","socio","transportista"].indexOf(yo.rol)>=0);
+
+const MES3_P=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+function selloCorto(iso){
+  if(!iso) return "—";
+  const d=new Date(iso); if(isNaN(d)) return "—";
+  const p=n=>("0"+n).slice(-2);
+  return p(d.getDate())+" "+MES3_P[d.getMonth()]+" · "+p(d.getHours())+":"+p(d.getMinutes());
+}
+const soloDia = (iso)=> String(iso||"").slice(0,10);
+const hoyISO  = ()=> new Date().toISOString().slice(0,10);
+
+/* ── MIS PEDIDOS ────────────────────────────────────────────────────── */
+const ETAPAS_PEDIDO=["Pedido ingresado","Acuerdo de comisión","Aprobación del freelance",
+  "Aprobación de crédito","Enviado al proveedor","Facturado","Despachado","Entregado",
+  "Cobrado y validado","Comisión liberada"];
+const PED_MAPA={
+  ingresado:            {linea:2,  etapa:1, t:"Esperando aprobación"},
+  esperando_aprobacion: {linea:2,  etapa:1, t:"Esperando aprobación"},
+  enviado_proveedor:    {linea:4,  etapa:2, t:"Enviado al proveedor"},
+  facturado:            {linea:5,  etapa:3, t:"Facturado"},
+  despachado:           {linea:6,  etapa:4, t:"Despachado"},
+  entregado:            {linea:7,  etapa:5, t:"Entregado"},
+  cliente_pago:         {linea:8,  etapa:6, t:"Cobrado y validado"},
+  cerrado:              {linea:10, etapa:7, t:"Comisión liberada"},
+  anulado:              {linea:0,  etapa:0, t:"Anulado"},
+};
+async function vivoPedidos(){
+  try{
+    const yo=await yoUsuario(); if(!yo) return null;
+    const [rp, ri, rc, rv, rm] = await Promise.all([
+      window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
+      window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
+      window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
+    ]);
+    let peds=(rp&&rp.data)||[];
+    if(soloLoMio(yo)) peds=peds.filter(p=>p.sub_id===yo.usr_id);
+    if(!peds.length) return null;
+    const nCli={}, nProv={}, com={};
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
+    ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
+    const items=(ri&&ri.data)||[];
+    return peds.map(p=>{
+      const its=items.filter(i=>i.ped_id===p.ped_id);
+      const cant=its.reduce((s,i)=>s+Number(i.cantidad_qq||0),0);
+      const importe=its.reduce((s,i)=>s+Number(i.cantidad_qq||0)*Number(i.precio_usd||0),0);
+      const m=PED_MAPA[p.estado]||{linea:1,etapa:1,t:p.estado||"—"};
+      const c=com[p.ped_id];
+      return {
+        id:p.ped_id, cli:nCli[p.cli_id]||p.cli_id||"Cliente", prov:nProv[p.prov_cod]||p.prov_cod||"—",
+        fecha:soloDia(p.creado),
+        prod: its.length ? (its[0].descripcion + (its.length>1 ? " y "+(its.length-1)+" más" : "")) : "Sin detalle",
+        cant, precio: cant ? Number((importe/cant).toFixed(2)) : 0,
+        cond: p.condicion==="contado" ? "Contado" : "Crédito",
+        comision: c ? Number(c.monto||0) : 0,
+        estado:m.t, etapa:m.etapa, sync:"ok",
+        comisionLiberada: p.estado==="cerrado" || (c && c.estado==="Pagada"),
+        factura:p.factura||"", demo:!!p.es_demo,
+        linea: ETAPAS_PEDIDO.map((t,i)=>({
+          t,
+          f: i===0 ? selloCorto(p.creado) : (i<m.linea ? "✓ cumplido" : "—"),
+          st: i<m.linea ? "ok" : (i===m.linea ? "now" : "wait"),
+          d: (i===5 && p.factura) ? ("Factura "+p.factura) : "",
+        })),
+      };
+    });
+  }catch(e){ return null; }
+}
+
+/* ── NOVEDADES ──────────────────────────────────────────────────────── */
+const NOV_ESTADO_BD={ abierta:"enviada", en_revision:"revision", resuelta:"aprobada",
+                      enviada:"enviada", aprobada:"aprobada", rechazada:"rechazada" };
+async function vivoNovedades(){
+  try{
+    const [rn, rc] = await Promise.all([
+      window.SB.from("novedades").select("*").order("creado",{ascending:false}).limit(200),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+    ]);
+    const novs=rn&&rn.data; if(!novs || !novs.length) return null;
+    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    return novs.map(n=>({
+      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", tipo:n.tipo||"producto",
+      detalle:n.detalle||"", fecha:selloCorto(n.creado),
+      estado:NOV_ESTADO_BD[n.estado]||"enviada",
+      origen:n.origen||"entrega", demo:!!n.es_demo,
+    }));
+  }catch(e){ return null; }
+}
+
+/* ── AGENDA ─────────────────────────────────────────────────────────────
+   Formato de esta app: {id, fecha, hora, cli, tipo, nota, hecho}.
+   Programadas (agenda_actividades) + sugerencias de cobro calculadas al vuelo. */
+async function vivoAgenda(){
+  try{
+    const yo=await yoUsuario(); if(!yo) return null;
+    const hoy=hoyISO();
+    const [ra, rc, rk] = await Promise.all([
+      window.SB.from("agenda_actividades").select("*").order("fecha").limit(500),
+      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(500),
+    ]);
+    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const propias=((ra&&ra.data)||[]).filter(a=>!a.usr_id || a.usr_id===yo.usr_id);
+    const lista=propias.map((f,i)=>({
+      id:1000+i, act_id:f.act_id, fecha:soloDia(f.fecha), hora:f.hora||"",
+      cli:f.cliente||"—", cli_id:f.cli_id||null, tipo:f.tipo||"Otro",
+      nota:f.objetivo||"", hecho:f.estado==="completada",
+      ubic:f.ubic||"", dur:Number(f.dur)||30, recordatorio:Number(f.recordatorio)||15,
+    }));
+    const cart=((rk&&rk.data)||[]).filter(m=>m.estado!=="pagada" && m.vence && soloDia(m.vence)<=hoy);
+    cart.slice(0,12).forEach((m,i)=>{
+      const act="SG-"+m.mov_id;
+      if(lista.some(t=>t.act_id===act)) return;
+      lista.push({ id:2000+i, act_id:act, fecha:hoy, hora:"", cli:nCli[m.cli_id]||m.cli_id||"—",
+        cli_id:m.cli_id, tipo:"Cobro",
+        nota:"Sugerido · cobrar "+(m.doc||"factura")+" ($"+Number(m.monto||0).toFixed(2)+")",
+        hecho:false, dur:20, recordatorio:15, sug:true });
+    });
+    return lista.length ? lista : null;
+  }catch(e){ return null; }
+}
+
+/* guarda (crea o actualiza) una actividad de la agenda */
+async function guardarActividad(t){
+  try{
+    const yo=await yoUsuario(); if(!yo || !t) return false;
+    const fila={ act_id:t.act_id||("AG-"+Date.now()), org_id:"ORG-001", usr_id:yo.usr_id,
+      cli_id:t.cli_id||null, cliente:t.cli||null, fecha:t.fecha, hora:t.hora||null,
+      tipo:t.tipo||"Otro", objetivo:t.nota||t.objetivo||null, ubic:t.ubic||null,
+      dur:Number(t.dur)||30, recordatorio:Number(t.recordatorio)||15,
+      estado: t.hecho ? "completada" : "pendiente" };
+    const { error } = await window.SB.from("agenda_actividades").upsert(fila,{onConflict:"act_id"});
+    return !error;
+  }catch(e){ return false; }
+}
+
+/* ── COMISIONES ─────────────────────────────────────────────────────────
+   Lo que ya te pagaron, lo que está por liberarse y lo que falta cobrar. */
+async function vivoComisiones(){
+  try{
+    const yo=await yoUsuario(); if(!yo) return null;
+    const [rm, rk] = await Promise.all([
+      window.SB.from("comisiones").select("com_id,ped_id,sub_id,monto,estado").limit(2000),
+      window.SB.from("cartera_cliente").select("cli_id,monto,estado").limit(500),
+    ]);
+    let coms=(rm&&rm.data)||[];
+    if(soloLoMio(yo)) coms=coms.filter(c=>c.sub_id===yo.usr_id);
+    if(!coms.length) return null;
+    const suma=(f)=>coms.filter(f).reduce((s,c)=>s+Number(c.monto||0),0);
+    const liberadas=suma(c=>c.estado==="Pagada");
+    const pendientes=suma(c=>c.estado!=="Pagada");
+    const cart=((rk&&rk.data)||[]).filter(m=>m.estado!=="pagada");
+    const clientes={}; cart.forEach(m=>{ clientes[m.cli_id]=true; });
+    return {
+      liberadas, pendientes, neto:pendientes,
+      nFactPend:cart.length, clientesPorCobrar:Object.keys(clientes).length,
+      valorPorCobrar:cart.reduce((s,m)=>s+Number(m.monto||0),0),
+      nComisiones:coms.length, porLiberar:coms.filter(c=>c.estado!=="Pagada").length,
+    };
+  }catch(e){ return null; }
+}
+
+/* sello que dice de dónde salen los datos que estás viendo */
+function SelloVivo({vivo}){
+  return <span style={{marginLeft:8,display:"inline-block",padding:"2px 8px",borderRadius:20,
+    fontSize:10.5,fontWeight:700,verticalAlign:"middle",
+    background:vivo?"rgba(28,122,68,.13)":"#EFF1F3", color:vivo?"#1c7a44":"#6B7280"}}>
+    {vivo?"🟢 Datos vivos":"⚪ Demostración"}</span>;
+}
+
+
+function Novedades({toast, go, datos}){
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [tipo,setTipo]=useState(null);       // cambio-mismo | cambio-otro | producto | descuento
   const [paso,setPaso]=useState("menu");      // menu | form
   const [lista,setLista]=useState(NOVEDADES_INI);
+  /* si el sistema tiene novedades guardadas, mandan esas */
+  React.useEffect(()=>{ if(datos) setLista(datos); },[datos]);
 
   const [prodSel,setProdSel]=useState(null);
   const [prodDestino,setProdDestino]=useState(null);
@@ -9814,9 +10038,35 @@ function Novedades({toast, go}){
   };
 
   return (<>
-    <div className="h1">Novedades</div>
+    <div className="h1">Novedades <SelloVivo vivo={!!datos}/></div>
     <div className="meta" style={{margin:"0 2px 12px",fontSize:11.5}}>
       Post-venta: cambios, devoluciones y notas de crédito. Elige cliente y proveedor para empezar.</div>
+
+    {/* Respuestas del proveedor y novedades de entrega: cuando el sistema tiene
+        datos, aquí ves en qué quedó lo que enviaste y lo que reportó el camión.
+        Sin sesión no aparece nada y la pantalla queda igual que antes. */}
+    {datos && datos.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length>0 && (<>
+      <div className="sec-h"><h2>Respuestas del proveedor</h2><div className="grain"></div></div>
+      {datos.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").slice(0,10).map((n,i)=>(
+        <div className="card" key={"rp"+i} style={{padding:"11px 13px",marginBottom:8,
+          borderLeft:"4px solid "+(n.estado==="aprobada"?"#2E7D52":"#C2603A")}}>
+          <div style={{fontSize:13.5,fontWeight:700}}>{n.cli}</div>
+          <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
+          <div className="meta" style={{fontSize:11,fontWeight:700,
+            color:n.estado==="aprobada"?"#2E7D52":"#C2603A"}}>{n.estado==="aprobada"?"Aprobada":"Rechazada"}</div>
+        </div>
+      ))}
+    </>)}
+    {datos && datos.filter(n=>n.origen==="entrega").length>0 && (<>
+      <div className="sec-h"><h2>🚚 Novedades de entrega</h2><div className="grain"></div></div>
+      {datos.filter(n=>n.origen==="entrega").slice(0,10).map((n,i)=>(
+        <div className="card" key={"en"+i} style={{padding:"11px 13px",marginBottom:8,
+          borderLeft:"4px solid #D98324"}}>
+          <div style={{fontSize:13.5,fontWeight:700}}>{n.cli}</div>
+          <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
+        </div>
+      ))}
+    </>)}
 
     <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra
       onPick={c=>{setCli(c);resetDesdeCli();}} onClear={()=>{setCli(null);resetDesdeCli();}}
@@ -11872,6 +12122,26 @@ function App(){
 
   /* Lista viva de pedidos: los recién tomados se suman arriba de los de ejemplo */
   const [pedidos,setPedidos]=useState(PEDIDOS_INI);
+  /* ── LOS MÓDULOS DE LA BARRA LEEN DEL SISTEMA ──
+     Una sola carga al abrir alimenta las cuatro pantallas y sus globos, para que
+     el número de la barra y lo que ves adentro sean lo mismo. Si algo no responde,
+     ese módulo se queda con su demostración. */
+  const [pedidosVivos,setPedidosVivos]=useState(false);
+  const [novedadesApp,setNovedadesApp]=useState(null);
+  const [agendaApp,setAgendaApp]=useState(null);
+  const [comisionesApp,setComisionesApp]=useState(null);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      const [pd,nv,ag,cm]=await Promise.all([vivoPedidos(),vivoNovedades(),vivoAgenda(),vivoComisiones()]);
+      if(!vivo) return;
+      if(pd && pd.length){ setPedidos(pd); setPedidosVivos(true); }
+      if(nv) setNovedadesApp(nv);
+      if(ag) setAgendaApp(ag);
+      if(cm) setComisionesApp(cm);
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
   const guardarPedido=({cli, prov, carrito})=>{
     const ahora=new Date();
     const dd=String(ahora.getDate()).padStart(2,"0");
@@ -11913,9 +12183,12 @@ function App(){
 
   // contadores (badges) de la barra inferior: lo pendiente por saber en cada sección
   const HOY="2026-06-13";
-  const badgeNovedades = NOVEDADES_INI.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length; // respuestas del proveedor
-  const badgePedidos = PEDIDOS_INI.filter(p=>p.sync==="pend").length;                                    // pendientes de enviar
-  const badgeEntregados = PEDIDOS_INI.filter(p=>p.estado==="Entregado").length;                          // entregados
+  const badgeNovedades = (novedadesApp||NOVEDADES_INI)
+    .filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length;   // respuestas del proveedor
+  /* con datos del sistema no existe el "pendiente de enviar": lo que pide tu
+     atención es el pedido esperando aprobación */
+  const badgePedidos = pedidos.filter(p=>p.sync==="pend" || p.estado==="Esperando aprobación").length;
+  const badgeEntregados = pedidos.filter(p=>p.estado==="Entregado").length;                             // entregados
   const badgePedidosTotal = badgePedidos + badgeEntregados;                                              // suma para la barra
   // doble clic en un botón de la barra abre el detalle de novedades de esa sección
   const [verDetalle,setVerDetalle]=useState(null); // "novedades" | "pedidos" | "agenda" | "cuenta"
@@ -11929,8 +12202,10 @@ function App(){
     if(t==="inicio"){ setHist([]); } else { setHist(["inicio"]); }
     setTab(t);
   };
-  const badgeAgenda = 2;   // tareas pendientes de hoy (ejemplo del prototipo)
-  const badgeComision = 1; // comisiones recién liberadas (ejemplo del prototipo)
+  const badgeAgenda = agendaApp
+    ? agendaApp.filter(t=>t.fecha===new Date().toISOString().slice(0,10) && !t.hecho).length
+    : 2;   // sin sistema, el ejemplo del prototipo
+  const badgeComision = comisionesApp ? (comisionesApp.porLiberar||0) : 1; // por liberarse
   /* si el total de cosas por ver SUBE, la barra vuelve aunque estés leyendo */
   const totalAvisos = (badgeNovedades||0)+(badgePedidosTotal||0)+(badgeAgenda||0)+(badgeComision||0)+(sinLeerChat||0);
   React.useEffect(()=>{
@@ -11984,16 +12259,16 @@ function App(){
         {tab==="inicio" && <Inicio go={navegar}/>}
         {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado}
           onGuardarPedido={(data)=>{ guardarPedido(data); irAPedidosGuardado(); }}/>}
-        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos}/>}
+        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos} vivo={pedidosVivos}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar}/>}
         {tab==="midia" && <MiDia toast={show} yo="Carlos Andrade (Cobrador)"/>}
         {tab==="boveda" && <Boveda toast={show} yo="Carlos Andrade (Cobrador)"/>}
-        {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)}/>}
+        {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)} datos={comisionesApp}/>}
         {tab==="ajustes" && <Ajustes toast={show} tema={tema} setTema={setTema}
           fontGrande={fontGrande} setFontGrande={setFontGrande}
           prefsNotif={prefsNotif} setPrefsNotif={setPrefsNotif}
           onSalir={()=>setConfirmarSalir(true)}/>}
-        {tab==="agenda" && <Agenda toast={show}/>}
+        {tab==="agenda" && <Agenda toast={show} datos={agendaApp}/>}
         {tab==="stock" && <Stock toast={show}/>}
         {tab==="cartera" && <Cartera toast={show}/>}
         {tab==="clientes" && <Clientes toast={show}/>}
@@ -12001,7 +12276,7 @@ function App(){
         {tab==="portafolio" && <Portafolio modo="comisionista" miSector="Sierra Centro" miDistribuidor="Distribuidora Ríos"/>}
         {tab==="precios" && <ListaPrecios/>}
         {tab==="comisiones" && <Comisiones toast={show}/>}
-        {tab==="novedades" && <Novedades toast={show} go={navegar}/>}
+        {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
 
         {/* ═══ Campana de notificaciones · tareas del rol, ajustables con ⚙ ═══ */}
         <button onClick={()=>setVerNotifs(true)} aria-label="Notificaciones"

@@ -16295,18 +16295,26 @@ function Cuenta({usuario, onSalir}){
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* quién soy en el padrón de usuarios (se resuelve una sola vez por sesión) */
+/* OJO (corregido el 26 jul): aquí se guarda la PROMESA, no el resultado.
+   Antes se marcaba el resultado como "null" al empezar, así que las otras
+   consultas que arrancaban al mismo tiempo se encontraban ese null y creían
+   que no había sesión: la Agenda y las Comisiones se quedaban en demostración
+   aunque sí hubiera datos. Guardando la promesa, todas esperan la misma
+   respuesta y ninguna se adelanta. */
 let _yoPuente;
-async function yoUsuario(){
+function yoUsuario(){
   if(_yoPuente!==undefined) return _yoPuente;
-  _yoPuente=null;
-  try{
-    const { data:s } = await window.SB.auth.getSession();
-    if(s && s.session){
-      const { data:u } = await window.SB.from("usuarios").select("usr_id,nombre,rol")
-        .eq("auth_uid", s.session.user.id).maybeSingle();
-      _yoPuente = u || null;
-    }
-  }catch(e){}
+  _yoPuente=(async()=>{
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      if(s && s.session){
+        const { data:u } = await window.SB.from("usuarios").select("usr_id,nombre,rol")
+          .eq("auth_uid", s.session.user.id).maybeSingle();
+        return u || null;
+      }
+    }catch(e){}
+    return null;
+  })();
   return _yoPuente;
 }
 
