@@ -48,6 +48,7 @@ const PLAN = [
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null], soloSi:"SISTEMA_WEB" },
   /* la función de avisos también vive en el repo privado */
   { arnes:"test_avisos_costo.js",    que:"el aviso cuando cambia un costo",      apps:[null], soloSi:"AVISOS_TS" },
+  { arnes:"test_avisos_pedido_piladora.js", que:"la piladora se entera del pedido", apps:[null], soloSi:"AVISOS_TS" },
   { arnes:"test_invitacion.js",      que:"el enlace de invitación",              apps:[null], navegador:true },
   { arnes:"ver_pantallas.js",        que:"cómo SE VE cada pantalla",             apps:LAS_APPS, navegador:true, visor:true },
 ];

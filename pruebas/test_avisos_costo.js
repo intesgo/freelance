@@ -15,11 +15,11 @@
      · nunca dos veces: el libro `avisos_enviados` manda.
 
    La función vive en el repo privado. Uso:
-     AVISOS_TS=/ruta/empujar-avisos-v6.ts node test_avisos_costo.js
+     AVISOS_TS=/ruta/empujar-avisos-v7.ts node test_avisos_costo.js
    ═══════════════════════════════════════════════════════════════════════ */
 const fs = require("fs"), path = require("path");
 
-const RUTA = process.env.AVISOS_TS || "/tmp/freelance_work/Freelance-Sistema/empujar-avisos-v6.ts";
+const RUTA = process.env.AVISOS_TS || "/tmp/freelance_work/Freelance-Sistema/empujar-avisos-v7.ts";
 if (!fs.existsSync(RUTA)) { console.log("✗ no está el archivo de la función: " + RUTA); process.exit(1); }
 
 let ok = 0, mal = 0;
