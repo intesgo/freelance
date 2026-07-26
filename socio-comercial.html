@@ -1692,7 +1692,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"27", fecha:"25 jul 2026", desc:"Chat a pantalla completa: la barra de escribir baja al borde y la barra inferior se oculta en el chat" };
+const VERSION = { n:"28", fecha:"25 jul 2026", desc:"Mensajes pasa a la barra inferior como quinto boton, con globo de no leidos en vivo" };
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -7344,6 +7344,35 @@ function App(){
   const [sincronizando,setSincronizando]=useState(false);
   // menu lateral: modulos que no estan en el tablero ni en la barra
   const [menuAbierto,setMenuAbierto]=useState(false);
+  /* b· Mensajes en la barra inferior: globo de no leídos, en vivo */
+  const [sinLeerChat,setSinLeerChat]=useState(0);
+  React.useEffect(()=>{
+    let vivo=true, canal=null, miId=null;
+    const contar=async()=>{
+      try{
+        if(!miId) return;
+        const { count } = await window.SB.from("chat_mensajes")
+          .select("msg_id",{count:"exact",head:true}).eq("para_usr",miId).eq("leido",false);
+        if(vivo) setSinLeerChat(count||0);
+      }catch(e){}
+    };
+    (async()=>{
+      try{
+        if(!window.SB) return;
+        const { data:s } = await window.SB.auth.getSession();
+        if(!vivo || !s || !s.session) return;
+        const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).maybeSingle();
+        if(!vivo || !yo) return;
+        miId = yo.usr_id;
+        await contar();
+        canal = window.SB.channel("chat-badge")
+          .on("postgres_changes", { event:"*", schema:"public", table:"chat_mensajes" }, contar)
+          .subscribe();
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; try{ if(canal) window.SB.removeChannel(canal); }catch(e){} };
+  },[]);
+
   const [asistAbierto,setAsistAbierto]=useState(false);   // asistente de consultas por voz
   const [asistVozBurbuja,setAsistVozBurbuja]=useState(false); // escuchando por voz desde la burbuja, SIN panel
   const [asistLista,setAsistLista]=useState(false);       // abrir el panel directo en la lista de preguntas
@@ -7663,7 +7692,6 @@ function App(){
           <div className="drawer-body">
             {/* b26 · orden por uso: primero lo diario, luego el dinero, después consulta */
             [
-              ["mensajes","💬","#E4F1E9","Mensajes","Chat con el freelance · en vivo"],
               ["clientes","👥","#E8F0F7","Clientes","Tu cartera de clientes"],
               ["cartera","💵","#E5F0EA","Cartera","Lo que te deben tus clientes"],
               ["cheques","🔐","#EFEAF7","Mis cheques","Cheques en tu poder"],
@@ -7729,6 +7757,8 @@ function App(){
           <span className="nIco">🗓️{badgeAgenda>0 && <span className="badge">{badgeAgenda}</span>}</span>Agenda</button>
         <button className={tab==="cuenta"?"act":""} onClick={()=>tocarTab("cuenta")}>
           <span className="nIco">📒{badgeComision>0 && <span className="badge">{badgeComision}</span>}</span>Comisiones</button>
+        <button className={tab==="mensajes"?"act":""} onClick={()=>tocarTab("mensajes")}>
+          <span className="nIco">💬{sinLeerChat>0 && <span className="badge">{sinLeerChat}</span>}</span>Mensajes</button>
       </div>}
     </div>
   );
