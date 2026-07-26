@@ -1167,7 +1167,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"61", fecha:"26 jul 2026", desc:"La piladora cambia su costo con fecha, y entra solo" };
+const VERSION = { n:"62", fecha:"26 jul 2026", desc:"Al facturar dices cuántos quintales salieron de verdad de cada producto" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1414,7 +1414,7 @@ async function vivoDecidir(){
     const mio = yo.prov_cod || null;   /* si el usuario es de una piladora, solo lo suyo */
     const [rp, ri, rc, rs] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
-      window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
+      window.SB.from("pedido_items").select("item_id,ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
     ]);
@@ -1430,7 +1430,11 @@ async function vivoDecidir(){
         detalle:(its.length?its[0].descripcion:"Pedido")+" · "+qq+" qq · "+(p.condicion==="contado"?"contado":"crédito"),
         monto, fecha:soloDia(p.creado),
         estado: p.estado==="facturado" ? "facturado" : "pendiente",
-        factura:p.factura||null, demo:!!p.es_demo };
+        factura:p.factura||null, demo:!!p.es_demo,
+        /* las líneas, para poder confirmar cuánto salió de cada producto */
+        lineas: its.map(i=>({ itemId:i.item_id, nombre:i.descripcion,
+          pedido:Number(i.cantidad_qq||0), precio:Number(i.precio_usd||0),
+          despachado: i.despachado_qq==null ? null : Number(i.despachado_qq) })) };
     });
     let sols=((rs&&rs.data)||[]).filter(s=>s.destino==="proveedor");
     if(mio) sols=sols.filter(s=>!s.prov_cod || s.prov_cod===mio);
@@ -1444,14 +1448,23 @@ async function vivoDecidir(){
   }catch(e){ return null; }
 }
 
-/* el pedido queda facturado en el sistema, no solo en la pantalla */
-async function guardarFactura(pedId, numero){
+/* ── FACTURAR ES DECIR CUÁNTO SALIÓ ────────────────────────────────────
+   Un pedido puede salir corto. Si la piladora solo teclea el número de
+   factura, el sistema sigue creyendo que salió todo: le paga al vendedor
+   comisión de quintales que nunca se cargaron y le cobra a Richard margen
+   que no existió. Por eso al facturar se confirma producto por producto.
+   Va en una sola llamada a la base: la factura y las cantidades juntas, o
+   ninguna de las dos. */
+async function guardarFactura(pedId, numero, lineas){
   try{
-    const { error } = await window.SB.from("pedidos")
-      .update({ estado:"facturado", estado_comercial:"facturado", factura:numero })
-      .eq("ped_id", pedId);
-    return !error;
-  }catch(e){ return false; }
+    const { data, error } = await window.SB.rpc("facturar_pedido", {
+      p_ped: pedId, p_factura: numero,
+      p_lineas: (lineas||[]).map(l=>({ item_id:l.itemId, despachado_qq:Number(l.despachado) })),
+    });
+    if(error) return { ok:false, motivo:error.message||"No se pudo facturar" };
+    const r=(data&&data[0])||{};
+    return { ok:true, aviso:r.aviso||"Facturado", parcial:!!r.parcial };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 /* la respuesta a una solicitud queda guardada con su motivo y su fecha */
 async function responderSolicitud(solId, estado, motivo){
@@ -1506,6 +1519,8 @@ function Decisiones({ctx, datos}){
   const [solics,setSolics]=useState(SOLIC_PROV_INI);
   const [cheques,setCheques]=useState(CHEQ_AUT_INI);
   const [numFac,setNumFac]=useState({});          // id → número de factura digitado
+  const [salio,setSalio]=useState({});            // "ped|item" → quintales que salieron
+  const [facturando,setFacturando]=useState("");  // id del pedido que se está guardando
   const [rechazo,setRechazo]=useState(null);      // {id, motivo}
   const [aviso,setAviso]=useState("");
   /* lo que el sistema tenga guardado manda sobre la demostración */
@@ -1522,12 +1537,34 @@ function Decisiones({ctx, datos}){
   const btn2={flex:1,padding:"11px",border:"1px solid var(--linea)",borderRadius:11,background:"#fff",fontWeight:700,fontSize:13,fontFamily:"inherit"};
   const chip=(bg,c,t)=><span style={{fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:20,background:bg,color:c,whiteSpace:"nowrap"}}>{t}</span>;
 
-  const hacerFactura=(p)=>{
+  /* Cuántos quintales salieron de esa línea: lo que la piladora escribió, y
+     mientras no escriba nada, lo pedido. Es lo normal que salga completo. */
+  const qqSalio=(p,l)=>{
+    const v = salio[p.id+"|"+l.itemId];
+    return v===undefined || v==="" ? l.pedido : (parseFloat(v)||0);
+  };
+  const totalSalio=(p)=> (p.lineas||[]).reduce((s,l)=>s+qqSalio(p,l),0);
+  const totalPedido=(p)=> (p.lineas||[]).reduce((s,l)=>s+l.pedido,0);
+  const sobrePedido=(p)=> (p.lineas||[]).some(l=>qqSalio(p,l) > l.pedido + 0.001);
+
+  const hacerFactura=async (p)=>{
     const num=(numFac[p.id]||"").trim();
     if(!num){ toca("Digita el número de factura para "+p.id+"."); return; }
+    if(sobrePedido(p)){ toca("No puedes despachar más de lo que te pidieron."); return; }
+    if(totalSalio(p)<=0){ toca("Si no salió ni un quintal, eso no es una factura."); return; }
+    const lineas=(p.lineas||[]).map(l=>({ itemId:l.itemId, despachado:qqSalio(p,l) }));
+    if(datos){
+      setFacturando(p.id);
+      const r = await guardarFactura(p.id, num, lineas);
+      setFacturando("");
+      if(!r.ok){ toca(r.motivo); return; }
+      setFacturar(fs=>fs.map(x=>x.id===p.id?{...x,estado:"facturado",factura:num,
+        lineas:(x.lineas||[]).map(l=>({...l, despachado:qqSalio(p,l)}))}:x));
+      toca(r.aviso);
+      return;
+    }
+    /* sin sesión: la demostración de siempre */
     setFacturar(fs=>fs.map(x=>x.id===p.id?{...x,estado:"facturado",factura:num}:x));
-    /* el pedido queda facturado en el sistema, no solo en la pantalla */
-    if(datos) guardarFactura(p.id, num);
     toca("Facturado ✓ Nace la comisión de Daniel y el pedido entra a Logística.");
   };
   const confirmarPago=(p)=>{
@@ -1573,11 +1610,59 @@ function Decisiones({ctx, datos}){
             </div>
             {p.estado==="facturado" ? chip("var(--ok-suave)","var(--ok)","Facturada · "+p.factura) : chip("var(--maiz-suave)","#8A6A00","Por facturar")}
           </div>
+          {/* ── Ya facturado y salió corto: queda a la vista, no se esconde ── */}
+          {p.estado==="facturado" && (p.lineas||[]).some(l=>l.despachado!=null && l.despachado < l.pedido) && (
+            <div style={{marginTop:8,fontSize:12,color:"#8A4B2A",fontWeight:600}}>
+              Salió corto: {totalSalio(p)} de {totalPedido(p)} qq
+            </div>
+          )}
+
           {p.estado==="pendiente" && (<>
+            {/* ── CUÁNTO SALIÓ DE CADA PRODUCTO ──────────────────────────
+                Viene puesto lo pedido, que es lo normal. Solo se toca cuando
+                algo salió corto, y ahí mismo se ve lo que eso significa. */}
+            {(p.lineas||[]).length>0 && (
+              <div style={{marginTop:10,borderTop:"1px solid var(--linea)",paddingTop:10}}>
+                <div style={{fontSize:11.5,fontWeight:700,color:"#6B6455",marginBottom:6}}>
+                  ¿Cuántos quintales salieron de cada uno?</div>
+                {(p.lineas||[]).map(l=>{
+                  const v=qqSalio(p,l), corto=v < l.pedido - 0.001, exceso=v > l.pedido + 0.001;
+                  return (
+                    <div key={l.itemId} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0"}}>
+                      <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {l.nombre}
+                        <span className="num" style={{display:"block",fontSize:11,color:"#6B6455"}}>
+                          pidió {l.pedido} qq</span>
+                      </span>
+                      <input className="num" type="number" inputMode="decimal" step="0.01" min="0" max={l.pedido}
+                        value={salio[p.id+"|"+l.itemId] !== undefined ? salio[p.id+"|"+l.itemId] : String(l.pedido)}
+                        onChange={e=>setSalio(x=>({...x,[p.id+"|"+l.itemId]:e.target.value}))}
+                        style={{width:96,minHeight:48,boxSizing:"border-box",padding:"10px",textAlign:"right",
+                          border:"1px solid "+(exceso?"#C2603A":corto?"#B8860B":"var(--linea)"),
+                          borderRadius:10,fontSize:14,fontFamily:"inherit",outline:"none",
+                          background: exceso?"#FDF3F0":corto?"#FCF9EF":"#fff"}}/>
+                    </div>
+                  );
+                })}
+                {sobrePedido(p) ? (
+                  <div style={{fontSize:12,color:"#C2603A",fontWeight:700,marginTop:6}}>
+                    No puedes despachar más de lo que te pidieron.</div>
+                ) : totalSalio(p) < totalPedido(p) - 0.001 ? (
+                  <div style={{fontSize:12,color:"#8A4B2A",marginTop:6,lineHeight:1.45}}>
+                    Sale corto: <b>{totalSalio(p)} de {totalPedido(p)} qq</b>. La factura debe ir por lo
+                    que sale, y el sistema reajusta solo la comisión del vendedor. Lo que faltó no
+                    queda pendiente: si lo quieren, se toma un pedido nuevo.
+                  </div>
+                ) : null}
+              </div>
+            )}
             <input value={numFac[p.id]||""} onChange={e=>setNumFac(n=>({...n,[p.id]:e.target.value}))}
               placeholder="N° de factura · ej: 001-001-0004777" inputMode="numeric"
               style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:"1px solid var(--linea)",borderRadius:10,fontSize:13.5,fontFamily:"inherit",marginTop:10,outline:"none"}}/>
-            <button style={btnOk} onClick={()=>hacerFactura(p)}>Facturar ✓ · nace la comisión y entra a Logística</button>
+            <button style={{...btnOk, opacity: (facturando===p.id || sobrePedido(p)) ? .5 : 1}}
+              disabled={facturando===p.id || sobrePedido(p)}
+              onClick={()=>hacerFactura(p)}>
+              {facturando===p.id ? "Guardando…" : "Facturar ✓ · nace la comisión y entra a Logística"}</button>
           </>)}
         </div>
       ))}

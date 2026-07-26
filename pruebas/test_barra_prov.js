@@ -44,7 +44,7 @@ function montar(conDatos, provCod){
   w.scrollTo=()=>{}; w.open=()=>null; w.print=()=>{}; w.navigator.vibrate=()=>{};
   w.speechSynthesis={speak(){},cancel(){},getVoices:()=>[]};
   w.Notification=function(){}; w.Notification.permission="denied"; w.Notification.requestPermission=async()=>"denied";
-  const escrituras=[];
+  const escrituras=[], llamadas=[];
   const tabla=(n)=>{
     const datos = conDatos ? (FX[n]||[]) : [];
     const p=Promise.resolve({data:datos,error:null,count:0});
@@ -60,13 +60,18 @@ function montar(conDatos, provCod){
   };
   w.SB={ auth:{ getSession:async()=>(conDatos?{data:{session:{user:{id:"auth-p",email:"piladora@ejemplo.com"}}}}:{data:{session:null}}),
       onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}) },
-    from:(n)=>tabla(n), rpc:async()=>({data:null}),
+    from:(n)=>tabla(n),
+    rpc:async(nombre,args)=>{ llamadas.push({nombre,args});
+      if(nombre==="facturar_pedido") return { data:[{ ped_id:args.p_ped, factura:args.p_factura,
+        pedido_qq:150, despachado_qq:130, parcial:true,
+        aviso:"Facturado por 130 qq de los 150 pedidos. Se reajusta la comisión del vendedor." }], error:null };
+      return {data:null, error:null}; },
     channel:()=>({ on(){return this;}, subscribe(){return this;} }), removeChannel:()=>{},
     functions:{ invoke:async()=>({data:{enviados:0},error:null}) },
     storage:{ from:()=>({ upload:async()=>({}), createSignedUrl:async()=>({data:null}) }) } };
   const ctx=dom.getInternalVMContext();
   vm.runInContext(react,ctx); vm.runInContext(reactDom,ctx); vm.runInContext(js,ctx);
-  return { ctx, escrituras };
+  return { ctx, escrituras, llamadas };
 }
 
 const guion=(lab)=>`(async()=>{
@@ -131,21 +136,30 @@ const guion=(lab)=>`(async()=>{
   console.log("═══ lo que se decide, se guarda");
   {
     const m=montar(true);
+    /* Desde la b62 facturar NO es un update suelto: es una sola llamada que
+       guarda el número Y cuántos quintales salieron de cada línea. Si fueran
+       dos escrituras y fallara la segunda, el pedido quedaría facturado con
+       las cantidades del pedido y la comisión saldría inflada. */
     const r=await vm.runInContext(`(async()=>{
-      var a=await guardarFactura("PD-0010","001-001-0004999");
+      var a=await guardarFactura("PD-0010","001-001-0004999",
+        [{itemId:"PD-0010-I1", despachado:80},{itemId:"PD-0010-I2", despachado:50}]);
       var b=await responderSolicitud("SL-0003","rechazada","No hay cupo este mes");
       return JSON.stringify({a:a,b:b});
     })()`, m.ctx);
-    const ped=m.escrituras.find(x=>x.t==="pedidos"&&x.op==="update");
+    const fac=m.llamadas.find(x=>x.nombre==="facturar_pedido");
     const sol=m.escrituras.find(x=>x.t==="solicitudes"&&x.op==="update");
-    comprobar("facturar guarda el número y el estado en el pedido",
-      !!ped && ped.f.factura==="001-001-0004999" && ped.f.estado==="facturado");
-    comprobar("y también el estado comercial", !!ped && ped.f.estado_comercial==="facturado");
+    comprobar("facturar va en UNA sola llamada, con el número y las cantidades",
+      !!fac && fac.args.p_ped==="PD-0010" && fac.args.p_factura==="001-001-0004999" &&
+      Array.isArray(fac.args.p_lineas) && fac.args.p_lineas.length===2);
+    comprobar("cada línea viaja con lo que salió de ella",
+      !!fac && fac.args.p_lineas[0].item_id==="PD-0010-I1" && fac.args.p_lineas[0].despachado_qq===80);
+    comprobar("y NO se escribe el pedido por fuera de esa llamada",
+      !m.escrituras.some(x=>x.t==="pedidos"&&x.op==="update"));
     comprobar("rechazar una solicitud guarda el motivo",
       !!sol && sol.f.estado==="rechazada" && sol.f.motivo_resp==="No hay cupo este mes");
     comprobar("con su fecha de resolución", !!sol && !!sol.f.resuelto_en);
     const res=JSON.parse(r);
-    comprobar("las dos escrituras responden que sí", res.a===true && res.b===true);
+    comprobar("las dos escrituras responden que sí", res.a && res.a.ok===true && res.b===true);
   }
   console.log("Resultado proveedor: "+ok+" ✓ · "+mal+" ✗");
   process.exit(mal?1:0);
