@@ -19,7 +19,10 @@ fs.mkdirSync(DIST, { recursive: true });
 
 /* 1) Copiar todo lo publicable tal cual (sw.js, index.html, etc.) */
 for (const f of fs.readdirSync(RAIZ)) {
-  if ([".git",".github","scripts","dist","node_modules"].includes(f)) continue;
+  /* "pruebas" no se publica: son los arneses, no la app (26 jul) */
+  if ([".git",".github","scripts","dist","node_modules","pruebas"].includes(f)) continue;
+  /* lo que solo sirve para desarrollar tampoco se publica */
+  if (["package.json","package-lock.json",".gitignore"].includes(f)) continue;
   const p = path.join(RAIZ, f);
   if (fs.statSync(p).isFile()) fs.copyFileSync(p, path.join(DIST, f));
 }
