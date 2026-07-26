@@ -11,7 +11,7 @@
    mitad del campo es un problema real.
    ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE = "freelance-v112";
+const CACHE = "freelance-v113";
 const PIEZAS = [
   "./", "./index.html",
   "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",

@@ -1230,7 +1230,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"161", fecha:"25 jul 2026", desc:"Mensajes pasa a la barra inferior como quinto boton, con globo de no leidos en vivo" };
+const VERSION = { n:"162", fecha:"25 jul 2026", desc:"Barra inferior oculta con asa: sube al tocarla o sola cuando entra algo nuevo" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -11703,6 +11703,10 @@ function App(){
   /* ── Botón físico de Android: cierra ventanas y navega hacia atrás dentro de la app ── */
   const [hist,setHist]=useState([]);
   const [menuAbierto,setMenuAbierto]=useState(false);
+  /* b· La barra de abajo vive OCULTA: asa para subirla, y sube sola si entra algo nuevo. */
+  const [barraAbierta,setBarraAbierta]=useState(false);
+  const refAvisos = React.useRef(null);
+
   /* b· Mensajes en la barra inferior: globo de no leídos, en vivo */
   const [sinLeerChat,setSinLeerChat]=useState(0);
   React.useEffect(()=>{
@@ -11890,6 +11894,13 @@ function App(){
   };
   const badgeAgenda = 2;   // tareas pendientes de hoy (ejemplo del prototipo)
   const badgeComision = 1; // comisiones recién liberadas (ejemplo del prototipo)
+  const totalAvisos = (badgeNovedades||0)+(badgePedidosTotal||0)+(badgeAgenda||0)+(badgeComision||0)+(sinLeerChat||0);
+  React.useEffect(()=>{
+    if(refAvisos.current === null){ refAvisos.current = totalAvisos; return; }
+    if(totalAvisos > refAvisos.current) setBarraAbierta(true);
+    refAvisos.current = totalAvisos;
+  },[totalAvisos]);
+
 
   // pantalla de bloqueo total: si el freelance bloqueó al subcomisionista, no entra a nada
   if(bloqueado) return (
@@ -12216,17 +12227,32 @@ function App(){
           navegar(tab);
         }} />
 
-      {tab!=="mensajes" && <div className="nav">
-        <button className={tab==="novedades"?"act":""} onClick={()=>tocarTab("novedades")}>
+      {tab!=="mensajes" && !barraAbierta && (
+        <button onClick={()=>setBarraAbierta(true)} aria-label="Mostrar la barra de abajo"
+          style={{position:"fixed",left:"50%",transform:"translateX(-50%)",
+            bottom:"calc(7px + env(safe-area-inset-bottom,0px))",zIndex:29,
+            width:totalAvisos>0?112:92,height:28,borderRadius:999,background:"rgba(255,255,255,.94)",
+            border:"1px solid var(--line)",boxShadow:"0 2px 12px rgba(20,40,30,.16)",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
+          <span style={{width:32,height:4,borderRadius:2,background:"#C6D2C9",display:"block"}}></span>
+          {totalAvisos>0 && <span style={{minWidth:19,height:19,borderRadius:10,background:"#C0392B",
+            color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",
+            justifyContent:"center",padding:"0 5px"}}>{totalAvisos}</span>}
+        </button>
+      )}
+      {tab!=="mensajes" && barraAbierta && <div className="nav">
+        <button className={tab==="novedades"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("novedades"); }}>
           <span className="nIco">📣{badgeNovedades>0 && <span className="badge">{badgeNovedades}</span>}</span>Novedades</button>
-        <button className={tab==="pedidos"?"act":""} onClick={()=>tocarTab("pedidos")}>
+        <button className={tab==="pedidos"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("pedidos"); }}>
           <span className="nIco">🚚{badgePedidosTotal>0 && <span className="badge">{badgePedidosTotal}</span>}</span>Mis pedidos</button>
-        <button className={tab==="agenda"?"act":""} onClick={()=>tocarTab("agenda")}>
+        <button className={tab==="agenda"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("agenda"); }}>
           <span className="nIco">🗓️{badgeAgenda>0 && <span className="badge">{badgeAgenda}</span>}</span>Agenda</button>
-        <button className={tab==="cuenta"?"act":""} onClick={()=>tocarTab("cuenta")}>
+        <button className={tab==="cuenta"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("cuenta"); }}>
           <span className="nIco">📒{badgeComision>0 && <span className="badge">{badgeComision}</span>}</span>Comisiones</button>
-        <button className={tab==="mensajes"?"act":""} onClick={()=>tocarTab("mensajes")}>
+        <button className={tab==="mensajes"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("mensajes"); }}>
           <span className="nIco">💬{sinLeerChat>0 && <span className="badge">{sinLeerChat}</span>}</span>Mensajes</button>
+        <button onClick={()=>setBarraAbierta(false)} aria-label="Ocultar la barra"
+          style={{flex:"0 0 26px",color:"var(--muted)",fontSize:15,paddingBottom:10}}>⌄</button>
       </div>}
     </div>
   );

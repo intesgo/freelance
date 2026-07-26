@@ -5401,7 +5401,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"362", fecha:"25 jul 2026", desc:"Mensajes pasa a la barra inferior como quinto boton, con globo de no leidos en vivo" };
+const VERSION = { n:"363", fecha:"25 jul 2026", desc:"Barra inferior oculta con asa: sube al tocarla o sola cuando entra algo nuevo, y se guarda al navegar" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -21070,6 +21070,10 @@ function Autorizaciones({toast, usuario}){
 function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
+  /* b363 · La barra de abajo vive OCULTA (decisión de Richard): queda un asa
+     para subirla cuando la necesites, y sube sola si entra algo nuevo. */
+  const [barraAbierta,setBarraAbierta]=useState(false);
+  const refAvisos = React.useRef(null);
   /* b362 · Mensajes vive en la barra inferior: su globo cuenta lo NO leído y se
      actualiza solo (mismo canal en vivo del chat). */
   const [sinLeerChat,setSinLeerChat]=useState(0);
@@ -21347,6 +21351,13 @@ function App({usuario, onSalir}){
     navegar(t);
   };
   const badgeAgenda = 2;   // tareas pendientes de hoy (ejemplo del prototipo)
+  /* total de cosas por ver; si SUBE, la barra aparece sola */
+  const totalAvisos = (badgeNovedades||0)+(badgePedidosTotal||0)+(badgeAgenda||0)+(badgeSolicitudes||0)+(sinLeerChat||0);
+  React.useEffect(()=>{
+    if(refAvisos.current === null){ refAvisos.current = totalAvisos; return; }
+    if(totalAvisos > refAvisos.current) setBarraAbierta(true);
+    refAvisos.current = totalAvisos;
+  },[totalAvisos]);
   const badgeComision = 1; // comisiones recién liberadas (ejemplo del prototipo)
   const badgeEquipo = SOLICITUDES_INI.filter(s=>s.estado==="pendiente").length; // solicitudes por aprobar
 
@@ -21793,22 +21804,38 @@ function App({usuario, onSalir}){
           navegar(tab);
         }} />
 
-      {tab!=="mensajes" && <div className="nav">
-        <button className={tab==="novedades"?"act":""} onClick={()=>tocarTab("novedades")}>
+      {/* asa: sube la barra cuando la necesitas (y avisa si hay algo por ver) */}
+      {tab!=="mensajes" && !barraAbierta && (
+        <button onClick={()=>setBarraAbierta(true)} aria-label="Mostrar la barra de abajo"
+          style={{position:"fixed",left:"50%",transform:"translateX(-50%)",
+            bottom:"calc(7px + env(safe-area-inset-bottom,0px))",zIndex:29,
+            width:totalAvisos>0?112:92,height:28,borderRadius:999,background:"rgba(255,255,255,.94)",
+            border:"1px solid var(--line)",boxShadow:"0 2px 12px rgba(20,40,30,.16)",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
+          <span style={{width:32,height:4,borderRadius:2,background:"#C6D2C9",display:"block"}}></span>
+          {totalAvisos>0 && <span style={{minWidth:19,height:19,borderRadius:10,background:"#C0392B",
+            color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",
+            justifyContent:"center",padding:"0 5px"}}>{totalAvisos}</span>}
+        </button>
+      )}
+      {tab!=="mensajes" && barraAbierta && <div className="nav">
+        <button className={tab==="novedades"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("novedades"); }}>
           <span className="nIco"><Ico n="novedades" c={tab==="novedades"?"#2E7D52":"#8A9A8E"} s={21}/>
             {badgeNovedades>0 && <span className="badge">{badgeNovedades}</span>}</span>Novedades</button>
-        <button className={tab==="pedidos"?"act":""} onClick={()=>tocarTab("pedidos")}>
+        <button className={tab==="pedidos"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("pedidos"); }}>
           <span className="nIco"><Ico n="pedidos" c={tab==="pedidos"?"#2E7D52":"#8A9A8E"} s={21}/>
             {badgePedidosTotal>0 && <span className="badge">{badgePedidosTotal}</span>}</span>Mis pedidos</button>
-        <button className={tab==="agenda"?"act":""} onClick={()=>tocarTab("agenda")}>
+        <button className={tab==="agenda"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("agenda"); }}>
           <span className="nIco"><Ico n="agenda" c={tab==="agenda"?"#2E7D52":"#8A9A8E"} s={21}/>
             {badgeAgenda>0 && <span className="badge">{badgeAgenda}</span>}</span>Agenda</button>
-        <button className={tab==="solicitudes"?"act":""} onClick={()=>tocarTab("solicitudes")}>
+        <button className={tab==="solicitudes"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("solicitudes"); }}>
           <span className="nIco"><Ico n="solicitudes" c={tab==="solicitudes"?"#2E7D52":"#8A9A8E"} s={21}/>
             {badgeSolicitudes>0 && <span className="badge">{badgeSolicitudes}</span>}</span>Solicitudes</button>
-        <button className={tab==="mensajes"?"act":""} onClick={()=>tocarTab("mensajes")}>
+        <button className={tab==="mensajes"?"act":""} onClick={()=>{ setBarraAbierta(false); tocarTab("mensajes"); }}>
           <span className="nIco"><Ico n="mensajes" c={tab==="mensajes"?"#2E7D52":"#8A9A8E"} s={21}/>
             {sinLeerChat>0 && <span className="badge">{sinLeerChat}</span>}</span>Mensajes</button>
+        <button onClick={()=>setBarraAbierta(false)} aria-label="Ocultar la barra"
+          style={{flex:"0 0 26px",color:"var(--muted)",fontSize:15,paddingBottom:10}}>⌄</button>
       </div>}
     </div>
   );

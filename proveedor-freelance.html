@@ -1403,7 +1403,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"52", fecha:"25 jul 2026", desc:"Mensajes pasa a la barra inferior (Reportes se va al menu), con globo de no leidos en vivo" };
+const VERSION = { n:"53", fecha:"25 jul 2026", desc:"Barra inferior oculta con asa: sube al tocarla o sola cuando entra algo nuevo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -2686,6 +2686,9 @@ function App({usuario, onSalir}){
   const cuentasAct  = CUENTAS_INI.filter(c=>c.activa && (!c.hasta || c.hasta>="2026-07-20")).length;
   // ═══ NOTIFICACIONES · tareas del rol Proveedor ═══
   const [verNotifs,setVerNotifs]=useState(false);
+  /* b53 · La barra de abajo vive OCULTA: asa para subirla, y sube sola si entra algo nuevo. */
+  const [barraAbierta,setBarraAbierta]=useState(false);
+  const refAvisos = React.useRef(null);
   /* b52 · Mensajes en la barra inferior: globo de no leídos, en vivo */
   const [sinLeerChat,setSinLeerChat]=useState(0);
   useEffect(()=>{
@@ -2729,6 +2732,12 @@ const TAREAS_NOTIF=[
     + PAGOS_CONF_INI.filter(x=>x.estado==="pendiente").length
     + SOLIC_PROV_INI.filter(x=>x.estado==="pendiente").length
     + CHEQ_AUT_INI.filter(x=>x.estado==="pendiente").length;
+  const totalAvisos = (decidirPend||0)+(credPend||0)+(preciosPend||0)+(sinLeerChat||0);
+  useEffect(()=>{
+    if(refAvisos.current === null){ refAvisos.current = totalAvisos; return; }
+    if(totalAvisos > refAvisos.current) setBarraAbierta(true);
+    refAvisos.current = totalAvisos;
+  },[totalAvisos]);
   const accion = (fn)=>{ fn(); setCola(c=>c+1); };
 
   // Navegar a una pestaña apilando la actual en el historial
@@ -2996,12 +3005,27 @@ const TAREAS_NOTIF=[
         onFinVoz={()=>{ setAsistVozBurbuja(false); }}
         toast={(m)=>{ try{ alert(m); }catch(e){} }}
         onIr={irDesdeAsist} />
-      {tab!=="mensajes" && <nav className="nav">
-        <NavBtn on={tab==="inicio"}   ico="◧" lab="Inicio"     onClick={()=>irInicio()} />
-        <NavBtn on={tab==="decidir"}  ico="⚡" lab="Decidir"    badge={decidirPend} onClick={()=>irTab("decidir")} />
-        <NavBtn on={tab==="creditos"} ico="✓" lab="Créditos"   badge={credPend} onClick={()=>irTab("creditos")} />
-        <NavBtn on={tab==="precios"}  ico="$" lab="Precios"    badge={preciosPend} onClick={()=>irTab("precios")} />
-        <NavBtn on={tab==="mensajes"} ico="💬" lab="Mensajes"  badge={sinLeerChat} onClick={()=>irTab("mensajes")} />
+      {tab!=="mensajes" && !barraAbierta && (
+        <button onClick={()=>setBarraAbierta(true)} aria-label="Mostrar la barra de abajo"
+          style={{position:"fixed",left:"50%",transform:"translateX(-50%)",
+            bottom:"calc(7px + env(safe-area-inset-bottom,0px))",zIndex:41,
+            width:totalAvisos>0?112:92,height:28,borderRadius:999,background:"rgba(255,255,255,.94)",
+            border:"1px solid var(--linea)",boxShadow:"0 2px 12px rgba(20,40,30,.16)",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
+          <span style={{width:32,height:4,borderRadius:2,background:"#C6D2C9",display:"block"}}></span>
+          {totalAvisos>0 && <span style={{minWidth:19,height:19,borderRadius:10,background:"#C0392B",
+            color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",
+            justifyContent:"center",padding:"0 5px"}}>{totalAvisos}</span>}
+        </button>
+      )}
+      {tab!=="mensajes" && barraAbierta && <nav className="nav">
+        <NavBtn on={tab==="inicio"}   ico="◧" lab="Inicio"     onClick={()=>{ setBarraAbierta(false); irInicio(); }} />
+        <NavBtn on={tab==="decidir"}  ico="⚡" lab="Decidir"    badge={decidirPend} onClick={()=>{ setBarraAbierta(false); irTab("decidir"); }} />
+        <NavBtn on={tab==="creditos"} ico="✓" lab="Créditos"   badge={credPend} onClick={()=>{ setBarraAbierta(false); irTab("creditos"); }} />
+        <NavBtn on={tab==="precios"}  ico="$" lab="Precios"    badge={preciosPend} onClick={()=>{ setBarraAbierta(false); irTab("precios"); }} />
+        <NavBtn on={tab==="mensajes"} ico="💬" lab="Mensajes"  badge={sinLeerChat} onClick={()=>{ setBarraAbierta(false); irTab("mensajes"); }} />
+        <button onClick={()=>setBarraAbierta(false)} aria-label="Ocultar la barra"
+          style={{flex:"0 0 26px",color:"var(--texto-3)",fontSize:15,background:"none",border:"none"}}>⌄</button>
       </nav>}
     </div>
   );
