@@ -5405,7 +5405,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"369", fecha:"26 jul 2026", desc:"El asistente de voz responde la cartera de verdad, no la de demostracion" };
+const VERSION = { n:"370", fecha:"26 jul 2026", desc:"El asistente tambien responde comisiones y fichas de cliente con datos reales" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -12096,7 +12096,10 @@ function preguntasVigentes(){
    valor traía una carrera en la que la segunda creía que no había datos. */
 let _carteraViva;      /* filas ya traducidas al formato de siempre */
 let _clientesVivos;    /* nombres de clientes de verdad, para reconocerlos al oírlos */
+let _fichasVivas;      /* por nombre: cupo, deuda, plazo, teléfono, última compra */
+let _comisionesVivas;  /* comisiones con sus fechas, para los cortes por mes */
 let _cargaCartera;     /* la promesa en curso */
+let _cargaComisiones;
 
 function cargarCarteraReal(){
   if(_cargaCartera !== undefined) return _cargaCartera;
@@ -12105,10 +12108,12 @@ function cargarCarteraReal(){
       if(!window.SB) return null;
       const yo = await yoUsuario();
       if(!yo) return null;                       /* sin sesión: demostración */
-      const [rk, rc, ru] = await Promise.all([
+      const [rk, rc, ru, rb, rp] = await Promise.all([
         window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(2000),
-        window.SB.from("clientes").select("cli_id,nombre,sub_id").limit(2000),
+        window.SB.from("clientes").select("cli_id,nombre,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito").limit(2000),
         window.SB.from("usuarios").select("usr_id,nombre").limit(500),
+        window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,contacto_nombre,principal").limit(2000),
+        window.SB.from("pedidos").select("ped_id,cli_id,creado").limit(2000),
       ]);
       const movs = (rk && rk.data) || [];
       if(!movs.length) return null;
@@ -12132,6 +12137,30 @@ function cargarCarteraReal(){
             vendedor: nUsr[subCli[m.cli_id]] || "",
           };
         });
+      /* ── Ficha de cada cliente: lo que el asistente contesta sobre él ──
+         El cupo disponible, los días de crédito, si está bloqueado, a quién
+         llamar y cuándo compró por última vez. Todo de la misma consulta. */
+      const ubic = {}, ultima = {};
+      ((rb && rb.data) || []).forEach(u=>{
+        if(!ubic[u.cli_id] || u.principal) ubic[u.cli_id] = u;
+      });
+      ((rp && rp.data) || []).forEach(pd=>{
+        const f = String(pd.creado || "").slice(0,10);
+        if(f && (!ultima[pd.cli_id] || f > ultima[pd.cli_id])) ultima[pd.cli_id] = f;
+      });
+      const fichas = {};
+      ((rc && rc.data) || []).forEach(c=>{
+        const u = ubic[c.cli_id] || {};
+        fichas[c.nombre] = {
+          cupo: Number(c.cupo || 0), debe: Number(c.usado || 0),
+          diasCredito: Number(c.plazo || 0),
+          bloqueado: !!c.bloqueado, motivo: c.motivo_bloqueo || "",
+          contacto: u.contacto_nombre || "", tel: c.tel || c.tel2 || "",
+          ciudad: u.ciudad || "", ultimaCompra: ultima[c.cli_id] || "",
+        };
+      });
+      if(Object.keys(fichas).length) _fichasVivas = fichas;
+
       if(!vivas.length) return null;
       _carteraViva = vivas;
       return vivas;
@@ -12141,12 +12170,66 @@ function cargarCarteraReal(){
 }
 
 /* Lo que usan las respuestas: lo de verdad si lo hay, la demostración si no. */
+/* "2026-07-22" → "22 de julio" · se dice en voz alta, no se lee en pantalla */
+const MESES_HABLA = ["enero","febrero","marzo","abril","mayo","junio","julio",
+  "agosto","septiembre","octubre","noviembre","diciembre"];
+function fechaHabla(iso){
+  const t = String(iso||"").slice(0,10).split("-");
+  if(t.length !== 3) return String(iso||"—");
+  const m = MESES_HABLA[Number(t[1]) - 1];
+  return m ? (Number(t[2]) + " de " + m) : String(iso);
+}
 const fuenteCartera  = ()=> (_carteraViva && _carteraViva.length) ? _carteraViva : CARTERA_INI;
 const carteraEsViva  = ()=> !!(_carteraViva && _carteraViva.length);
 /* A quién puede nombrar la persona en voz alta. Con datos de verdad son sus
    clientes de verdad; si no, los de la demostración. Sin esto el asistente
    leía la cartera buena pero no reconocía ningún nombre al oírlo. */
 const nombresClientes = ()=> (_clientesVivos && _clientesVivos.length) ? _clientesVivos : CLIENTES;
+const fichasEsVivas   = ()=> !!(_fichasVivas && Object.keys(_fichasVivas).length);
+const fuenteFichas    = ()=> fichasEsVivas() ? _fichasVivas : FICHA_CLIENTE;
+/* la ficha por nombre, aunque lo hayan dicho a medias */
+function fichaDe(cli){
+  const f = fuenteFichas();
+  const k = Object.keys(f).find(x => normAsist(x) === normAsist(cli))
+         || Object.keys(f).find(x => normAsist(x).includes(normAsist(cli)));
+  return k ? { nombre:k, datos:f[k] } : null;
+}
+
+/* ══ COMISIONES VIVAS (b370) ══
+   La regla del negocio: la comisión se GENERA con el pedido y se LIBERA solo
+   cuando el proveedor aprueba el pago (f_conf). Depositar un cheque no basta.
+   Por eso "pendiente de liberar" es: el cliente ya pagó y el proveedor todavía
+   no aprueba. */
+function cargarComisionesReal(){
+  if(_cargaComisiones !== undefined) return _cargaComisiones;
+  _cargaComisiones = (async()=>{
+    try{
+      if(!window.SB) return null;
+      const yo = await yoUsuario();
+      if(!yo) return null;
+      const [rc, ru] = await Promise.all([
+        window.SB.from("comisiones").select("com_id,sub_id,monto,f_gen,f_cli_pago,f_conf,f_pago").limit(2000),
+        window.SB.from("usuarios").select("usr_id,nombre").limit(500),
+      ]);
+      const filas = (rc && rc.data) || [];
+      if(!filas.length) return null;
+      const nUsr = {};
+      ((ru && ru.data) || []).forEach(u=>{ nUsr[u.usr_id]=u.nombre; });
+      const mes = (t)=> t ? String(t).slice(0,7) : null;      /* "2026-07" */
+      _comisionesVivas = filas.map(c=>({
+        monto: Number(c.monto || 0),
+        vendedor: nUsr[c.sub_id] || c.sub_id || "",
+        mesGen: mes(c.f_gen), mesLib: mes(c.f_conf), mesPag: mes(c.f_pago),
+        clientePago: !!c.f_cli_pago, liberada: !!c.f_conf,
+      }));
+      return _comisionesVivas;
+    }catch(e){ return null; }
+  })();
+  return _cargaComisiones;
+}
+const comisionesEsVivas = ()=> !!(_comisionesVivas && _comisionesVivas.length);
+const mesEnCurso = ()=> hoyISO().slice(0,7);
+const sumaCom = (f)=> (_comisionesVivas||[]).filter(f).reduce((a,c)=>a+c.monto,0);
 
 const PREGUNTAS_ASIST = [
   // ── CARTERA Y COBROS ──
@@ -12218,6 +12301,11 @@ const PREGUNTAS_ASIST = [
   // ── COMISIONES ──
   { id:"comisiones", cat:"Comisiones", label:"Comisiones generadas este mes", ic:"📊", pide:null, ir:"equipo",
     responder:()=>{
+      if(comisionesEsVivas()){
+        const t = sumaCom(c => c.mesGen === mesEnCurso());
+        if(!t) return "No hay comisiones generadas en " + MES_ACTUAL_ABR + " todavía.";
+        return "En " + MES_ACTUAL_ABR + " se han generado " + dineroAsist(t) + " en comisiones.";
+      }
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
       let total = 0, hay = false;
@@ -12227,6 +12315,11 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"comLiberadas", cat:"Comisiones", label:"Comisiones liberadas del mes", ic:"✅", pide:null, ir:"equipo",
     responder:()=>{
+      if(comisionesEsVivas()){
+        const t = sumaCom(c => c.mesLib === mesEnCurso());
+        if(!t) return "En " + MES_ACTUAL_ABR + " todavía no se libera ninguna comisión.";
+        return "En " + MES_ACTUAL_ABR + " se han liberado " + dineroAsist(t) + " en comisiones.";
+      }
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
       let total = 0;
@@ -12235,6 +12328,14 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"comPendientes", cat:"Comisiones", label:"Comisiones pendientes de liberar", ic:"⌛", pide:null, ir:"equipo",
     responder:()=>{
+      if(comisionesEsVivas()){
+        /* el cliente ya pagó pero el proveedor no ha aprobado: eso es lo retenido */
+        const t = sumaCom(c => c.clientePago && !c.liberada);
+        if(!t) return "No hay comisiones pendientes de liberar.";
+        const n = (_comisionesVivas||[]).filter(c => c.clientePago && !c.liberada).length;
+        return "Hay " + dineroAsist(t) + " en " + n + " comisión" + (n!==1?"es":"") +
+          " esperando que el proveedor apruebe el pago.";
+      }
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
       let ret = 0;
@@ -12244,6 +12345,10 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"comProveedor", cat:"Comisiones", label:"Comisión del proveedor este mes", ic:"🏭", pide:null, ir:"equipo",
     responder:()=>{
+      /* Esta cifra todavía no vive en el sistema. Con datos de verdad delante,
+         mejor decirlo que soltar el número de la demostración como si fuera tuyo. */
+      if(comisionesEsVivas())
+        return "Todavía no llevo la comisión del proveedor en el sistema. La ves en el módulo de Comisiones.";
       const anio = COMISIONES_PROVEEDOR[2026] ? 2026 : Object.keys(COMISIONES_PROVEEDOR)[0];
       const provs = COMISIONES_PROVEEDOR[anio] || {};
       let total = 0;
@@ -12252,6 +12357,11 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"comAnioTotal", cat:"Comisiones", label:"Comisiones acumuladas del año", ic:"📈", pide:null, ir:"equipo",
     responder:()=>{
+      if(comisionesEsVivas()){
+        const y = hoyISO().slice(0,4);
+        const t = sumaCom(c => String(c.mesGen||"").slice(0,4) === y);
+        return "En " + y + " se han generado " + dineroAsist(t) + " en comisiones.";
+      }
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
       let total = 0;
@@ -12261,43 +12371,55 @@ const PREGUNTAS_ASIST = [
 
   // ── CLIENTES ──
   { id:"cuantosClientes", cat:"Clientes", label:"Cuántos clientes tengo", ic:"👥", pide:null, ir:"clientes",
-    responder:()=>{ return "Tienes " + CLIENTES.length + " clientes registrados."; } },
+    responder:()=>{ return "Tienes " + nombresClientes().length + " clientes registrados."; } },
   { id:"bloqueados", cat:"Clientes", label:"Clientes bloqueados", ic:"🚫", pide:null, ir:"clientes",
     responder:()=>{
-      const bloq = Object.entries(RIESGO_CLIENTE).filter(([c,r])=> (r.vencidas>0 || r.protestados>0)).map(([c])=>c);
+      const bloq = fichasEsVivas()
+        ? Object.keys(_fichasVivas).filter(k => _fichasVivas[k].bloqueado)
+        : Object.entries(RIESGO_CLIENTE).filter(([c,r])=> (r.vencidas>0 || r.protestados>0)).map(([c])=>c);
       if(!bloq.length) return "No hay clientes bloqueados.";
       return "Hay " + bloq.length + " cliente" + (bloq.length!==1?"s":"") + " bloqueado" + (bloq.length!==1?"s":"") + ": " + bloq.join(", ") + ".";
     } },
   { id:"cupoCliente", cat:"Clientes", label:"Cupo disponible de un cliente", ic:"💳", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
-      const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
-      if(!key) return "No encontré la ficha de " + cli + ".";
-      const f = FICHA_CLIENTE[key];
+      const fi = fichaDe(cli);
+      if(!fi) return "No encontré la ficha de " + cli + ".";
+      const f = fi.datos;
+      if(!f.cupo) return fi.nombre + " no tiene cupo de crédito asignado.";
       const disp = (f.cupo||0) - (f.debe||0);
-      return cli + " tiene un cupo de " + dineroAsist(f.cupo) + ", usa " + dineroAsist(f.debe) + " y le queda disponible " + dineroAsist(disp) + ".";
+      return fi.nombre + " tiene un cupo de " + dineroAsist(f.cupo) + ", usa " + dineroAsist(f.debe) + " y le queda disponible " + dineroAsist(disp) + ".";
     } },
   { id:"diasCredito", cat:"Clientes", label:"Días de crédito de un cliente", ic:"🗓️", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
-      const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
-      if(!key) return "No encontré la ficha de " + cli + ".";
-      return cli + " tiene " + (FICHA_CLIENTE[key].diasCredito||0) + " días de crédito.";
+      const fi = fichaDe(cli);
+      if(!fi) return "No encontré la ficha de " + cli + ".";
+      const d = fi.datos.diasCredito || 0;
+      return d ? (fi.nombre + " tiene " + d + " días de crédito.")
+               : (fi.nombre + " no tiene plazo de crédito: vende de contado.");
     } },
   { id:"ultimaCompra", cat:"Clientes", label:"Última compra de un cliente", ic:"🛍️", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
-      const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
-      if(!key) return "No encontré la ficha de " + cli + ".";
-      return "La última compra de " + cli + " fue el " + (FICHA_CLIENTE[key].ultimaCompra||"—") + ".";
+      const fi = fichaDe(cli);
+      if(!fi) return "No encontré la ficha de " + cli + ".";
+      const u = fi.datos.ultimaCompra;
+      return u ? ("La última compra de " + fi.nombre + " fue el " + fechaHabla(u) + ".")
+               : (fi.nombre + " todavía no tiene compras registradas.");
     } },
   { id:"datosCliente", cat:"Clientes", label:"Datos de contacto de un cliente", ic:"📇", pide:"cliente", ir:"clientes",
     responder:(cli)=>{
-      const key = Object.keys(FICHA_CLIENTE).find(k => normAsist(k)===normAsist(cli));
-      if(!key) return "No encontré la ficha de " + cli + ".";
-      const f = FICHA_CLIENTE[key];
-      return cli + ": contacto " + (f.contacto||"—") + ", teléfono " + (f.tel||"—") + ", en " + (f.ciudad||"—") + ".";
+      const fi = fichaDe(cli);
+      if(!fi) return "No encontré la ficha de " + cli + ".";
+      const f = fi.datos;
+      const partes = [];
+      if(f.contacto) partes.push("contacto " + f.contacto);
+      if(f.tel)      partes.push("teléfono " + f.tel);
+      if(f.ciudad)   partes.push("en " + f.ciudad);
+      if(!partes.length) return "De " + fi.nombre + " no tengo datos de contacto guardados.";
+      return fi.nombre + ": " + partes.join(", ") + ".";
     } },
   { id:"clientesVendedor", cat:"Clientes", label:"Clientes de un vendedor", ic:"🧑‍🌾", pide:"vendedor", ir:"equipo",
     responder:(v)=>{
-      const set = new Set(CARTERA_INI.filter(f=>normAsist(f.vendedor||"").includes(normAsist(v))).map(f=>f.cli));
+      const set = new Set(fuenteCartera().filter(f=>normAsist(f.vendedor||"").includes(normAsist(v))).map(f=>f.cli));
       if(!set.size) return "No encontré clientes del vendedor " + v + ".";
       return "El vendedor " + v + " tiene " + set.size + " cliente" + (set.size!==1?"s":"") + " con cartera: " + [...set].join(", ") + ".";
     } },
@@ -12372,6 +12494,11 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"totalRecibirMes", cat:"Resumen", label:"Total a recibir del mes", ic:"💲", pide:null, ir:"equipo",
     responder:()=>{
+      if(comisionesEsVivas()){
+        const t = sumaCom(c => c.mesLib === mesEnCurso() && !c.mesPag);
+        if(!t) return "En " + MES_ACTUAL_ABR + " no tienes comisiones liberadas por cobrar.";
+        return "En " + MES_ACTUAL_ABR + " tienes " + dineroAsist(t) + " liberado y todavía por cobrar.";
+      }
       const anio = COMISIONES_EQUIPO[2026] ? 2026 : Object.keys(COMISIONES_EQUIPO)[0];
       const eq = COMISIONES_EQUIPO[anio] || {};
       let liberada = 0;
@@ -22296,7 +22423,7 @@ function Root(){
   React.useEffect(()=>{ if(sesion) reconectarImpresora(); },[sesion]);
   /* FASE 4 · Etapa 3: precarga el catálogo real al entrar (si hay sesión de correo),
      para que el asistente de voz responda con datos vivos sin abrir Productos. */
-  React.useEffect(()=>{ if(sesion){ try{ cargarCatalogoReal(); }catch(e){} try{ cargarCarteraReal(); }catch(e){} } },[sesion]);
+  React.useEffect(()=>{ if(sesion){ try{ cargarCatalogoReal(); }catch(e){} try{ cargarCarteraReal(); }catch(e){} try{ cargarComisionesReal(); }catch(e){} } },[sesion]);
   if(!sesion) return (
     <div className="shell" style={{background:"var(--paper)"}}>
       <div style={{flex:1, display:"flex", flexDirection:"column"}}>
