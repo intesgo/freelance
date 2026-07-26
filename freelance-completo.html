@@ -5440,7 +5440,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"374", fecha:"26 jul 2026", desc:"Las ofertas se leen de la vista vigente: los costos viejos ya no se cuelan" };
+const VERSION = { n:"375", fecha:"26 jul 2026", desc:"Al aprobar un pedido decides cómo le pagas tú a la piladora: de contado o a crédito" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10326,7 +10326,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   );
 }
 
-function Pedidos({pedidos=PEDIDOS_INI, toast, vivo}){
+function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
   useRetroceso(()=>{
       if(verFechas){ setVerFechas(false); return true; }
       if(sel){ setSel(null); return true; }
@@ -10345,7 +10345,11 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo}){
   const POR_PAGINA=15;
   if(sel){
     const p=pedidos.find(x=>x.id===sel);
-    return <DetallePedido p={p} modo={verComo} volver={()=>setSel(null)}/>;
+    /* si el pedido desapareció de la lista (se recargó y cambió de pestaña),
+       no dejar la pantalla en blanco: se vuelve al listado */
+    if(!p){ setSel(null); return null; }
+    return <DetallePedido p={p} modo={verComo} volver={()=>setSel(null)}
+      vivo={vivo} toast={toast} onAprobado={onRecargar}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado"];
@@ -10564,13 +10568,125 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo}){
   </>);
 }
 
-function DetallePedido({p, modo="factura", volver}){
+/* ── CÓMO LE PAGAS TÚ A LA PILADORA ────────────────────────────────────
+   Son dos cosas distintas que se venían confundiendo en una sola:
+     · `cond`     = cómo te paga el CLIENTE a ti.
+     · `pagoProv` = cómo le pagas TÚ a la piladora.
+   Un pedido puede ser a crédito para el cliente y de contado para la
+   piladora: esa diferencia es tuya. Por eso se decide AQUÍ, al aprobar
+   —que es cuando el pedido pasa por tus manos— y no al final, cuando ya
+   no sirve para decidir nada.
+   La hoja viene marcada con la costumbre de esa piladora, pero la
+   costumbre nunca decide sola: hay que confirmar. */
+function PagoPiladoraSheet({p, onClose, onConfirmar, guardando}){
+  const [pago,setPago]=useState(p.pagoHabitual||"");
+  const [recordar,setRecordar]=useState(false);
+  const [cuenta,setCuenta]=useState(null);       // la cuenta del ahorro
+  const [buscando,setBuscando]=useState(true);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      const r=await ahorroContado(p.id);
+      if(!vivo) return;
+      setCuenta(r); setBuscando(false);
+    })();
+    return ()=>{ vivo=false; };
+  },[p.id]);
+  const ahorro = cuenta ? cuenta.ahorro : 0;
+  const incompleta = !!(cuenta && cuenta.sinCosto>0);
+  const OPC = [
+    {v:"contado", t:"De contado", d:"Le pagas ya y te llevas el descuento"},
+    {v:"credito", t:"A crédito",  d:"Le pagas después, al costo de crédito"},
+  ];
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="sheet" onClick={e=>e.stopPropagation()}>
+        <h3>¿Cómo le pagas a {p.prov}?</h3>
+        <div className="sh-sub">{p.cli} · {p.cant} qq · el cliente te paga a {String(p.cond||"").toLowerCase()}</div>
+
+        {OPC.map(o=>(
+          <button key={o.v} onClick={()=>setPago(o.v)}
+            style={{width:"100%",display:"flex",alignItems:"center",gap:12,textAlign:"left",
+              padding:"14px 14px",marginBottom:10,minHeight:56,borderRadius:12,cursor:"pointer",
+              fontFamily:"inherit",background:pago===o.v?"#F1F7F3":"var(--paper)",
+              border:pago===o.v?"2px solid var(--field)":"1px solid var(--line)"}}>
+            <span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",display:"inline-flex",
+              alignItems:"center",justifyContent:"center",fontSize:12,color:"#fff",
+              background:pago===o.v?"var(--field)":"#D8D2C6"}}>{pago===o.v?"✓":""}</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontWeight:700,fontSize:14}}>{o.t}</span>
+              <span className="meta" style={{fontSize:11.5}}>{o.d}</span>
+            </span>
+            {o.v==="contado" && cuenta && ahorro>0 &&
+              <span className="num" style={{flexShrink:0,fontWeight:800,fontSize:13,color:"var(--field)"}}>
+                −{money(ahorro)}</span>}
+          </button>
+        ))}
+
+        {/* la cuenta, dicha sin adornos y sin inventar lo que no se sabe */}
+        <div className="meta" style={{margin:"2px 2px 12px",fontSize:11.5,lineHeight:1.45}}>
+          {buscando ? "Sacando la cuenta…"
+           : !cuenta ? "No se pudo traer el costo ahora. Puedes elegir igual: la cuenta no cambia la decisión, solo la explica."
+           : incompleta ? ("⚠️ A "+cuenta.sinCosto+" producto"+(cuenta.sinCosto!==1?"s":"")+" de este pedido le falta el costo de la piladora. Lo que se muestra está incompleto.")
+           : ahorro>0 ? ("A crédito te cuesta "+money(cuenta.credito)+" y de contado "+money(cuenta.contado)+": te ahorras "+money(ahorro)+" en "+cuenta.qq+" qq.")
+           : ("Esta piladora no hace descuento por contado en este pedido: te cuesta "+money(cuenta.credito)+" de las dos formas.")}
+        </div>
+
+        {pago && (
+          <label style={{display:"flex",alignItems:"center",gap:10,minHeight:44,
+            margin:"0 2px 14px",cursor:"pointer",fontSize:12.5}}>
+            <input type="checkbox" checked={recordar} onChange={e=>setRecordar(e.target.checked)}
+              style={{width:20,height:20,flexShrink:0}}/>
+            <span>Es lo habitual con {p.prov}: dejarlo marcado la próxima vez</span>
+          </label>
+        )}
+
+        <button className="cta" disabled={!pago || guardando}
+          onClick={()=>onConfirmar(pago, recordar)}>
+          {guardando ? "Enviando…" : "Confirmar y enviar el pedido"}</button>
+        <button className="ghost" onClick={onClose} disabled={guardando}>Ahora no</button>
+      </div>
+    </div>
+  );
+}
+
+function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
   const [vista,setVista]=useState(modo); // factura | seguimiento
+  const [pidiendoPago,setPidiendoPago]=useState(false);
+  const [guardando,setGuardando]=useState(false);
+  useModal(pidiendoPago, React.useCallback(()=>setPidiendoPago(false),[]));
   const cumplidos = p.linea.filter(x=>x.st==="ok").length;
   const monto=p.cant*p.precio;
   const fmt=f=>{ const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]} ${d.getFullYear()}`; };
+  /* Aprobar es escribir en el sistema: solo con datos de verdad. En la
+     demostración el botón no aparece, para no prometer lo que no hace. */
+  const sePuedeAprobar = !!vivo && !p.demo && p.estado==="Esperando aprobación";
+  const NOMBRE_PAGO = {contado:"de contado", credito:"a crédito"};
+  const confirmarPago = async (pago, recordar)=>{
+    setGuardando(true);
+    const r = await aprobarPedidoEnBase(p.id, pago, recordar);
+    setGuardando(false);
+    if(!r.ok){ if(toast) toast(r.motivo || "No se pudo aprobar"); return; }
+    setPidiendoPago(false);
+    if(toast) toast(r.aviso);
+    if(onAprobado) onAprobado();
+  };
   return (<>
+
+    {sePuedeAprobar && (
+      <div className="card" style={{marginBottom:14,borderLeft:"4px solid #C9A227",background:"#FCF9EF"}}>
+        <div style={{fontWeight:800,fontSize:14,marginBottom:3}}>Este pedido te está esperando</div>
+        <div className="meta" style={{fontSize:12,lineHeight:1.45,marginBottom:12}}>
+          Al aprobarlo sale hacia {p.prov}. Antes dinos cómo le pagas tú a ella
+          este pedido: de eso depende tu ganancia.
+        </div>
+        <button className="cta" style={{marginBottom:0}} onClick={()=>setPidiendoPago(true)}>
+          Aprobar y enviar a la piladora</button>
+      </div>
+    )}
+    {pidiendoPago && <PagoPiladoraSheet p={p} guardando={guardando}
+      onClose={()=>{ if(!guardando) setPidiendoPago(false); }} onConfirmar={confirmarPago}/>}
 
     {/* toggle entre Factura y Seguimiento */}
     <div className="eq-tabs" style={{marginBottom:16}}>
@@ -10585,7 +10701,12 @@ function DetallePedido({p, modo="factura", volver}){
           <span style={{fontWeight:800,fontSize:16}}>{p.cli}</span>
           <span className="meta" style={{fontSize:11.5,whiteSpace:"nowrap"}}>{fmt(p.fecha)}</span>
         </div>
-        <div className="meta" style={{fontSize:11.5,marginBottom:12}}>{p.prov} · {p.cond}</div>
+        <div className="meta" style={{fontSize:11.5,marginBottom:12}}>{p.prov} · el cliente te paga a {String(p.cond||"").toLowerCase()}</div>
+        {p.pagoProv && (
+          <div className="meta" style={{fontSize:11.5,marginTop:-8,marginBottom:12,fontWeight:700,color:"var(--field)"}}>
+            A {p.prov} le pagas {NOMBRE_PAGO[p.pagoProv]||p.pagoProv}
+          </div>
+        )}
 
         {/* líneas de producto: 3 columnas alineadas */}
         <div style={{borderTop:"1px solid #EFEBE0",paddingTop:10}}>
@@ -16588,13 +16709,13 @@ async function vivoPedidos(){
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
-      window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
+      window.SB.from("proveedores").select("prov_cod,nombre,pago_habitual").limit(200),
       window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
     ]);
     const peds=rp&&rp.data; if(!peds || !peds.length) return null;
-    const nCli={}, nProv={}, com={};
+    const nCli={}, nProv={}, com={}, habProv={};
     ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
-    ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
+    ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; habProv[p.prov_cod]=p.pago_habitual||""; });
     ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
     const items=(ri&&ri.data)||[];
     return peds.map(p=>{
@@ -16615,6 +16736,9 @@ async function vivoPedidos(){
         estado:m.t, etapa:m.etapa, sync:"ok",
         comisionLiberada: p.estado==="cerrado" || (c && c.estado==="pagada"),
         factura:p.factura||"", ciudad:p.ciudad||"", demo:!!p.es_demo,
+        /* cómo le pagas TÚ a la piladora este pedido (no confundir con `cond`,
+           que es cómo te paga el cliente a ti). Vacío = todavía no se decide. */
+        provCod:p.prov_cod||"", pagoProv:p.pago_prov||"", pagoHabitual:habProv[p.prov_cod]||"",
         linea: ETAPAS_PEDIDO.map((t,i)=>({
           t,
           f: i===0 ? selloCorto(p.creado) : (i<m.linea ? "✓ cumplido" : "—"),
@@ -16624,6 +16748,36 @@ async function vivoPedidos(){
       };
     });
   }catch(e){ return null; }
+}
+
+/* ── CUÁNTO CAMBIA PAGARLE DE CONTADO A LA PILADORA ────────────────────
+   La cuenta la hace la base, con el costo que estaba vigente EL DÍA en que
+   se tomó el pedido —no el de hoy—, porque la piladora pudo haber subido el
+   costo después. `sinCosto` dice a cuántos productos les falta el costo
+   cargado: si no es cero, la cuenta está incompleta y hay que decirlo. */
+async function ahorroContado(pedId){
+  try{
+    const { data, error } = await window.SB.rpc("ahorro_contado", { p_ped: pedId });
+    if(error || !data || !data.length) return null;
+    const r = data[0] || {};
+    return { qq:Number(r.qq||0), credito:Number(r.total_credito||0),
+             contado:Number(r.total_contado||0), ahorro:Number(r.ahorro||0),
+             sinCosto:Number(r.sin_costo||0) };
+  }catch(e){ return null; }
+}
+
+/* ── APROBAR EL PEDIDO Y DECIR CÓMO SE LE PAGA ─────────────────────────
+   Una sola llamada: pasa a "enviado al proveedor", guarda la forma de pago
+   y, si se pide, la deja como costumbre de esa piladora. O pasan las tres
+   cosas o ninguna: nunca queda un pedido aprobado sin forma de pago. */
+async function aprobarPedidoEnBase(pedId, pago, recordar){
+  try{
+    const { data, error } = await window.SB.rpc("aprobar_pedido",
+      { p_ped:pedId, p_pago:pago, p_recordar:!!recordar });
+    if(error) return { ok:false, motivo:error.message||"No se pudo aprobar" };
+    const r = (data && data[0]) || {};
+    return { ok:true, aviso:r.aviso||"Pedido aprobado", pago:r.pago_prov||pago };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
 /* ── SOLICITUDES ───────────────────────────────────────────────────────
@@ -22169,6 +22323,12 @@ function App({usuario, onSalir}){
     })();
     return ()=>{ vivo=false; };
   },[]);
+  /* Después de aprobar un pedido la lista tiene que reflejarlo enseguida:
+     se vuelve a leer solo los pedidos, sin recargar la app entera. */
+  const recargarPedidos = React.useCallback(async()=>{
+    const pd = await vivoPedidos();
+    if(pd && pd.length){ setPedidos(pd); setPedidosVivos(true); }
+  },[]);
   const badgeSolicitudes=(((solicitudesApp&&solicitudesApp.recibidas)||SOLICITUDES_INI)
     .filter(s=>s.estado==="pendiente")).length; // pendientes por aprobar (del sistema si lo hay)
   const [toast,setToast]=useState(null);
@@ -22491,7 +22651,7 @@ function App({usuario, onSalir}){
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           go={navegar}
           onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
-        {tab==="pedidos" && <Pedidos pedidos={pedidos} vivo={pedidosVivos} toast={show}/>}
+        {tab==="pedidos" && <Pedidos pedidos={pedidos} vivo={pedidosVivos} toast={show} onRecargar={recargarPedidos}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="midia" && <MiDia toast={show} usuario={usuario}/>}
         {tab==="boveda" && <Boveda toast={show} yo="Daniel Ríos (Freelance)"/>}
