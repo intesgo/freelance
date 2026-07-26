@@ -5405,7 +5405,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"368", fecha:"26 jul 2026", desc:"Sin fila en el padron no se entra: se acabo el rol de freelance por defecto" };
+const VERSION = { n:"369", fecha:"26 jul 2026", desc:"El asistente de voz responde la cartera de verdad, no la de demostracion" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -12084,11 +12084,75 @@ function preguntasVigentes(){
   return base.concat(propias);
 }
 
+/* ══ CARTERA VIVA PARA EL ASISTENTE (b369) ══
+   El asistente de voz respondía SIEMPRE con la cartera de demostración: si
+   Richard preguntaba "¿cuánto me debe Mendoza?", contestaba un número inventado
+   con toda seguridad. Peor que no responder. Ahora, con sesión, lee la cartera
+   de verdad; sin sesión (o si la base no responde) sigue la demostración, que
+   es lo que hace el resto de la app.
+
+   Se guarda la PROMESA, no el resultado: si dos pantallas preguntan al mismo
+   tiempo, se hace una sola consulta y las dos esperan la misma. Guardar el
+   valor traía una carrera en la que la segunda creía que no había datos. */
+let _carteraViva;      /* filas ya traducidas al formato de siempre */
+let _clientesVivos;    /* nombres de clientes de verdad, para reconocerlos al oírlos */
+let _cargaCartera;     /* la promesa en curso */
+
+function cargarCarteraReal(){
+  if(_cargaCartera !== undefined) return _cargaCartera;
+  _cargaCartera = (async()=>{
+    try{
+      if(!window.SB) return null;
+      const yo = await yoUsuario();
+      if(!yo) return null;                       /* sin sesión: demostración */
+      const [rk, rc, ru] = await Promise.all([
+        window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(2000),
+        window.SB.from("clientes").select("cli_id,nombre,sub_id").limit(2000),
+        window.SB.from("usuarios").select("usr_id,nombre").limit(500),
+      ]);
+      const movs = (rk && rk.data) || [];
+      if(!movs.length) return null;
+      const nCli = {}, subCli = {}, nUsr = {};
+      ((rc && rc.data) || []).forEach(c=>{ nCli[c.cli_id]=c.nombre; subCli[c.cli_id]=c.sub_id; });
+      /* los nombres de verdad: sin esto el asistente no reconoce a nadie al oírlo */
+      _clientesVivos = ((rc && rc.data) || []).map(c=>c.nombre).filter(Boolean);
+      ((ru && ru.data) || []).forEach(u=>{ nUsr[u.usr_id]=u.nombre; });
+      /* "dias" es como en la demostración: positivo = vencida hace tantos días,
+         0 = vence hoy, negativo = le faltan tantos para vencer. */
+      const hoy = new Date(hoyISO() + "T00:00:00");
+      const vivas = movs
+        .filter(m => String(m.estado||"").toLowerCase() !== "pagado")
+        .map(m=>{
+          const v = m.vence ? new Date(String(m.vence).slice(0,10) + "T00:00:00") : null;
+          return {
+            cli: nCli[m.cli_id] || m.cli_id,
+            fac: m.doc || "—",
+            saldo: Number(m.monto || 0),
+            dias: v ? Math.round((hoy - v) / 86400000) : 0,
+            vendedor: nUsr[subCli[m.cli_id]] || "",
+          };
+        });
+      if(!vivas.length) return null;
+      _carteraViva = vivas;
+      return vivas;
+    }catch(e){ return null; }
+  })();
+  return _cargaCartera;
+}
+
+/* Lo que usan las respuestas: lo de verdad si lo hay, la demostración si no. */
+const fuenteCartera  = ()=> (_carteraViva && _carteraViva.length) ? _carteraViva : CARTERA_INI;
+const carteraEsViva  = ()=> !!(_carteraViva && _carteraViva.length);
+/* A quién puede nombrar la persona en voz alta. Con datos de verdad son sus
+   clientes de verdad; si no, los de la demostración. Sin esto el asistente
+   leía la cartera buena pero no reconocía ningún nombre al oírlo. */
+const nombresClientes = ()=> (_clientesVivos && _clientesVivos.length) ? _clientesVivos : CLIENTES;
+
 const PREGUNTAS_ASIST = [
   // ── CARTERA Y COBROS ──
   { id:"pendiente", cat:"Cartera", label:"Valor pendiente de un cliente", ic:"💰", pide:"cliente", ir:"cartera",
     responder:(cli)=>{
-      const facs = CARTERA_INI.filter(f => normAsist(f.cli) === normAsist(cli));
+      const facs = fuenteCartera().filter(f => normAsist(f.cli) === normAsist(cli));
       if(!facs.length) return "No encontré cartera pendiente de " + cli + ".";
       const total = facs.reduce((a,f)=>a+(f.saldo||0),0);
       const venc = facs.filter(f=>(f.dias||0)>0).reduce((a,f)=>a+(f.saldo||0),0);
@@ -12097,13 +12161,21 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"vencidasCli", cat:"Cartera", label:"Facturas vencidas de un cliente", ic:"⏰", pide:"cliente", ir:"cartera",
     responder:(cli)=>{
-      const venc = CARTERA_INI.filter(f => normAsist(f.cli)===normAsist(cli) && (f.dias||0)>0);
+      const venc = fuenteCartera().filter(f => normAsist(f.cli)===normAsist(cli) && (f.dias||0)>0);
       if(!venc.length) return cli + " no tiene facturas vencidas.";
       const total = venc.reduce((a,f)=>a+(f.saldo||0),0);
       return cli + " tiene " + venc.length + " factura" + (venc.length!==1?"s":"") + " vencida" + (venc.length!==1?"s":"") + " por " + dineroAsist(total) + ".";
     } },
   { id:"cobrosHoy", cat:"Cartera", label:"Cobros para hoy", ic:"💵", pide:null, ir:"cartera",
     responder:()=>{
+      /* con datos de verdad, "hoy" sale de la fecha de vencimiento */
+      if(carteraEsViva()){
+        const hv = fuenteCartera().filter(f => (f.dias||0) === 0);
+        if(!hv.length) return "No hay cobros que venzan hoy.";
+        const tv = hv.reduce((a,f)=>a+(f.saldo||0),0);
+        return "Hoy vencen " + hv.length + " cobro" + (hv.length!==1?"s":"") + " por " + dineroAsist(tv) +
+          ": " + hv.map(f=>f.cli).join(", ") + ".";
+      }
       const hoy = COBROS_INI.filter(c => /hoy/i.test(c.vence));
       if(!hoy.length) return "No hay cobros que venzan hoy.";
       const total = hoy.reduce((a,c)=>a+(c.valor||0),0);
@@ -12111,33 +12183,33 @@ const PREGUNTAS_ASIST = [
     } },
   { id:"cobrosSemana", cat:"Cartera", label:"Facturas que vencen esta semana", ic:"📆", pide:null, ir:"cartera",
     responder:()=>{
-      const sem = CARTERA_INI.filter(f => (f.dias||0)>=-7 && (f.dias||0)<=0);
+      const sem = fuenteCartera().filter(f => (f.dias||0)>=-7 && (f.dias||0)<=0);
       if(!sem.length) return "No hay facturas que venzan esta semana.";
       const total = sem.reduce((a,f)=>a+(f.saldo||0),0);
       return sem.length + " factura" + (sem.length!==1?"s":"") + " vence" + (sem.length!==1?"n":"") + " esta semana por " + dineroAsist(total) + ".";
     } },
   { id:"carteraVencida", cat:"Cartera", label:"Total de cartera vencida", ic:"🔴", pide:null, ir:"cartera",
     responder:()=>{
-      const venc = CARTERA_INI.filter(f => (f.dias||0)>0);
+      const venc = fuenteCartera().filter(f => (f.dias||0)>0);
       const total = venc.reduce((a,f)=>a+(f.saldo||0),0);
       return "La cartera vencida del negocio suma " + dineroAsist(total) + " en " + venc.length + " factura" + (venc.length!==1?"s":"") + ".";
     } },
   { id:"totalPorCobrar", cat:"Cartera", label:"Total por cobrar del negocio", ic:"🏦", pide:null, ir:"cartera",
     responder:()=>{
-      const total = CARTERA_INI.reduce((a,f)=>a+(f.saldo||0),0);
-      return "El total por cobrar del negocio es " + dineroAsist(total) + " en " + CARTERA_INI.length + " facturas.";
+      const total = fuenteCartera().reduce((a,f)=>a+(f.saldo||0),0);
+      return "El total por cobrar del negocio es " + dineroAsist(total) + " en " + fuenteCartera().length + " facturas.";
     } },
   { id:"clienteMasDebe", cat:"Cartera", label:"Cliente que más debe", ic:"📛", pide:null, ir:"cartera",
     responder:()=>{
       const porCli = {};
-      CARTERA_INI.forEach(f=>{ porCli[f.cli]=(porCli[f.cli]||0)+(f.saldo||0); });
+      fuenteCartera().forEach(f=>{ porCli[f.cli]=(porCli[f.cli]||0)+(f.saldo||0); });
       const arr = Object.entries(porCli).sort((a,b)=>b[1]-a[1]);
       if(!arr.length) return "No hay cartera registrada.";
       return "El cliente que más debe es " + arr[0][0] + " con " + dineroAsist(arr[0][1]) + ".";
     } },
   { id:"cobrosVendedor", cat:"Cartera", label:"Cartera de un vendedor", ic:"🧑‍💼", pide:"vendedor", ir:"equipo",
     responder:(v)=>{
-      const facs = CARTERA_INI.filter(f => normAsist(f.vendedor||"").includes(normAsist(v)));
+      const facs = fuenteCartera().filter(f => normAsist(f.vendedor||"").includes(normAsist(v)));
       if(!facs.length) return "No encontré cartera del vendedor " + v + ".";
       const total = facs.reduce((a,f)=>a+(f.saldo||0),0);
       return "El vendedor " + v + " tiene " + dineroAsist(total) + " en cartera, en " + facs.length + " facturas.";
@@ -12373,12 +12445,12 @@ function interpretarAsist(frase){
   };
   let dato = null;
   if(mejor.pide === "cliente"){
-    dato = CLIENTES.find(calzaNombre) || null;
+    dato = nombresClientes().find(calzaNombre) || null;
   } else if(mejor.pide === "producto"){
     const pr = catProds().find(p => calzaNombre(p.marca));
     dato = pr ? pr.marca : null;
   } else if(mejor.pide === "vendedor"){
-    const vs = [...new Set(CARTERA_INI.map(x=>x.vendedor).filter(Boolean))];
+    const vs = [...new Set(fuenteCartera().map(x=>x.vendedor).filter(Boolean))];
     dato = vs.find(calzaNombre) || null;
   } else if(mejor.pide === "linea"){
     const ls = [...new Set(catProds().map(p=>p.linea).filter(Boolean))];
@@ -22224,7 +22296,7 @@ function Root(){
   React.useEffect(()=>{ if(sesion) reconectarImpresora(); },[sesion]);
   /* FASE 4 · Etapa 3: precarga el catálogo real al entrar (si hay sesión de correo),
      para que el asistente de voz responda con datos vivos sin abrir Productos. */
-  React.useEffect(()=>{ if(sesion){ try{ cargarCatalogoReal(); }catch(e){} } },[sesion]);
+  React.useEffect(()=>{ if(sesion){ try{ cargarCatalogoReal(); }catch(e){} try{ cargarCarteraReal(); }catch(e){} } },[sesion]);
   if(!sesion) return (
     <div className="shell" style={{background:"var(--paper)"}}>
       <div style={{flex:1, display:"flex", flexDirection:"column"}}>
