@@ -1413,7 +1413,10 @@ const USOS_KEY = "freelance_usos_socio_v1";
 const USOS_SEMILLA = {
   bancos:{ "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
            "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3 },
-  couriers:{ "Servientrega":18, "Laar Courier":9, "Tramaco":4 },
+  /* a quien se entrega el cheque: el socio casi siempre entrega al mismo.
+     Semilla baja, solo para respetar el orden escrito el primer dia. */
+  entrega:{ "Daniel Ríos (Freelance)":4, "Diana Boada (Logística)":3,
+            "Agrícola del Valle":2, "Molinos del Litoral":1 },
 };
 /* Lee lo guardado y lo monta sobre la semilla. Si el teléfono no deja guardar
    (modo privado, memoria llena) o el dato quedó corrupto, sigue con la semilla. */
@@ -1432,7 +1435,10 @@ function cargarUsos(){
 function guardarUsos(){ try{ localStorage.setItem(USOS_KEY, JSON.stringify(USOS)); }catch(e){} }
 const USOS = cargarUsos();
 /* categorías donde el orden propio manda: nunca se reordenan por uso */
-const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas"];
+/* "modalidades" (Efectivo/Deposito/Transferencia/Cheque) va aqui por DECISION,
+   no por olvido: son botones de forma de pago y el socio los toca de memoria.
+   Si cambian de lugar, marca el equivocado. */
+const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas","modalidades"];
 /* opciones que siempre van al final, sin importar cuánto se usen: si "Otro" sube
    por uso, tapa los motivos de verdad y la lista deja de servir */
 const USO_ULTIMO = ["Otro","Otros","Ninguno","No aplica"];
@@ -1525,7 +1531,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"41", fecha:"27 jul 2026", desc:"Otro se queda al final de la lista aunque lo uses mucho: los motivos reales no se tapan" };
+const VERSION = { n:"42", fecha:"27 jul 2026", desc:"La lista de a quien entregas el cheque se acomoda sola: primero a quien mas le entregas" };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -4181,12 +4187,12 @@ function MisCheques({toast}){
               <h3>¿A quién se lo entregas?</h3>
               <div style={{fontSize:16,color:"var(--muted)",margin:"8px 0 16px"}}>
                 Cheque de {entregando.cli} · {money(entregando.valor)}</div>
-              {A_QUIEN_ENTREGO.map(p=>(
+              {ordUso("entrega", A_QUIEN_ENTREGO).map(p=>(
                 <button key={p} className="back"
                   style={{width:"100%",marginBottom:10,padding:"16px",fontSize:16,
                     textAlign:"left",fontWeight:aQuien===p?700:500,
                     background:aQuien===p?"var(--field-soft)":undefined}}
-                  onClick={()=>setAQuien(p)}>{aQuien===p?"✓ ":""}{p}</button>
+                  onClick={()=>{regUso("entrega",p);setAQuien(p);}}>{aQuien===p?"✓ ":""}{p}</button>
               ))}
               <button className="cta" style={{marginTop:8}} onClick={entregar}>Continuar</button>
               <button className="back" style={{width:"100%",marginTop:10}}
