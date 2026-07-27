@@ -87,6 +87,15 @@ function montar({ claveBuena = true } = {}) {
         React.createElement(PantallaLogin, { onAutenticado: function(u){ __avisos.push(u||{}); } }));
     });
     window.__txt = function(){ return window.__cont.textContent || ""; };
+    /* Por etiqueta accesible: el botón del ojo ya no tiene texto, y buscar
+       por texto hacía que "ver" cazara con "Volver al ingreso con huella".
+       Es la cuarta vez que dos botones parecidos engañan a un arnés. */
+    window.__tocarAria = function(t){
+      var bs = window.__cont.querySelectorAll("button[aria-label]");
+      for(var i=0;i<bs.length;i++){
+        if((bs[i].getAttribute("aria-label")||"").indexOf(t)>=0 && !bs[i].disabled){ bs[i].click(); return true; } }
+      return false;
+    };
     window.__tocar = function(t){
       var bs = window.__cont.querySelectorAll("button");
       for(var i=0;i<bs.length;i++){
@@ -137,7 +146,8 @@ async function llenar(m, correo, clave) {
   comprobar("la clave nace tapada", c.clave === 1 && c.texto === 1);
 
   /* ── 2 · ver / ocultar ───────────────────────────────────────────── */
-  comprobar("hay un botón para ver la clave", tocar(m, "VER") || tocar(m, "Ver") || tocar(m, "ver"));
+  comprobar("hay un botón para ver la clave, y se puede nombrar",
+    vm.runInContext('window.__tocarAria("Ver la clave")', m.ctx) === true);
   await esperar(200);
   comprobar("al tocarlo la clave se destapa",
     campos(m).clave === 0 && campos(m).texto === 2);
