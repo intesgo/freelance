@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"25", fecha:"26 jul 2026", desc:"El area que responde al dedo llega a 44 px sin cambiar el diseno" };
+const VERSION = { n:"26", fecha:"27 jul 2026", desc:"Los motivos que mas usas suben solos: lo de siempre queda a la mano" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -2396,11 +2396,49 @@ function Hoja({ titulo, onCerrar, children, pie }){
 }
 
 /* ---------- Botones de motivo ---------- */
-function Motivos({ lista, motivo, setMotivo }){
+/* ── Motor de listas por uso ──
+   Cada lista se ordena por las veces que una opción fue elegida, de mayor a menor.
+   El contador se guarda pero NUNCA se muestra en pantalla. Desempate alfabético
+   para que lo nunca usado no salga aleatorio.
+   Los contadores se siembran con el orden que la lista ya tenía, para que el chofer
+   vea hoy lo mismo de siempre y la lista se acomode sola con el uso real.
+   "Otro" queda clavado al final: si sube por uso, tapa los motivos de verdad.
+   En Fase 4 estos contadores viajan a Supabase por chofer. */
+const USOS = {
+  motivosCarga:{ "Falta producto":12, "Demora en piladora":9, "Producto en mal estado":6, "Documentación":3 },
+  motivosEntrega:{ "Rechazo del cliente":14, "Producto dañado":11, "Cliente ausente":8, "Local cerrado":5, "Dirección errada":2 },
+};
+/* categorías donde el orden propio manda: nunca se reordenan por uso */
+const USO_FIJO = ["meses","estados","fechas","etapas"];
+/* opciones que siempre van al final, sin importar cuánto se usen */
+const USO_ULTIMO = ["Otro","Otros","Ninguno","No aplica"];
+const usoClave = it => typeof it==="string" ? it
+  : (it && (it.nombre||it.nom||it.t||it.label||it.cli||it.id)) || String(it);
+/* registra una selección */
+const regUso = (cat, it) => {
+  if(!cat || it==null) return it;
+  const k = usoClave(it); if(!k) return it;
+  (USOS[cat] = USOS[cat] || {});
+  USOS[cat][k] = (USOS[cat][k]||0) + 1;
+  return it;
+};
+/* ordena una lista por uso (mayor→menor), con desempate alfabético */
+const ordUso = (cat, lista) => {
+  if(!cat || USO_FIJO.includes(cat) || !Array.isArray(lista)) return lista;
+  const c = USOS[cat] || {};
+  return lista.slice().sort((a,b)=>{
+    const ka=usoClave(a), kb=usoClave(b);
+    const fa=USO_ULTIMO.includes(ka)?1:0, fb=USO_ULTIMO.includes(kb)?1:0;
+    if(fa!==fb) return fa-fb;                       /* "Otro" siempre al fondo */
+    return ((c[kb]||0)-(c[ka]||0)) || String(ka).localeCompare(String(kb),"es");
+  });
+};
+
+function Motivos({ lista, motivo, setMotivo, cat }){
   return (
     <div className="motivos">
-      {lista.map((m)=>(
-        <button key={m} className={"motivo"+(motivo===m?" sel":"")} onClick={()=>setMotivo(m)}>{m}</button>
+      {ordUso(cat, lista).map((m)=>(
+        <button key={m} className={"motivo"+(motivo===m?" sel":"")} onClick={()=>{ regUso(cat,m); setMotivo(m); }}>{m}</button>
       ))}
     </div>
   );
@@ -2497,7 +2535,7 @@ function HojaCarga({ r, tipo, orden, chofer, onCerrar, refrescar }){
     <Hoja titulo="Novedad de carga" onCerrar={onCerrar}
       pie={<div className="sheet-foot"><button className={"b-confirm nov"+(motivo?"":" dis")} onClick={enviar}>Enviar a logística</button></div>}>
       <div className="field"><label>Motivo <span className="req">*</span></label>
-        <Motivos lista={motivosCarga} motivo={motivo} setMotivo={setMotivo} /></div>
+        <Motivos lista={motivosCarga} motivo={motivo} setMotivo={setMotivo} cat="motivosCarga" /></div>
       <div className="field"><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}><label>Detalle (opcional)</label><MicBtn onTexto={t=>setNota(n=> n ? n+" "+t : t)} toast={toast} /></div>
         <textarea className="inp" value={nota} placeholder="Describe el imprevisto para logística" onChange={(e)=>setNota(e.target.value)}></textarea></div>
       <CampoFoto label="Foto (opcional)" hint="Adjunta una foto si ayuda a explicar la novedad" foto={foto} setFoto={setFoto} />
@@ -2797,7 +2835,7 @@ function HojaNovedad({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
       pie={<div className="sheet-foot"><button className={"b-confirm nov"+(motivo?"":" dis")} onClick={guardar}>Guardar novedad</button></div>}>
       <div className="field"><label>{p.cli} · {p.ciudad}</label></div>
       <div className="field"><label>Motivo <span className="req">*</span></label>
-        <Motivos lista={motivos} motivo={motivo} setMotivo={setMotivo} /></div>
+        <Motivos lista={motivos} motivo={motivo} setMotivo={setMotivo} cat="motivosEntrega" /></div>
       <div className="field"><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}><label>Detalle (opcional)</label><MicBtn onTexto={t=>setNota(n=> n ? n+" "+t : t)} toast={toast} /></div>
         <textarea className="inp" value={nota} placeholder="Describe qué pasó" onChange={(e)=>setNota(e.target.value)}></textarea></div>
       <CampoFoto label="Foto (opcional)" hint="Adjunta una foto si ayuda a explicar la novedad" foto={foto} setFoto={setFoto} />
