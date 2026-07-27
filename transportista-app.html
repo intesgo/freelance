@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"26", fecha:"27 jul 2026", desc:"Los motivos que mas usas suben solos: lo de siempre queda a la mano" };
+const VERSION = { n:"27", fecha:"27 jul 2026", desc:"Lo que mas reportas queda arriba, y el telefono se acuerda al dia siguiente" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -2403,11 +2403,32 @@ function Hoja({ titulo, onCerrar, children, pie }){
    Los contadores se siembran con el orden que la lista ya tenía, para que el chofer
    vea hoy lo mismo de siempre y la lista se acomode sola con el uso real.
    "Otro" queda clavado al final: si sube por uso, tapa los motivos de verdad.
+   El conteo se guarda en el teléfono, así que aguanta cerrar y abrir la app.
+   Es por teléfono, no por chofer: si dos choferes comparten equipo, comparten conteo.
    En Fase 4 estos contadores viajan a Supabase por chofer. */
-const USOS = {
+const USOS_KEY = "freelance_usos_transportista_v1";
+/* Semilla: el orden que la lista ya tenía. Solo es piso — lo guardado manda encima.
+   Sirve también para que una opción nueva agregada después no salga de última. */
+const USOS_SEMILLA = {
   motivosCarga:{ "Falta producto":12, "Demora en piladora":9, "Producto en mal estado":6, "Documentación":3 },
   motivosEntrega:{ "Rechazo del cliente":14, "Producto dañado":11, "Cliente ausente":8, "Local cerrado":5, "Dirección errada":2 },
 };
+/* Lee lo guardado y lo monta sobre la semilla. Si el teléfono no deja guardar
+   (modo privado, memoria llena), la app sigue funcionando con la semilla. */
+function cargarUsos(){
+  const base = JSON.parse(JSON.stringify(USOS_SEMILLA));
+  try{
+    const g = JSON.parse(localStorage.getItem(USOS_KEY) || "null");
+    if(!g || typeof g!=="object") return base;
+    for(const cat in g){
+      if(!g[cat] || typeof g[cat]!=="object") continue;
+      base[cat] = Object.assign(base[cat]||{}, g[cat]);
+    }
+  }catch(e){}
+  return base;
+}
+function guardarUsos(){ try{ localStorage.setItem(USOS_KEY, JSON.stringify(USOS)); }catch(e){} }
+const USOS = cargarUsos();
 /* categorías donde el orden propio manda: nunca se reordenan por uso */
 const USO_FIJO = ["meses","estados","fechas","etapas"];
 /* opciones que siempre van al final, sin importar cuánto se usen */
@@ -2420,6 +2441,7 @@ const regUso = (cat, it) => {
   const k = usoClave(it); if(!k) return it;
   (USOS[cat] = USOS[cat] || {});
   USOS[cat][k] = (USOS[cat][k]||0) + 1;
+  guardarUsos();
   return it;
 };
 /* ordena una lista por uso (mayor→menor), con desempate alfabético */
