@@ -1500,7 +1500,28 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"38", fecha:"26 jul 2026", desc:"Las ofertas se leen de la vista vigente: los costos viejos ya no se cuelan" };
+const VERSION = { n:"39", fecha:"27 jul 2026", desc:"El boton atras entiende donde estas: cada pantalla sabe volver un paso, no salir de golpe" };
+
+/* ── Pila de retrocesos por módulo ──
+   Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
+   Con pila (y no una sola variable) ningún módulo puede borrar el handler de otro.
+   El handler devuelve true si consumió el retroceso, false si no le tocaba. */
+const RETROCESOS=[];
+function useRetroceso(fn){
+  const ref=React.useRef(fn);
+  ref.current=fn;
+  React.useEffect(()=>{
+    const item={ run:()=>ref.current() };
+    RETROCESOS.push(item);
+    return ()=>{ const i=RETROCESOS.indexOf(item); if(i>=0) RETROCESOS.splice(i,1); };
+  },[]);
+}
+function retrocederEnModulo(){
+  for(let i=RETROCESOS.length-1;i>=0;i--){
+    try{ if(RETROCESOS[i].run()) return true; }catch(e){}
+  }
+  return false;
+}
 
 const SOCIO_PCT = 50;
 const PRODUCTOS = [
@@ -3496,6 +3517,8 @@ const MODALIDADES=["Efectivo","Depósito","Transferencia","Cheque"];
 
 function Cobros({toast}){
   const [paso,setPaso]=useState(1);
+  /* retroceso inteligente: dentro de Cobros el atrás baja un paso, no sale del módulo */
+  useRetroceso(()=>{ if(paso>1){ setPaso(paso-1); return true; } return false; });
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [aplic,setAplic]=useState({});
@@ -6180,6 +6203,8 @@ function Novedades({toast, go, datos}){
   const [prov,setProv]=useState(null);
   const [tipo,setTipo]=useState(null);       // cambio-mismo | cambio-otro | producto | descuento
   const [paso,setPaso]=useState("menu");      // menu | form
+  /* retroceso inteligente: del formulario se vuelve al menú, no se sale del módulo */
+  useRetroceso(()=>{ if(paso==="form"){ setPaso("menu"); return true; } return false; });
   const [lista,setLista]=useState(NOVEDADES_INI);
   /* si el sistema tiene novedades guardadas, mandan esas */
   React.useEffect(()=>{ if(datos) setLista(datos); },[datos]);
@@ -7962,8 +7987,11 @@ function App({usuario}){
   },[]);
   const [pasoPedido,setPasoPedido]=useState(1);   // paso interno del módulo Pedido (1 producto, 2 precio)
   const atras=()=>{
-    // Si estoy en el paso 2 del pedido, primero vuelvo al paso 1 (elegir producto)
+    // 1. El módulo abierto manda: si tiene una pantalla interna, vuelve un paso ahí
+    if(retrocederEnModulo()) return;
+    // 2. Paso interno del pedido (vive en App porque el paso se comparte con el módulo)
     if(tab==="pedido" && (pasoPedido===2 || pasoPedido===3)){ setPasoPedido(1); return; }
+    // 3. Historial de pantallas
     setHist(h=>{ if(h.length===0){ setTab("inicio"); return h; } setTab(h[h.length-1]); return h.slice(0,-1); });
   };
   const irInicio=()=>{ setHist([]); setPasoPedido(1); setTab("inicio"); };
@@ -7999,9 +8027,11 @@ function App({usuario}){
       /* 4. ventana modal abierta (overlay .ov): cerrar la de encima */
       const ovs=document.querySelectorAll(".ov");
       if(ovs.length){ ovs[ovs.length-1].click(); return; }
-      /* 5. navegación interna: pasos del pedido y luego historial de pantallas */
+      /* 5. pantalla interna del módulo abierto (aunque estemos en el inicio) */
+      if(retrocederEnModulo()) return;
+      /* 6. navegación interna: pasos del pedido y luego historial de pantallas */
       if(tabRef.current!=="inicio" || (histRef.current && histRef.current.length>0) || pasoRef.current>1){ atrasRef.current(); return; }
-      /* 6. raíz del inicio: no salimos por accidente, solo avisamos */
+      /* 7. raíz del inicio: no salimos por accidente, solo avisamos */
       if(refShow.current) refShow.current("Estás en el inicio.");
     };
     window.addEventListener("popstate",onPop);
