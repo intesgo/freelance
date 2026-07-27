@@ -1167,7 +1167,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"63", fecha:"26 jul 2026", desc:"Registras la nota de crédito por producto, diciendo de quién nació" };
+const VERSION = { n:"64", fecha:"27 jul 2026", desc:"Los motivos de anulacion se ordenan por lo que mas usas, y Otro nunca se trepa" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1944,24 +1944,56 @@ const MENU_AGRUPA_DESDE = 6;
    Toda lista con repeticion real ordena sus opciones por cuantas veces se eligieron,
    de MAYOR a MENOR. El contador se guarda pero NUNCA se muestra en pantalla.
    Desempate alfabetico. En Fase 4 los contadores viajan a Supabase POR USUARIO. */
+const USOS_KEY_P = "usos_proveedor";
+/* Semilla: numeros BAJOS a proposito, solo para conservar el orden que la lista
+   ya tenia pensado. Apenas el proveedor use la app de verdad, su uso los supera
+   y manda el, no esta suposicion. Es piso, no techo: lo guardado va encima. */
+const USOS_SEMILLA = {
+  motivos_anular:{
+    "Error en el valor o el precio":6, "Error en el cliente o el RUC":5,
+    "Error en los productos o cantidades":4, "Devolucion total de la mercaderia":3,
+    "Pedido no despachado":2, "Duplicada por error":1 },
+  motivos_anular_ret:{
+    "Error en los porcentajes":5, "Error en el número o autorización":4,
+    "Retención duplicada":3, "Factura de sustento anulada":2,
+    "Datos del cliente incorrectos":1 },
+  motivos_anular_guia:{
+    "Error en el destinatario o dirección":5, "Error en productos o cantidades":4,
+    "Guía duplicada":3, "Despacho cancelado":2, "Error en transportista o placa":1 },
+};
+/* categorias donde el orden propio manda: nunca se reordenan por uso */
+const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas"];
+/* opciones que siempre van al final, sin importar cuanto se usen */
+const USO_ULTIMO = ["Otro","Otros","Ninguno","No aplica"];
 const USOS = {};
 function regUso(cat, opcion){
   if(!cat || !opcion) return;
   if(!USOS[cat]) USOS[cat] = {};
   USOS[cat][opcion] = (USOS[cat][opcion] || 0) + 1;
-  try{ localStorage.setItem("usos_proveedor", JSON.stringify(USOS)); }catch(e){}
+  try{ localStorage.setItem(USOS_KEY_P, JSON.stringify(USOS)); }catch(e){}
 }
 function ordUso(cat, lista){
+  if(!cat || USO_FIJO.includes(cat) || !Array.isArray(lista)) return lista;
   const c = USOS[cat] || {};
-  return [...(lista||[])].sort((a,b)=>{
+  return [...lista].sort((a,b)=>{
+    const fa = USO_ULTIMO.includes(a)?1:0, fb = USO_ULTIMO.includes(b)?1:0;
+    if(fa!==fb) return fa-fb;                      /* "Otro" siempre al fondo */
     const d = (c[b]||0) - (c[a]||0);
     return d !== 0 ? d : String(a).localeCompare(String(b), "es");
   });
 }
+/* Monta la semilla primero y le pone encima lo guardado, categoria por categoria.
+   Mezcla en vez de reemplazar: asi una opcion agregada despues no se pierde ni
+   sale de ultima, y lo que el proveedor ya uso nunca se borra. */
 (function cargarUsos(){
+  for(const cat in USOS_SEMILLA) USOS[cat] = Object.assign({}, USOS_SEMILLA[cat]);
   try{
-    const g = JSON.parse(localStorage.getItem("usos_proveedor") || "{}");
-    Object.keys(g).forEach(k=>{ USOS[k] = g[k]; });
+    const g = JSON.parse(localStorage.getItem(USOS_KEY_P) || "null");
+    if(!g || typeof g!=="object") return;
+    for(const cat in g){
+      if(!g[cat] || typeof g[cat]!=="object") continue;
+      USOS[cat] = Object.assign(USOS[cat]||{}, g[cat]);
+    }
   }catch(e){}
 })();
 
@@ -4540,7 +4572,7 @@ function CargaXML({irTab}){
           <h3>¿Por qué la anulas?</h3>
           <div className="sub tiny" style={{margin:"6px 0 14px"}}>
             Queda auditado con el valor anterior. La anulación no se puede deshacer.</div>
-          {MOTIVOS_ANULAR.map(m=>(
+          {ordUso("motivos_anular", MOTIVOS_ANULAR).map(m=>(
             <button key={m} className="btn btn-ghost"
               style={{width:"100%",marginBottom:8,textAlign:"left",
                 fontWeight:motAnu===m?700:500,
@@ -5403,7 +5435,7 @@ function Retenciones({irTab}){
       ) : anulando ? (
         <div className="card card-pad" style={{borderColor:"#B5432E",marginBottom:12}}>
           <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>¿Por qué se anula?</div>
-          {MOTIVOS_ANULAR_RET.map(m=>(
+          {ordUso("motivos_anular_ret", MOTIVOS_ANULAR_RET).map(m=>(
             <button key={m} className={"btn "+(motRet===m?"btn-maiz":"btn-ghost")} style={{width:"100%",marginBottom:8,textAlign:"left"}}
               onClick={()=>{ setMotRet(m); regUso("motivos_anular_ret", m); }}>{m}</button>
           ))}
@@ -6727,7 +6759,7 @@ function GuiasRemision(){
       ) : anulandoG ? (
         <div className="card card-pad" style={{borderColor:"#B5432E",marginBottom:12}}>
           <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>¿Por qué se anula?</div>
-          {MOTIVOS_ANULAR_GUIA.map(m=>(
+          {ordUso("motivos_anular_guia", MOTIVOS_ANULAR_GUIA).map(m=>(
             <button key={m} className={"btn "+(motGuia===m?"btn-maiz":"btn-ghost")} style={{width:"100%",marginBottom:8,textAlign:"left"}}
               onClick={()=>{ setMotGuia(m); regUso("motivos_anular_guia", m); }}>{m}</button>
           ))}
