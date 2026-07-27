@@ -5444,7 +5444,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"381", fecha:"26 jul 2026", desc:"El respaldo de la factura a la piladora muestra las devoluciones ya descontadas" };
+const VERSION = { n:"382", fecha:"26 jul 2026", desc:"Arranque y cierres: marcas el día en que empieza a contar de verdad" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10968,6 +10968,286 @@ function ComisionPiladora({toast}){
    Lo que decide si una devolución te cuesta plata NO es el motivo: es de
    quién nació. Por eso esta pantalla lo pone primero y con todas las
    letras, antes que el monto. */
+/* ═══════════════════════════════════════════════════════════════════════
+   ARRANQUE Y CIERRES
+   El día que Richard diga "desde hoy va en serio", esta pantalla lo marca.
+   Marcar el arranque hace dos cosas a la vez: guarda los saldos que ya le
+   deben y le pone un muro a todo lo anterior. Después, el mismo botón
+   sirve para cerrar el mes y el año — es el mismo mecanismo.
+   ═══════════════════════════════════════════════════════════════════════ */
+function Arranque({toast}){
+  const hoyStr = ()=>{ const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000)
+    .toISOString().slice(0,10); };
+  const [d,setD]=useState(null);
+  const [vacio,setVacio]=useState(false);
+  const [inicio,setInicio]=useState(hoyStr());
+  const [saldos,setSaldos]=useState([]);
+  const [agregando,setAgregando]=useState(false);
+  const [nuevo,setNuevo]=useState({cli:"",monto:"",doc:"",emision:"",vence:""});
+  const [confirmar,setConfirmar]=useState(false);
+  const [obrando,setObrando]=useState(false);
+  const [tipoC,setTipoC]=useState("mensual");
+  const [hastaC,setHastaC]=useState("");
+  const [reabriendo,setReabriendo]=useState(false);
+  const [motivo,setMotivo]=useState("");
+
+  useRetroceso(()=>{
+    if(agregando){ setAgregando(false); return true; }
+    if(confirmar){ setConfirmar(false); return true; }
+    if(reabriendo){ setReabriendo(false); return true; }
+    return false;
+  });
+  useModal(agregando||confirmar||reabriendo, React.useCallback(()=>{
+    setAgregando(false); setConfirmar(false); setReabriendo(false); },[]));
+
+  const cargar = React.useCallback(async()=>{
+    const r=await vivoArranque();
+    if(r){ setD(r); setVacio(false); } else { setD(null); setVacio(true); }
+  },[]);
+  React.useEffect(()=>{ let vivo=true; (async()=>{ const r=await vivoArranque();
+    if(!vivo) return; if(r){ setD(r); setVacio(false); } else { setD(null); setVacio(true); } })();
+    return ()=>{ vivo=false; }; },[]);
+
+  const totalSaldos = saldos.reduce((a,s)=>a+Number(s.monto||0),0);
+  const nomCli = (id)=>((d&&d.clientes)||[]).reduce((a,c)=>c.id===id?c.nombre:a,id);
+
+  const agregarSaldo = ()=>{
+    const m=Number(nuevo.monto||0);
+    if(!nuevo.cli){ if(toast) toast("Falta decir de qué cliente es el saldo."); return; }
+    if(!(m>0)){ if(toast) toast("El monto tiene que ser mayor que cero."); return; }
+    if(nuevo.emision && nuevo.emision >= inicio){
+      if(toast) toast("Un saldo de apertura es de ANTES del arranque: revisa la fecha."); return; }
+    setSaldos(saldos.concat([{ cli_id:nuevo.cli, monto:m,
+      doc:nuevo.doc.trim()||undefined,
+      emision:nuevo.emision||undefined, vence:nuevo.vence||undefined }]));
+    setNuevo({cli:"",monto:"",doc:"",emision:"",vence:""});
+    setAgregando(false);
+  };
+
+  const marcarArranque = async()=>{
+    setObrando(true);
+    const r = await abrirOperacionEnBase(inicio, saldos);
+    setObrando(false); setConfirmar(false);
+    if(!r.ok){ if(toast) toast(r.motivo); return; }
+    if(toast) toast(r.aviso);
+    setSaldos([]);
+    await cargar();
+  };
+
+  const cerrar = async()=>{
+    if(!hastaC){ if(toast) toast("Falta hasta qué día se cierra."); return; }
+    setObrando(true);
+    const r = await cerrarPeriodoEnBase(tipoC, hastaC, null);
+    setObrando(false);
+    if(!r.ok){ if(toast) toast(r.motivo); return; }
+    if(toast) toast(r.aviso); setHastaC("");
+    await cargar();
+  };
+
+  const reabrir = async()=>{
+    setObrando(true);
+    const r = await reabrirCierreEnBase(motivo);
+    setObrando(false); setReabriendo(false);
+    if(!r.ok){ if(toast) toast(r.motivo); return; }
+    if(toast) toast(r.aviso); setMotivo("");
+    await cargar();
+  };
+
+  const ultimo = d && d.cierres.filter(c=>c.tipo!=="apertura")[0];
+
+  return (<>
+    <div className="h1">Arranque y cierres <SelloVivo vivo={!!d}/></div>
+
+    {d===null && !vacio && <div className="ph">Buscando…</div>}
+    {vacio && <div className="ph">Esta pantalla necesita sesión: marca el día en que el sistema
+      empieza a llevar tu operación de verdad, y eso no se ensaya.</div>}
+
+    {/* ── Todavía sin arrancar ─────────────────────────────────────── */}
+    {d && !d.abierto && (<>
+      <div className="card" style={{marginBottom:12,borderLeft:"4px solid #C9A227",background:"#FCF9EF"}}>
+        <div style={{fontWeight:800,fontSize:14}}>Todavía no has marcado el arranque</div>
+        <div className="meta" style={{fontSize:12,marginTop:4,lineHeight:1.5}}>
+          Cuando lo marques pasan dos cosas: se guardan los saldos que ya te deben, y
+          <b> todo lo anterior a ese día queda cerrado</b> — no se podrá agregar ni cambiar
+          nada con fecha vieja. Se hace <b>una sola vez</b>.
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:12}}>
+        <div className="field"><label>¿Desde qué día cuenta de verdad?</label>
+          <input type="date" value={inicio} max={hoyStr()}
+            onChange={e=>setInicio(e.target.value)}/></div>
+        <div className="meta" style={{fontSize:11.5,lineHeight:1.45}}>
+          Puede ser hoy o un día pasado. Futuro no: sería cerrar días que todavía no pasan.
+        </div>
+      </div>
+
+      <div className="sec-h"><h2>¿Alguien ya te debe?</h2><div className="grain"></div></div>
+      <div className="meta" style={{fontSize:12,margin:"0 0 10px",lineHeight:1.5}}>
+        Si arrancas con clientes que ya tienen facturas pendientes, cárgalas aquí. Si no lo
+        haces, el sistema va a creer que todos están en cero y los informes van a mentir
+        desde el primer día. Si nadie te debe nada, sigue de largo.
+      </div>
+
+      {saldos.map((s,i)=>(
+        <div className="card" key={i} style={{padding:"11px 14px",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+            <span style={{fontWeight:700,fontSize:13.5,minWidth:0}}>{nomCli(s.cli_id)}</span>
+            <span className="num" style={{fontWeight:800,fontSize:14.5,whiteSpace:"nowrap"}}>{money(s.monto)}</span>
+          </div>
+          <div className="meta" style={{fontSize:11,marginTop:2}}>
+            {s.doc||"SALDO ANTERIOR"}{s.emision?" · emitida "+s.emision:""}{s.vence?" · vence "+s.vence:""}
+          </div>
+          <button className="ghost" style={{marginTop:8,minHeight:40,width:"100%"}}
+            onClick={()=>setSaldos(saldos.filter((_,j)=>j!==i))}>Quitar</button>
+        </div>
+      ))}
+
+      <button className="ghost" style={{width:"100%",minHeight:48,marginBottom:12}}
+        onClick={()=>{ setNuevo({cli:"",monto:"",doc:"",emision:"",vence:""}); setAgregando(true); }}>
+        + Agregar un saldo</button>
+
+      {saldos.length>0 && (
+        <div className="card" style={{marginBottom:12,background:"#F2F6F2"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+            <span style={{fontWeight:700,fontSize:13.5}}>{saldos.length} saldo(s) de apertura</span>
+            <span className="num" style={{fontWeight:800,fontSize:17}}>{money(totalSaldos)}</span>
+          </div>
+        </div>
+      )}
+
+      <button className="cta" style={{width:"100%",minHeight:52}}
+        disabled={!inicio || obrando} onClick={()=>setConfirmar(true)}>
+        Marcar el arranque</button>
+    </>)}
+
+    {/* ── Ya arrancado ─────────────────────────────────────────────── */}
+    {d && d.abierto && (<>
+      <div className="card" style={{marginBottom:12,borderLeft:"4px solid #2E7D52",background:"#F2F8F4"}}>
+        <div style={{fontWeight:800,fontSize:14}}>Arrancaste el {d.inicio||"—"}</div>
+        <div className="meta" style={{fontSize:12,marginTop:4,lineHeight:1.5}}>
+          Cerrado hasta el <b>{d.cerradoHasta||"—"}</b>. Nada con fecha de ese día o antes se
+          agrega, se borra ni cambia de monto. <b>Cobrar hoy una factura vieja sí se puede</b>:
+          eso no mueve la plata de lo ya cerrado.
+        </div>
+      </div>
+
+      <div className="sec-h"><h2>Cerrar un período</h2><div className="grain"></div></div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="row" style={{gap:8,marginBottom:10}}>
+          <button className={tipoC==="mensual"?"cta":"ghost"} style={{flex:1,margin:0,minHeight:44}}
+            onClick={()=>setTipoC("mensual")}>Un mes</button>
+          <button className={tipoC==="anual"?"cta":"ghost"} style={{flex:1,margin:0,minHeight:44}}
+            onClick={()=>setTipoC("anual")}>El año</button>
+        </div>
+        <div className="field"><label>¿Hasta qué día se cierra?</label>
+          <input type="date" value={hastaC} onChange={e=>setHastaC(e.target.value)}/></div>
+        <div className="meta" style={{fontSize:11.5,lineHeight:1.45,marginBottom:10}}>
+          No se cierra hoy ni el futuro: el día tiene que haber terminado. Y si quedan notas
+          de crédito sin resolver o pedidos sin factura dentro del período, <b>no va a dejar
+          cerrar</b> — eso es plata que todavía puede cambiar.
+        </div>
+        <button className="cta" style={{width:"100%",minHeight:48}}
+          disabled={!hastaC||obrando} onClick={cerrar}>
+          {obrando ? "…" : "Cerrar el período"}</button>
+      </div>
+
+      {ultimo && (
+        <button className="ghost" style={{width:"100%",minHeight:46,marginBottom:14}}
+          onClick={()=>{ setMotivo(""); setReabriendo(true); }}>
+          Reabrir el último ({ultimo.periodo})</button>
+      )}
+
+      <div className="sec-h"><h2>Lo que ya está cerrado</h2><div className="grain"></div></div>
+      {d.cierres.map(c=>(
+        <div className="card" key={c.id} style={{padding:"12px 14px",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+            <span style={{fontWeight:700,fontSize:13.5}}>
+              {c.tipo==="apertura" ? "Arranque" : c.tipo==="anual" ? "Año "+c.periodo : "Mes "+c.periodo}</span>
+            <span className="meta" style={{fontSize:11,whiteSpace:"nowrap"}}>hasta {c.hasta}</span>
+          </div>
+          <div className="meta" style={{fontSize:11.5,marginTop:3}}>
+            Quedaban por cobrar {money(c.cartera)}
+            {c.tipo!=="apertura" ? " · comisiones del período "+money(c.comisiones) : ""}
+          </div>
+          {c.notas && <div className="meta" style={{fontSize:11,marginTop:3,fontStyle:"italic"}}>{c.notas}</div>}
+        </div>
+      ))}
+    </>)}
+
+    {/* ── Hoja: agregar un saldo ───────────────────────────────────── */}
+    {agregando && (
+      <div className="ov" onClick={()=>setAgregando(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Un saldo de apertura</h3>
+          <div className="sh-sub">Lo que este cliente ya te debía antes de arrancar</div>
+          <div className="field"><label>Cliente</label>
+            <select value={nuevo.cli} onChange={e=>setNuevo({...nuevo,cli:e.target.value})}>
+              <option value="">Elige un cliente…</option>
+              {((d&&d.clientes)||[]).map(c=>(<option key={c.id} value={c.id}>{c.nombre}</option>))}
+            </select></div>
+          <div className="field"><label>¿Cuánto te debe?</label>
+            <input type="number" inputMode="decimal" step="0.01" value={nuevo.monto}
+              onChange={e=>setNuevo({...nuevo,monto:e.target.value})} placeholder="0.00"/></div>
+          <div className="field"><label>Número de factura (si lo tienes)</label>
+            <input value={nuevo.doc} onChange={e=>setNuevo({...nuevo,doc:e.target.value})}
+              placeholder="Si lo dejas vacío dirá SALDO ANTERIOR"/></div>
+          <div className="field"><label>¿Cuándo se emitió?</label>
+            <input type="date" value={nuevo.emision} max={inicio}
+              onChange={e=>setNuevo({...nuevo,emision:e.target.value})}/></div>
+          <div className="field"><label>¿Cuándo vence?</label>
+            <input type="date" value={nuevo.vence}
+              onChange={e=>setNuevo({...nuevo,vence:e.target.value})}/></div>
+          <button className="cta" onClick={agregarSaldo}>Guardar este saldo</button>
+          <button className="ghost" onClick={()=>setAgregando(false)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* ── Hoja: confirmar el arranque ──────────────────────────────── */}
+    {confirmar && (
+      <div className="ov" onClick={()=>setConfirmar(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>¿Marcamos el arranque?</h3>
+          <div className="sh-sub">Desde el {inicio} el sistema lleva tu operación de verdad</div>
+          <div className="card" style={{padding:"11px 13px",margin:"10px 0",background:"#FCF9EF",
+            borderLeft:"4px solid #C9A227"}}>
+            <div style={{fontSize:12.5,lineHeight:1.5}}>
+              {saldos.length>0
+                ? <>Se cargan <b>{saldos.length} saldo(s)</b> por <b>{money(totalSaldos)}</b>, y todo
+                    lo anterior al {inicio} queda cerrado.</>
+                : <>No cargaste ningún saldo: el sistema va a arrancar creyendo que <b>nadie te
+                    debe nada</b>. Si eso no es cierto, cancela y cárgalos primero.</>}
+            </div>
+          </div>
+          <div className="meta" style={{fontSize:11.5,lineHeight:1.45,marginBottom:10}}>
+            Esto se hace una sola vez y no hay botón para deshacerlo.
+          </div>
+          <button className="cta" disabled={obrando} onClick={marcarArranque}>
+            {obrando ? "…" : "Sí, marcar el arranque"}</button>
+          <button className="ghost" onClick={()=>setConfirmar(false)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {/* ── Hoja: reabrir el último cierre ───────────────────────────── */}
+    {reabriendo && (
+      <div className="ov" onClick={()=>setReabriendo(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Reabrir {ultimo?ultimo.periodo:""}</h3>
+          <div className="sh-sub">Vuelve a quedar abierto desde {ultimo?ultimo.hasta:""} hacia adelante</div>
+          <div className="field"><label>¿Por qué lo reabres?</label>
+            <textarea rows={3} value={motivo} onChange={e=>setMotivo(e.target.value)}
+              placeholder="Queda escrito en la bitácora"/></div>
+          <button className="cta" disabled={!motivo.trim()||obrando} onClick={reabrir}>
+            {obrando ? "…" : "Sí, reabrir"}</button>
+          <button className="ghost" onClick={()=>setReabriendo(false)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+  </>);
+}
+
 function NotasCredito({toast}){
   useRetroceso(()=>{ if(rechazando){ setRechazando(null); return true; } return false; });
   const [lista,setLista]=useState(null);
@@ -17189,6 +17469,66 @@ async function resolverNCEnBase(ncId, aprobar, motivo){
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
+/* ── ARRANQUE Y CIERRES ────────────────────────────────────────────────
+   Arrancar es cerrar todo lo de antes y quedarse con lo que ya te deben.
+   Cerrar el mes o el año es exactamente lo mismo, más adelante. Por eso
+   viven en la misma pantalla y usan el mismo mecanismo. */
+async function vivoArranque(){
+  try{
+    if(!window.SB) return null;
+    const [rc, ri, rcl] = await Promise.all([
+      window.SB.from("cierres").select("*").order("hasta",{ascending:false}).limit(60),
+      window.SB.from("config_sistema").select("clave,valor").eq("clave","inicio_operacion"),
+      window.SB.from("clientes").select("cli_id,nombre,es_demo").order("nombre").limit(2000),
+    ]);
+    /* Sin sesión no hay clientes reales que listar: esta pantalla no tiene
+       versión de práctica, porque marcar un arranque falso sería peor que
+       no tener la pantalla. */
+    const clis=(((rcl&&rcl.data)||[]).filter(c=>!c.es_demo));
+    if(!clis.length) return null;
+    const cs=((rc&&rc.data)||[]);
+    const cfg=(((ri&&ri.data)||[])[0]);
+    const inicio = cfg ? String(cfg.valor||"").replace(/"/g,"").slice(0,10) : "";
+    const fechas = cs.map(c=>String(c.hasta||"")).filter(Boolean).sort();
+    return {
+      abierto: cs.some(c=>c.tipo==="apertura"),
+      inicio,
+      cerradoHasta: fechas.length ? fechas[fechas.length-1] : "",
+      cierres: cs.map(c=>({ id:c.cierre_id, tipo:c.tipo, periodo:c.periodo,
+        hasta:String(c.hasta||""), cartera:Number(c.total_cartera||0),
+        comisiones:Number(c.total_comisiones||0), notas:c.notas||"",
+        cuando:soloDia(c.cerrado_en) })),
+      clientes: clis.map(c=>({ id:c.cli_id, nombre:c.nombre })),
+    };
+  }catch(e){ return null; }
+}
+
+async function abrirOperacionEnBase(inicio, saldos){
+  try{
+    const { data, error } = await window.SB.rpc("abrir_operacion",
+      { p_inicio:inicio, p_saldos:saldos||[] });
+    if(error) return { ok:false, motivo:error.message||"No se pudo marcar el arranque" };
+    return { ok:true, aviso:String(data||"Operación abierta") };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+async function cerrarPeriodoEnBase(tipo, hasta, notas){
+  try{
+    const { data, error } = await window.SB.rpc("cerrar_periodo",
+      { p_tipo:tipo, p_hasta:hasta, p_notas:notas||null });
+    if(error) return { ok:false, motivo:error.message||"No se pudo cerrar" };
+    return { ok:true, aviso:String(data||"Cerrado") };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+async function reabrirCierreEnBase(motivo){
+  try{
+    const { data, error } = await window.SB.rpc("reabrir_ultimo_cierre", { p_motivo:motivo });
+    if(error) return { ok:false, motivo:error.message||"No se pudo reabrir" };
+    return { ok:true, aviso:String(data||"Reabierto") };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
 /* ── SOLICITUDES ───────────────────────────────────────────────────────
    Recibidas = las que llegan a ti para decidir (destino freelance).
    Mías      = las que tú enviaste al proveedor. */
@@ -23131,6 +23471,7 @@ function App({usuario, onSalir}){
         {tab==="cotizacion" && <Cotizacion toast={show}/>}
         {tab==="comisionprov" && <ComisionPiladora toast={show}/>}
         {tab==="notascredito" && <NotasCredito toast={show}/>}
+        {tab==="arranque" && <Arranque toast={show}/>}
         {tab==="precios" && <ListaPrecios
           pedirCon={(p)=>{ setProdInicial(p); navegar("pedido"); }}/>}
         {tab==="novedades" && <Novedades toast={show} datos={novedadesApp} go={navegar}/>}
@@ -23269,6 +23610,12 @@ function App({usuario, onSalir}){
             <button className={"drawer-acc"+(secMenu==="config"?" on":"")} onClick={()=>setSecMenu(secMenu==="config"?"":"config")}>
               <span>⚙️ Configuración</span><span className="drawer-acc-fl">{secMenu==="config"?"▾":"▸"}</span></button>
             {secMenu==="config" && (<>
+              <button className="drawer-it" onClick={()=>{irDesdeDrawer("arranque")}}>
+                <span className="di-ic" style={{background:"#F2F8F4",color:"#2E7D52"}}>🚩</span>
+                <div style={{flex:1}}><div className="di-t">Arranque y cierres</div>
+                  <div className="di-s">El día que empieza a contar de verdad</div></div>
+                <span className="di-a">›</span>
+              </button>
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("ajustes")}}>
                 <span className="di-ic" style={{background:"#E9EEE9",color:"#15392B"}}><Ico n="ajustes" c="#15392B" s={19}/></span>
                 <div style={{flex:1}}><div className="di-t">Ajustes</div>
