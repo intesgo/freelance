@@ -45,6 +45,7 @@ const PLAN = [
   { arnes:"test_nota_credito.js",    que:"la nota de crédito y a quién le duele", apps:[null] },
   { arnes:"test_comision_piladora.js", que:"lo que le facturas a cada piladora",   apps:["freelance-completo"] },
   { arnes:"test_arranque.js",        que:"el día en que empieza a contar de verdad", apps:["freelance-completo"] },
+  { arnes:"test_corte_arranque.js",  que:"los informes arrancan en esa fecha",     apps:["freelance-completo"] },
   { arnes:"test_cotizacion.js",      que:"la cotización",                        apps:["Comisionista","socio-comercial","freelance-completo"] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },

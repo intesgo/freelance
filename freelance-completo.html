@@ -5444,7 +5444,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"382", fecha:"26 jul 2026", desc:"Arranque y cierres: marcas el día en que empieza a contar de verdad" };
+const VERSION = { n:"383", fecha:"26 jul 2026", desc:"Los informes arrancan en tu fecha de inicio; la cartera muestra los saldos de antes" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -12854,6 +12854,37 @@ let _comisionesVivas;  /* comisiones con sus fechas, para los cortes por mes */
 let _cargaCartera;     /* la promesa en curso */
 let _cargaComisiones;
 
+/* ── EL CORTE DEL ARRANQUE ─────────────────────────────────────────────
+   Mientras Richard no marque el arranque esto no existe y nada cambia: la
+   app se comporta igual que siempre. Desde que lo marca, TODOS los
+   informes empiezan ahí.
+
+   Se decidió que fuera parejo y no informe por informe: un informe que
+   mezcla plata de antes con plata de después no es una preferencia, es un
+   número equivocado, y el que se quedara fuera daría cifras infladas sin
+   avisar.
+
+   La única excepción es LA CARTERA. Los saldos de apertura son de antes
+   del arranque por definición —para eso se cargan—, así que ahí no se
+   corta: se muestran y se rotulan. Esconderlos sería decirle que nadie le
+   debe nada justo después de que él dijo quién le debe. */
+let _arranque = "", _cargaArranque;
+function cargarArranque(){
+  if(_cargaArranque !== undefined) return _cargaArranque;
+  _cargaArranque = (async()=>{
+    try{
+      if(!window.SB) return "";
+      const { data } = await window.SB.rpc("inicio_operacion");
+      _arranque = data ? String(data).slice(0,10) : "";
+    }catch(e){ _arranque = ""; }
+    return _arranque;
+  })();
+  return _cargaArranque;
+}
+const arranqueFijado = ()=> _arranque || "";
+/* Le pone el piso a una consulta, y SOLO si hay arranque marcado. */
+const desdeArranque = (q, col)=> (_arranque ? q.gte(col, _arranque) : q);
+
 function cargarCarteraReal(){
   if(_cargaCartera !== undefined) return _cargaCartera;
   _cargaCartera = (async()=>{
@@ -12861,8 +12892,12 @@ function cargarCarteraReal(){
       if(!window.SB) return null;
       const yo = await yoUsuario();
       if(!yo) return null;                       /* sin sesión: demostración */
+      await cargarArranque();
       const [rk, rc, ru, rb, rp] = await Promise.all([
-        window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(2000),
+        /* La cartera NO se corta: los saldos de apertura son de antes del
+           arranque y tienen que verse. Se traen con su emisión para poder
+           rotularlos. */
+        window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,emision,vence,monto,estado").limit(2000),
         window.SB.from("clientes").select("cli_id,nombre,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito").limit(2000),
         window.SB.from("usuarios").select("usr_id,nombre").limit(500),
         window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,contacto_nombre,principal").limit(2000),
@@ -12882,12 +12917,15 @@ function cargarCarteraReal(){
         .filter(m => String(m.estado||"").toLowerCase() !== "pagado")
         .map(m=>{
           const v = m.vence ? new Date(String(m.vence).slice(0,10) + "T00:00:00") : null;
+          const em = String(m.emision || "").slice(0,10);
           return {
             cli: nCli[m.cli_id] || m.cli_id,
             fac: m.doc || "—",
             saldo: Number(m.monto || 0),
             dias: v ? Math.round((hoy - v) / 86400000) : 0,
             vendedor: nUsr[subCli[m.cli_id]] || "",
+            /* viene de antes del arranque: no nació en el sistema, se cargó a mano */
+            deAntes: !!(_arranque && em && em < _arranque),
           };
         });
       /* ── Ficha de cada cliente: lo que el asistente contesta sobre él ──
@@ -12960,8 +12998,10 @@ function cargarComisionesReal(){
       if(!window.SB) return null;
       const yo = await yoUsuario();
       if(!yo) return null;
+      await cargarArranque();
       const [rc, ru] = await Promise.all([
-        window.SB.from("comisiones").select("com_id,sub_id,monto,f_gen,f_cli_pago,f_conf,f_pago").limit(2000),
+        desdeArranque(window.SB.from("comisiones")
+          .select("com_id,sub_id,monto,f_gen,f_cli_pago,f_conf,f_pago"), "f_gen").limit(2000),
         window.SB.from("usuarios").select("usr_id,nombre").limit(500),
       ]);
       const filas = (rc && rc.data) || [];
@@ -17302,8 +17342,10 @@ const PED_MAPA={
 };
 async function vivoPedidos(){
   try{
+    await cargarArranque();
     const [rp, ri, rc, rv, rm] = await Promise.all([
-      window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
+      desdeArranque(window.SB.from("pedidos").select("*"), "creado")
+        .order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq,comision_usd").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("proveedores").select("prov_cod,nombre,pago_habitual").limit(200),
@@ -17434,8 +17476,10 @@ async function vivoComisionDetalle(mesISO, provCod, practica){
    entran directo y se muestran solo para que él sepa que existieron. */
 async function vivoNotasCredito(){
   try{
+    await cargarArranque();
     const [rn, rp, rc, ri] = await Promise.all([
-      window.SB.from("notas_credito").select("*").order("creado",{ascending:false}).limit(300),
+      desdeArranque(window.SB.from("notas_credito").select("*"), "creado")
+        .order("creado",{ascending:false}).limit(300),
       window.SB.from("pedidos").select("ped_id,cli_id,prov_cod,factura").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("pedido_items").select("item_id,descripcion").limit(3000),
