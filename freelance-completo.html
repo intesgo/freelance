@@ -3225,11 +3225,30 @@ function extraerComprobante(txt){
    fue elegida, de mayor a menor. El contador se guarda pero NUNCA se muestra en
    pantalla. Desempate alfabético para que lo nunca usado no salga aleatorio.
    En Fase 4 estos contadores viajan a Supabase por usuario. */
-const USOS = {
+const USOS_KEY = "freelance_usos_completo_v1";
+/* Semilla: solo es piso — lo que el vendedor ya usó manda encima.
+   Sirve también para que una opción agregada después no salga de última. */
+const USOS_SEMILLA = {
   bancos:{ "Banco Pichincha":24, "Banco Guayaquil":15, "Banco del Pacífico":11,
            "Produbanco":7, "Cooperativa JEP":5, "Banco Bolivariano":3 },
   couriers:{ "Servientrega":18, "Laar Courier":9, "Tramaco":4 },
 };
+/* Lee lo guardado y lo monta sobre la semilla. Si el teléfono no deja guardar
+   (modo privado, memoria llena) o el dato quedó corrupto, sigue con la semilla. */
+function cargarUsos(){
+  const base = JSON.parse(JSON.stringify(USOS_SEMILLA));
+  try{
+    const g = JSON.parse(localStorage.getItem(USOS_KEY) || "null");
+    if(!g || typeof g!=="object") return base;
+    for(const cat in g){
+      if(!g[cat] || typeof g[cat]!=="object") continue;
+      base[cat] = Object.assign(base[cat]||{}, g[cat]);
+    }
+  }catch(e){}
+  return base;
+}
+function guardarUsos(){ try{ localStorage.setItem(USOS_KEY, JSON.stringify(USOS)); }catch(e){} }
+const USOS = cargarUsos();
 /* categorías donde el orden propio manda: nunca se reordenan por uso */
 const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas"];
 const usoClave = it => typeof it==="string" ? it
@@ -3240,6 +3259,7 @@ const regUso = (cat, it) => {
   const k = usoClave(it); if(!k) return it;
   (USOS[cat] = USOS[cat] || {});
   USOS[cat][k] = (USOS[cat][k]||0) + 1;
+  guardarUsos();
   return it;
 };
 /* ordena una lista por uso (mayor→menor), con desempate alfabético */
@@ -5473,7 +5493,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"384", fecha:"26 jul 2026", desc:"La puerta: letra del teléfono, íconos de línea, menos verde y una llegada de medio segundo" };
+const VERSION = { n:"385", fecha:"27 jul 2026", desc:"El telefono recuerda lo que mas usas: la lista sigue ordenada al dia siguiente" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
