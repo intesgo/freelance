@@ -1433,6 +1433,9 @@ function guardarUsos(){ try{ localStorage.setItem(USOS_KEY, JSON.stringify(USOS)
 const USOS = cargarUsos();
 /* categorías donde el orden propio manda: nunca se reordenan por uso */
 const USO_FIJO = ["meses","estados","antiguedad","fechas","etapas"];
+/* opciones que siempre van al final, sin importar cuánto se usen: si "Otro" sube
+   por uso, tapa los motivos de verdad y la lista deja de servir */
+const USO_ULTIMO = ["Otro","Otros","Ninguno","No aplica"];
 const usoClave = it => typeof it==="string" ? it
   : (it && (it.nombre||it.nom||it.t||it.label||it.cli||it.id)) || String(it);
 /* registra una selección */
@@ -1450,6 +1453,8 @@ const ordUso = (cat, lista) => {
   const c = USOS[cat] || {};
   return lista.slice().sort((a,b)=>{
     const ka=usoClave(a), kb=usoClave(b);
+    const fa=USO_ULTIMO.includes(ka)?1:0, fb=USO_ULTIMO.includes(kb)?1:0;
+    if(fa!==fb) return fa-fb;                      /* "Otro" siempre al fondo */
     return ((c[kb]||0)-(c[ka]||0)) || String(ka).localeCompare(String(kb),"es");
   });
 };
@@ -1520,7 +1525,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"40", fecha:"27 jul 2026", desc:"El telefono recuerda lo que mas usas: la lista sigue ordenada al dia siguiente" };
+const VERSION = { n:"41", fecha:"27 jul 2026", desc:"Otro se queda al final de la lista aunque lo uses mucho: los motivos reales no se tapan" };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
