@@ -1479,6 +1479,40 @@ const MODULOS_PERMITIDOS = [
 const puedeVer = (m) => MODULOS_PERMITIDOS.includes(m);
 
 /* ══ TEMAS DE COLOR (Ajustes) ══ 4 temas; la elección se guarda en el teléfono. */
+/* ══ CÓMO FUNCIONA ══
+   Norma sellada: las notas explicativas viven aquí (campanilla), no en las pantallas.
+   Los módulos quedan limpios y el socio consulta la regla cuando le hace falta. */
+const COMO_FUNCIONA = [
+  {mod:"Cobros", ic:"🧮", t:"Formas de pago del cobro",
+   d:"Suma las formas de pago hasta cubrir el total del cobro. Puedes combinar efectivo, depósito, transferencia y cheque en un mismo recibo."},
+  {mod:"Cobros", ic:"🧾", t:"Retenciones y comisión",
+   d:"Solo el dinero recibido cuenta; las retenciones no. Cada factura libera su comisión cuando llega al 100% y el proveedor valida el cobro."},
+  {mod:"Cobros", ic:"⏱️", t:"Efectivo: regla de 24 horas",
+   d:"El efectivo cobrado se deposita en máximo 24 horas. Lo que quede pendiente no se borra con el cierre del día: pasa al siguiente."},
+  {mod:"Cobros", ic:"🏦", t:"Dinero bancarizado",
+   d:"Cuentan como bancarizados los depósitos, las transferencias y el efectivo ya depositado. El cheque no lo es hasta que se efectiviza."},
+  {mod:"Comisiones", ic:"🔓", t:"Cuándo se libera tu comisión",
+   d:"Cuando el cliente paga el 100% de la factura y el proveedor confirma ese pago. Depositar un cheque todavía no libera nada."},
+  {mod:"Comisiones", ic:"📏", t:"Comisión por quintal",
+   d:"La comisión se calcula sobre los quintales pagados, nunca sobre los entregados. Las unidades de promoción no comisionan."},
+  {mod:"Pedidos", ic:"🧭", t:"Por qué avanza el estado",
+   d:"Cada etapa se abre sola cuando se cumple la anterior: el acuerdo aprobado libera el envío y el cobro validado libera la comisión."},
+  {mod:"Pedidos", ic:"🧾", t:"La factura manda",
+   d:"Para la cartera y la comisión vale lo que dice la factura. El pedido queda como referencia y no se edita."},
+  {mod:"Cheques", ic:"👐", t:"El cheque sigue siendo tuyo",
+   d:"Mientras no lo entregues y la otra persona confirme con el número, el cheque sigue bajo tu responsabilidad."},
+  {mod:"Cheques", ic:"⚠️", t:"Cheque protestado no es anulación",
+   d:"Si el banco no paga un cheque, el cobro sí ocurrió: el recibo no se anula. El valor vuelve como cargo nuevo a la cartera del cliente."},
+  {mod:"Cartera", ic:"🚦", t:"Cliente en riesgo",
+   d:"Un cliente se marca en riesgo por facturas vencidas o cheques protestados. Con riesgo abierto no se le toma pedido nuevo."},
+  {mod:"Clientes", ic:"↪", t:"Facturar a nombre de un tercero",
+   d:"Algunos clientes piden la factura a nombre de otra persona o empresa. Esos nombres quedan en su ficha y puedes buscarlo por cualquiera de ellos."},
+  {mod:"Cotización", ic:"💲", t:"Contado y crédito",
+   d:"De contado el quintal sale más barato. Al escoger el cliente se aplica lo que él ya tiene acordado."},
+  {mod:"Listas", ic:"👆", t:"Las listas se acomodan solas",
+   d:"Lo que más eliges sube al primer lugar. \"Otro\" y \"Ninguno\" siempre se quedan al final para que no tapen las opciones de verdad."},
+];
+
 const TEMA_KEY_S = "freelance_tema_socio_v1";
 const PALETAS_S = {
   campo:   {nombre:"Campo",   desc:"Verde institucional",        muestra:["#15392B","#F2A900"]},
@@ -1531,7 +1565,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"42", fecha:"27 jul 2026", desc:"La lista de a quien entregas el cheque se acomoda sola: primero a quien mas le entregas" };
+const VERSION = { n:"43", fecha:"27 jul 2026", desc:"Campanilla: nuevo desplegable Como funciona con las reglas del dia a dia, a la mano y sin ensuciar las pantallas" };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -7988,6 +8022,7 @@ function App({usuario}){
 
   // ═══ NOTIFICACIONES · tareas del rol Subcomisionista ═══
   const [verNotifs,setVerNotifs]=useState(false);
+  const [verAyuda,setVerAyuda]=useState(false);   /* desplegable Cómo funciona de la campanilla */
   const TAREAS_NOTIF=[
     {tipo:"vencidas", icono:"⏰", titulo:"Facturas vencidas por cobrar", detalle:"Ya pasaron su fecha · gestiona hoy", destino:"cobros", n:COBROS_INI.filter(c=>/vencida/i.test(c.vence)).length},
     {tipo:"porvencer", icono:"📅", titulo:"Facturas por vencer esta semana", detalle:"Adelántate antes de la fecha", destino:"cobros", n:COBROS_INI.filter(c=>{const m=String(c.vence).match(/En (\d+)/i); return m && +m[1]<=7;}).length},
@@ -8194,6 +8229,23 @@ function App({usuario}){
                 </button>
               ))}
               </>)}
+              <button onClick={()=>setVerAyuda(v=>!v)}
+                style={{display:"flex", gap:10, alignItems:"center", width:"100%", textAlign:"left", background:"#FAFBF9",
+                  border:"none", borderTop:"1px solid #EEF2EE", padding:"12px 16px", cursor:"pointer"}}>
+                <span style={{fontSize:18}}>💡</span>
+                <span style={{flex:1, fontFamily:BODY, fontSize:15, fontWeight:700, color:CL.tinta}}>Cómo funciona</span>
+                <span style={{color:CL.grisTexto, fontSize:15}}>{verAyuda?"▲":"▼"}</span>
+              </button>
+              {verAyuda && COMO_FUNCIONA.map((x,i)=>(
+                <div key={i} style={{display:"flex", gap:10, padding:"10px 16px", borderTop:"1px solid #F3F6F3", background:"#fff"}}>
+                  <span style={{fontSize:16}}>{x.ic}</span>
+                  <span style={{flex:1, minWidth:0}}>
+                    <span style={{display:"block", fontFamily:BODY, fontSize:14.5, fontWeight:700, color:CL.tinta}}>{x.t}
+                      <span style={{fontWeight:400, color:CL.grisTenue}}> · {x.mod}</span></span>
+                    <span style={{display:"block", fontFamily:BODY, fontSize:14, color:CL.grisTexto, lineHeight:1.45}}>{x.d}</span>
+                  </span>
+                </div>
+              ))}
               <p style={{fontFamily:BODY, fontSize:14, color:CL.grisTenue, padding:"10px 16px", margin:0, background:"#FAFBF9", borderRadius:"0 0 16px 16px"}}>👤 Qué avisos llegan aquí lo define tu freelance. Al publicar la app también aparecerán en la pantalla de tu teléfono.</p>
             </div>
           </div>
