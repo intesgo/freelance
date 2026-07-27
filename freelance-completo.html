@@ -370,6 +370,26 @@
   .puerta input:focus-visible{outline-offset:0;border-radius:4px}
   /* sobre un botón oscuro el verde se pierde: ahí el anillo va en maíz */
   .puerta button[style*="rgb(21, 57, 43)"]:focus-visible{outline-color:#F2A900}
+  /* b384 · LA LLEGADA DE LA PUERTA
+     Una sola secuencia de ~600 ms cuando la pantalla abre: la franja baja,
+     la tarjeta sube, los campos entran uno tras otro y el botón último.
+     No es adorno: mientras llega, el ojo aprende en qué orden se lee.
+     Después no se mueve nada solo. Todo con transform y opacity, que es lo
+     único que un teléfono barato anima sin trabarse. */
+  @keyframes ptBaja{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes ptSube{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes ptVer {from{opacity:0}to{opacity:1}}
+  .puerta .pt-franja {animation:ptBaja .5s cubic-bezier(.2,.8,.3,1) both}
+  .puerta .pt-tarjeta{animation:ptSube .5s cubic-bezier(.2,.7,.3,1) .14s both}
+  .puerta .pt-c1     {animation:ptSube .44s cubic-bezier(.2,.7,.3,1) .28s both}
+  .puerta .pt-c2     {animation:ptSube .44s cubic-bezier(.2,.7,.3,1) .34s both}
+  .puerta .pt-cta    {animation:ptSube .44s cubic-bezier(.2,.7,.3,1) .42s both}
+  .puerta .pt-pie    {animation:ptVer  .45s ease .54s both}
+  /* Quien pidió menos movimiento en su teléfono no ve ninguno. */
+  @media (prefers-reduced-motion: reduce){
+    .puerta .pt-franja,.puerta .pt-tarjeta,.puerta .pt-c1,.puerta .pt-c2,
+    .puerta .pt-cta,.puerta .pt-pie{animation-duration:.01ms;animation-delay:0ms}
+  }
   /* quick actions */
   .qa{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .qa button{background:var(--card);border:1px solid var(--line);border-radius:16px;
@@ -5453,7 +5473,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"383", fecha:"26 jul 2026", desc:"Los informes arrancan en tu fecha de inicio; la cartera muestra los saldos de antes" };
+const VERSION = { n:"384", fecha:"26 jul 2026", desc:"La puerta: letra del teléfono, íconos de línea, menos verde y una llegada de medio segundo" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -21262,7 +21282,7 @@ function PantallaLogin({ onAutenticado }) {
   }, [paso]);
 
   const Franja = ({ titulo, subtitulo }) => (
-    <div className="fx-entrar" style={{ background:`linear-gradient(160deg, ${CL.tinta} 0%, ${CL.principal} 100%)`, padding:"clamp(12px,3vh,36px) 26px clamp(8px,1.6vh,18px)", position:"relative", overflow:"hidden" }}>
+    <div className="fx-entrar pt-franja" style={{ background:`linear-gradient(160deg, ${CL.tinta} 0%, ${CL.principal} 100%)`, padding:"clamp(12px,3vh,36px) 26px clamp(8px,1.6vh,18px)", position:"relative", overflow:"hidden" }}>
       <StatusBar light />
       
       <div style={{ position:"absolute", left:0, right:0, bottom:0, height:3, background:`linear-gradient(90deg, ${CL.ambar}, ${CL.suave})` }} />
@@ -21342,19 +21362,25 @@ function PantallaLogin({ onAutenticado }) {
     outline:"none", fontFamily:UTIL, transition:"border-color .2s",
   });
 
+  /* b384 · El verde se reduce a la franja de arriba. El cuerpo pasa a papel
+     porque esta puerta se abre al sol, afuera de una piladora, y una
+     pantalla oscura ahí se lava y pierde contraste. */
   return (
-    <div className="puerta" style={{ background:`linear-gradient(180deg, ${CL.principal} 0%, #15392B 100%)`, height:"100dvh", overflow:"hidden", display:"flex", flexDirection:"column" }}>
+    <div className="puerta" style={{ background:CL.fondo, height:"100dvh", overflow:"hidden", display:"flex", flexDirection:"column" }}>
       <Franja titulo subtitulo="Conectamos el campo con tu negocio" />
 
-      <div style={{ flex:1, minHeight:0, padding:"0 clamp(26px,8vw,44px)", marginTop:-14, position:"relative", zIndex:2, display:"flex", flexDirection:"column", justifyContent:"center" }}>
-        <div style={{ background:CL.papel, borderRadius:16, padding:"clamp(10px,1.8vh,18px) 18px", boxShadow:"0 10px 30px rgba(46,16,101,0.10)", border:`1px solid ${CL.linea}`, maxHeight:"100%", overflowY:"auto" }}>
+      <div style={{ flex:1, minHeight:0, padding:"clamp(14px,2.4vh,26px) clamp(22px,7vw,40px) 0", position:"relative", zIndex:2, display:"flex", flexDirection:"column" }}>
+        {/* margen automático arriba y abajo: si sobra espacio lo reparte en
+            partes iguales y la tarjeta queda al medio; si no sobra, se
+            acomoda sola y nunca se pega a la franja. */}
+        <div className="pt-tarjeta" style={{ margin:"auto 0", background:CL.papel, borderRadius:16, padding:"clamp(10px,1.8vh,18px) 18px", boxShadow:"0 10px 30px rgba(46,16,101,0.10)", border:`1px solid ${CL.linea}`, maxHeight:"100%", overflowY:"auto" }}>
 
           <p style={{ fontFamily:SERIF, fontSize:"clamp(18px,2.6vh,23px)", fontWeight:700, color:CL.tinta, margin:"0 0 1px", textAlign:"center" }}>{conClave ? "Iniciar sesión" : (huellaReg && huellaReg.nombre ? "Hola, " + huellaReg.nombre.split(" ")[0] : "Bienvenido")}</p>
           {conClave && <p style={{ fontFamily:UTIL, fontSize:"clamp(11px,1.5vh,12.5px)", color:CLP.texto, margin:"0 0 clamp(8px,1.6vh,16px)", textAlign:"center" }}>Ingrese sus credenciales para continuar</p>}
           {!conClave && <div style={{ height:"clamp(8px,1.6vh,16px)" }}></div>}
 
           {conClave && (<>
-          <div style={{ marginBottom:"clamp(8px,1.6vh,14px)" }}>
+          <div className="pt-c1" style={{ marginBottom:"clamp(8px,1.6vh,14px)" }}>
             <label style={{ fontFamily:UTIL, fontSize:"clamp(9.5px,1.3vh,11px)", fontWeight:600, color:CLP.tenue, letterSpacing:"0.14em", textTransform:"uppercase", display:"block", marginBottom:2, paddingLeft:30 }}>Usuario</label>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:2, top:"50%", transform:"translateY(-50%)", display:"flex", color: focusField==="usr" ? CL.medio : CLP.tenue, transition:"color .2s" }}><IcoCorreo t={20}/></span>
@@ -21371,7 +21397,7 @@ function PantallaLogin({ onAutenticado }) {
             </div>
           </div>
 
-          <div style={{ marginBottom:8 }}>
+          <div className="pt-c2" style={{ marginBottom:8 }}>
             <label style={{ fontFamily:UTIL, fontSize:"clamp(9.5px,1.3vh,11px)", fontWeight:600, color:CLP.tenue, letterSpacing:"0.14em", textTransform:"uppercase", display:"block", marginBottom:2, paddingLeft:30 }}>Contraseña</label>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:2, top:"50%", transform:"translateY(-50%)", display:"flex", color: focusField==="pwd" ? CL.medio : CLP.tenue, transition:"color .2s" }}><IcoClave t={20}/></span>
@@ -21399,7 +21425,7 @@ function PantallaLogin({ onAutenticado }) {
             <button onClick={()=>{ location.href="./index.html#olvido"; }} style={{ background:"none", border:"none", fontFamily:UTIL, fontSize:"clamp(11px,1.5vh,12.5px)", color:CL.medio, cursor:"pointer", padding:0, textDecoration:"underline", textUnderlineOffset:3 }}>¿Olvidó su contraseña?</button>
           </div>
 
-          <button onClick={() => handleLogin(false)} disabled={cargando}
+          <button className="pt-cta" onClick={() => handleLogin(false)} disabled={cargando}
             style={{ width:"100%", background: cargando ? "#d9d2ec" : CL.tinta,
               border:"none", borderRadius:10, padding:"clamp(9px,1.6vh,13px)", fontFamily:UTIL, fontSize:"clamp(15px,2.1vh,16px)", fontWeight:800,
               letterSpacing:"0.03em", color: cargando ? CL.grisTexto : "#fff", cursor: cargando ? "not-allowed" : "pointer",
@@ -21418,7 +21444,7 @@ function PantallaLogin({ onAutenticado }) {
 
 
           {!conClave && (<>
-          <button onClick={() => handleLogin(true)} disabled={cargando}
+          <button className="pt-cta" onClick={() => handleLogin(true)} disabled={cargando}
             style={{ width:"100%", background: cargando ? "#d9d2ec" : CL.tinta, border:"none",
               borderRadius:12, padding:"clamp(14px,2.6vh,20px)", fontFamily:UTIL, fontSize:"clamp(15px,2.1vh,16px)", fontWeight:800,
               color: cargando ? CL.grisTexto : "#fff", cursor: cargando ? "not-allowed" : "pointer",
@@ -21447,8 +21473,8 @@ function PantallaLogin({ onAutenticado }) {
             de verdad y esa frase resta confianza justo en la puerta. Queda la
             versión real, que además sirve para saber qué build tiene cada uno
             en el teléfono cuando algo falla. */}
-        <div style={{ textAlign:"center", padding:"clamp(6px,1.4vh,14px) 10px 4px" }}>
-          <p style={{ fontFamily:UTIL, fontSize:10.5, color:CLP.sobreVerde, margin:0, letterSpacing:"0.04em" }}>
+        <div className="pt-pie" style={{ textAlign:"center", padding:"clamp(10px,2vh,18px) 10px 6px" }}>
+          <p style={{ fontFamily:UTIL, fontSize:10.5, color:CLP.tenue, margin:0, letterSpacing:"0.04em" }}>
             v{VERSION.n} · © 2026 FREELANCE</p>
         </div>
       </div>
