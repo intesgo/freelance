@@ -3234,6 +3234,7 @@ const USOS_SEMILLA = {
   couriers:{ "Servientrega":18, "Laar Courier":9, "Tramaco":4 },
   motivosAnulacion:{ "Error en el monto digitado":5, "Cobro duplicado":4, "Cliente equivocado":3, "Factura equivocada":2, "Forma de pago mal registrada":1 },
   motivosProtesto:{ "Fondos insuficientes":6, "Cuenta cerrada":5, "Firma no coincide":4, "Cheque caducado":3, "Orden de no pago":2, "Defecto de forma":1 },
+  clientes:{},   /* b388 · arranca vacía: el orden lo aprende del uso real de cada vendedor */
 };
 /* Lee lo guardado y lo monta sobre la semilla. Si el teléfono no deja guardar
    (modo privado, memoria llena) o el dato quedó corrupto, sigue con la semilla. */
@@ -5500,7 +5501,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"387", fecha:"27 jul 2026", desc:"Los motivos vuelven al orden pensado, y desde ahi se acomodan con tu uso" };
+const VERSION = { n:"388", fecha:"27 jul 2026", desc:"El cliente del saldo inicial se ordena por uso. Auditadas las 5 apps: los selects de anio quedan en orden cronologico a proposito" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11238,9 +11239,16 @@ function Arranque({toast}){
           <h3>Un saldo de apertura</h3>
           <div className="sh-sub">Lo que este cliente ya te debía antes de arrancar</div>
           <div className="field"><label>Cliente</label>
-            <select value={nuevo.cli} onChange={e=>setNuevo({...nuevo,cli:e.target.value})}>
+            <select value={nuevo.cli} onChange={e=>{
+              /* Se registra el cliente ENTERO, no el value: usoClave lee su nombre y
+                 el value del select es el id. Registrar el id dejaría el orden intacto
+                 y parecería que funciona sin funcionar. */
+              const c=((d&&d.clientes)||[]).find(x=>String(x.id)===e.target.value);
+              if(c) regUso("clientes",c);
+              setNuevo({...nuevo,cli:e.target.value});
+            }}>
               <option value="">Elige un cliente…</option>
-              {((d&&d.clientes)||[]).map(c=>(<option key={c.id} value={c.id}>{c.nombre}</option>))}
+              {ordUso("clientes",((d&&d.clientes)||[])).map(c=>(<option key={c.id} value={c.id}>{c.nombre}</option>))}
             </select></div>
           <div className="field"><label>¿Cuánto te debe?</label>
             <input type="number" inputMode="decimal" step="0.01" value={nuevo.monto}
