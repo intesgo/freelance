@@ -778,6 +778,7 @@ function registrarAnulacion(a){
   l.unshift({
     clave:a.clave||"", numero:a.numero||"", cliente:a.cliente||"",
     clienteRuc:a.clienteRuc||"",           /* para juntar despues los saldos de un mismo cliente */
+    demo:!!a.demo,                         /* si nacio de la semilla, se va con ella */
     totalAnterior:a.totalAnterior||0,      /* el valor que tenia antes: no se pierde */
     motivo:a.motivo||"", nota:a.nota||"",
     via:a.via||"", cobros:a.cobros||0,     /* cuanto dinero hay que trasladar */
@@ -850,7 +851,67 @@ function saldosAFavor(){
     mapa.set(id, g);
   });
   const lista = Array.from(mapa.values()).sort((a,b)=>b.monto-a.monto);
+  lista.forEach(g=>{ g.demo = g.casos.every(c=>c.demo); });   /* rotula solo si TODO el saldo es de prueba */
   return { clientes:lista.length, monto:lista.reduce((a,x)=>a+x.monto,0), lista };
+}
+
+/* ══ SEMILLA DE PRUEBA · FACTURAS CON COBRO ══
+   El XML del SRI NO dice cuanto se cobro, y en demo nada lo siembra: por eso
+   'cobrado' llega siempre en 0 y ni el dinero en transito ni el saldo a favor
+   alcanzan a aparecer NUNCA en pantalla. Estas facturas dejan caminar el flujo
+   completo (anular → trasladar → ver el saldo) para poder probarlo de verdad.
+   Van de a pares: la que se anula y su destino, del MISMO cliente, porque el
+   traslado solo ofrece facturas del mismo cliente.
+   Santa Rosa trae DOS casos a proposito: es lo unico que prueba que el saldo se
+   junta por RUC y no se parte en dos.
+   Solo siembra si la lista esta VACIA: si ya cargaste facturas de verdad, no toca
+   nada. Rotuladas demo:true, no escondidas (regla del 24 jul).
+   En Fase 4 sale sobrando: el cobro vendra de la cartera real en Supabase. */
+const SEMILLA_KEY = "freelance_semilla_facturas_v1";
+const FACTURAS_SEMILLA = [
+  /* Caso 1 · deja saldo a favor: se cobro 1200 y la factura nueva vale 900 → 300 */
+  {clave:"DEMO-A1", numero:"001-001-000201", cliente:"Mayorista Santa Rosa", clienteRuc:"0691234567001",
+   total:1200.00, fecha:"2026-07-14", cobrado:1200.00, cuando:"2026-07-14", au:"AU-260714-1001", demo:true},
+  {clave:"DEMO-A2", numero:"001-001-000208", cliente:"Mayorista Santa Rosa", clienteRuc:"0691234567001",
+   total:900.00,  fecha:"2026-07-16", cobrado:0, cuando:"2026-07-16", au:"AU-260716-1002", demo:true},
+  /* Caso 2 · mismo cliente, otro saldo: 600 cobrados contra factura de 400 → 200 */
+  {clave:"DEMO-A3", numero:"001-001-000212", cliente:"Mayorista Santa Rosa", clienteRuc:"0691234567001",
+   total:600.00,  fecha:"2026-07-17", cobrado:600.00, cuando:"2026-07-17", au:"AU-260717-1003", demo:true},
+  {clave:"DEMO-A4", numero:"001-001-000219", cliente:"Mayorista Santa Rosa", clienteRuc:"0691234567001",
+   total:400.00,  fecha:"2026-07-18", cobrado:0, cuando:"2026-07-18", au:"AU-260718-1004", demo:true},
+  /* Caso 3 · borde: la factura nueva vale igual → no queda saldo */
+  {clave:"DEMO-B1", numero:"001-001-000224", cliente:"Distribuidora Ríos", clienteRuc:"1792345678001",
+   total:800.00,  fecha:"2026-07-19", cobrado:800.00, cuando:"2026-07-19", au:"AU-260719-1005", demo:true},
+  {clave:"DEMO-B2", numero:"001-001-000231", cliente:"Distribuidora Ríos", clienteRuc:"1792345678001",
+   total:800.00,  fecha:"2026-07-21", cobrado:0, cuando:"2026-07-21", au:"AU-260721-1006", demo:true},
+  /* Caso 4 · sin destino: al anularla el dinero se queda en transito */
+  {clave:"DEMO-C1", numero:"001-001-000237", cliente:"Tienda La Esquina", clienteRuc:"1791556778001",
+   total:450.00,  fecha:"2026-07-22", cobrado:450.00, cuando:"2026-07-22", au:"AU-260722-1007", demo:true}
+];
+function sembrarFacturasDemo(){
+  try{
+    if(localStorage.getItem(SEMILLA_KEY)==="borrada") return;   /* ya la boto: no vuelve sola */
+    if(facturasCargadas().length>0) return;                     /* hay datos: no se toca nada */
+    localStorage.setItem(FACTURAS_KEY, JSON.stringify(FACTURAS_SEMILLA));
+    localStorage.setItem(SEMILLA_KEY, "puesta");
+  }catch(e){}
+}
+/* Se lleva la semilla Y las anulaciones que salieron de ella: si no, quedarian
+   saldos a favor apuntando a facturas que ya no existen. */
+function borrarSemillaDemo(){
+  try{
+    localStorage.setItem(FACTURAS_KEY, JSON.stringify(facturasCargadas().filter(f=>!f.demo)));
+    guardarAnuladas(facturasAnuladas().filter(a=>!a.demo));
+    localStorage.setItem(SEMILLA_KEY, "borrada");
+  }catch(e){}
+}
+function cuantasDemo(){ return facturasCargadas().filter(f=>f.demo).length; }
+sembrarFacturasDemo();
+
+/* Rotulo de dato de prueba: se ROTULA, no se esconde. */
+function ChipDemo(){
+  return <span style={{fontSize:9,fontWeight:800,letterSpacing:.4,padding:"2px 6px",
+    borderRadius:6,background:"#E6D9F2",color:"#5B3E80",flexShrink:0}}>DEMO</span>;
 }
 
 /* Cierra el traslado: el cobro en transito se aplica a la factura nueva. */
@@ -1195,7 +1256,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"65", fecha:"27 jul 2026", desc:"El saldo a favor del cliente ya se ve, junto por cliente, en la pestana Del cliente" };
+const VERSION = { n:"66", fecha:"27 jul 2026", desc:"Saldo a favor visible por cliente, y facturas de prueba con cobro para poder probarlo" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -3370,7 +3431,7 @@ function Inicio({ctx,irTab,credPend}){
               </div>
             </div>
             <div style={{textAlign:"right",flexShrink:0}}>
-              <div className="num" style={{fontWeight:700,fontSize:16,color:"#8A5A12"}}>{f(transito.monto)}</div>
+              <div className="num" style={{fontWeight:700,fontSize:16,color:"#8A5A12"}}>{money(transito.monto)}</div>
               <div className="tiny" style={{color:"#8A5A12",opacity:.7}}>por aplicar ›</div>
             </div>
           </button>
@@ -4443,7 +4504,7 @@ function CargaXML({irTab}){
     const v = viaAnulacion(f.fecha, cob>0);
     const au = nuevoAu();
     registrarAnulacion({
-      clave:f.clave, numero:f.numero, cliente:f.cliente, clienteRuc:f.clienteRuc,
+      clave:f.clave, numero:f.numero, cliente:f.cliente, clienteRuc:f.clienteRuc, demo:f.demo,
       totalAnterior:f.total, motivo:motAnu, nota:notaAnu.trim(),
       via:v.via, cobros:cob,
       destino:"transito", saldoFavor:cob,
@@ -4684,7 +4745,7 @@ function CargaXML({irTab}){
       <div className="card card-pad" style={{background:"var(--espera-suave)",border:"none"}}>
         <div className="row between">
           <span style={{fontWeight:700,fontSize:14,color:"#8A5A12"}}>Sin trasladar</span>
-          <span className="num" style={{fontWeight:700,fontSize:16,color:"#8A5A12"}}>{f(transito.monto)}</span>
+          <span className="num" style={{fontWeight:700,fontSize:16,color:"#8A5A12"}}>{money(transito.monto)}</span>
         </div>
         <div className="tiny" style={{color:"#8A5A12",opacity:.85,marginTop:4,lineHeight:1.5}}>
           Dinero que el cliente ya pagó y quedó sin factura al anularla. Aplícalo a la factura nueva.</div>
@@ -4704,13 +4765,16 @@ function CargaXML({irTab}){
                            else toast("La factura ya no está cargada en este teléfono. Vuelve a cargarla para aplicar el cobro."); }}>
             <div className="ava ava-m" style={{flexShrink:0,background:"#F3DFB4"}}>⏳</div>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
-                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.cliente||"Sin cliente"}</div>
+              <div className="row" style={{gap:6,minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.cliente||"Sin cliente"}</div>
+                {a.demo && <ChipDemo/>}
+              </div>
               <div className="tiny muted num">{a.numero}</div>
               <div className="tiny muted">Anulada el {a.cuando} · {a.motivo}</div>
             </div>
             <div style={{textAlign:"right",flexShrink:0}}>
-              <div className="num" style={{fontWeight:700,color:"#8A5A12"}}>{f(a.cobros)}</div>
+              <div className="num" style={{fontWeight:700,color:"#8A5A12"}}>{money(a.cobros)}</div>
               {fc ? <div className="tiny muted">aplicar ›</div>
                   : <div className="tiny muted" style={{opacity:.6}}>no disponible</div>}
             </div>
@@ -4726,7 +4790,7 @@ function CargaXML({irTab}){
         <div className="card card-pad" style={{background:"var(--papel-2)",border:"none"}}>
           <div className="row between">
             <span style={{fontWeight:700,fontSize:14}}>A favor del cliente</span>
-            <span className="num" style={{fontWeight:700,fontSize:16}}>{f(saldos.monto)}</span>
+            <span className="num" style={{fontWeight:700,fontSize:16}}>{money(saldos.monto)}</span>
           </div>
           <div className="tiny muted" style={{marginTop:4,lineHeight:1.5}}>
             Sobró después de trasladar el cobro: la factura nueva valió menos. Es plata
@@ -4743,14 +4807,17 @@ function CargaXML({irTab}){
                 onClick={()=>setSaldoAbierto(abierto?null:s.id)}>
                 <div className="ava ava-m" style={{flexShrink:0,background:"#CDE9DA"}}>💰</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
-                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.cliente}</div>
+                  <div className="row" style={{gap:6,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.cliente}</div>
+                    {s.demo && <ChipDemo/>}
+                  </div>
                   <div className="tiny muted num">{s.ruc || "sin RUC"}</div>
                   <div className="tiny muted">
                     {s.casos.length===1 ? "de 1 factura anulada" : `de ${s.casos.length} facturas anuladas`}</div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
-                  <div className="num" style={{fontWeight:700,color:"#2E7D52"}}>{f(s.monto)}</div>
+                  <div className="num" style={{fontWeight:700,color:"#2E7D52"}}>{money(s.monto)}</div>
                   <div className="tiny muted">{abierto?"ocultar ⌃":"ver ⌄"}</div>
                 </div>
               </button>
@@ -4767,7 +4834,7 @@ function CargaXML({irTab}){
                           anulada {c.cuando} · trasladada a {c.destino}</div>
                       </div>
                       <span className="num tiny" style={{fontWeight:700,flexShrink:0,marginLeft:10,
-                        color:"#2E7D52"}}>{f(c.saldoFavor)}</span>
+                        color:"#2E7D52"}}>{money(c.saldoFavor)}</span>
                     </div>
                   ))}
                   <div className="tiny muted" style={{marginTop:9,lineHeight:1.5}}>
@@ -4797,8 +4864,11 @@ function CargaXML({irTab}){
             onClick={()=>setFicha(f)}>
             <div className="row between">
               <div style={{minWidth:0,flex:1}}>
-                <div style={{fontWeight:600,fontSize:15,overflow:"hidden",
-                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.cliente||"Sin cliente"}</div>
+                <div className="row" style={{gap:6,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:15,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.cliente||"Sin cliente"}</div>
+                  {f.demo && <ChipDemo/>}
+                </div>
                 <div className="sub tiny" style={{marginTop:2}}>{f.numero} · {f.cuando}</div>
               </div>
               <div style={{flexShrink:0,textAlign:"right",marginLeft:10}}>
@@ -6603,6 +6673,7 @@ function PerfilNegocioProv({decir}){
 
 function AjustesProv(){
   const [pest,setPest]=useState("apariencia");
+  const [tickAj,setTickAj]=useState(0);   // repinta tras borrar la semilla de prueba
   const [tema,setTema]=useState(temaGuardadoP());
   const [bio,setBio]=useState(!!huellaGuardadaP());
   const [sonido,setSonido]=useState(true);
@@ -6755,6 +6826,18 @@ function AjustesProv(){
         <div className="aj-fila"><span>Comprobantes cargados</span><b>{comprobantesRegistrados().length}</b></div>
         <div className="aj-fila"><span>Versión</span><b>{VERSION.fecha} b{VERSION.n}</b></div>
       </div>
+      {cuantasDemo()>0 && (<>
+        <div className="aj-sec">Datos de prueba</div>
+        <div className="aj-card">
+          <div className="aj-fila"><span>Facturas de prueba</span><b className="num">{cuantasDemo()}</b></div>
+          <button className="btn btn-ghost" style={{width:"100%",marginTop:10}}
+            onClick={()=>{ borrarSemillaDemo(); setTickAj(t=>t+1); decir("Datos de prueba borrados ✓"); }}>
+            Quitar datos de prueba</button>
+        </div>
+        <div className="aj-nota">Facturas inventadas, con el cobro ya puesto, para poder probar
+          anular y trasladar el dinero. Van marcadas DEMO en todas las listas. Al quitarlas se
+          van también las anulaciones que salieron de ellas, y no vuelven a aparecer solas.</div>
+      </>)}
       <div className="aj-nota">La lista de comprobantes ya cargados evita registrar dos veces la misma
         factura, nota o guía. Hoy vive en el teléfono; al conectar el sistema pasa al servidor,
         donde el control es a prueba de cambios de equipo.</div>
