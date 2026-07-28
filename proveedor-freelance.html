@@ -710,6 +710,9 @@ function facturasCargadas(){
 function registrarFacturaCargada(f){
   const l = facturasCargadas();
   l.unshift({ clave:f.clave||"", numero:f.numero||"", cliente:f.cliente||"",
+    /* El RUC viene del XML y es lo unico que identifica al cliente sin equivocarse:
+       el nombre se escribe distinto en cada factura y partiria su saldo en dos. */
+    clienteRuc:f.clienteRuc||"",
     total:f.total||0, fecha:f.fecha||"",
     /* Cuanto se ha cobrado de esta factura. HOY es demo (llega en 0 o sembrado a mano);
        en Fase 4 este dato sale de la cartera real en Supabase, no de aqui. */
@@ -774,6 +777,7 @@ function registrarAnulacion(a){
   const l = facturasAnuladas();
   l.unshift({
     clave:a.clave||"", numero:a.numero||"", cliente:a.cliente||"",
+    clienteRuc:a.clienteRuc||"",           /* para juntar despues los saldos de un mismo cliente */
     totalAnterior:a.totalAnterior||0,      /* el valor que tenia antes: no se pierde */
     motivo:a.motivo||"", nota:a.nota||"",
     via:a.via||"", cobros:a.cobros||0,     /* cuanto dinero hay que trasladar */
@@ -824,6 +828,30 @@ function dineroEnTransito(){
 }
 /* La banda del Inicio pide abrir la lista de facturas cargadas ya filtrada. */
 let ABRIR_TRANSITO = false;
+
+/* ══ SALDO A FAVOR DEL CLIENTE ══
+   Sobrante de un cobro YA trasladado: la factura nueva valio menos que lo cobrado.
+   Es plata del cliente que se quedo en la casa. Cada anulacion lo guarda por su lado,
+   asi que aqui se junta POR CLIENTE: uno solo puede tener varias facturas anuladas y
+   ver $30 aqui y $50 alla no sirve para devolverle nada.
+   Se agrupa por RUC, no por nombre: el nombre se escribe distinto en cada factura y
+   partiria el saldo del mismo cliente en dos.
+   HOY solo se MUESTRA. Consumir el saldo contra una factura futura es cartera, y la
+   cartera no vive en esta app: eso es Fase 4 con Supabase. */
+function saldosAFavor(){
+  const l = facturasAnuladas().filter(a=>a.destino!=="transito" && (a.saldoFavor||0)>0);
+  const mapa = new Map();
+  l.forEach(a=>{
+    const id = a.clienteRuc || a.cliente || "s/n";
+    const g = mapa.get(id) || { id, cliente:a.cliente||"Sin cliente", ruc:a.clienteRuc||"", monto:0, casos:[] };
+    g.monto += (a.saldoFavor||0);
+    if(!g.ruc && a.clienteRuc) g.ruc = a.clienteRuc;   /* si una factura vieja no traia RUC, sirve el de otra */
+    g.casos.push(a);
+    mapa.set(id, g);
+  });
+  const lista = Array.from(mapa.values()).sort((a,b)=>b.monto-a.monto);
+  return { clientes:lista.length, monto:lista.reduce((a,x)=>a+x.monto,0), lista };
+}
 
 /* Cierra el traslado: el cobro en transito se aplica a la factura nueva. */
 function trasladarCobro(clave, facturaDestino, montoDestino){
@@ -1167,7 +1195,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"64", fecha:"27 jul 2026", desc:"Los motivos de anulacion se ordenan por lo que mas usas, y Otro nunca se trepa" };
+const VERSION = { n:"65", fecha:"27 jul 2026", desc:"El saldo a favor del cliente ya se ve, junto por cliente, en la pestana Del cliente" };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -4280,8 +4308,10 @@ function CargaXML({irTab}){
   const [tick,setTick]=useState(0);           // repinta tras escribir en localStorage
   const [traslado,setTraslado]=useState(false); // pantalla de cerrar el cobro en transito
   const [destSel,setDestSel]=useState(null);    // factura destino elegida
-  /* Atrás: cierra lo más interno primero (anulación → ficha → factura leída). */
+  const [saldoAbierto,setSaldoAbierto]=useState(null); // cliente con su detalle de saldo abierto
+  /* Atrás: cierra lo más interno primero (detalle → anulación → ficha → factura leída). */
   useRetrocesoP(()=>{
+    if(saldoAbierto){ setSaldoAbierto(null); return true; }
     if(anular){ setAnular(false); setMotAnu(""); setNotaAnu(""); return true; }
     if(ficha){ setFicha(null); return true; }
     if(xml){ setXml(null); return true; }
@@ -4400,6 +4430,7 @@ function CargaXML({irTab}){
   const anuladas = facturasAnuladas();
   /* se recalcula en cada repintado (tick) para que al cerrar un traslado baje solo */
   const transito = dineroEnTransito();
+  const saldos   = saldosAFavor();      // sobrantes ya trasladados, juntos por cliente
   const estaAnulada = (f)=> anuladas.find(a=>a.clave && f.clave && a.clave===f.clave)
                          || anuladas.find(a=>a.numero && f.numero && a.numero===f.numero) || null;
   /* Demo: cuánto se cobró de esta factura. En Fase 4 sale de la cartera real. */
@@ -4412,7 +4443,7 @@ function CargaXML({irTab}){
     const v = viaAnulacion(f.fecha, cob>0);
     const au = nuevoAu();
     registrarAnulacion({
-      clave:f.clave, numero:f.numero, cliente:f.cliente,
+      clave:f.clave, numero:f.numero, cliente:f.cliente, clienteRuc:f.clienteRuc,
       totalAnterior:f.total, motivo:motAnu, nota:notaAnu.trim(),
       via:v.via, cobros:cob,
       destino:"transito", saldoFavor:cob,
@@ -4636,16 +4667,19 @@ function CargaXML({irTab}){
         <button className={"btn "+(vista==="cargadas"?"btn-maiz":"btn-ghost")}
           style={{flex:1}} onClick={()=>setVista("cargadas")}>
           Cargadas{facturasCargadas().length?` · ${facturasCargadas().length}`:""}</button>
-        {/* solo se ve si hay plata parada: si no hay, no estorba */}
-        {transito.casos>0 && (
+        {/* Toda la plata del cliente sin factura que la respalde, en un solo lado:
+            sin trasladar (urgente) y a favor (parada). Si no hay nada, no estorba. */}
+        {(transito.casos>0 || saldos.clientes>0) && (
           <button className={"btn "+(vista==="transito"?"btn-maiz":"btn-ghost")}
             style={{flex:1}} onClick={()=>setVista("transito")}>
-            Tránsito · {transito.casos}</button>
+            Del cliente · {transito.casos+saldos.clientes}</button>
         )}
       </div>
     </>)}
 
     {!xml && vista==="transito" && (<>
+      {/* ── 1. SIN TRASLADAR: urgente. Mientras esto exista, la cartera miente. ── */}
+      {transito.casos>0 && (<>
       <div className="sec-gap" style={{height:14}} />
       <div className="card card-pad" style={{background:"var(--espera-suave)",border:"none"}}>
         <div className="row between">
@@ -4684,6 +4718,67 @@ function CargaXML({irTab}){
           );
         })}
       </div>
+      </>)}
+
+      {/* ── 2. A FAVOR: saldo parado, junto por cliente. No es urgente, pero se le debe. ── */}
+      {saldos.clientes>0 && (<>
+        <div className="sec-gap" style={{height:transito.casos>0?20:14}} />
+        <div className="card card-pad" style={{background:"var(--papel-2)",border:"none"}}>
+          <div className="row between">
+            <span style={{fontWeight:700,fontSize:14}}>A favor del cliente</span>
+            <span className="num" style={{fontWeight:700,fontSize:16}}>{f(saldos.monto)}</span>
+          </div>
+          <div className="tiny muted" style={{marginTop:4,lineHeight:1.5}}>
+            Sobró después de trasladar el cobro: la factura nueva valió menos. Es plata
+            del cliente que sigue en la casa. Se le devuelve o se le aplica a la próxima.</div>
+        </div>
+
+        <div className="sec-gap" style={{height:12}} />
+        <div className="list-card">
+          {saldos.lista.map((s,i)=>{
+            const abierto = saldoAbierto===s.id;
+            return (
+            <div key={s.id}>
+              <button className="item" style={{width:"100%",textAlign:"left"}}
+                onClick={()=>setSaldoAbierto(abierto?null:s.id)}>
+                <div className="ava ava-m" style={{flexShrink:0,background:"#CDE9DA"}}>💰</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:14,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.cliente}</div>
+                  <div className="tiny muted num">{s.ruc || "sin RUC"}</div>
+                  <div className="tiny muted">
+                    {s.casos.length===1 ? "de 1 factura anulada" : `de ${s.casos.length} facturas anuladas`}</div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div className="num" style={{fontWeight:700,color:"#2E7D52"}}>{f(s.monto)}</div>
+                  <div className="tiny muted">{abierto?"ocultar ⌃":"ver ⌄"}</div>
+                </div>
+              </button>
+              {/* El detalle importa: sin el, el proveedor no sabe de que factura salio la plata. */}
+              {abierto && (
+                <div style={{padding:"2px 13px 12px 13px"}}>
+                  {s.casos.map((c,j)=>(
+                    <div key={c.clave||j} className="row between"
+                      style={{padding:"7px 0",borderTop:"1px solid var(--linea)",minWidth:0}}>
+                      <div style={{minWidth:0,flex:1}}>
+                        <div className="tiny num" style={{fontWeight:600,overflow:"hidden",
+                          textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.numero}</div>
+                        <div className="tiny muted">
+                          anulada {c.cuando} · trasladada a {c.destino}</div>
+                      </div>
+                      <span className="num tiny" style={{fontWeight:700,flexShrink:0,marginLeft:10,
+                        color:"#2E7D52"}}>{f(c.saldoFavor)}</span>
+                    </div>
+                  ))}
+                  <div className="tiny muted" style={{marginTop:9,lineHeight:1.5}}>
+                    Aplicarlo a una factura futura es trabajo de cartera; hoy solo se ve aquí.</div>
+                </div>
+              )}
+            </div>
+            );
+          })}
+        </div>
+      </>)}
     </>)}
 
     {!xml && vista==="cargadas" && (<>
