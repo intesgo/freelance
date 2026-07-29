@@ -4594,6 +4594,125 @@ async function guardarPedidoEnBase({cli, prov, carrito}){
   }catch(e){ return { ok:false, motivo:"error" }; }
 }
 
+/* ═══ CABECERA DEL PEDIDO ══════════════════════════════════════════════════
+   SPRINT-05 · Quién compra, a quién y qué. Es la identidad del pedido: los
+   tres campos que lo definen antes de que se hable de plata.
+
+   Vivía suelta dentro de Pedido, entreverada con el precio, el carrito, el
+   historial y el mini-tablero — mil líneas donde no se sabía dónde empezaba
+   una cosa y terminaba la otra. Ahora es una pieza sola que no sabe nada del
+   resto: recibe lo que debe mostrar y avisa lo que el vendedor tocó. No
+   guarda estado, no calcula precios, no valida nada y no habla con la base.
+   Todas esas decisiones siguen donde estaban, en Pedido.
+
+   LA CASCADA ES DELIBERADA Y NO SE TOCA: un campo a la vez, cliente →
+   proveedor → producto. El vendedor de campo trabaja parado, con una mano y
+   a veces bajo el sol. Dos campos juntos son dos oportunidades de errar.
+
+   Tres reglas que se leían repetidas en cada condición y ahora tienen nombre:
+     · `eligiendo`  mientras no haya producto, ni cliente bloqueado, ni la
+                    factura anterior abierta, se sigue eligiendo;
+     · con producto elegido la cabecera se repliega: el cliente pasa a ser el
+                    título y los buscadores desaparecen, para dejarle la
+                    pantalla al precio;
+     · con un pedido en curso no se cambia de cliente ni de proveedor, y se
+                    explica por qué en vez de solo bloquear.
+   ══════════════════════════════════════════════════════════════════════════ */
+function CabeceraPedido({ cli, prov, prod, bloqueado, verFact, pedidoEnCurso,
+                          clientes, proveedores, productos,
+                          onCliente, onQuitarCliente,
+                          onProveedor, onQuitarProveedor,
+                          onProducto, onQuitarProducto }) {
+  const eligiendo = !prod && !bloqueado && !verFact;
+  const replegada = !!(cli && prod);
+  return (<>
+    {!replegada && <div className="h1" style={{textAlign:"center"}}>Tomar pedido</div>}
+
+    {/* Ya elegidos cliente y producto: el cliente es el título, sin buscador */}
+    {replegada ? (
+      <div className="cli-titulo">{cli}</div>
+    ) : (
+    /* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */
+    <div className="busc-cliente busc-grande">
+    <SearchSelect label="Cliente" cat="clientes" items={clientes} value={cli} multiPalabra sinLabel
+      onPick={onCliente} onClear={onQuitarCliente}
+      hint={pedidoEnCurso?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
+      render={{
+        text:c=>c,
+        option:c=>(<><div className="o1">{c}</div>
+          {(REFERENCIALES[c]||[]).length>0 && <div className="o2">Factura a: {REFERENCIALES[c].join(" · ")}</div>}</>),
+        picked:c=>(<div className="p1">{c}</div>)
+      }}/>
+    </div>
+    )}
+
+    {/* en cascada: el proveedor aparece cuando ya hay cliente, igual que en la app del freelance */}
+    {cli && eligiendo && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={proveedores} sinLabel value={prov}
+      onPick={onProveedor} onClear={onQuitarProveedor}
+      hint={pedidoEnCurso?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
+      render={{
+        text:p=>p.nombre,
+        option:p=>(<div className="o1">{p.nombre}</div>),
+        picked:p=>(<div className="p1">{p.nombre}</div>)
+      }}/></div>}
+
+    {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
+    {prov && eligiendo && <div className="busc-grande"><SearchSelect label="Producto" sinLabel cat="productos" items={productos} value={prod} maxItems={5}
+      placeholder="Producto"
+      onPick={onProducto} onClear={onQuitarProducto}
+      render={{
+        text:p=>p.nombre,
+        option:p=>(
+          <div className="prod-ficha">
+            <div className="pf-img">{EMOJI_LINEA[p.linea]||"📦"}</div>
+            <div className="pf-info">
+              <div className="pf-nom">{p.marca}</div>
+              <div className="pf-pres">{p.unidad}</div>
+            </div>
+            <span className="pf-ar">›</span>
+          </div>),
+        picked:p=>(<div className="p1">{p.nombre}</div>)
+      }}/></div>}
+  </>);
+}
+
+/* ═══ AVISO DE CLIENTE BLOQUEADO ═══════════════════════════════════════════
+   SPRINT-05 · Pertenece a la cabecera: es lo que le pasa al cliente elegido,
+   y por eso corta la cascada antes del proveedor.
+
+   Solo pinta. Quién está bloqueado y qué código lo abre son reglas del
+   negocio y se quedaron en Pedido, donde siempre estuvieron: esta pieza
+   recibe los motivos ya calculados y avisa que se tocó "Desbloquear".
+
+   Se mantiene a propósito el motivo escrito con todas sus letras en vez de
+   un "cliente bloqueado" a secas: el vendedor está frente al cliente y tiene
+   que poder decirle por qué, sin llamar a la oficina.
+   ══════════════════════════════════════════════════════════════════════════ */
+function AvisoClienteBloqueado({ motivos, desbloqueado, codigo, onCodigo, onDesbloquear }) {
+  return (
+    <div className={"bloqueo"+(desbloqueado?" ok":"")}>
+      {desbloqueado ? (
+        <>
+          <div className="bq-h"><span className="bq-ic">🔓</span> Pedido desbloqueado por el proveedor</div>
+          <div className="bq-sub">Puedes continuar con este pedido.</div>
+        </>
+      ) : (
+        <>
+          <div className="bq-h"><span className="bq-ic">🚫</span> Cliente bloqueado para pedidos</div>
+          <ul className="bq-list">
+            {motivos.map((m,i)=><li key={i}>{m}</li>)}
+          </ul>
+          <div className="bq-sub">El bloqueo es automático. Solicita al proveedor el código de validación para desbloquear este pedido.</div>
+          <div className="bq-code">
+            <input value={codigo} onChange={e=>onCodigo(e.target.value)} placeholder="Código del proveedor" inputMode="numeric"/>
+            <button onClick={onDesbloquear}>Desbloquear</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido}){
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
@@ -4869,57 +4988,18 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   }
 
   return (<>
-    {!(cli && prod) && <div className="h1" style={{textAlign:"center"}}>Tomar pedido</div>}
-
-    {/* siempre visible: cliente, proveedor y producto */}
-    {true && <>
-    {/* Ya elegidos cliente y producto: el cliente es el título, sin buscador */}
-    {cli && prod ? (
-      <div className="cli-titulo">{cli}</div>
-    ) : (
-    /* buscador primero: lo que más se usa va arriba, igual que en la app del freelance */
-    <div className="busc-cliente busc-grande">
-    <SearchSelect label="Cliente" cat="clientes" items={CLIS_PED} value={cli} multiPalabra sinLabel
-      onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
-      hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
-      render={{
-        text:c=>c,
-        option:c=>(<><div className="o1">{c}</div>
-          {(REFERENCIALES[c]||[]).length>0 && <div className="o2">Factura a: {REFERENCIALES[c].join(" · ")}</div>}</>),
-        picked:c=>(<div className="p1">{c}</div>)
-      }}/>
-    </div>
-    )}
-
-    {/* en cascada: el proveedor aparece cuando ya hay cliente, igual que en la app del freelance */}
-    {cli && !prod && !bloqueado && !verFact && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov}
-      onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
-      hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
-      render={{
-        text:p=>p.nombre,
-        option:p=>(<div className="o1">{p.nombre}</div>),
-        picked:p=>(<div className="p1">{p.nombre}</div>)
-      }}/></div>}
-
-    {/* el producto aparece cuando ya hay proveedor: un campo a la vez */}
-    {prov && !bloqueado && !verFact && !prod && <div className="busc-grande"><SearchSelect label="Producto" sinLabel cat="productos" items={productosDelProv} value={prod} maxItems={5}
-      placeholder="Producto"
-      onPick={p=>{origenProd.current="nuevo";setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
-      render={{
-        text:p=>p.nombre,
-        option:p=>(
-          <div className="prod-ficha">
-            <div className="pf-img">{EMOJI_LINEA[p.linea]||"📦"}</div>
-            <div className="pf-info">
-              <div className="pf-nom">{p.marca}</div>
-              <div className="pf-pres">{p.unidad}</div>
-            </div>
-            <span className="pf-ar">›</span>
-          </div>),
-        picked:p=>(<div className="p1">{p.nombre}</div>)
-      }}/></div>}
-
-    </>}
+    {/* ── CABECERA: quién compra, a quién y qué (SPRINT-05) ── */}
+    <CabeceraPedido
+      cli={cli} prov={prov} prod={prod} bloqueado={bloqueado} verFact={verFact}
+      pedidoEnCurso={carrito.length>0}
+      clientes={CLIS_PED} proveedores={PROVS_PED} productos={productosDelProv}
+      onCliente={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}}
+      onQuitarCliente={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
+      onProveedor={p=>{setProv(p);setProd(null);reset();}}
+      onQuitarProveedor={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
+      onProducto={p=>{origenProd.current="nuevo";setProd(p);reset();}}
+      onQuitarProducto={()=>{setProd(null);reset();}}
+    />
 
     {/* Productos que el cliente ya compró antes (favoritos) */}
     {prov && !bloqueado && !verFact && !prod && favoritos.length>0 && (
@@ -5153,29 +5233,14 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 
 
     {cli && motivos.length>0 && (
-      <div className={"bloqueo"+(desbloqueado?" ok":"")}>
-        {desbloqueado ? (
-          <>
-            <div className="bq-h"><span className="bq-ic">🔓</span> Pedido desbloqueado por el proveedor</div>
-            <div className="bq-sub">Puedes continuar con este pedido.</div>
-          </>
-        ) : (
-          <>
-            <div className="bq-h"><span className="bq-ic">🚫</span> Cliente bloqueado para pedidos</div>
-            <ul className="bq-list">
-              {motivos.map((m,i)=><li key={i}>{m}</li>)}
-            </ul>
-            <div className="bq-sub">El bloqueo es automático. Solicita al proveedor el código de validación para desbloquear este pedido.</div>
-            <div className="bq-code">
-              <input value={codigo} onChange={e=>setCodigo(e.target.value)} placeholder="Código del proveedor" inputMode="numeric"/>
-              <button onClick={()=>{
-                if(codigo.trim()===CODIGO_DESBLOQUEO){ setDesbloqueado(true); toast("Pedido desbloqueado por el proveedor."); }
-                else toast("Código incorrecto. Verifica con el proveedor.");
-              }}>Desbloquear</button>
-            </div>
-          </>
-        )}
-      </div>
+      <AvisoClienteBloqueado
+        motivos={motivos} desbloqueado={desbloqueado} codigo={codigo}
+        onCodigo={setCodigo}
+        onDesbloquear={()=>{
+          if(codigo.trim()===CODIGO_DESBLOQUEO){ setDesbloqueado(true); toast("Pedido desbloqueado por el proveedor."); }
+          else toast("Código incorrecto. Verifica con el proveedor.");
+        }}
+      />
     )}
 
 
