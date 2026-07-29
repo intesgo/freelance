@@ -5816,6 +5816,111 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
 }
 
 // ---------- COBROS ----------
+
+/* ═══ TABLERO DEL SALDO DEL COBRO ═════════════════════════════════════════
+   SPRINT-08 · Lo que el vendedor mira mientras arma el cobro: cuánto se va a
+   cobrar, cuánto lleva cubierto y cuánto falta. Es la pieza que le dice si
+   el cobro cuadra, y por eso es la que no se puede equivocar.
+
+   SOLO PINTA. No calcula: recibe el total y el saldo ya calculados en Cobros,
+   donde vive la plata. Ni una fórmula cruzó para acá.
+
+   Tres estados y tres colores, deliberados: falta (ámbar), cuadra (verde),
+   se pasó (rojo). El vendedor está de pie frente al cliente contando
+   billetes; tiene que saber de un vistazo si ya está, sin leer.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function TableroSaldoCobro({ total, restante, money }) {
+  const cubierto = total - restante;
+  const pct = total > 0 ? Math.round(cubierto / total * 100) : 0;
+  return (
+    <div className="montobox" style={{marginBottom:14,padding:"14px 16px",
+      border: restante===0 && total>0 ? "1.5px solid var(--ok)" : undefined}}>
+      <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+        <span className="meta" style={{fontSize:13.5}}>Total</span>
+        <b className="num" style={{fontSize:15}}>{money(total)}</b>
+      </div>
+      <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
+        <span className="meta" style={{fontSize:13.5}}>Abonado</span>
+        <b className="num" style={{fontSize:15}}>{money(cubierto)}</b>
+      </div>
+      <div style={{borderTop:"1.5px solid var(--line)",margin:"9px 0 7px"}}></div>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontWeight:800,fontSize:14,letterSpacing:".02em"}}>SALDO</span>
+        <b className="num" style={{fontSize:24,fontWeight:800,
+          color: restante>0?"var(--maize-deep)":restante<0?"var(--clay)":"var(--ok)"}}>
+          {(restante<0?"-":"")+money(Math.abs(restante))}</b>
+      </div>
+      <div style={{marginTop:10,height:10,background:"#EFEBE0",borderRadius:6,overflow:"hidden",
+        boxShadow:"inset 1px 1px 3px rgba(21,57,43,.08)"}}>
+        <div style={{width:Math.min(100,total>0?pct:0)+"%",height:"100%",borderRadius:6,
+          transition:"width .45s ease, background-color .45s ease",
+          background: restante<0?"var(--clay)":restante===0?"var(--ok)":"var(--maize-deep)"}}></div>
+      </div>
+      <div className="meta" style={{marginTop:4,textAlign:"right",fontSize:11}}>
+        {total>0?Math.min(999,pct):0}% cubierto</div>
+      {restante===0 && total>0 && (
+        <div style={{marginTop:10,background:"var(--ok)",color:"#fff",borderRadius:12,padding:"11px 12px",
+          textAlign:"center",fontWeight:800,fontSize:14.5,letterSpacing:".03em",
+          boxShadow:"0 3px 10px rgba(46,125,82,.35)"}}>
+          ✓ PAGO COMPLETO — listo para reportar
+        </div>
+      )}
+      {restante<0 && <div className="meta" style={{color:"var(--clay)",marginTop:5,textAlign:"right"}}>Las formas de pago superan el total</div>}
+    </div>
+  );
+}
+
+/* ═══ FORMAS DE PAGO DEL COBRO ════════════════════════════════════════════
+   SPRINT-08 · Con qué se está cubriendo el cobro: efectivo, cheque,
+   transferencia, depósito. Cada una con su detalle y su botón de quitar.
+
+   SOLO PINTA. Qué hace agregar y qué hace quitar siguen en Cobros.
+
+   El efectivo se muestra distinto a propósito: lleva el reloj de las 24 h
+   para depositarlo. Es plata en el bolsillo del vendedor, y ese recordatorio
+   es media regla de negocio escrita en la pantalla.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function FormasDePagoCobro({ lineas, modalidades, money, onAgregar, onQuitar }) {
+  return (<>
+    {lineas.map((l,i)=>(
+      <div className="pline" key={i}>
+        <div className="ph-row">
+          <span className="mod"><span className="tag">{l.modalidad}</span>
+            <span className="num">{money(parseFloat(l.monto)||0)}</span></span>
+          <button className="del" onClick={()=>onQuitar(i)}>Quitar</button>
+        </div>
+        <div className="det">
+          {l.modalidad==="Efectivo"
+            ? <>Dinero en mano · <span style={{color:"var(--maize-deep)",fontWeight:700}}>⏱️ depositar en 24h</span></>
+            : <>{l.modalidad==="Cheque"
+                ? `Cheque ${l.numero||"—"} · ${l.banco||"—"} · posfechado ${l.fecha||"—"}`
+                : `Op. ${l.numero||"—"} · ${l.banco||"—"} · ${l.fecha||"—"}`}
+              {" · "}<span className="ok-foto">✓ foto</span></>}
+        </div>
+      </div>
+    ))}
+    <div className="addbar">
+      {modalidades.map(m=> <button key={m} onClick={()=>onAgregar(m)}>+ {m}</button>)}
+    </div>
+  </>);
+}
+
+/* ═══ NAVEGACIÓN DEL ASISTENTE DE COBRO ═══════════════════════════════════
+   SPRINT-08 · Atrás y Siguiente. En el último paso, "Siguiente" se convierte
+   en "Revisar resumen": el cobro no se guarda de un botonazo, se mira antes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function NavegacionCobro({ paso, ultimo, puedeAvanzar, onAtras, onSiguiente, onRevisar }) {
+  return (
+    <div className="wz-nav">
+      {paso>1 && <button className="back" onClick={onAtras}>‹ Atrás</button>}
+      {paso<ultimo
+        ? <button className="cta next" disabled={!puedeAvanzar} onClick={onSiguiente}>Siguiente</button>
+        : <button className="cta next" disabled={!puedeAvanzar} onClick={onRevisar}>
+            Revisar resumen</button>}
+    </div>
+  );
+}
+
 const MODALIDADES=["Efectivo","Depósito","Transferencia","Cheque"];
 
 function NeuAnillo({pct=0, valor, etiqueta, sub, color="#2E7D52", tam=150}){
@@ -7998,71 +8103,19 @@ function Cobros({toast, go}){
     </>)}
     {/* PASO 3 — formas de pago */}
     {paso===3 && (<>
-      <div className="montobox" style={{marginBottom:14,padding:"14px 16px",
-        border: restanteLineas===0 && monto>0 ? "1.5px solid var(--ok)" : undefined}}>
-        <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
-          <span className="meta" style={{fontSize:13.5}}>Total</span>
-          <b className="num" style={{fontSize:15}}>{money(monto)}</b>
-        </div>
-        <div className="row" style={{justifyContent:"space-between",padding:"3px 0"}}>
-          <span className="meta" style={{fontSize:13.5}}>Abonado</span>
-          <b className="num" style={{fontSize:15}}>{money(monto-restanteLineas)}</b>
-        </div>
-        <div style={{borderTop:"1.5px solid var(--line)",margin:"9px 0 7px"}}></div>
-        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontWeight:800,fontSize:14,letterSpacing:".02em"}}>SALDO</span>
-          <b className="num" style={{fontSize:24,fontWeight:800,
-            color: restanteLineas>0?"var(--maize-deep)":restanteLineas<0?"var(--clay)":"var(--ok)"}}>
-            {(restanteLineas<0?"-":"")+money(Math.abs(restanteLineas))}</b>
-        </div>
-        <div style={{marginTop:10,height:10,background:"#EFEBE0",borderRadius:6,overflow:"hidden",
-          boxShadow:"inset 1px 1px 3px rgba(21,57,43,.08)"}}>
-          <div style={{width:Math.min(100,monto>0?Math.round((monto-restanteLineas)/monto*100):0)+"%",height:"100%",borderRadius:6,
-            transition:"width .45s ease, background-color .45s ease",
-            background: restanteLineas<0?"var(--clay)":restanteLineas===0?"var(--ok)":"var(--maize-deep)"}}></div>
-        </div>
-        <div className="meta" style={{marginTop:4,textAlign:"right",fontSize:11}}>
-          {monto>0?Math.min(999,Math.round((monto-restanteLineas)/monto*100)):0}% cubierto</div>
-        {restanteLineas===0 && monto>0 && (
-          <div style={{marginTop:10,background:"var(--ok)",color:"#fff",borderRadius:12,padding:"11px 12px",
-            textAlign:"center",fontWeight:800,fontSize:14.5,letterSpacing:".03em",
-            boxShadow:"0 3px 10px rgba(46,125,82,.35)"}}>
-            ✓ PAGO COMPLETO — listo para reportar
-          </div>
-        )}
-        {restanteLineas<0 && <div className="meta" style={{color:"var(--clay)",marginTop:5,textAlign:"right"}}>Las formas de pago superan el total</div>}
-      </div>
-      {lineas.map((l,i)=>(
-        <div className="pline" key={i}>
-          <div className="ph-row">
-            <span className="mod"><span className="tag">{l.modalidad}</span>
-              <span className="num">{money(parseFloat(l.monto)||0)}</span></span>
-            <button className="del" onClick={()=>setLineas(lineas.filter((_,j)=>j!==i))}>Quitar</button>
-          </div>
-          <div className="det">
-            {l.modalidad==="Efectivo"
-              ? <>Dinero en mano · <span style={{color:"var(--maize-deep)",fontWeight:700}}>⏱️ depositar en 24h</span></>
-              : <>{l.modalidad==="Cheque"
-                  ? `Cheque ${l.numero||"—"} · ${l.banco||"—"} · posfechado ${l.fecha||"—"}`
-                  : `Op. ${l.numero||"—"} · ${l.banco||"—"} · ${l.fecha||"—"}`}
-                {" · "}<span className="ok-foto">✓ foto</span></>}
-          </div>
-        </div>
-      ))}
-      <div className="addbar">
-        {MODALIDADES.map(m=> <button key={m} onClick={()=>setModal(m)}>+ {m}</button>)}
-      </div>
+      <TableroSaldoCobro total={monto} restante={restanteLineas} money={money} />
+      <FormasDePagoCobro lineas={lineas} modalidades={MODALIDADES} money={money}
+        onAgregar={m=>setModal(m)}
+        onQuitar={i=>setLineas(lineas.filter((_,j)=>j!==i))} />
     </>)}
 
-    {/* navegación */}
-    <div className="wz-nav">
-      {paso>1 && <button className="back" onClick={()=>setPaso(paso-1)}>‹ Atrás</button>}
-      {paso<3
-        ? <button className="cta next" disabled={!puedeAvanzar} onClick={()=>setPaso(paso+1)}>Siguiente</button>
-        : <button className="cta next" disabled={!paso3Ok}
-            onClick={()=>setResumen(true)}>
-            Revisar resumen</button>}
-    </div>
+    {/* navegación (SPRINT-08) */}
+    <NavegacionCobro
+      paso={paso} ultimo={3}
+      puedeAvanzar={paso<3 ? puedeAvanzar : paso3Ok}
+      onAtras={()=>setPaso(paso-1)}
+      onSiguiente={()=>setPaso(paso+1)}
+      onRevisar={()=>setResumen(true)} />
 
 
     {modal && <LineaPago modalidad={modal} restante={Math.max(0,restanteLineas)} cliente={cli}
