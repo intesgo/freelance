@@ -8660,6 +8660,61 @@ function Stock({toast}){
 }
 
 // ---------- CARTERA ----------
+/* ═══ PESTAÑAS DE CARTERA ═════════════════════════════════════════════════
+   SPRINT-09 · Facturas y Cheques. El contador de cheques pendientes va en la
+   pestaña a propósito: son plata que YA se había cobrado y volvió, así que
+   tiene que verse sin entrar a buscarla.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function PestanasCartera({ activa, nCheques, onFacturas, onCheques }) {
+  return (
+    <div className="eq-tabs" style={{margin:"10px 0 12px"}}>
+      <button className={activa==="facturas"?"on":""} onClick={onFacturas}>Facturas</button>
+      <button className={activa==="cheques"?"on":""} onClick={onCheques}>
+        Cheques{nCheques>0 && <span className="eq-tab-badge">{nCheques}</span>}
+      </button>
+    </div>
+  );
+}
+
+/* ═══ UNA FACTURA DE LA CARTERA ═══════════════════════════════════════════
+   SPRINT-09 · Quién debe, cuánto, de qué factura y para cuándo. Con su
+   botón de cobrar.
+
+   SOLO PINTA. No decide qué está vencido ni en qué orden va: eso se calcula
+   en Cartera y llega resuelto en `item.v` (bad · warn · ok).
+
+   El estado se lee de un vistazo, sin leer: barra lateral de color y fondo
+   teñido. Rojo lo vencido, ámbar lo que vence pronto, verde lo que está en
+   plazo. El vendedor recorre esta lista parado en la tienda del cliente.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function FilaFactura({ item, money, onCobrar }) {
+  const barra = item.v==="bad"?"#C2603A" : item.v==="warn"?"#C9A227" : "#2E7D52";
+  const fondo = item.v==="bad"?"#FDF6F3" : item.v==="warn"?"#FDFAF0" : "var(--card)";
+  return (
+    <div className="card" style={{padding:"11px 13px",marginBottom:8,
+      borderLeft:`4px solid ${barra}`, background:fondo}}>
+      <div className="row" style={{alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.cli}</div>
+          <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {item.ciudad}, {item.prov} · Fact. {item.fac}</div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+          <div className="amt num">{money(item.saldo)}</div>
+          <div className="meta" style={{fontSize:10.5,fontWeight:700,
+            color:item.v==="bad"?"#C2603A":"var(--muted)"}}>{item.venc}</div>
+        </div>
+      </div>
+      <div className="row" style={{marginTop:8,alignItems:"center",gap:8}}>
+        <span className={"chip "+(item.v==="bad"?"c-bad":item.v==="warn"?"c-sync":"c-wait")}>
+          <span className="d"></span>{item.estado}</span>
+        <button className="mini-cta" style={{marginLeft:"auto"}} onClick={onCobrar}>
+          Cobrar →</button>
+      </div>
+    </div>
+  );
+}
+
 function Cartera({toast}){
   const [q,setQ]=useState("");
   const [pestCart,setPestCart]=useState("facturas");   // facturas | cheques
@@ -8695,12 +8750,8 @@ function Cartera({toast}){
   return (<>
     <div className="h1">Cartera</div>
 
-    <div className="eq-tabs" style={{margin:"10px 0 12px"}}>
-      <button className={pestCart==="facturas"?"on":""} onClick={()=>setPestCart("facturas")}>Facturas</button>
-      <button className={pestCart==="cheques"?"on":""} onClick={()=>setPestCart("cheques")}>
-        Cheques{chPend.length>0 && <span className="eq-tab-badge">{chPend.length}</span>}
-      </button>
-    </div>
+    <PestanasCartera activa={pestCart} nCheques={chPend.length}
+      onFacturas={()=>setPestCart("facturas")} onCheques={()=>setPestCart("cheques")} />
 
     {/* ── CHEQUES DEVUELTOS: plata reabierta que hay que recuperar ── */}
     {pestCart==="cheques" && (<>
@@ -8862,34 +8913,10 @@ function Cartera({toast}){
           fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>× quitar filtro</button>}
     </h2><div className="grain"></div></div>
     {listaOrd.filter(it=> fVer==="todas" ? true : fVer==="vencidas" ? it.v==="bad" : it.v==="warn")
-      .map((it,i)=>{
-      /* el estado se lee de un vistazo: barra lateral y fondo */
-      const barra = it.v==="bad"?"#C2603A" : it.v==="warn"?"#C9A227" : "#2E7D52";
-      const fondo = it.v==="bad"?"#FDF6F3" : it.v==="warn"?"#FDFAF0" : "var(--card)";
-      return (
-      <div className="card" key={i} style={{padding:"11px 13px",marginBottom:8,
-        borderLeft:`4px solid ${barra}`, background:fondo}}>
-        <div className="row" style={{alignItems:"flex-start"}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.cli}</div>
-            <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {it.ciudad}, {it.prov} · Fact. {it.fac}</div>
-          </div>
-          <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
-            <div className="amt num">{money(it.saldo)}</div>
-            <div className="meta" style={{fontSize:10.5,fontWeight:700,
-              color:it.v==="bad"?"#C2603A":"var(--muted)"}}>{it.venc}</div>
-          </div>
-        </div>
-        <div className="row" style={{marginTop:8,alignItems:"center",gap:8}}>
-          <span className={"chip "+(it.v==="bad"?"c-bad":it.v==="warn"?"c-sync":"c-wait")}>
-            <span className="d"></span>{it.estado}</span>
-          <button className="mini-cta" style={{marginLeft:"auto"}}
-            onClick={()=>toast(`Cobrar ${it.cli} · ${money(it.saldo)}. Te lleva a reportar el cobro.`)}>
-            Cobrar →</button>
-        </div>
-      </div>
-    );})}
+      .map((it,i)=>(
+        <FilaFactura key={i} item={it} money={money}
+          onCobrar={()=>toast(`Cobrar ${it.cli} · ${money(it.saldo)}. Te lleva a reportar el cobro.`)} />
+      ))}
     {(()=>{
       const vis = listaOrd.filter(it=> fVer==="todas" ? true : fVer==="vencidas" ? it.v==="bad" : it.v==="warn");
       if(vis.length>0) return null;
