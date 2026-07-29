@@ -5031,9 +5031,18 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   // Al ELEGIR un producto: fija el tipo, el precio y la cantidad de la última compra (o base/50 si es nuevo)
   const prodPrevio = React.useRef(null);
   const tipoPrevio = React.useRef(tipo);
+  /* Qué producto se acaba de cargar desde una línea del pedido, al tocar
+     "Editar". Sin esta marca, el efecto de abajo pisaba la cantidad y el
+     precio que el vendedor ya había escrito y los dejaba en la base:
+     escribía 77 qq a $65, tocaba Editar y le aparecían 50 qq al precio base.
+     Si no se daba cuenta y volvía a agregar, su comisión se iba a cero. */
+  const lineaCargada = React.useRef(null);
   React.useEffect(()=>{
     if(prod && prod.id !== prodPrevio.current){
       prodPrevio.current = prod.id;
+      /* Viene de "Editar" una línea: la cantidad, el tipo y el precio ya los
+         puso el botón con lo que el vendedor había escrito. No se tocan. */
+      if(lineaCargada.current === prod.id){ lineaCargada.current = null; return; }
       // Producto elegido desde "Producto nuevo": SIEMPRE arranca limpio (P1, cantidad 0, precio base)
       if(origenProd.current === "nuevo"){
         setTipo("P1");
@@ -5108,7 +5117,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       onQuitarCliente={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       onProveedor={p=>{setProv(p);setProd(null);reset();}}
       onQuitarProveedor={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
-      onProducto={p=>{origenProd.current="nuevo";setProd(p);reset();}}
+      onProducto={p=>{origenProd.current="nuevo";lineaCargada.current=null;setProd(p);reset();}}
       onQuitarProducto={()=>{setProd(null);reset();}}
     />
 
@@ -5123,7 +5132,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
           <div className="fav-lista">
             {favoritos.map(f=>(
               <button key={f.prod.id} className="fav-item"
-                onClick={()=>{ origenProd.current="favorito"; setProd(f.prod); reset(); setFavAbierto(false); }}>
+                onClick={()=>{ origenProd.current="favorito"; lineaCargada.current=null; setProd(f.prod); reset(); setFavAbierto(false); }}>
                 <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
                 <div className="fav-info">
                   <div className="fav-nom">{f.prod.marca}</div>
@@ -5718,6 +5727,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         onEditarLinea={it=>{
           const pres = PRES_PED.find(p=>p.nombre===it.prodNombre);
           if(pres){ const pv=PROVS_PED.find(x=>x.id===pres.provId); if(pv) setProv(pv); setProd(pres); }
+          /* avisa a los dos efectos que esto es una carga, no una elección
+             nueva: lo que sigue es lo que el vendedor ya había escrito */
+          lineaCargada.current = pres ? pres.id : null;
+          tipoPrevio.current = it.tipo || "P1";
           setCant(it.cant); setTipo(it.tipo||"P1"); setPrecio(String(it.precio));
           if(it.tipo==="P3") setGratis(String(it.gratis||0));
           setCarrito(carrito.filter(x=>x.id!==it.id));

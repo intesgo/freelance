@@ -94,6 +94,12 @@ function montar() {
     };
     /* Para el producto da igual cuál sea: se toma el primero que ofrezca la
        lista, como haría el vendedor apurado. */
+    window.__tocarN = function(i){
+      var op = window.__c.querySelectorAll(".opt");
+      if (op.length <= i) return false;
+      op[i].dispatchEvent(new window.MouseEvent("mousedown", { bubbles:true }));
+      return true;
+    };
     window.__tocarPrimera = function(){
       var op = window.__c.querySelectorAll(".opt");
       if (!op.length) return false;
@@ -117,6 +123,24 @@ function montar() {
       window.__escribir(caja, String(v)); return true;
     };
     window.__valorPrecio = function(){ var c = window.__campoPrecio(); return c ? c.value : null; };
+    window.__cantidad = function(v){
+      var caja = window.__c.querySelector(".qty-input"); if (!caja) return false;
+      window.__escribir(caja, String(v)); return true;
+    };
+    window.__valorCantidad = function(){ var c = window.__c.querySelector(".qty-input"); return c ? c.value : null; };
+    /* Los tipos de precio (P1 Crédito, P2 Contado, …) son fichas con su código. */
+    window.__tipo = function(cod){
+      var f = window.__c.querySelectorAll(".tchip-cod");
+      for (var i = 0; i < f.length; i++)
+        if ((f[i].textContent||"").trim() === cod) {
+          f[i].parentNode.dispatchEvent(new window.MouseEvent("click", { bubbles:true })); return true; }
+      return false;
+    };
+    window.__tipoActivo = function(){
+      var b = window.__c.querySelector(".tchip.on, .tchip-cod");
+      var on = window.__c.querySelectorAll("button.on .tchip-cod");
+      return on.length ? on[0].textContent.trim() : (b ? "?" : null);
+    };
   `, ctx);
   return ctx;
 }
@@ -134,11 +158,15 @@ async function elegir(ctx, campo, texto) {
 /* Camino completo del vendedor hasta tener un producto en el pedido.
    OJO: escribir "" en la casilla NO abre la lista — React ignora un cambio
    que no cambia nada. Hay que escribir algo, como escribe el vendedor. */
-async function agregarProducto(ctx, precio) {
+async function agregarProducto(ctx, precio, cantidad) {
   corre(ctx, `window.__abrirLista("producto", "a")`);
   await esperar(80);
   if (!corre(ctx, `window.__tocarPrimera()`)) return "no apareció ningún producto";
   await esperar(110);
+  if (cantidad !== undefined) {
+    if (!corre(ctx, `window.__cantidad(${JSON.stringify(String(cantidad))})`)) return "no apareció el campo de cantidad";
+    await esperar(90);
+  }
   if (!corre(ctx, `window.__precio(${JSON.stringify(String(precio))})`)) return "no apareció el campo de precio";
   await esperar(100);
   if (corre(ctx, `window.__deshabilitado(".cta-carrito")`) !== false)
@@ -226,7 +254,7 @@ async function agregarProducto(ctx, precio) {
   await esperar(90);
   await elegir(ctx2, "cliente", CLIENTE);
   await elegir(ctx2, "proveedor", PROVEEDOR);
-  await agregarProducto(ctx2, 65);
+  await agregarProducto(ctx2, 65, 77);
   corre(ctx2, `window.__click(".mostrar-pedido")`);
   await esperar(100);
   comprobar("(preparación) hay una línea para editar", corre(ctx2, `window.__n(".pline")`) === 1);
@@ -237,19 +265,104 @@ async function agregarProducto(ctx, precio) {
     !corre(ctx2, `window.__hay(".mostrar-pedido")`));
   comprobar("Editar avisa que la línea volvió al formulario",
     /Línea cargada al formulario/.test(String(corre(ctx2, "window.__avisos.join(' | ')"))));
-  /* ⚠ DEFECTO QUE YA EXISTÍA, ANTERIOR A ESTE SPRINT — se registra tal cual,
-     NO se corrige aquí (el SPRINT-06 prohíbe cambios funcionales).
-     El vendedor escribe 77 qq a $65, toca "Editar", la app le dice "Línea
-     cargada al formulario"… y el formulario vuelve a 50 qq al precio base.
-     Pierde la cantidad Y el precio que había puesto. Culpable: el efecto de
-     [prod] vuelve a correr —porque al agregar la línea se hizo setProd(null)—
-     y pisa el setPrecio/setCant que hace el botón Editar.
-     Esta comprobación existe para que el refactor NO cambie el defecto sin
-     querer, ni para bien ni para mal: se arregla en su propio DES. */
-  const vuelto = corre(ctx2, `String(window.__valorPrecio())`);
-  comprobar("Editar NO devuelve el precio escrito: el campo vuelve a la base ("
-    + vuelto + ") — defecto anterior a este Sprint, se deja igual",
-    vuelto !== "65");
+  /* SPRINT-06.1 · Aquí estaba el defecto: la app decía "Línea cargada al
+     formulario" y el formulario volvía a 50 qq al precio base. El vendedor
+     perdía la cantidad Y el precio que había escrito, y si no se daba cuenta
+     y volvía a agregar, su comisión se iba a cero.
+     Ahora "Editar" devuelve exactamente lo que había en la línea. */
+  const vueltoPrecio = corre(ctx2, `String(window.__valorPrecio())`);
+  const vueltaCant   = corre(ctx2, `String(window.__valorCantidad())`);
+  comprobar("Editar devuelve el PRECIO que el vendedor había escrito → " + vueltoPrecio,
+    vueltoPrecio === "65");
+  comprobar("Editar devuelve la CANTIDAD que el vendedor había escrito → " + vueltaCant,
+    vueltaCant === "77");
+
+  /* ── 7b. Editar una línea de OTRO tipo de precio ─────────────────────
+     Si la línea era Contado (P2) y el formulario está en Crédito (P1), al
+     cargarla cambia el tipo — y un cambio de tipo también tiene su efecto,
+     que vuelve a poner el precio en la base de ese tipo. Sin sincronizar el
+     tipo previo, el arreglo del precio duraría hasta el siguiente parpadeo. */
+  const ctxT = montar();
+  await esperar(90);
+  await elegir(ctxT, "cliente", CLIENTE);
+  await elegir(ctxT, "proveedor", PROVEEDOR);
+  corre(ctxT, `window.__abrirLista("producto", "a")`);
+  await esperar(80);
+  corre(ctxT, `window.__tocarPrimera()`);
+  await esperar(120);
+  const hayP2 = corre(ctxT, `window.__tipo("P2")`);
+  await esperar(120);
+  comprobar("(preparación) se puede pasar la línea a Contado (P2)", !!hayP2);
+  corre(ctxT, `window.__cantidad("33")`); await esperar(90);
+  corre(ctxT, `window.__precio("48")`);   await esperar(110);
+  corre(ctxT, `window.__click(".cta-carrito")`); await esperar(140);
+  corre(ctxT, `window.__click(".mostrar-pedido")`); await esperar(120);
+  comprobar("(preparación) la línea de Contado entró al pedido",
+    corre(ctxT, `window.__n(".pline")`) === 1);
+  corre(ctxT, `window.__click(".pline .del", 0)`);
+  await esperar(180);
+  const pT = corre(ctxT, `String(window.__valorPrecio())`);
+  const cT = corre(ctxT, `String(window.__valorCantidad())`);
+  comprobar("editar una línea de otro tipo devuelve su precio → " + pT, pT === "48");
+  comprobar("y su cantidad → " + cT, cT === "33");
+
+  /* El caso de verdad difícil: el vendedor agrega la línea de Contado, empieza
+     OTRO producto —así que el formulario queda en Crédito, con producto puesto—
+     y recién ahí se acuerda de corregir la de Contado. Cambiar de tipo dispara
+     su propio efecto, y ese es el que había que sincronizar. */
+  const ctxD = montar();
+  await esperar(90);
+  await elegir(ctxD, "cliente", CLIENTE);
+  await elegir(ctxD, "proveedor", PROVEEDOR);
+  corre(ctxD, `window.__abrirLista("producto", "a")`); await esperar(80);
+  corre(ctxD, `window.__tocarPrimera()`);              await esperar(130);
+  corre(ctxD, `window.__tipo("P2")`);                  await esperar(130);
+  corre(ctxD, `window.__cantidad("33")`);              await esperar(90);
+  corre(ctxD, `window.__precio("48")`);                await esperar(110);
+  corre(ctxD, `window.__click(".cta-carrito")`);       await esperar(150);
+  /* ahora empieza otro producto: el formulario vuelve a Crédito */
+  corre(ctxD, `window.__abrirLista("producto", "a")`); await esperar(90);
+  corre(ctxD, `window.__tocarPrimera()`);              await esperar(160);
+  const precioEnCurso = corre(ctxD, `String(window.__valorPrecio())`);
+  comprobar("(preparación) el formulario quedó con otro producto, a precio base → " + precioEnCurso,
+    precioEnCurso !== "48");
+  corre(ctxD, `window.__click(".mostrar-pedido")`);    await esperar(140);
+  comprobar("(preparación) la línea de Contado sigue en el pedido",
+    corre(ctxD, `window.__n(".pline")`) === 1);
+  corre(ctxD, `window.__click(".pline .del", 0)`);     await esperar(220);
+  const pD = corre(ctxD, `String(window.__valorPrecio())`);
+  const cD = corre(ctxD, `String(window.__valorCantidad())`);
+  comprobar("con otro producto en curso, editar la línea de Contado devuelve su precio → " + pD, pD === "48");
+  comprobar("y su cantidad → " + cD, cD === "33");
+
+  /* ── 7c. La marca de "vengo de editar" no puede quedarse pegada ──────
+     Camino raro pero posible: el vendedor edita una línea del MISMO producto
+     que ya tiene en pantalla. React no vuelve a disparar el efecto —el
+     producto no cambió— así que la marca queda puesta. Si nadie la limpia,
+     la próxima vez que elija ESE producto el formulario no se inicializa y
+     le aparece el precio en blanco. */
+  const ctxM = montar();
+  await esperar(90);
+  await elegir(ctxM, "cliente", CLIENTE);
+  await elegir(ctxM, "proveedor", PROVEEDOR);
+  await agregarProducto(ctxM, 60);                       /* línea del producto 1 */
+  corre(ctxM, `window.__abrirLista("producto", "a")`); await esperar(90);
+  corre(ctxM, `window.__tocarN(0)`);                   await esperar(150);  /* el MISMO producto 1 */
+  corre(ctxM, `window.__click(".mostrar-pedido")`);    await esperar(130);
+  corre(ctxM, `window.__click(".pline .del", 0)`);     await esperar(200);  /* Editar */
+  /* con el producto en pantalla no hay buscador: se devuelve la línea al
+     pedido, que es lo que hace el vendedor, y recién ahí elige otro */
+  corre(ctxM, `window.__click(".cta-carrito")`);       await esperar(160);
+  corre(ctxM, `window.__abrirLista("producto", "a")`); await esperar(90);
+  const pudoOtro = corre(ctxM, `window.__tocarN(1)`);  await esperar(170);  /* OTRO producto */
+  comprobar("(preparación) el catálogo tiene un segundo producto", !!pudoOtro);
+  corre(ctxM, `window.__precio("70")`);                await esperar(90);
+  corre(ctxM, `window.__click(".cta-carrito")`);       await esperar(150);
+  corre(ctxM, `window.__abrirLista("producto", "a")`); await esperar(90);
+  corre(ctxM, `window.__tocarN(0)`);                   await esperar(170);  /* vuelve al producto 1 */
+  const pM = corre(ctxM, `String(window.__valorPrecio())`);
+  comprobar("volver a elegir ese producto lo inicializa a su base, no en blanco → " + pM,
+    pM !== "" && pM !== "null" && parseFloat(pM) > 0);
 
   /* ── 8. Cerrar tocando afuera ───────────────────────────────────────── */
   const ctx3 = montar();
