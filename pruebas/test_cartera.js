@@ -109,6 +109,20 @@ function montar() {
       var t = window.__tarjeta(texto); if (!t) return false;
       t.dispatchEvent(new window.MouseEvent("click", { bubbles:true })); return true;
     };
+    /* SPRINT-09.1 · Para ver si la clave es estable no basta mirar la
+       pantalla: la clave no se pinta. Lo que SÍ se ve es su efecto. Con
+       key={i} React reutiliza la MISMA tarjeta del DOM para otra factura
+       cuando la lista cambia; con una clave de la factura, la tarjeta vieja
+       se va y nace otra. Aquí se guarda el nodo y después se compara si es
+       el mismo objeto. */
+    window.__guardarPrimera = function(){
+      window.__nodo = window.__c.querySelector(".card");
+      window.__nodoCli = window.__nodo ? (window.__nodo.querySelector(".cli")||{}).textContent : null;
+      return !!window.__nodo;
+    };
+    window.__mismaTarjeta = function(){
+      return window.__c.querySelector(".card") === window.__nodo;
+    };
     window.__cobrar = function(i){
       var b = window.__c.querySelectorAll(".mini-cta");
       if (b.length <= i) return false;
@@ -197,6 +211,25 @@ const esperar = (ms) => new Promise(r => setTimeout(r, ms || 80));
   comprobar("y habla de cheques devueltos", /devuelto/i.test(t6) || /cheque/i.test(t6));
   corre(ctx, `window.__tocar("Facturas")`); await esperar(160);
   comprobar("volver a Facturas trae la lista de nuevo", facturas(ctx).length > 0);
+
+  /* ── 7. SPRINT-09.1 · la clave de cada factura es suya, no su posición ── */
+  const ctxK = montar();
+  await esperar(140);
+  comprobar("(preparación) hay una primera tarjeta para vigilar",
+    corre(ctxK, `window.__guardarPrimera()`));
+  const cliAntes = String(corre(ctxK, "String(window.__nodoCli)"));
+  corre(ctxK, `window.__buscar("Nilo")`); await esperar(180);
+  const cliDespues = facturas(ctxK)[0].cli;
+  comprobar("al buscar, arriba queda otro cliente (" + cliAntes + " → " + cliDespues + ")",
+    cliAntes !== cliDespues);
+  comprobar("y NO es la misma tarjeta reciclada: cada factura tiene su propia clave",
+    corre(ctxK, `window.__mismaTarjeta()`) === false);
+
+  /* estructural: que nadie vuelva a poner la posición como clave */
+  const iniC = html.indexOf("function Cartera({toast}){");
+  const finC = html.indexOf("const ETAPAS_CREDITO", iniC);
+  comprobar("en Cartera ya no se usa la posición como clave de la lista",
+    html.slice(iniC, finC).indexOf("FilaFactura key={i}") < 0);
 
   console.log("Resultado de cartera: " + ok + " ✓ · " + mal + " ✗");
   process.exit(mal ? 1 : 0);
