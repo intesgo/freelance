@@ -46,6 +46,7 @@ const PLAN = [
   { arnes:"test_cobranza.js",        que:"la cobranza, de punta a punta",         apps:["Comisionista"] },
   { arnes:"test_cartera.js",         que:"la cartera: lo que le deben",           apps:["Comisionista"] },
   { arnes:"test_pedidos_lista.js",   que:"mis pedidos y su seguimiento",          apps:["Comisionista"] },
+  { arnes:"test_rol_comisionista.js", que:"el rol nuevo ve lo mismo que el viejo", apps:DEL_EQUIPO },
   { arnes:"test_aprobar_pedido.js",  que:"cómo le pagas a la piladora al aprobar", apps:["freelance-completo"] },
   { arnes:"test_despacho_parcial.js", que:"cuando el pedido sale corto",           apps:[null] },
   { arnes:"test_nota_credito.js",    que:"la nota de crédito y a quién le duele", apps:[null] },

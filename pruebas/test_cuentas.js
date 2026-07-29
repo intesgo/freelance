@@ -111,8 +111,9 @@ vm.runInContext(`
   t=vm.runInContext("window.__txt()", m.ctx);
   comprobar("no deja crear una piladora sin decir cuál", /Elige de qué piladora/.test(t));
 
-  /* alta buena */
-  vm.runInContext('window.__poner(3,"subcomisionista")', m.ctx);
+  /* alta buena · DES-012 · desde el sistema web ya nadie se crea con el
+     nombre viejo: el formulario solo ofrece "comisionista". */
+  vm.runInContext('window.__poner(3,"comisionista")', m.ctx);
   await esperar(150);
   vm.runInContext('window.__click("Crear cuenta")', m.ctx);
   await esperar(300);
@@ -121,7 +122,7 @@ vm.runInContext(`
   comprobar("ofrece mandarlo por WhatsApp", t.indexOf("Enviar por WhatsApp")>=0);
   const alta=m.llamadas.find(c=>c.accion==="crear");
   comprobar("manda al servidor el nombre, el correo y el rol",
-    !!alta && alta.nombre==="Ana Torres" && alta.email==="ana@ejemplo.com" && alta.rol==="subcomisionista");
+    !!alta && alta.nombre==="Ana Torres" && alta.email==="ana@ejemplo.com" && alta.rol==="comisionista");
   comprobar("no manda piladora cuando el rol no es piladora", !!alta && !alta.prov_cod);
 
   /* baja */
