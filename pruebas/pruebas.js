@@ -42,6 +42,7 @@ const PLAN = [
   { arnes:"test_pedido_real.js",     que:"el pedido del vendedor llega a la base", apps:["Comisionista"] },
   { arnes:"test_cabecera_pedido.js", que:"la cabecera del pedido, tal como es hoy", apps:["Comisionista"] },
   { arnes:"test_detalle_pedido.js",  que:"el detalle del pedido, tal como es hoy",  apps:["Comisionista"] },
+  { arnes:"test_confirmacion_pedido.js", que:"la confirmación tras guardar el pedido", apps:["Comisionista"] },
   { arnes:"test_aprobar_pedido.js",  que:"cómo le pagas a la piladora al aprobar", apps:["freelance-completo"] },
   { arnes:"test_despacho_parcial.js", que:"cuando el pedido sale corto",           apps:[null] },
   { arnes:"test_nota_credito.js",    que:"la nota de crédito y a quién le duele", apps:[null] },

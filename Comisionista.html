@@ -4705,6 +4705,40 @@ function BarraPedidoEnCurso({ nProductos, totalComision, money, onAbrir }) {
   );
 }
 
+/* ═══ CONFIRMACIÓN DEL PEDIDO ══════════════════════════════════════════════
+   SPRINT-07 · Lo que el vendedor ve cuando el pedido ya quedó guardado: el
+   visto, a quién se lo guardó, cuántos productos, y las tres salidas.
+
+   Vivía suelta dentro de Pedido, entre la ventana del detalle y la barra de
+   abajo. Ahora es una pieza sola que no sabe nada del resto.
+
+   SOLO PINTA. Ni el texto que se manda por WhatsApp, ni el guardado, ni la
+   navegación cruzaron para acá: los tres siguen en Pedido, intactos, porque
+   pertenecen al SPRINT-06 y al 06.1, que están congelados.
+
+   Las tres salidas están en ese orden por una razón: avisar al cliente es lo
+   que más se usa y va primero; tomarle otro pedido al mismo cliente ahorra
+   volver a buscarlo; y "Listo" cierra sin hacer nada. Ninguna de las tres
+   deshace el pedido — ya está guardado, y eso es justamente lo que la
+   ventana viene a decir.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function ConfirmacionPedido({ cliente, nProductos, onWhatsApp, onOtroPedido, onListo, onCerrar }) {
+  return (
+    <div className="ov" onClick={onCerrar}>
+      <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
+        <div style={{fontSize:36,marginTop:4}}>✅</div>
+        <h3 style={{marginTop:6}}>Pedido guardado</h3>
+        <div className="sh-sub">{cliente} · {nProductos} producto(s) · lo ves en Mis pedidos</div>
+        <button className="cta wa-cta" style={{marginTop:14}} onClick={onWhatsApp}>
+          <IcoWA s={16}/> Avisar al cliente por WhatsApp</button>
+        <button className="ghost" style={{width:"100%",marginTop:10}} onClick={onOtroPedido}>
+          ➕ Otro pedido de {String(cliente).split(" ")[0]}</button>
+        <button className="back" style={{width:"100%",marginTop:10}} onClick={onListo}>Listo</button>
+      </div>
+    </div>
+  );
+}
+
 /* ═══ CABECERA DEL PEDIDO ══════════════════════════════════════════════════
    SPRINT-05 · Quién compra, a quién y qué. Es la identidad del pedido: los
    tres campos que lo definen antes de que se hable de plata.
@@ -5755,25 +5789,22 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
       />
     )}
 
-    {/* Tras guardar: avisar al cliente por WhatsApp o tomarle otro pedido */}
+    {/* Tras guardar: avisar al cliente por WhatsApp o tomarle otro pedido (SPRINT-07) */}
     {guardadoOk && (
-      <div className="ov" onClick={()=>setGuardadoOk(null)}>
-        <div className="sheet" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
-          <div style={{fontSize:36,marginTop:4}}>✅</div>
-          <h3 style={{marginTop:6}}>Pedido guardado</h3>
-          <div className="sh-sub">{guardadoOk.cli} · {guardadoOk.n} producto(s) · lo ves en Mis pedidos</div>
-          <button className="cta wa-cta" style={{marginTop:14}} onClick={()=>{
-            const txt = `Hola ${guardadoOk.cli} 👋 Registré tu pedido:\n${guardadoOk.resumen}\nGracias por tu compra 🙌`;
-            waCliente(guardadoOk.cli, txt);   /* abre el chat del cliente si tiene teléfono en su ficha */
-          }}><IcoWA s={16}/> Avisar al cliente por WhatsApp</button>
-          <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{
-            const c = guardadoOk.cli; setGuardadoOk(null); setCli(c);
-            if(go) go("pedido");                    /* vuelve a Tomar pedido con el cliente puesto */
-            toast("Listo: mismo cliente, pedido nuevo.");
-          }}>➕ Otro pedido de {String(guardadoOk.cli).split(" ")[0]}</button>
-          <button className="back" style={{width:"100%",marginTop:10}} onClick={()=>setGuardadoOk(null)}>Listo</button>
-        </div>
-      </div>
+      <ConfirmacionPedido
+        cliente={guardadoOk.cli} nProductos={guardadoOk.n}
+        onWhatsApp={()=>{
+          const txt = `Hola ${guardadoOk.cli} 👋 Registré tu pedido:\n${guardadoOk.resumen}\nGracias por tu compra 🙌`;
+          waCliente(guardadoOk.cli, txt);   /* abre el chat del cliente si tiene teléfono en su ficha */
+        }}
+        onOtroPedido={()=>{
+          const c = guardadoOk.cli; setGuardadoOk(null); setCli(c);
+          if(go) go("pedido");                    /* vuelve a Tomar pedido con el cliente puesto */
+          toast("Listo: mismo cliente, pedido nuevo.");
+        }}
+        onListo={()=>setGuardadoOk(null)}
+        onCerrar={()=>setGuardadoOk(null)}
+      />
     )}
 
     {/* Barra fija abajo: abre la ventana del pedido en curso (SPRINT-06) */}
