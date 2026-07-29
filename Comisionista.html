@@ -8302,6 +8302,74 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
 }
 
 // ---------- MIS PEDIDOS ----------
+/* ═══ UNA FILA DE MIS PEDIDOS ═════════════════════════════════════════════
+   SPRINT-10 · Un pedido en la lista: a quién, qué, de qué proveedor, cuánta
+   comisión deja y en qué estado va. La tarjeta entera abre el detalle.
+
+   SOLO PINTA. No decide nada: recibe el pedido ya filtrado y ordenado.
+
+   El color de la barra lateral cuenta tres cosas de un vistazo, sin leer:
+   ámbar = todavía no salió del teléfono, verde = cerrado y cobrado, gris =
+   en camino. El vendedor recorre esta lista para saber qué reclamar.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function FilaPedido({ pedido, money, onAbrir }) {
+  const sinEnviar = pedido.sync==="pend";
+  const cerrado = /cobrad|liberad/i.test(pedido.estado||"");
+  const barraP = sinEnviar ? "#C9A227" : cerrado ? "#2E7D52" : "#8A9A8E";
+  return (
+    <div className="card" onClick={onAbrir}
+      style={{cursor:"pointer",padding:"11px 13px",marginBottom:8,
+        borderLeft:`4px solid ${barraP}`,
+        background: sinEnviar?"#FDFAF0" : cerrado?"#F5F9F6" : "var(--card)"}}>
+      <div className="row" style={{alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pedido.cli}</div>
+          <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {pedido.cant} × {pedido.prod} · {pedido.prov}</div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+          <div className="amt num">{money(pedido.comision)}</div>
+          <div className="meta" style={{fontSize:10}}>tu comisión</div></div>
+      </div>
+      <div className="row" style={{marginTop:7,alignItems:"center",gap:8}}>
+        {sinEnviar && <span className="chip c-sync"><span className="d"></span>Sin enviar</span>}
+        <span className="meta" style={{fontWeight:700,color:"var(--field)",marginLeft:"auto",
+          fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pedido.estado} ›</span>
+      </div>
+      <Pipe n={pedido.etapa}/>
+    </div>
+  );
+}
+
+/* ═══ LÍNEA DE TIEMPO DEL PEDIDO ══════════════════════════════════════════
+   SPRINT-10 · En qué paso va el pedido: qué se cumplió, qué está pasando
+   ahora y qué falta.
+
+   SOLO PINTA. Los pasos llegan armados en `pasos` y su estado ya viene
+   resuelto en `st` (ok · now · wait). Este componente no decide qué está
+   cumplido: eso es del negocio y se quedó donde estaba.
+
+   Las tres marcas son deliberadas: ✓ lo hecho, ● lo que está ocurriendo, y
+   el número de orden para lo que falta. El vendedor le muestra esta
+   pantalla al cliente cuando pregunta "¿y mi pedido?".
+   ═══════════════════════════════════════════════════════════════════════════ */
+function LineaTiempoPedido({ pasos }) {
+  return (
+    <div className="tl">
+      {pasos.map((x,i)=>(
+        <div className={"item "+x.st} key={i}>
+          <div className="node">{x.st==="ok"?"✓":x.st==="now"?"●":i+1}</div>
+          <div className="c">
+            <div className="tt">{x.t}</div>
+            {x.d && <div className="dd">{x.d}</div>}
+            <div className="ff">{x.f}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
   const [sel,setSel]=useState(null);
   const [q,setQ]=useState("");
@@ -8406,34 +8474,9 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
     <div className="meta" style={{margin:"0 2px 10px"}}>{ordenada.length} pedido(s) · {ORDEN_LBL[orden]}</div>
 
     <Deslizable pag={pagina} total={totalPag} onPag={setPagina}>
-    {visibles.map(p=>{
-      /* el avance se lee de un vistazo por la barra lateral */
-      const sinEnviar = p.sync==="pend";
-      const cerrado = /cobrad|liberad/i.test(p.estado||"");
-      const barraP = sinEnviar ? "#C9A227" : cerrado ? "#2E7D52" : "#8A9A8E";
-      return (
-      <div className="card" key={p.id} onClick={()=>setSel(p.id)}
-        style={{cursor:"pointer",padding:"11px 13px",marginBottom:8,
-          borderLeft:`4px solid ${barraP}`,
-          background: sinEnviar?"#FDFAF0" : cerrado?"#F5F9F6" : "var(--card)"}}>
-        <div className="row" style={{alignItems:"flex-start"}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</div>
-            <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {p.cant} × {p.prod} · {p.prov}</div>
-          </div>
-          <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
-            <div className="amt num">{money(p.comision)}</div>
-            <div className="meta" style={{fontSize:10}}>tu comisión</div></div>
-        </div>
-        <div className="row" style={{marginTop:7,alignItems:"center",gap:8}}>
-          {sinEnviar && <span className="chip c-sync"><span className="d"></span>Sin enviar</span>}
-          <span className="meta" style={{fontWeight:700,color:"var(--field)",marginLeft:"auto",
-            fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.estado} ›</span>
-        </div>
-        <Pipe n={p.etapa}/>
-      </div>
-    );})}
+    {visibles.map(p=>(
+      <FilaPedido key={p.id} pedido={p} money={money} onAbrir={()=>setSel(p.id)} />
+    ))}
     {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
 
     </Deslizable>
@@ -8505,18 +8548,7 @@ function DetallePedido({p, volver}){
     </div>
 
     <div className="sec-h"><h2>Seguimiento del pedido</h2><div className="grain"></div></div>
-    <div className="tl">
-      {p.linea.map((x,i)=>(
-        <div className={"item "+x.st} key={i}>
-          <div className="node">{x.st==="ok"?"✓":x.st==="now"?"●":i+1}</div>
-          <div className="c">
-            <div className="tt">{x.t}</div>
-            {x.d && <div className="dd">{x.d}</div>}
-            <div className="ff">{x.f}</div>
-          </div>
-        </div>
-      ))}
-    </div>
+    <LineaTiempoPedido pasos={p.linea} />
     <div className="lock"><span>ℹ️</span>
       <span>El estado avanza solo cuando se cumple cada paso: el acuerdo aprobado libera el envío, y la comisión se libera cuando el cobro es validado por el proveedor.</span></div>
   </>);
