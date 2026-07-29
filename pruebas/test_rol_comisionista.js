@@ -115,7 +115,10 @@ const medir = (rol) => {
   return vm.runInContext(`(async()=>{
     var p = await vivoPedidos();
     var c = await vivoComisiones();
-    return { pedidos: (p||[]).length, comisiones: (c && c.nComisiones) || 0 };
+    var cli = {};
+    (p||[]).forEach(function(x){ cli[x.cli] = true; });
+    return { pedidos: (p||[]).length, comisiones: (c && c.nComisiones) || 0,
+             clientes: Object.keys(cli).sort() };
   })()`, ctx);
 };
 
@@ -126,9 +129,11 @@ const medir = (rol) => {
   const nuevo = await medir("comisionista");
   const jefe  = await medir("freelance");
 
-  console.log("  · subcomisionista → " + viejo.pedidos + " pedidos, " + viejo.comisiones + " comisiones");
-  console.log("  · comisionista    → " + nuevo.pedidos + " pedidos, " + nuevo.comisiones + " comisiones");
-  console.log("  · freelance       → " + jefe.pedidos + " pedidos, " + jefe.comisiones + " comisiones");
+  const linea = (t, r) => "  · " + t + " → " + r.pedidos + " pedidos, " + r.comisiones +
+    " comisiones, clientes: " + (r.clientes.join(" / ") || "ninguno");
+  console.log(linea("subcomisionista", viejo));
+  console.log(linea("comisionista   ", nuevo));
+  console.log(linea("freelance      ", jefe));
 
   /* Primero: que el escenario sirva para distinguir. Si el vendedor y el jefe
      vieran lo mismo por construcción, todo lo demás sería humo. */
@@ -139,7 +144,9 @@ const medir = (rol) => {
   comprobar("nombre viejo · ve solo su " + MIOS + " comisión(es)",    viejo.comisiones === MIOS);
   comprobar("nombre nuevo · ve solo sus " + MIOS + " pedido(s)",      nuevo.pedidos === MIOS);
   comprobar("nombre nuevo · ve solo su " + MIOS + " comisión(es)",    nuevo.comisiones === MIOS);
-  comprobar("los dos nombres dan exactamente lo mismo",
+  comprobar("nombre viejo · ve solo su(s) " + MIOS + " cliente(s)",   viejo.clientes.length === MIOS);
+  comprobar("nombre nuevo · ve solo su(s) " + MIOS + " cliente(s)",   nuevo.clientes.length === MIOS);
+  comprobar("los dos nombres dan exactamente lo mismo · pedidos, comisiones y clientes",
     JSON.stringify(viejo) === JSON.stringify(nuevo));
 
   /* El control. Sin esto, una puerta que dijera siempre "restringido"
@@ -148,6 +155,8 @@ const medir = (rol) => {
     jefe.pedidos === DEL_EQUIPO);
   comprobar("control · el freelance sigue viendo las " + DEL_EQUIPO + " comisiones del equipo",
     jefe.comisiones === DEL_EQUIPO);
+  comprobar("control · el freelance sigue viendo los " + DEL_EQUIPO + " clientes del equipo",
+    jefe.clientes.length === DEL_EQUIPO);
 
   /* El portal: de nada sirve que la app respete el rol nuevo si el portal no
      sabe a qué app mandar a esa persona. Se queda mirando una pantalla sin
