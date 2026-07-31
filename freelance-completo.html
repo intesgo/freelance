@@ -8839,7 +8839,12 @@ function TarjetaCierreDiario({usuario, toast}){
           try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
           const valor={ hora:horaCie, acordado_con:acordado, au };
           const { error } = await window.SB.from("config_sistema").upsert({ clave:"cierre_diario", valor,
-            descripcion:"Hora del corte automático de la jornada y con quién se acordó (app de campo)" });
+            descripcion:"Hora del corte automático de la jornada y con quién se acordó (app de campo)" },
+            /* 31/07 · la clave primaria de config_sistema pasó a ser (org_id, clave) para que
+               cada empresa tenga su propia configuración. Hay que decirle contra qué par
+               resolver el choque; si no, guardaría donde no debe. El org_id no se manda:
+               lo pone la base según quién eres. */
+            { onConflict:"org_id,clave" });
           if(!error){
             if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
               usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
@@ -12889,7 +12894,7 @@ async function guardarPregPers(d){
     if(!window.SB) return;
     const { data } = await window.SB.auth.getSession();
     if(!data || !data.session) return;
-    await window.SB.from("config_sistema").upsert({ clave:"preguntas_asistente", valor:d });
+    await window.SB.from("config_sistema").upsert({ clave:"preguntas_asistente", valor:d }, { onConflict:"org_id,clave" });
     await auReal("config_sistema","PREGUNTAS_ASISTENTE","preguntas_asistente",{ocultas:d.ocultas.length, propias:d.propias.length});
   }catch(e){}
 }
@@ -18530,7 +18535,8 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
           try{ const { data:cod } = await window.SB.rpc("au_codigo"); au=cod||null; }catch(e2){}
           const valor={ lista, au };
           const { error } = await window.SB.from("config_sistema").upsert({ clave:"colaboradores", valor,
-            descripcion:"Colaboradores de la empresa freelance (reciben copia de los recibos de cobro)" });
+            descripcion:"Colaboradores de la empresa freelance (reciben copia de los recibos de cobro)" },
+            { onConflict:"org_id,clave" });
           if(!error){
             if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
               usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
