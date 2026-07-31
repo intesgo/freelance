@@ -1,23 +1,32 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   DES-012 · ¿VE LO MISMO LLAMÁNDOSE DE LAS DOS MANERAS?
+   DES-012 · PASOS 4 y 5 · QUE EL NOMBRE VIEJO NO QUEDE EN NINGÚN LADO
 
-   El rol "subcomisionista" pasa a llamarse "comisionista". El nombre cambia;
-   lo que la persona puede ver NO debe cambiar ni un poco.
+   Este arnés cambió de pregunta.
 
-   El peligro real no es que algo se rompa: es que la puerta de permisos deje
-   de reconocer al vendedor y, sin ningún error en pantalla, le muestre los
-   pedidos y las comisiones de TODO EL EQUIPO.
+   Mientras duró la transición preguntaba: «¿los dos nombres llevan al mismo
+   sitio?». Tenía sentido cuando en la base convivían filas con el nombre
+   viejo y filas con el nuevo: había que garantizar que nadie perdiera el
+   acceso por cómo estuviera escrito su rol.
 
-   Por eso esto no comprueba que una lista contenga una palabra —eso sería un
-   amuleto—. Monta la app de verdad, con datos de dos vendedores distintos, y
-   CUENTA cuántos pedidos y cuántas comisiones alcanza a ver cada rol:
+   Esa etapa terminó. Se barrieron todas las columnas de texto de las 73
+   tablas y no queda UNA SOLA FILA con el nombre viejo. Así que ahora la
+   pregunta es otra, y más exigente:
 
-       subcomisionista → solo los suyos     (nombre viejo)
-       comisionista    → solo los suyos     (nombre nuevo)
-       freelance       → todos              (control)
+       ¿queda algún rastro del nombre viejo en este archivo?
 
-   El caso "freelance" es el que le da valor a los otros dos. Sin él, una
-   puerta que dijera siempre "sí, restringido" también pasaría la prueba.
+   Cero. Ni en las llaves de rol, ni en los rótulos, ni en los comentarios.
+
+   Pero borrar una palabra es fácil y peligroso: se puede borrar de más y
+   dejar al vendedor sin puerta, o borrarla del sitio equivocado y abrirle
+   los pedidos de todo el equipo. Por eso el arnés NO se conforma con contar
+   palabras. Sigue montando la app con datos de dos vendedores distintos y
+   contando qué alcanza a ver cada rol:
+
+       comisionista → solo los suyos
+       freelance    → todos            (control)
+
+   El control es lo que le da valor a lo demás: una puerta que dijera
+   siempre "restringido" también pasaría la parte de contar palabras.
 
    Uso: node test_rol_comisionista.js <ruta.html>
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -123,31 +132,40 @@ const medir = (rol) => {
 };
 
 (async () => {
-  console.log("\n═══ DES-012 · el rol nuevo ve lo mismo que el viejo · " + nombre);
+  console.log("\n═══ DES-012 · el nombre viejo ya no está en ningún lado · " + nombre);
 
-  const viejo = await medir("subcomisionista");
-  const nuevo = await medir("comisionista");
-  const jefe  = await medir("freelance");
+  /* ── 1 · Ni un rastro de la palabra ───────────────────────────────────
+     Se mira el archivo entero, no solo el código: también los rótulos que
+     lee la gente y los comentarios que lee quien venga detrás. */
+  const VIEJO = /subcomisionista/i;
+  const rastro = [];
+  html.split("\n").forEach((linea, i) => {
+    if (VIEJO.test(linea)) rastro.push((i + 1) + ": " + linea.trim().slice(0, 90));
+  });
+  comprobar("no queda ni un rastro del nombre viejo en todo el archivo"
+    + (rastro.length ? " → " + rastro.length + " todavía" : ""), rastro.length === 0);
+  if (rastro.length) rastro.slice(0, 8).forEach(l => console.log("      " + l));
+
+  /* Y que no se cuele por la puerta de atrás, abreviado. */
+  const abreviado = (html.match(/subcom(?!isionista)/gi) || []).length;
+  comprobar("tampoco quedan abreviaturas («subcom.»)"
+    + (abreviado ? " → " + abreviado : ""), abreviado === 0);
+
+  /* ── 2 · Borrar la palabra no puede haber roto la puerta ──────────── */
+  const vendedor = await medir("comisionista");
+  const jefe     = await medir("freelance");
 
   const linea = (t, r) => "  · " + t + " → " + r.pedidos + " pedidos, " + r.comisiones +
     " comisiones, clientes: " + (r.clientes.join(" / ") || "ninguno");
-  console.log(linea("subcomisionista", viejo));
-  console.log(linea("comisionista   ", nuevo));
-  console.log(linea("freelance      ", jefe));
+  console.log(linea("comisionista", vendedor));
+  console.log(linea("freelance   ", jefe));
 
-  /* Primero: que el escenario sirva para distinguir. Si el vendedor y el jefe
-     vieran lo mismo por construcción, todo lo demás sería humo. */
   comprobar("el escenario distingue: hay trabajo de otro vendedor en la mesa",
     DEL_EQUIPO > MIOS && jefe.pedidos === DEL_EQUIPO && jefe.comisiones === DEL_EQUIPO);
 
-  comprobar("nombre viejo · ve solo sus " + MIOS + " pedido(s)",      viejo.pedidos === MIOS);
-  comprobar("nombre viejo · ve solo su " + MIOS + " comisión(es)",    viejo.comisiones === MIOS);
-  comprobar("nombre nuevo · ve solo sus " + MIOS + " pedido(s)",      nuevo.pedidos === MIOS);
-  comprobar("nombre nuevo · ve solo su " + MIOS + " comisión(es)",    nuevo.comisiones === MIOS);
-  comprobar("nombre viejo · ve solo su(s) " + MIOS + " cliente(s)",   viejo.clientes.length === MIOS);
-  comprobar("nombre nuevo · ve solo su(s) " + MIOS + " cliente(s)",   nuevo.clientes.length === MIOS);
-  comprobar("los dos nombres dan exactamente lo mismo · pedidos, comisiones y clientes",
-    JSON.stringify(viejo) === JSON.stringify(nuevo));
+  comprobar("el comisionista ve solo sus " + MIOS + " pedido(s)",    vendedor.pedidos === MIOS);
+  comprobar("el comisionista ve solo su " + MIOS + " comisión(es)",  vendedor.comisiones === MIOS);
+  comprobar("el comisionista ve solo su(s) " + MIOS + " cliente(s)", vendedor.clientes.length === MIOS);
 
   /* El control. Sin esto, una puerta que dijera siempre "restringido"
      también pasaría, y no estaríamos midiendo la puerta sino la nada. */
@@ -158,17 +176,18 @@ const medir = (rol) => {
   comprobar("control · el freelance sigue viendo los " + DEL_EQUIPO + " clientes del equipo",
     jefe.clientes.length === DEL_EQUIPO);
 
-  /* El portal: de nada sirve que la app respete el rol nuevo si el portal no
-     sabe a qué app mandar a esa persona. Se queda mirando una pantalla sin
-     destino y parece que el sistema no la reconoce.
-     No se busca el texto: se ejecuta el mapa real del portal. */
+  /* ── 3 · El portal ────────────────────────────────────────────────────
+     De nada sirve que la app respete el rol si el portal no sabe a dónde
+     mandar a esa persona. No se busca el texto: se ejecuta el mapa real. */
   const portal = fs.readFileSync(require("path").join(R.RAIZ, "index.html"), "utf-8");
   const trozo = portal.match(/var APP_POR_ROL = \{[\s\S]*?\};/);
   const MAPA = trozo ? vm.runInNewContext(trozo[0] + " APP_POR_ROL;") : null;
-  comprobar("portal · el nombre nuevo tiene app a dónde ir",
+  comprobar("portal · el comisionista tiene app a dónde ir",
     !!MAPA && !!MAPA.comisionista);
-  comprobar("portal · los dos nombres llevan a la misma app",
-    !!MAPA && MAPA.comisionista === MAPA.subcomisionista);
+  comprobar("portal · ya no existe la entrada del nombre viejo",
+    !!MAPA && !("subcomisionista" in MAPA));
+  comprobar("portal · el archivo del portal tampoco lo menciona",
+    !VIEJO.test(portal));
 
   console.log("\n" + (mal ? "✗ " + mal + " fallo(s) de " + (ok + mal) : "✓ " + ok + " comprobaciones") + " · " + nombre);
   process.exit(mal ? 1 : 0);

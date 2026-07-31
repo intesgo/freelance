@@ -32,7 +32,7 @@ window.supabase = { createClient: function(){
   var CON_VALE = /[#&]invitacion=|[#&]recuperar=/.test(location.hash);
   if (CON_VALE) HAY_SESION = false;
   function consulta(){
-    var filas = [{ usr_id:"SC-02", nombre:"Ana Torres", rol:"subcomisionista", activo:true }];
+    var filas = [{ usr_id:"SC-02", nombre:"Ana Torres", rol:"comisionista", activo:true }];
     var p = Promise.resolve({ data: filas, error:null });
     ["select","eq","limit","order","in","is"].forEach(function(m){ p[m] = consulta; });
     p.maybeSingle = function(){ return Promise.resolve({ data: filas[0], error:null }); };

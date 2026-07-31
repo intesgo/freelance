@@ -18,7 +18,7 @@ const comprobar=(t,c)=>{ if(c){ok++;console.log("  ✓ "+t);} else {mal++;consol
 const AYER=new Date(Date.now()-86400000).toISOString().slice(0,10);
 const FIX={
   usuarios:[{usr_id:"FRL-RR",nombre:"Richard Ramírez",rol:"freelance"},
-            {usr_id:"SC-D1",nombre:"Luis Paredes",rol:"subcomisionista"},
+            {usr_id:"SC-D1",nombre:"Luis Paredes",rol:"comisionista"},
             {usr_id:"FRL-01",nombre:"Daniel Ríos",rol:"freelance"}],
   pedidos:[
     {ped_id:"PD-0010",cli_id:"CLI-D01",prov_cod:"PROV-A",ciudad:"Riobamba",estado:"enviado_proveedor",

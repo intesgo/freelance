@@ -59,7 +59,13 @@ const USUARIOS_BD = [{ usr_id:"SC1", nombre:"Carlos Andrade" }, { usr_id:"SC2", 
 
 /* Comisiones: dos de este mes y una del mes pasado, en distintos estados */
 const mesAhora = new Date().toISOString().slice(0,7);
-const mesAntes = (()=>{ const d = new Date(); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
+/* CORREGIDO 31/07/2026 · restar un mes SIN pasar antes por el dia 1 es el error
+   clasico de JavaScript: el 31 de julio pedia "31 de junio", que no existe, y
+   el idioma lo empuja al 1 de JULIO. Resultado: las comisiones de junio se
+   etiquetaban como de julio y este arnes se ponia rojo los dias 29, 30 o 31
+   segun el mes — acusando a la app de un fallo que era suyo. Un arnes que
+   falla uno o dos dias al mes es peor que no tenerlo: ensena a ignorar el rojo. */
+const mesAntes = (()=>{ const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
 const COMISIONES_BD = [
   /* generada este mes, el cliente todavía no paga */
   { com_id:"K1", sub_id:"SC1", monto:120.00, f_gen:mesAhora+"-03", f_cli_pago:null, f_conf:null, f_pago:null },

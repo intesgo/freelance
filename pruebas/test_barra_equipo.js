@@ -20,7 +20,7 @@ const AYER=new Date(Date.now()-86400000).toISOString().slice(0,10);
 
 const FIX=(rol)=>({
   usuarios:[{usr_id:"SC-D1",nombre:"Luis Paredes",rol:rol},
-            {usr_id:"SC-D2",nombre:"María Espinoza",rol:"subcomisionista"}],
+            {usr_id:"SC-D2",nombre:"María Espinoza",rol:"comisionista"}],
   pedidos:[
     {ped_id:"PD-0010",cli_id:"CLI-D01",sub_id:"SC-D1",prov_cod:"PROV-A",estado:"enviado_proveedor",
      factura:null,condicion:"credito",creado:"2026-07-10T06:38:39+00:00",es_demo:true},
@@ -43,7 +43,7 @@ const FIX=(rol)=>({
 });
 
 function montar(conDatos, rol){
-  const FX=FIX(rol||"subcomisionista");
+  const FX=FIX(rol||"comisionista");
   const dom=new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`,
     { url:"https://intesgo.github.io/freelance/", runScripts:"outside-only", pretendToBeVisual:true });
   const w=dom.window;
@@ -79,7 +79,7 @@ function montar(conDatos, rol){
 const guion=(tab)=>`(async()=>{
   var cont=document.createElement("div"); document.body.appendChild(cont);
   ReactDOM.flushSync(function(){ ReactDOM.createRoot(cont).render(React.createElement(App,{
-    usuario:{nombre:"Luis Paredes",codigo:"SC-D1",rol:"subcomisionista",real:true},
+    usuario:{nombre:"Luis Paredes",codigo:"SC-D1",rol:"comisionista",real:true},
     onSalir:function(){}, toast:function(){} })); });
   var esperar=function(ms){ return new Promise(function(r){ setTimeout(r,ms||60); }); };
   await esperar(260);
@@ -125,7 +125,7 @@ const guion=(tab)=>`(async()=>{
     const g=JSON.parse(await vm.runInContext(`(async()=>{
       var cont=document.createElement("div"); document.body.appendChild(cont);
       ReactDOM.flushSync(function(){ ReactDOM.createRoot(cont).render(React.createElement(App,{
-        usuario:{nombre:"Luis Paredes",codigo:"SC-D1",rol:"subcomisionista",real:true}, onSalir:function(){}, toast:function(){} })); });
+        usuario:{nombre:"Luis Paredes",codigo:"SC-D1",rol:"comisionista",real:true}, onSalir:function(){}, toast:function(){} })); });
       await new Promise(function(r){ setTimeout(r,300); });
       var out={}; var bs=cont.querySelectorAll(".nav button");
       for(var i=0;i<bs.length;i++){ var b=bs[i]; var gl=b.querySelector(".badge");

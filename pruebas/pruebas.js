@@ -60,6 +60,7 @@ const PLAN = [
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null], soloSi:"SISTEMA_WEB" },
   { arnes:"test_menu_web.js",        que:"el menú del sistema web",              apps:[null], soloSi:"SISTEMA_WEB" },
   { arnes:"test_dashboard_cliente.js", que:"el historial del cliente no inventa", apps:[null], soloSi:"SISTEMA_WEB" },
+  { arnes:"test_dueno_vendedor.js",  que:"a quién pertenece un cliente",         apps:[null], soloSi:"SISTEMA_WEB" },
   /* la función de avisos también vive en el repo privado */
   { arnes:"test_avisos_costo.js",    que:"el aviso cuando cambia un costo",      apps:[null], soloSi:"AVISOS_TS" },
   { arnes:"test_avisos_pedido_piladora.js", que:"la piladora se entera del pedido", apps:[null], soloSi:"AVISOS_TS" },

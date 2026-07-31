@@ -31,7 +31,7 @@ const haceDias = (n) => new Date(Date.now() - n * 86400000).toISOString();
 const TELEFONOS = [
   { sus_id: "S1", endpoint: "tel/richard", p256dh: "a", auth: "b", rol: "freelance", usr_id: "FRL-RR", usuario: "intesgo@gmail.com" },
   { sus_id: "S2", endpoint: "tel/agustin", p256dh: "a", auth: "b", rol: "proveedor", usr_id: "PRV-AGU", usuario: "agu@ejemplo.com" },
-  { sus_id: "S3", endpoint: "tel/vendedor", p256dh: "a", auth: "b", rol: "subcomisionista", usr_id: "SC1", usuario: "carlos@ejemplo.com" },
+  { sus_id: "S3", endpoint: "tel/vendedor", p256dh: "a", auth: "b", rol: "comisionista", usr_id: "SC1", usuario: "carlos@ejemplo.com" },
 ];
 
 const PADRON = [

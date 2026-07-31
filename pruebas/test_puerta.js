@@ -43,7 +43,7 @@ function montar(conSesion, activo){
   w.Notification=function(){}; w.Notification.permission="denied"; w.Notification.requestPermission=async()=>"denied";
   const salidas=[];
   const q=(tabla)=>{ const datos = tabla==="usuarios"
-      ? [{usr_id:"SC-D1",nombre:"Luis Paredes",rol:"subcomisionista",activo:activo}] : [];
+      ? [{usr_id:"SC-D1",nombre:"Luis Paredes",rol:"comisionista",activo:activo}] : [];
     const p=Promise.resolve({data:datos,error:null,count:0});
     ["select","eq","neq","in","order","limit","like","not","is"].forEach(m=>{p[m]=()=>q(tabla);});
     p.maybeSingle=()=>Promise.resolve({data:datos[0]||null,error:null}); p.single=p.maybeSingle;

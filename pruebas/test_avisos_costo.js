@@ -34,7 +34,7 @@ const TELEFONOS = [
   { sus_id: "S1", endpoint: "tel/richard", p256dh: "a", auth: "b", rol: "freelance", usr_id: "FRL-RR", usuario: "intesgo@gmail.com" },
   { sus_id: "S2", endpoint: "tel/admin", p256dh: "a", auth: "b", rol: "admin", usr_id: "ADM-01", usuario: "admin@ejemplo.com" },
   { sus_id: "S3", endpoint: "tel/piladora", p256dh: "a", auth: "b", rol: "proveedor", usr_id: "PRV-01", usuario: "ros@ejemplo.com" },
-  { sus_id: "S4", endpoint: "tel/vendedor", p256dh: "a", auth: "b", rol: "subcomisionista", usr_id: "SC1", usuario: "carlos@ejemplo.com" },
+  { sus_id: "S4", endpoint: "tel/vendedor", p256dh: "a", auth: "b", rol: "comisionista", usr_id: "SC1", usuario: "carlos@ejemplo.com" },
 ];
 
 /* ── Ofertas vivas. PostgREST devuelve los enganches como objeto anidado:

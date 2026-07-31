@@ -76,7 +76,7 @@ const guion = `(async()=>{
   comprobar("cuenta sin fila en el padrón: no se le regala el rol de freelance",
     !/Novedades|Mis pedidos/.test(t1));
 
-  const baja = montar({ usr_id:"SC-01", nombre:"Carlos Andrade", rol:"subcomisionista", activo:false });
+  const baja = montar({ usr_id:"SC-01", nombre:"Carlos Andrade", rol:"comisionista", activo:false });
   const t2 = await vm.runInContext(guion, baja.ctx);
   comprobar("cuenta dada de baja: NO entra", /dada de baja/.test(t2));
   comprobar("cuenta dada de baja: se le cierra la sesión", baja.salidas.indexOf("signOut") >= 0);

@@ -16,7 +16,7 @@ console.log("═══ Cuentas del equipo");
 
 const PADRON=[
   {usr_id:"FRL-RR",nombre:"Richard Ramírez",rol:"freelance",email:"intesgo@gmail.com",prov_cod:null,activo:true,es_demo:false,tiene_acceso:true},
-  {usr_id:"SC1",nombre:"Carlos Andrade",rol:"subcomisionista",email:null,prov_cod:null,activo:true,es_demo:false,tiene_acceso:false},
+  {usr_id:"SC1",nombre:"Carlos Andrade",rol:"comisionista",email:null,prov_cod:null,activo:true,es_demo:false,tiene_acceso:false},
   {usr_id:"TR-01",nombre:"Marlon Cedeño",rol:"transportista",email:null,prov_cod:null,activo:false,es_demo:false,tiene_acceso:false},
 ];
 const PILAS=[{prov_cod:"AGU",nombre:"Piladora San Agustín"},{prov_cod:"ROS",nombre:"Piladora Santa Rosa"}];
@@ -44,7 +44,7 @@ function montar(){
       if(c.accion==="dar_acceso") return { data:{ ok:true, usr_id:c.usr_id, nombre:"Carlos Andrade",
         enlace:"https://ejemplo/verify?token=ya-estaba" }, error:null };
       if(c.accion==="parecidos") return { data:{ parecidos:
-        /carlos/i.test(String(c.nombre||"")) ? [{usr_id:"SC1",nombre:"Carlos Andrade",rol:"subcomisionista"}] : [] }, error:null };
+        /carlos/i.test(String(c.nombre||"")) ? [{usr_id:"SC1",nombre:"Carlos Andrade",rol:"comisionista"}] : [] }, error:null };
       return { data:{ error:"acción desconocida" }, error:null };
     }},
   };

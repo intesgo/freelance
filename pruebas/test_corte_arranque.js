@@ -42,7 +42,7 @@ const FILAS = {
   notas_credito: [{ nc_id: "NC-1", ped_id: "PD-0100", item_id: "PD-0100-I1", qq: 10, valor: 300,
     motivo: "x", origen: "vendedor", estado: "pendiente", creado: "2026-07-06T10:00:00Z",
     afecta_comision: true, es_demo: false }],
-  usuarios: [{ usr_id: "SC1", nombre: "Un vendedor", rol: "subcomisionista", auth_uid: "u1" }],
+  usuarios: [{ usr_id: "SC1", nombre: "Un vendedor", rol: "comisionista", auth_uid: "u1" }],
   cartera_cliente: [
     { mov_id: "MOV-AP0001", cli_id: "CLI-001", doc: "F-1001", emision: "2026-06-10",
       vence: "2026-07-10", monto: 1500, estado: "pendiente" },
