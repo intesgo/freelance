@@ -1657,6 +1657,69 @@ const PRESENTACIONES = PRODUCTOS
       }))
   );
 
+/* ── Catálogo vivo de pedido (copiado de freelance-completo: un producto, un precio) ── */
+function construirCatalogoPedido(provs, ofertas, prods, precios){
+  const r2=n=>Math.round(n*100)/100;
+  const nomDe={}, lineaDe={}, precioDe={};
+  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; });
+  (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+  const pres=(ofertas||[]).map(o=>{
+    const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
+    if(!nom || !pr) return null;
+    const eq=Number(o.equiv_qq)||1;
+    return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
+      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, diasCredito:30,
+      baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
+      costo:o.costo!=null?r2(Number(o.costo)):null,
+      promosFreelance:[], promosProveedor:[] };
+  }).filter(Boolean);
+  return { provs:(provs||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})), pres };
+}
+
+/* nombre del cliente → su código real. Lo llena el módulo Pedido al cargar. */
+const CLI_ID_DE = {};
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}){
+  try{
+    if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
+    const { data:s } = await window.SB.auth.getSession();
+    if(!s || !s.session) return { ok:false, motivo:"sin_sesion" };
+    const cliId = CLI_ID_DE[(cli && cli.nombre) || cli];
+    if(!cliId) return { ok:false, motivo:"cliente_demo" };
+    const items = (carrito||[]).filter(it=>it && it.prod);
+    if(!items.length || items.some(it=>!it.prod.prodId || !it.prod.equiv)) return { ok:false, motivo:"producto_demo" };
+    const { data:ult } = await window.SB.from("pedidos").select("ped_id")
+      .like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
+    const n = ult && ult[0] ? (parseInt(String(ult[0].ped_id).replace(/\D/g,""),10)||0) : 0;
+    const pedId = "PD-"+String(n+1).padStart(4,"0");
+    const r2=x=>Math.round(x*100)/100;
+    let subId=null;
+    try{
+      const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1);
+      if(yo && yo[0]) subId=yo[0].usr_id;
+    }catch(e0){}
+    const { error:e1 } = await window.SB.from("pedidos").insert({
+      ped_id:pedId, cli_id:cliId, sub_id:subId, prov_cod:(prov && prov.id)||null,
+      ubicacion_id: retiro ? null : ((ubic && ubic.ubic_id) || null),
+      retiro_bodega: !!retiro,
+      estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
+    if(e1) return { ok:false, motivo:e1.message||"error_pedido" };
+    const filas = items.map((it,i)=>({
+      item_id: pedId+"-I"+(i+1), ped_id:pedId, prod_id:it.prod.prodId,
+      descripcion: it.prodNombre,
+      cantidad_qq: r2(it.cant*it.prod.equiv),
+      precio_usd: r2(it.precio/it.prod.equiv),
+      tipo_precio: it.tipo, gratis_qq: r2((Number(it.gratis)||0)*it.prod.equiv),
+      comision_usd: r2(Number(it.comisionTotal)||0),
+      es_demo:false }));
+    const { error:e2 } = await window.SB.from("pedido_items").insert(filas);
+    if(e2){
+      try{ await window.SB.from("pedidos").delete().eq("ped_id",pedId); }catch(e3){}
+      return { ok:false, motivo:e2.message||"error_items" };
+    }
+    return { ok:true, pedId };
+  }catch(e){ return { ok:false, motivo:"error" }; }
+}
+
 function sacoSVG(linea, pres){
   const PAL = {
     "Arroz":  {tela:"#EFE7D2", tela2:"#E2D6BA", txt:"#1E4D3A", grano:"#D8B77A"},
@@ -2917,6 +2980,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const [verCarrito,setVerCarrito]=useState(false); // ventana tras guardar
   const [codigo,setCodigo]=useState("");           // código de desbloqueo ingresado
   const [desbloqueado,setDesbloqueado]=useState(false);
+  const [ubicPed,setUbicPed]=useState(null);
+  const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);
+  const [ubicMap,setUbicMap]=useState({});
+  const [vivoPed,setVivoPed]=useState(null);
 
   // bloqueo automático del cliente
   const motivos = cli ? motivosBloqueo(cli) : [];
@@ -2925,18 +2992,55 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   // precarga desde Productos: fija proveedor y producto, deja al vendedor elegir cliente y precio
   React.useEffect(()=>{
     if(prodInicial){
-      const pv=PROVEEDORES.find(x=>x.id===prodInicial.provId);
+      const pv=PROVS_PED.find(x=>x.id===prodInicial.provId);
       if(pv) setProv(pv);
       setProd(prodInicial);
       if(onConsumir) onConsumir();
     }
   },[prodInicial]);
 
+  React.useEffect(()=>{
+    if(!window.SB || !window.SB.auth) return;
+    let activo=true;
+    (async ()=>{
+      try{
+        const { data:s } = await window.SB.auth.getSession();
+        if(!s || !s.session) return;
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }, { data:ubics }] = await Promise.all([
+          window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
+          window.SB.from("v_ofertas_vigentes").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado").limit(1000),
+          window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
+          window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
+          window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
+          window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,ciudad,direccion").eq("activo",true).limit(3000),
+        ]);
+        if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
+        const cat=construirCatalogoPedido(provs, ofertas, prods, precios);
+        if(!cat.pres.length) return;
+        (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
+        cat.clis=(clis||[]).map(c=>c.nombre);
+        setVivoPed(cat);
+        const mapU={}; (ubics||[]).forEach(u=>{ (mapU[u.cli_id]=mapU[u.cli_id]||[]).push(u); }); setUbicMap(mapU);
+      }catch(e){}
+    })();
+    return ()=>{ activo=false; };
+  },[]);
+  React.useEffect(()=>{
+    setRetiroBodegaPed(false);
+    const lista = ubicMap[CLI_ID_DE[cli]] || [];
+    if(lista.length===0){ setUbicPed(null); return; }
+    if(lista.length===1){ setUbicPed(lista[0]); return; }
+    setUbicPed(lista.find(u=>u.principal) || null);
+  },[cli, ubicMap]);
+  const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
+  const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
+  const CLIS_PED  = (vivoPed && vivoPed.clis && vivoPed.clis.length) ? vivoPed.clis : CLIENTES;
+
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setPromoP(null);setComProp("");setMotivo("");};
   // agregar el producto actual al carrito y limpiar para el siguiente
   const resetProducto=()=>{setProd(null);setCant(0);reset();};
   // cerrar pedido completo: vuelve de cero
-  const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();setPaso(1);};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();setPaso(1);};
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   // Valor total de la factura del pedido (precio x cantidad de cada item)
   const totalFacturaCarrito = Math.round(carrito.reduce((s,it)=>s+(it.precio*it.cant),0)*100)/100;
@@ -2949,7 +3053,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     return 1;
   };
   const totalQuintalesCarrito = Math.round(carrito.reduce((s,it)=>s+(qqDeUnidad(it.unidad)*it.cant),0)*100)/100;
-  const productosDelProv = prov ? PRESENTACIONES.filter(p=>p.provId===prov.id) : [];
+  const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id) : [];
   // Productos que ESE cliente ya compró antes (con este proveedor), según su historial.
   // Se ocultan los que ya están en el pedido para no elegirlos dos veces.
   const enCarrito = new Set(carrito.map(it=>it.prod?it.prod.id:it.prodId));
@@ -3030,7 +3134,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const construirItem = ()=>({
     id:Date.now(), prod, prodNombre:prod.nombre, unidad:prod.unidad,
     tipo, tipoNombre:tInfo.nombre, cant:cantN,
-    precio:precioNum, gratis:gratisNum, esCredito,
+    precio:precioNum, gratis:gratisNum, esCredito, credito:esCredito,
     comisionTotal, requiere:requiereAutorizacion,
     motivoAuth: excedeCupo ? "Excede cupo de crédito" : (esP5 ? "Precio especial" : null)
   });
@@ -3121,7 +3225,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
       <div className="cli-titulo">{cli}</div>
     ) : (
     <div className="busc-cliente busc-grande">
-    <SearchSelect label="Cliente" cat="clientes" items={CLIENTES} value={cli} multiPalabra sinLabel placeholder="Cliente"
+    <SearchSelect label="Cliente" cat="clientes" items={CLIS_PED} value={cli} multiPalabra sinLabel placeholder="Cliente"
       onPick={c=>{setCli(c);setCodigo("");setDesbloqueado(false);}} onClear={()=>{if(carrito.length===0){setCli(null);setCodigo("");setDesbloqueado(false);}}}
       hint={carrito.length>0?"Para cambiar de cliente, cierra primero el pedido en curso.":null}
       render={{
@@ -3159,7 +3263,34 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
       </div>
     )}
 
-    {cli && !bloqueado && !prod && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVEEDORES} sinLabel value={prov} placeholder="Proveedor"
+    {cli && !bloqueado && !prod && (
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",marginBottom:6}}>¿Cómo lo recibe?</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          <button type="button" onClick={()=>setRetiroBodegaPed(false)}
+            style={{padding:"9px 13px",borderRadius:11,cursor:"pointer",fontSize:13,fontWeight:700,border:`1.5px solid ${!retiroBodegaPed?"#2E7D52":"#d8ddd7"}`,background:!retiroBodegaPed?"#E7F3EC":"#fff",color:"#1E4D3A"}}>🏠 Entrega a domicilio</button>
+          <button type="button" onClick={()=>{setRetiroBodegaPed(true);setUbicPed(null);}}
+            style={{padding:"9px 13px",borderRadius:11,cursor:"pointer",fontSize:13,fontWeight:700,border:`1.5px solid ${retiroBodegaPed?"#B45309":"#d8ddd7"}`,background:retiroBodegaPed?"#FFF7ED":"#fff",color:"#9a3412"}}>🏭 Retira en bodega del proveedor</button>
+        </div>
+        {!retiroBodegaPed && (ubicMap[CLI_ID_DE[cli]]||[]).length>1 && (
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:11.5,fontWeight:700,color:"#6b7a70",marginBottom:5}}>¿A qué local?</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {(ubicMap[CLI_ID_DE[cli]]||[]).map(u=>{
+                const sel = ubicPed && ubicPed.ubic_id===u.ubic_id;
+                return (<button key={u.ubic_id} type="button" onClick={()=>setUbicPed(u)}
+                  style={{textAlign:"left",padding:"8px 11px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${sel?"#2E7D52":"#d8ddd7"}`,background:sel?"#E7F3EC":"#fff"}}>
+                  <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A"}}>{u.nombre||"Local"}</div>
+                  <div style={{fontSize:11,color:"#6b7a70",marginTop:1}}>{(u.ciudad||"")+(u.direccion?" · "+u.direccion:"")}</div>
+                </button>);
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {cli && !bloqueado && !prod && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov} placeholder="Proveedor"
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -3491,6 +3622,11 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             const items = valido ? [...carrito, construirItem()] : carrito;
             const n = items.length;
             if(n===0) return;
+            guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed}).then(r=>{
+              if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
+              else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
+                toast("⚠ El pedido quedó solo local: "+r.motivo);
+            }).catch(()=>{});
             toast(`Pedido guardado · ${n} producto${n>1?"s":""}.`);
             cerrarPedido();
             if(irGuardado) irGuardado(); else if(go) go("pedidos");
@@ -3557,6 +3693,11 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
               cli:(cli && cli.nombre) || cli || "—",
               detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
               cuando:"recién" }));
+            guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed}).then(r=>{
+              if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
+              else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
+                toast("⚠ El pedido quedó solo local: "+r.motivo);
+            }).catch(()=>{});
             toast(`Pedido guardado · ${carrito.length} producto(s) · protegido en la cola ✓`);
             cerrarPedido();if(irGuardado)irGuardado();else if(go)go("pedidos");}}>
             Guardar pedido · {carrito.length} producto{carrito.length>1?"s":""}</button>
@@ -7775,7 +7916,7 @@ function Cotizacion({ toast }){
 
   const listaCli = ((base && base.clientes) || []).filter(c=>{
     const t = buscaCli.trim().toLowerCase();
-    return !t || c.nombre.toLowerCase().includes(t) || (c.ruc||"").includes(t) || (c.ciudad||"").toLowerCase().includes(t);
+    return !t || c.nombre.toLowerCase().includes(t) || (c.razon||"").toLowerCase().includes(t) || (c.ruc||"").includes(t) || (c.ciudad||"").toLowerCase().includes(t);
   }).slice(0, 30);
   const listaPro = prods.filter(p=>{
     const t = buscaPro.trim().toLowerCase();

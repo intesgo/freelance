@@ -2757,7 +2757,7 @@ async function cargarCatalogoReal(){
    falla por PK se avisa). Si fallan los items, se deshace el pedido (borrado manual).
    El trigger fn_auditar audita pedidos solo: NO auditar a mano. */
 const CLI_ID_DE = {};
-async function guardarPedidoEnBase({cli, prov, carrito}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -2778,6 +2778,8 @@ async function guardarPedidoEnBase({cli, prov, carrito}){
     }catch(e0){}
     const { error:e1 } = await window.SB.from("pedidos").insert({
       ped_id:pedId, cli_id:cliId, sub_id:subId, prov_cod:(prov && prov.id)||null,
+      ubicacion_id: retiro ? null : ((ubic && ubic.ubic_id) || null),
+      retiro_bodega: !!retiro,
       estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
     if(e1) return { ok:false, motivo:e1.message||"error_pedido" };
     const filas = items.map((it,i)=>({
@@ -4283,7 +4285,7 @@ function Inicio({go, irCliente, irProducto, irFactura}){
   const tq=normG(qGlobal.trim());
   const resultados=(()=>{
     if(tq.length<2) return null;
-    const cli=CLIENTES.filter(c=>normG(c).includes(tq)).slice(0,3);
+    const cli=nombresClientes().filter(c=>normG(c+" "+(REFERENCIALES[c]||[]).join(" ")).includes(tq)).slice(0,3);
     const prod=PRESENTACIONES.filter(p=>normG(p.marca+" "+p.linea+" "+p.unidad).includes(tq)).slice(0,3);
     const fac=[...CARTERA_INI].filter(f=>normG(f.cli+" "+f.fac+" "+f.vendedor).includes(tq)).slice(0,3);
     const ped=PEDIDOS_INI.filter(p=>normG(p.cli+" "+p.prod+" "+p.prov).includes(tq)).slice(0,3);
@@ -5840,6 +5842,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [prod,setProd]=useState(null);
+  const [ubicPed,setUbicPed]=useState(null);       // local de entrega (domicilio)
+  const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);  // true = retira en bodega del proveedor
+  const [ubicMap,setUbicMap]=useState({});         // cli_id -> [ubicaciones]
   const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
   const [cant,setCant]=useState(50);
@@ -5868,20 +5873,22 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       try{
         const { data:s } = await window.SB.auth.getSession();
         if(!s || !s.session) return;
-        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }] = await Promise.all([
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }, { data:ubics }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("v_ofertas_vigentes").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado").limit(1000),
           window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
           window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
-          window.SB.from("clientes").select("cli_id,nombre").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
+          window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
+          window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,tipo_entrega,ciudad,direccion").eq("activo",true).limit(3000),
         ]);
         if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
         const cat=construirCatalogoPedido(provs, ofertas, prods, precios);
         if(!cat.pres.length) return;
         provs.forEach(p=>{ PROV_REAL_NOMBRES[p.prov_cod]=p.nombre; });
-        (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; });
+        (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
         cat.clis = (clis||[]).map(c=>c.nombre);
         setVivoPed(cat);
+        const mapU={}; (ubics||[]).forEach(u=>{ (mapU[u.cli_id]=mapU[u.cli_id]||[]).push(u); }); setUbicMap(mapU);
       }catch(e){}
     })();
     return ()=>{ activo=false; };
@@ -5889,6 +5896,14 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
   const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
   const CLIS_PED  = (vivoPed && vivoPed.clis && vivoPed.clis.length) ? vivoPed.clis : CLIENTES;
+
+  React.useEffect(()=>{
+    setRetiroBodegaPed(false);
+    const lista = ubicMap[CLI_ID_DE[cli]] || [];
+    if(lista.length===0){ setUbicPed(null); return; }
+    if(lista.length===1){ setUbicPed(lista[0]); return; }
+    setUbicPed(lista.find(u=>u.principal) || null);
+  },[cli, ubicMap]);
 
   const motivos = cli ? motivosBloqueo(cli) : [];
   const bloqueado = motivos.length>0 && !desbloqueado;
@@ -5911,7 +5926,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setPromoP(null);setComProp("");setMotivo("");};
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
-  const cerrarPedido=()=>{setCli(null);setProv(null);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
   const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
@@ -6105,6 +6120,33 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:c=>(<div className="p1">{c}</div>)
       }}/>
     </div>
+    )}
+
+    {cli && !bloqueado && !verFact && !prod && (
+      <div className="busc-grande" style={{marginBottom:12}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",marginBottom:6}}>¿Cómo lo recibe?</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          <button type="button" onClick={()=>setRetiroBodegaPed(false)}
+            style={{padding:"9px 13px",borderRadius:11,cursor:"pointer",fontSize:13,fontWeight:700,border:`1.5px solid ${!retiroBodegaPed?"#2E7D52":"#d8ddd7"}`,background:!retiroBodegaPed?"#E7F3EC":"#fff",color:"#1E4D3A"}}>🏠 Entrega a domicilio</button>
+          <button type="button" onClick={()=>{setRetiroBodegaPed(true);setUbicPed(null);}}
+            style={{padding:"9px 13px",borderRadius:11,cursor:"pointer",fontSize:13,fontWeight:700,border:`1.5px solid ${retiroBodegaPed?"#B45309":"#d8ddd7"}`,background:retiroBodegaPed?"#FFF7ED":"#fff",color:"#9a3412"}}>🏭 Retira en bodega del proveedor</button>
+        </div>
+        {!retiroBodegaPed && (ubicMap[CLI_ID_DE[cli]]||[]).length>1 && (
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:11.5,fontWeight:700,color:"#6b7a70",marginBottom:5}}>¿A qué local?</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {(ubicMap[CLI_ID_DE[cli]]||[]).map(u=>{
+                const sel = ubicPed && ubicPed.ubic_id===u.ubic_id;
+                return (<button key={u.ubic_id} type="button" onClick={()=>setUbicPed(u)}
+                  style={{textAlign:"left",padding:"8px 11px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${sel?"#2E7D52":"#d8ddd7"}`,background:sel?"#E7F3EC":"#fff"}}>
+                  <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A"}}>{u.nombre||"Local"}</div>
+                  <div style={{fontSize:11,color:"#6b7a70",marginTop:1}}>{(u.ciudad||"")+(u.direccion?" · "+u.direccion:"")}</div>
+                </button>);
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     )}
 
     {cli && !bloqueado && !verFact && !prod && <div className="busc-grande"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov}
@@ -6958,7 +7000,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
             const items = valido ? [...carrito, construirItem()] : carrito;
             if(items.length===0) return;
-            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items});
+            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed});
             const resumen = items.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
             setGuardadoOk({ cli, n:items.length, resumen });
             cerrarPedido();
@@ -7072,7 +7114,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado}
             onClick={()=>{
               if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
-              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito});
+              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed});
               const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
               setGuardadoOk({ cli, n:carrito.length, resumen });
               cerrarPedido();
@@ -12967,7 +13009,7 @@ function cargarCarteraReal(){
            arranque y tienen que verse. Se traen con su emisión para poder
            rotularlos. */
         window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,emision,vence,monto,estado").limit(2000),
-        window.SB.from("clientes").select("cli_id,nombre,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito").limit(2000),
+        window.SB.from("clientes").select("cli_id,nombre,razon_social,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito").limit(2000),
         window.SB.from("usuarios").select("usr_id,nombre").limit(500),
         window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,contacto_nombre,principal").limit(2000),
         window.SB.from("pedidos").select("ped_id,cli_id,creado").limit(2000),
@@ -12978,6 +13020,7 @@ function cargarCarteraReal(){
       ((rc && rc.data) || []).forEach(c=>{ nCli[c.cli_id]=c.nombre; subCli[c.cli_id]=c.sub_id; });
       /* los nombres de verdad: sin esto el asistente no reconoce a nadie al oírlo */
       _clientesVivos = ((rc && rc.data) || []).map(c=>c.nombre).filter(Boolean);
+      ((rc && rc.data) || []).forEach(c=>{ if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
       ((ru && ru.data) || []).forEach(u=>{ nUsr[u.usr_id]=u.nombre; });
       /* "dias" es como en la demostración: positivo = vencida hace tantos días,
          0 = vence hoy, negativo = le faltan tantos para vencer. */
@@ -22876,7 +22919,7 @@ function Cotizacion({ toast }){
 
   const listaCli = ((base && base.clientes) || []).filter(c=>{
     const t = buscaCli.trim().toLowerCase();
-    return !t || c.nombre.toLowerCase().includes(t) || (c.ruc||"").includes(t) || (c.ciudad||"").toLowerCase().includes(t);
+    return !t || c.nombre.toLowerCase().includes(t) || (c.razon||"").toLowerCase().includes(t) || (c.ruc||"").includes(t) || (c.ciudad||"").toLowerCase().includes(t);
   }).slice(0, 30);
   const listaPro = prods.filter(p=>{
     const t = buscaPro.trim().toLowerCase();
@@ -23479,7 +23522,7 @@ function App({usuario, onSalir}){
   const tareasActivas=TAREAS_NOTIF.filter(t=>prefsNotif[t.tipo] && t.n>0);
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
 
-  const guardarPedido=({cli, prov, carrito})=>{
+  const guardarPedido=({cli, prov, carrito, ubic, retiro})=>{
     const ahora=new Date();
     const dd=String(ahora.getDate()).padStart(2,"0");
     const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
@@ -23519,7 +23562,7 @@ function App({usuario, onSalir}){
     /* FASE 4 · Etapa 4: si hay sesión y cliente/productos reales, el pedido TAMBIÉN nace
        en la base (pedidos + pedido_items; el trigger lo audita solo). Si algo es demo o
        no hay sesión, guardarPedidoEnBase lo detecta y el flujo local sigue como siempre. */
-    guardarPedidoEnBase({cli, prov, carrito}).then(r=>{
+    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}).then(r=>{
       if(r.ok) show("✓ Pedido "+r.pedId+" guardado en la base");
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo local: "+r.motivo);
