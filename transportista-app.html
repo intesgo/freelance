@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"28", fecha:"1 ago 2026", desc:"Tu viaje sale de la base y la entrega que confirmas llega a la oficina" };
+const VERSION = { n:"29", fecha:"1 ago 2026", desc:"La novedad y su foto tambien quedan guardadas, no solo en el telefono" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -903,6 +903,55 @@ async function cargarMiHoja(nombreChofer){
     ? (sinPedido+" guia(s) de tu viaje no tienen pedido asociado y no se muestran. Avisa a logistica.")
     : "";
   return true;
+}
+
+/* ═══ LAS FOTOS DE EVIDENCIA ═════════════════════════════════════════════════
+   Hasta hoy la foto de la guia firmada y la del producto dañado se quedaban en
+   el telefono. Si el cliente reclama la semana que viene, la prueba esta en un
+   aparato que pudo perderse, romperse o cambiar de dueño. Ahora suben a un
+   deposito privado, en la carpeta de su guia:  <guia_id>/<archivo>
+   Esa carpeta ES el permiso: cada chofer solo alcanza lo de sus propias guias. */
+const FOTOS_QUE_ACEPTA = ["image/jpeg","image/png","image/webp","image/heic"];
+const FOTO_MAX = 8 * 1024 * 1024;
+
+/* La camara deja la foto como texto ("data:image/jpeg;base64,...").
+   Para subirla hay que devolverla a archivo. */
+function fotoAArchivo(dataUrl){
+  try{
+    const coma = String(dataUrl).indexOf(",");
+    if(coma < 0) return null;
+    const tipo = (String(dataUrl).slice(0,coma).match(/data:([^;]+)/)||[])[1] || "image/jpeg";
+    const cruda = atob(String(dataUrl).slice(coma+1));
+    const bytes = new Uint8Array(cruda.length);
+    for(let i=0;i<cruda.length;i++) bytes[i] = cruda.charCodeAt(i);
+    return new Blob([bytes], { type: tipo });
+  }catch(e){ return null; }
+}
+
+async function subirEvidencia(guiaId, dataUrl, comoSeLlama){
+  if(!dataUrl) return { ok:true, ruta:null };
+  /* la foto de prueba del visor es un dibujo, no una evidencia. Dejarla pasar
+     en un viaje real seria guardar una prueba falsa. */
+  if(dataUrl === FOTO_DEMO){
+    return { ok:false, motivo:"Esa es la foto de prueba del visor, no sirve como evidencia. Toma la foto de verdad con la cámara." };
+  }
+  if(!guiaId) return { ok:false, motivo:"Esta parada no tiene guía en la base, así que la foto no tiene dónde guardarse." };
+  const arch = fotoAArchivo(dataUrl);
+  if(!arch) return { ok:false, motivo:"No se pudo leer la foto del teléfono." };
+  if(FOTOS_QUE_ACEPTA.indexOf(arch.type) < 0){
+    return { ok:false, motivo:"Ese tipo de imagen no se acepta ("+arch.type+"). Toma la foto con la cámara." };
+  }
+  if(arch.size > FOTO_MAX){
+    return { ok:false, motivo:"La foto pesa "+Math.round(arch.size/1048576)+" MB y el máximo son 8. Toma otra con menos calidad." };
+  }
+  const ext = String(arch.type).split("/")[1].replace("jpeg","jpg");
+  const ruta = guiaId+"/"+comoSeLlama+"-"+(new Date()).getTime()+"."+ext;
+  let r;
+  try{ r = await window.SB.storage.from("evidencias-entrega")
+          .upload(ruta, arch, { contentType: arch.type, upsert:false }); }
+  catch(e){ return { ok:false, motivo:"No se pudo subir la foto: "+(e.message||"error") }; }
+  if(r && r.error) return { ok:false, motivo:"No se pudo subir la foto: "+(r.error.message||"error") };
+  return { ok:true, ruta: ruta };
 }
 
 /* Letrero permanente de donde salen los datos. Se ve SIEMPRE: la peor pantalla
@@ -2944,6 +2993,11 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
 
     if (FUENTE_VIAJE === "vivo") {
       setGuardando(true);
+      /* La foto de la guia firmada sube ANTES, pero NO bloquea la entrega:
+         dejar a un chofer plantado en la puerta del cliente porque una foto no
+         sube seria peor que quedarse sin la foto. Si falla, se le dice claro
+         para que la mande por otro lado. */
+      const f = await subirEvidencia(p.guiaId, foto, "guia-firmada");
       const g = await guardarEntregaEnBase(entTot < pedidoTot);
       setGuardando(false);
       if (!g.ok) {
@@ -2951,6 +3005,10 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
               "\n\nNo la des por hecha: en la oficina sigue pendiente. Vuelve a " +
               "intentarlo, y si sigue igual llama a logística ANTES de irte del local.");
         return;
+      }
+      if (!f.ok) {
+        alert("⚠ LA ENTREGA SÍ QUEDÓ REGISTRADA, PERO LA FOTO DE LA GUÍA NO SUBIÓ.\n\n" +
+              f.motivo + "\n\nGuárdala en el teléfono y mándasela a logística por mensaje.");
       }
     }
 
@@ -3037,11 +3095,62 @@ function HojaNovedad({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
   const [motivo, setMotivo] = useState(null);
   const [nota, setNota] = useState("");
   const [foto, setFoto] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  /* esta lista tiene que decir EXACTAMENTE lo mismo que la de registrar_novedad
+     en la base: si aqui se añade un motivo y alli no, la base lo rechaza y el
+     chofer se queda sin poder reportar. */
   const motivos = ["Rechazo del cliente","Producto dañado","Cliente ausente","Local cerrado","Dirección errada","Otro"];
 
-  const guardar = () => {
-    if(!motivo) return;
+  /* ── LA NOVEDAD TAMBIEN SE GUARDA ────────────────────────────────────────
+     Antes esto solo empujaba a un array en memoria: el chofer leia "Novedad
+     guardada", el cliente se quedaba sin su mercaderia y en la oficina no se
+     enteraba nadie. Ahora la novedad nace en la base, la parada queda cerrada
+     y el pedido pasa a "con novedad".
+     La foto sube ANTES: si la novedad exige evidencia y la foto no sube, no
+     tiene sentido guardar una novedad coja. */
+  const guardarNovedadEnBase = async () => {
+    if (!p.guiaId) return { ok:false, motivo:"Esta parada no tiene guía en la base. Avisa a logística." };
+    let rutaFoto = null;
+    if (foto) {
+      const f = await subirEvidencia(p.guiaId, foto, "novedad");
+      if (!f.ok) {
+        /* sin foto, "Producto dañado" lo rechaza la propia base: mejor decirlo
+           aqui y no dejar al chofer creyendo que quedo reportado. */
+        if (motivo === "Producto dañado") return { ok:false, motivo:f.motivo };
+        rutaFoto = null;
+      } else { rutaFoto = f.ruta; }
+    }
+    let res;
+    try{
+      res = await window.SB.rpc("registrar_novedad", {
+        p_guia_id: p.guiaId, p_tipo: motivo, p_detalle: nota.trim(),
+        p_foto_url: rutaFoto, p_op_id: "NOV-" + p.guiaId
+      });
+    }catch(e){ return { ok:false, motivo:"No se pudo hablar con la base: "+(e.message||"error") }; }
+    if (res && res.error) return { ok:false, motivo:(res.error.message || "error") };
+    return { ok:true, nov:(res && res.data) || null, foto:rutaFoto };
+  };
+
+  const guardar = async () => {
+    if(!motivo || guardando) return;
     if (motivo==="Producto dañado" && !foto){ toast("Producto dañado exige foto de evidencia."); return; }
+
+    if (FUENTE_VIAJE === "vivo") {
+      setGuardando(true);
+      const g = await guardarNovedadEnBase();
+      setGuardando(false);
+      if (!g.ok) {
+        alert("⚠ LA NOVEDAD NO SE REGISTRÓ\n\n" + g.motivo +
+              "\n\nNo la des por hecha: en la oficina nadie se ha enterado. Vuelve a " +
+              "intentarlo, y si sigue igual llama a logística ANTES de irte.");
+        return;
+      }
+      if (foto && !g.foto) {
+        alert("⚠ LA NOVEDAD SÍ QUEDÓ REGISTRADA (" + g.nov + "), PERO LA FOTO NO SUBIÓ.\n\n" +
+              "Guárdala en el teléfono y mándasela a logística por mensaje.");
+      }
+    }
+
     const r = rutaDePedido(p.id) || {};
     p.estadoEntrega = "novedad";
     p.entrega = {
@@ -3053,22 +3162,14 @@ function HojaNovedad({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
     };
     REGISTROS.push(p.entrega);
     onCerrar(); refrescar();
-    /* Honestidad: la base todavia NO tiene donde guardar una novedad de
-       entrega. No existe funcion para eso. Decir "Novedad guardada" en un
-       viaje real seria mentirle al chofer, que es lo que mas caro sale. */
-    if (FUENTE_VIAJE === "vivo"){
-      alert("⚠ ESTA NOVEDAD NO QUEDA GUARDADA\n\nLa quedó anotada en tu teléfono, pero " +
-            "el sistema todavía no tiene dónde registrarla.\n\nLlama a logística y cuéntasela: " +
-            "es la única forma de que se enteren.");
-    } else {
-      toast("Novedad guardada");
-    }
+    toast(FUENTE_VIAJE==="vivo" ? "Novedad registrada · logística ya la ve" : "Novedad guardada");
     onRutaCompleta();
   };
 
   return (
     <Hoja titulo="Reportar novedad" onCerrar={onCerrar}
-      pie={<div className="sheet-foot"><button className={"b-confirm nov"+(motivo?"":" dis")} onClick={guardar}>Guardar novedad</button></div>}>
+      pie={<div className="sheet-foot"><button className={"b-confirm nov"+((motivo && !guardando)?"":" dis")}
+        onClick={guardar}>{guardando ? "Guardando en la base…" : "Guardar novedad"}</button></div>}>
       <div className="field"><label>{p.cli} · {p.ciudad}</label></div>
       <div className="field"><label>Motivo <span className="req">*</span></label>
         <Motivos lista={motivos} motivo={motivo} setMotivo={setMotivo} cat="motivosEntrega" /></div>
