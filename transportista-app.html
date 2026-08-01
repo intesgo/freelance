@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"29", fecha:"1 ago 2026", desc:"La novedad y su foto tambien quedan guardadas, no solo en el telefono" };
+const VERSION = { n:"30", fecha:"1 ago 2026", desc:"Lo que el cliente NO recibe queda anotado: cuanto vuelve y de que producto" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -2972,6 +2972,15 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
     if (!p.guiaId) {
       return { ok:false, motivo:"Esta parada no tiene guía en la base. El viaje se despachó sin guía para este pedido: avisa a logística." };
     }
+    /* ── LO QUE ANTES SE TIRABA ──────────────────────────────────────────
+       El contador de arriba ya sabe, producto por producto, cuánto salió y
+       cuánto se entregó. Hasta hoy eso se quedaba en la pantalla: la base
+       guardaba QUE fue parcial, pero no CUÁNTO, y por tanto nadie podía
+       decir cuánta mercadería volvía a la piladora ni cuadrar el reclamo.
+       Ahora viaja con la entrega. */
+    const detalle = items.map(it => ({
+      desc: it.p, salio: Number(it.q)||0, entregado: Number(it.qEntregada)||0
+    }));
     let res;
     try {
       res = await window.SB.rpc("registrar_entrega", {
@@ -2979,7 +2988,9 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
         p_receptor: rec.trim(),
         p_cedula:   ced.trim(),
         p_parcial:  esParcial,
-        p_op_id:    "ENT-" + p.guiaId
+        p_op_id:    "ENT-" + p.guiaId,
+        p_entregado_qq: Number(entTot)||0,
+        p_detalle:  detalle
       });
     } catch (e) {
       return { ok:false, motivo:"No se pudo hablar con la base: " + (e.message||"error") };
@@ -3080,7 +3091,7 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
         <div className="et-cell et-ok"><div className="v num">{entTot}</div><div className="l">se entrega</div></div>
         <div className="et-cell et-dev"><div className="v num">{dev}</div><div className="l">devolución</div></div>
       </div>
-      {dev>0 && <div className="aviso-parc"><b>Entrega parcial.</b> El saldo de <b className="num">{dev}</b> {p.vivo ? "quintal(es)" : "bulto(s)"} regresa a logística como devolución. La factura y la comisión se ajustan sobre lo realmente entregado.</div>}
+      {dev>0 && <div className="aviso-parc"><b>Entrega parcial.</b> El saldo de <b className="num">{dev}</b> {p.vivo ? "quintal(es)" : "bulto(s)"} vuelve{dev===1?"":"n"} en el camión y regresa a logística como devolución. La factura y la comisión se ajustan sobre lo realmente entregado.</div>}
       <CampoFoto label="Guía firmada" hint="Toma la foto de la guía firmada por quien recibe" requerida foto={foto} setFoto={setFoto} />
       <div className="field"><label>Nombre de quien recibe <span className="req">*</span></label>
         <input className="inp" value={rec} placeholder="Nombre y apellido" onChange={(e)=>setRec(e.target.value)} /></div>
