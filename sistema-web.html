@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"73", fecha:"1 ago 2026", desc:"En la ficha del cliente se unificó 'Expediente de crédito' con 'Documentos del expediente' en una sola sección (estado + Ver/Subir por documento)" };
+const VERSION = { n:"74", fecha:"1 ago 2026", desc:"Expediente de crédito: los botones Ver/Subir ahora funcionan de verdad (suben y abren el archivo de cada documento) en el formulario y en la ficha" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -602,6 +602,59 @@ function regimenAppDesdeSRI(res) {
   if (g.includes("RIMPE"))   return "RIMPE Emprendedor";
   if (g.includes("GENERAL")) return "Régimen General";
   return "";
+}
+// ── Expediente de crédito con archivos reales (depósito privado 'expedientes-credito') ──
+// Guarda un archivo por documento en la carpeta del cliente: {cli_id}/doc-1 … doc-7
+function useExpediente(cliId, activo) {
+  const BUCKET = "expedientes-credito";
+  const [subidos, setSubidos] = React.useState([]);   // índices (0-based) que ya tienen archivo
+  const [ocupado, setOcupado] = React.useState(-1);
+  const ruta = (i) => cliId + "/doc-" + (i + 1);
+  const recargar = React.useCallback(async () => {
+    if (!activo || !cliId || !window.supa || !window.supa.storage) { setSubidos([]); return; }
+    try {
+      const { data, error } = await window.supa.storage.from(BUCKET).list(String(cliId), { limit: 100 });
+      if (error) throw error;
+      const idx = (data || []).map(f => { const m = String(f.name).match(/^doc-(\d+)$/); return m ? (parseInt(m[1], 10) - 1) : -1; }).filter(x => x >= 0);
+      setSubidos(idx);
+    } catch (e) { setSubidos([]); }
+  }, [cliId, activo]);
+  React.useEffect(() => { recargar(); }, [recargar]);
+  const subir = async (i, file) => {
+    if (!cliId) { alert("Primero guarda el cliente; luego puedes subir su expediente."); return; }
+    if (!file) return;
+    setOcupado(i);
+    try {
+      const { error } = await window.supa.storage.from(BUCKET).upload(ruta(i), file, { upsert: true, contentType: file.type || undefined });
+      if (error) throw error;
+      setSubidos(prev => prev.includes(i) ? prev : [...prev, i]);
+    } catch (e) { alert("No se pudo subir el archivo: " + ((e && e.message) || e)); }
+    setOcupado(-1);
+  };
+  const ver = async (i) => {
+    if (!cliId) return;
+    try {
+      const { data, error } = await window.supa.storage.from(BUCKET).createSignedUrl(ruta(i), 3600);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank");
+    } catch (e) { alert("No se pudo abrir el archivo: " + ((e && e.message) || e)); }
+  };
+  return { subidos, ocupado, subir, ver, disponible: !!cliId };
+}
+// Botón por documento: "Ver" si ya hay archivo, "Subir"/"Cambiar" para adjuntarlo
+function BotonExpediente({ exp, i, editable }) {
+  const ref = React.useRef(null);
+  const subido = exp.subidos.includes(i);
+  const cargando = exp.ocupado === i;
+  const btn = { fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:7, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer" };
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6 }} onClick={e=>e.stopPropagation()}>
+      <input ref={ref} type="file" style={{ display:"none" }} accept="image/*,application/pdf,.pdf"
+        onChange={e=>{ const f = e.target.files && e.target.files[0]; if (f) exp.subir(i, f); e.target.value=""; }} />
+      {subido && <button onClick={()=>exp.ver(i)} style={{ ...btn, color:COLOR.teal }}>Ver</button>}
+      {editable && <button disabled={cargando || !exp.disponible} onClick={()=>ref.current && ref.current.click()} style={{ ...btn, color: exp.disponible?COLOR.muted:"#bbb", cursor: exp.disponible?"pointer":"not-allowed" }}>{cargando ? "…" : (subido ? "Cambiar" : "Subir")}</button>}
+    </div>
+  );
 }
 const DOCS_CREDITO_CLI = [
   "Copia de RUC o cédula",
@@ -14782,6 +14835,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   const [excepcionFreelance, setExcepcionFreelance] = useState(false); // freelance autoriza guardar crédito incompleto
   const esFreelance = usuario && usuario.rol === "Freelance";
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
+  const exp = useExpediente(form.id, (form.condicionPago==="Crédito")||(form.listaPrecio==="Crédito"));
 
   /* ── R-01 · a quién pertenece este cliente ──────────────────────────
      El desplegable sale del padrón real. Al elegir se guardan las dos cosas:
@@ -15286,14 +15340,16 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
             {DOCS_CREDITO_CLI.map((doc,i) => {
               const ok = i < (form.docsOk||0);
               return (
-                <div key={i} onClick={()=>set("docsOk", ok ? i : i+1)} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 13px", borderRadius:8, marginBottom:6, background: ok?"#E9F8EF":"#F7F9FB", border:`1px solid ${ok?"#bce5cd":COLOR.border}`, cursor:"pointer" }}>
-                  <div style={{ width:26, height:26, borderRadius:6, background: ok?"#1c7a44":COLOR.border, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" }}>{i+1}</div>
-                  <p style={{ flex:1, fontSize:13, color:COLOR.text }}>{doc}</p>
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 13px", borderRadius:8, marginBottom:6, background: ok?"#E9F8EF":"#F7F9FB", border:`1px solid ${ok?"#bce5cd":COLOR.border}` }}>
+                  <div onClick={()=>set("docsOk", ok ? i : i+1)} title="Marcar o desmarcar entregado" style={{ width:26, height:26, borderRadius:6, background: ok?"#1c7a44":COLOR.border, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff", cursor:"pointer", flexShrink:0 }}>{i+1}</div>
+                  <p onClick={()=>set("docsOk", ok ? i : i+1)} style={{ flex:1, fontSize:13, color:COLOR.text, cursor:"pointer" }}>{doc}</p>
+                  <BotonExpediente exp={exp} i={i} editable={true} />
                   <span style={{ fontSize:16 }}>{ok ? "✅" : "📎"}</span>
                 </div>
               );
             })}
-            <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:10 }}>Nota: los clientes de contado no requieren expediente de crédito.</p>
+            {!form.id && <p style={{ fontSize:11.5, color:"#b07d1a", fontWeight:700, marginTop:10 }}>Para subir los archivos, guarda primero el cliente y vuelve a esta pestaña al editarlo.</p>}
+            <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:8 }}>Toca el número para marcar el documento como entregado; usa “Subir”/“Ver” para el archivo. Los clientes de contado no requieren expediente.</p>
           </div>
         )}
       </div>
@@ -16223,6 +16279,7 @@ function DashboardCliente({ cli, money, ciudad, onCerrar, onInicio }) {
 function FichaCliente({ cli, money, nombreProd, soloLectura, onVolver, onInicio, onAgregar, onEditar }) {
   const [modalVinculo, setModalVinculo] = useState(false);
   const [tab, setTab] = useState("general");
+  const exp = useExpediente(cli.id, cli.condicionPago==="Crédito");
   const disponible = Math.max(0, cli.cupo - cli.usado);
   const pctUsado = cli.cupo>0 ? Math.min(100, Math.round((cli.usado/cli.cupo)*100)) : 0;
 
@@ -16424,21 +16481,21 @@ function FichaCliente({ cli, money, nombreProd, soloLectura, onVolver, onInicio,
           <div style={{ marginTop:18, paddingTop:16, borderTop:`1px solid ${COLOR.border}` }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
               <p style={{ fontSize:11.5, fontWeight:800, color:COLOR.teal, textTransform:"uppercase", letterSpacing:.4 }}>📋 Expediente de crédito</p>
-              <span style={{ fontSize:11.5, fontWeight:700, color: (cli.docsOk||0)>=7?"#1c7a44":"#b07d1a" }}>{cli.docsOk||0} de 7 documentos</span>
+              <span style={{ fontSize:11.5, fontWeight:700, color: exp.subidos.length>=7?"#1c7a44":"#b07d1a" }}>{exp.subidos.length} de 7 documentos</span>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))", gap:8 }}>
               {DOCS_CREDITO_CLI.map((doc,i) => {
-                const ok = i < (cli.docsOk||0);
+                const ok = exp.subidos.includes(i);
                 return (
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 13px", borderRadius:9, background: ok?"#E9F8EF":"#F7F9FB", border:`1px solid ${ok?"#bce5cd":COLOR.border}` }}>
                     <span style={{ fontSize:16 }}>{ok ? "✅" : "📎"}</span>
                     <span style={{ flex:1, fontSize:12, color: ok?"#1c7a44":COLOR.muted, fontWeight: ok?600:500 }}>{doc}</span>
-                    <button style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:7, border:`1px solid ${COLOR.border}`, background:"#fff", color: ok?COLOR.teal:COLOR.muted, cursor:"pointer" }}>{ok ? "Ver" : "Subir"}</button>
+                    <BotonExpediente exp={exp} i={i} editable={!soloLectura} />
                   </div>
                 );
               })}
             </div>
-            <p style={{ fontSize:11, color:COLOR.muted, marginTop:8 }}>Los sube el vendedor desde la app y aquí el freelance/financiero los revisa antes de aprobar el cupo. Los de contado no requieren expediente. El almacenamiento real se conecta con el backend.</p>
+            <p style={{ fontSize:11, color:COLOR.muted, marginTop:8 }}>“Ver” abre el archivo; “Subir” lo adjunta. Los de contado no requieren expediente. Los archivos se guardan en el depósito privado del sistema.</p>
           </div>
         )}
         </>)}
