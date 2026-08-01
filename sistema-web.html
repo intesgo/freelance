@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"78", fecha:"1 ago 2026", desc:"Buscadores de clientes: buscan por palabras sueltas (nombre y apellido en cualquier orden) y muestran la razón social. Y la cabecera del formulario de cliente es más compacta: razón social arriba, nombre comercial debajo, y Cancelar/Inicio en la misma fila para no usar scroll" };
+const VERSION = { n:"79", fecha:"1 ago 2026", desc:"Al elegir un cliente se muestra un nombre corto: persona natural = primer nombre + primer apellido (Pedro Castillo); empresa = nombre de la empresa. El nombre comercial y el cupo quedan en la línea de abajo" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -668,6 +668,23 @@ function BotonExpediente({ exp, i, editable }) {
       {!editable && !subido && <span style={{ fontSize:11, color:COLOR.muted, fontWeight:600 }}>Pendiente</span>}
     </div>
   );
+}
+// Nombre corto para mostrar el cliente ya elegido:
+//  · Persona natural → primer nombre + primer apellido (asumiendo nombres antes de apellidos): "Pedro Rodrigo Castillo Rosero" → "Pedro Castillo"
+//  · Jurídica (empresa) → el nombre de la empresa completo: "Comercial Mendoza S.A."
+function nombreCortoCliente(c) {
+  if (!c) return "";
+  const rs = String(c.razonSocial || c.razon_social || c.nombre || "").trim();
+  if (!rs) return "";
+  const ruc = String(c.ruc || "");
+  const rsUp = rs.toUpperCase().replace(/\./g, "");
+  const esJuridica = c.tipo === "Empresa" || c.tipo === "Jurídica"
+    || (ruc.length === 13 && ruc[2] === "9")
+    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA)\b/.test(rsUp);
+  if (esJuridica) return rs;
+  const w = rs.split(/\s+/).filter(Boolean);
+  if (w.length <= 2) return rs;
+  return w[0] + " " + w[w.length - 2];
 }
 const DOCS_CREDITO_CLI = [
   "Copia de RUC o cédula",
@@ -4908,11 +4925,11 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           <div style={{ marginBottom:8 }}>
             <BuscadorPredictivo cat="clientes" items={CLIENTES} value={cliTexto} disabled={carrito.length>0}
               placeholder="Escribe para buscar un cliente…"
-              label={c=>c.razonSocial || c.nombre}
-              extra={c=>(c.nombre||"")+" "+(c.ruc||"")}
+              label={c=>nombreCortoCliente(c)}
+              extra={c=>(c.razonSocial||"")+" "+(c.nombre||"")+" "+(c.ruc||"")}
               sub={c=>(c.nombre && c.nombre!==c.razonSocial ? c.nombre+" · " : "")+(c.bloqueado ? "Bloqueado" : "Cupo disponible " + money(Math.max(0,(c.cupo||0)-(c.usado||0))))}
               onText={t=>{ setCliTexto(t); if(t==="") setCli(null); }}
-              onPick={c=>{ setCli(c); setCliTexto(c.nombre); }} />
+              onPick={c=>{ setCli(c); setCliTexto(nombreCortoCliente(c)); }} />
           </div>
           {carrito.length>0 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente, cierra primero el pedido en curso.</p>}
 
@@ -11526,7 +11543,7 @@ function TableroPrincipal({ usuario, navegar }) {
     ...SECCIONES.filter(s => norm(s.label).includes(q) || norm(s.sub).includes(q))
       .slice(0, 5).map(s => ({ ic: s.icon, t: s.label, s: "Módulo · " + s.sub, key: s.key })),
     ...D.clis.filter(c => { const campos = norm(c.nombre)+" "+norm(c.razon_social||"")+" "+(c.ruc||""); return q.split(/\s+/).every(w => campos.includes(w)); }).slice(0, 5)
-      .map(c => ({ ic: "👤", t: c.razon_social || c.nombre, s: "Cliente" + (c.nombre && c.razon_social && c.razon_social!==c.nombre ? " · "+c.nombre : "") + (c.es_demo ? " · DEMO" : ""), key: "clientes" })),
+      .map(c => ({ ic: "👤", t: nombreCortoCliente(c), s: "Cliente" + (c.nombre && c.razon_social && c.razon_social!==c.nombre ? " · "+c.nombre : "") + (c.es_demo ? " · DEMO" : ""), key: "clientes" })),
   ].slice(0, 8);
 
   const ultPedidos = D.peds.filter(p => !p.es_demo).slice(0, 5);
@@ -15776,7 +15793,7 @@ function ClientesWeb({ usuario, navegar }) {
                           style={{ padding:"12px 16px", cursor:"pointer", borderTop: i>0?`1px solid ${COLOR.border}`:"none", display:"flex", justifyContent:"space-between", alignItems:"center" }}
                           onMouseEnter={e=>e.currentTarget.style.background=COLOR.tealLight} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
                           <div>
-                            <p style={{ fontWeight:700, color:COLOR.text, fontSize:14 }}>{c.razonSocial || c.nombre}<ChipDemo si={c.demo}/></p>
+                            <p style={{ fontWeight:700, color:COLOR.text, fontSize:14 }}>{nombreCortoCliente(c)}<ChipDemo si={c.demo}/></p>
                             <p className="num" style={{ fontSize:11.5, color:COLOR.muted }}>{c.razonSocial && c.nombre && c.razonSocial!==c.nombre ? c.nombre+" · " : ""}RUC {c.ruc||"—"}</p>
                           </div>
                           {c.bloqueado && <span style={{ fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:999, color:"#c0392b", background:"#FDECEA" }}>Bloqueado</span>}
