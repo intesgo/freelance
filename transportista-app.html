@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"30", fecha:"1 ago 2026", desc:"Lo que el cliente NO recibe queda anotado: cuanto vuelve y de que producto" };
+const VERSION = { n:"31", fecha:"1 ago 2026", desc:"Los papeles firmados que llevas de vuelta ya no viven solo en tu telefono" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -952,6 +952,33 @@ async function subirEvidencia(guiaId, dataUrl, comoSeLlama){
   catch(e){ return { ok:false, motivo:"No se pudo subir la foto: "+(e.message||"error") }; }
   if(r && r.error) return { ok:false, motivo:"No se pudo subir la foto: "+(r.error.message||"error") };
   return { ok:true, ruta: ruta };
+}
+
+/* ═══ LOS PAPELES QUE EL CHOFER LLEVA DE VUELTA ══════════════════════════
+   La guia y la factura firmadas por el cliente son la prueba de que la
+   mercaderia llego. Vivian en la memoria del telefono: si el chofer cerraba
+   la app, desaparecian, y si manana el cliente decia que no recibio, no habia
+   papel que enseñar ni forma de saber quien lo tuvo.
+   Ahora nacen SOLOS al confirmar la entrega —los crea la propia base, dentro
+   de la misma operacion— y el chofer solo dice cuando los entrego en oficina. */
+async function cargarMisDocumentos(){
+  try{
+    const r = await window.SB.rpc("mis_documentos");
+    if (r && r.error) return null;
+    return (r && r.data) || [];
+  }catch(e){ return null; }
+}
+
+async function entregarDocumentosEnBase(ids, aQuien){
+  try{
+    const r = await window.SB.rpc("entregar_documentos", {
+      p_cust_ids: ids, p_a_quien: aQuien || "oficina",
+      /* op_id por documento: si toca dos veces, la base reconoce el reintento
+         en vez de intentar mover un papel que ya se movio. */
+      p_op_id: "DOC-" + ids.slice().sort().join("_") });
+    if (r && r.error) return { ok:false, motivo:(r.error.message||"error") };
+    return { ok:true, cuantos:(r && r.data) || 0 };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
 /* Letrero permanente de donde salen los datos. Se ve SIEMPRE: la peor pantalla
@@ -1649,7 +1676,35 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
   const rutas = rutasDe(chofer);
   const activas = rutas.filter((r)=>!rutaConcluida(r));
   const completadas = rutas.filter((r)=>rutaConcluida(r));
-  const docsPend = DOCS_RETORNO.filter((d)=>!d.entregadoOficina);
+  /* En vivo los papeles los tiene la base, no la memoria del telefono. */
+  const [docsVivos, setDocsVivos] = useState(null);
+  const [docOcupado, setDocOcupado] = useState(false);
+  React.useEffect(()=>{
+    if (FUENTE_VIAJE !== "vivo") return;
+    let vivo = true;
+    (async()=>{ const d = await cargarMisDocumentos(); if (vivo && d) setDocsVivos(d); })();
+    return ()=>{ vivo = false; };
+  }, [FUENTE_VIAJE]);
+
+  const docsPend = (FUENTE_VIAJE === "vivo")
+    ? (docsVivos || []).map(d=>({ id:d.cust_id, tipo:d.tipo, numero:d.numero,
+        cliente:d.cliente, viaje:d.viaje_id, enBase:true }))
+    : DOCS_RETORNO.filter((d)=>!d.entregadoOficina);
+
+  const entregarDoc = async (d) => {
+    if (docOcupado) return;
+    if (!d.enBase) { d.entregadoOficina = true; toast("Registrado ✓ El documento inicia su cadena de custodia."); refrescar((x)=>x+1); return; }
+    setDocOcupado(true);
+    const r = await entregarDocumentosEnBase([d.id], "oficina");
+    setDocOcupado(false);
+    if (!r.ok) {
+      alert("\u26A0 NO SE REGISTRÓ LA ENTREGA DEL DOCUMENTO\n\n" + r.motivo +
+            "\n\nSigue constando que lo tienes tú. No lo sueltes sin que quede anotado.");
+      return;
+    }
+    setDocsVivos(ds => (ds||[]).filter(x => x.cust_id !== d.id));
+    toast("Documento entregado ✓ queda anotado quién lo recibió");
+  };
   const porCobrar = fletesDe(chofer).filter((f)=>f.estado==="por_cobrar").reduce((a,f)=>a+f.monto,0);
   const solPend = solicitudesDe(chofer).filter((s)=>s.estado==="pendiente").length;
   /* ¿este nombre llegó a registrarse alguna vez? Distingue "perdí mi ruta"
@@ -1674,8 +1729,8 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
           {docsPend.map((d,i)=>(
             <div key={d.numero} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"11px 0", borderTop: i>0 ? "1px solid var(--line)" : "none" }}>
               <div><div style={{ fontWeight:600, fontSize:13.5 }}>{d.tipo}</div>
-                <div style={{ fontSize:12, color:"var(--muted)" }}>{d.numero} · {d.cliente} · viaje {d.viaje}</div></div>
-              <button onClick={()=>{ d.entregadoOficina=true; toast("Registrado ✓ El documento inicia su cadena de custodia."); refrescar((x)=>x+1); }}
+                <div style={{ fontSize:12, color:"var(--muted)" }}>{d.numero} · {d.cliente}{d.viaje ? " · viaje "+d.viaje : ""}</div></div>
+              <button disabled={docOcupado} onClick={()=>entregarDoc(d)}
                 style={{ border:"1.5px solid var(--ok)", color:"var(--ok)", background:"#fff", borderRadius:10, padding:"9px 11px", fontSize:12, fontWeight:700, fontFamily:"inherit", cursor:"pointer" }}>Entregué en oficina ✓</button>
             </div>
           ))}
@@ -3041,10 +3096,15 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
       hora:ahora(), fechaISO:(new Date()).toISOString()
     };
     REGISTROS.push(p.entrega);
-    DOCS_RETORNO.push(
-      { tipo:"Guía de remisión firmada", numero:p.guia, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false },
-      { tipo:"Factura firmada", numero:p.factura, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false }
-    );
+    /* En vivo NO se empujan a memoria: los crea la propia base dentro de
+       registrar_entrega, y se leen con mis_documentos(). Empujarlos aqui
+       ademas los pintaria dos veces. */
+    if (FUENTE_VIAJE !== "vivo") {
+      DOCS_RETORNO.push(
+        { tipo:"Guía de remisión firmada", numero:p.guia, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false },
+        { tipo:"Factura firmada", numero:p.factura, cliente:p.cli, viaje:r.viaje||r.id, hora:ahora(), entregadoOficina:false }
+      );
+    }
     if (devs.length){
       DEVOLUCIONES.push({ pedidoId:p.id, cli:p.cli, ciudad:p.ciudad, ruta:r.id, chofer:chofer,
         items:devs, hora:ahora(), fechaISO:(new Date()).toISOString() });
