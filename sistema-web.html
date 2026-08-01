@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"69", fecha:"1 ago 2026", desc:"Ficha del cliente: encabezado con Volver/Inicio y título centrado, email en una sola línea, y en Ubicación se puede ampliar el mapa y compartir la ubicación por WhatsApp" };
+const VERSION = { n:"70", fecha:"1 ago 2026", desc:"Desde la ficha del cliente, 'Nuevo pedido' abre el armado con ese cliente ya elegido (no arranca de cero)" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4392,7 +4392,7 @@ function LoginWeb({ onAcceder }) {
 }
 
 // ── Pedidos (web): lista + vista de armado a pantalla completa (formulario + resumen) ──
-function PedidosWeb({ usuario }) {
+function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const [pedidos, setPedidos] = useState(PEDIDOS_WEB_INI);
   /* v43 · BOMBA DORMIDA reparada: la lista usaba pagP/setPagP sin declararlos →
@@ -4502,6 +4502,14 @@ function PedidosWeb({ usuario }) {
 
   const [cli, setCli] = useState(null);
   const [cliTexto, setCliTexto] = useState("");
+  // Cliente precargado desde la ficha ("Nuevo pedido"): abre directo el armado con ese cliente elegido
+  React.useEffect(() => {
+    if (!preCliId) return;
+    const c = CLIENTES.find(x => x.id === preCliId);
+    if (!c) return;                       // aún no cargan los clientes reales: reintenta cuando lleguen
+    setCli(c); setCliTexto(c.nombre); setCarrito([]); resetLinea(); setAviso(""); setVista("armar");
+    if (onConsumirPre) onConsumirPre();   // ya se usó: no repetir en el próximo render
+  }, [preCliId, clientesReales]);
   const [provSel, setProvSel] = useState(null);         // proveedor elegido (antes del producto)
   const [provTexto, setProvTexto] = useState("");
   const [prodTexto, setProdTexto] = useState("");
@@ -15697,7 +15705,7 @@ function ClientesWeb({ usuario, navegar }) {
             {/* Acciones rápidas: las cuatro llevan a pantallas que YA existen */}
             <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
               {[
-                { ic:"🛒", t:"Nuevo pedido",  s:"Tomar el pedido de este cliente", go:()=>(navegar||(()=>{}))("pedidos") },
+                { ic:"🛒", t:"Nuevo pedido",  s:"Tomar el pedido de este cliente", go:()=>(navegar||(()=>{}))("pedidos", c.id) },
                 { ic:"📊", t:"Ver historial", s:"Indicadores y compras",           go:()=>setVista("dashboard") },
                 { ic:"💰", t:"Ver cartera",   s:"Facturas y cobros",               go:()=>(navegar||(()=>{}))("cobranza") },
                 { ic:"📋", t:"Ver datos",     s:"Ficha completa y ubicaciones",    go:()=>setAbierto(c.id) },
@@ -16722,12 +16730,14 @@ function App() {
     setSesion(null); setSeccion("dashboard"); setTabs(["dashboard"]);
   };
   const [verCambioClave, setVerCambioClave] = useState(false);   /* Fase 4: solo cuentas reales */
+  const [pedidoPreCli, setPedidoPreCli] = useState(null);        /* cliente a precargar al abrir Pedidos desde la ficha */
 
   // Navegar: abre la sección como pestaña (si no está) y la activa
-  const navegar = (key) => {
+  const navegar = (key, payload) => {
     setTabs(prev => prev.includes(key) ? prev : [...prev, key]);
     setSeccion(key);
     setUsos(prev => ({ ...prev, [key]: (prev[key]||0) + 1 }));  // contar uso para Frecuentes
+    if (key === "pedidos" && payload) setPedidoPreCli(payload);  // cliente elegido desde la ficha
   };
   // Cerrar una pestaña; si era la activa, pasar a la vecina
   const cerrarTab = (key) => {
@@ -16765,7 +16775,7 @@ function App() {
       case "clientes":
         return <ClientesWeb usuario={sesion} navegar={navegar} />;
       case "pedidos":
-        return <PedidosWeb usuario={sesion} />;
+        return <PedidosWeb usuario={sesion} preCliId={pedidoPreCli} onConsumirPre={()=>setPedidoPreCli(null)} />;
       case "recepcion":
         return <EstibadaFletesWeb usuario={sesion} />;
       case "calidad":
