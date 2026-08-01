@@ -20,7 +20,7 @@ fs.mkdirSync(DIST, { recursive: true });
 /* 1) Copiar todo lo publicable tal cual (sw.js, index.html, etc.) */
 for (const f of fs.readdirSync(RAIZ)) {
   /* "pruebas" no se publica: son los arneses, no la app (26 jul) */
-  if ([".git",".github","scripts","dist","node_modules","pruebas"].includes(f)) continue;
+  if ([".git",".github","scripts","dist","node_modules","pruebas","sistema-web.html"].includes(f)) continue;
   /* lo que solo sirve para desarrollar tampoco se publica */
   if (["package.json","package-lock.json",".gitignore"].includes(f)) continue;
   const p = path.join(RAIZ, f);
@@ -46,7 +46,11 @@ for (const app of APPS) {
   let out = src.replace(RE_BABEL, () => "<script>\n" + js + "\n</script>");
   out = out.replace(RE_LIBRERIA, "");   /* Babel ya no se necesita en el navegador */
   out = out.replace("<head>", "<head>\n<!-- publicación precompilada · el fuente vive en la rama main -->");
-  fs.writeFileSync(path.join(DIST, app), out);
+  /* sistema-web se publica como /home (su propia carpeta) para la URL limpia intesgo.app/home */
+  const destino = app === "sistema-web.html" ? "home/index.html" : app;
+  const rutaOut = path.join(DIST, destino);
+  fs.mkdirSync(path.dirname(rutaOut), { recursive: true });
+  fs.writeFileSync(rutaOut, out);
   console.log(`✓ ${app}: compilada (${(js.length/1024).toFixed(0)} KB de JS)`);
 }
 if (fallo) { console.error("\nHay errores: NO se publica."); process.exit(1); }
