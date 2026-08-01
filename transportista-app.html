@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"31", fecha:"1 ago 2026", desc:"Los papeles firmados que llevas de vuelta ya no viven solo en tu telefono" };
+const VERSION = { n:"32", fecha:"1 ago 2026", desc:"Cada entrega y cada novedad quedan con el lugar donde las hiciste" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -979,6 +979,47 @@ async function entregarDocumentosEnBase(ids, aQuien){
     if (r && r.error) return { ok:false, motivo:(r.error.message||"error") };
     return { ok:true, cuantos:(r && r.data) || 0 };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* ═══ EL SELLO DE POSICION ═══════════════════════════════════════════════
+   NO es un rastreo continuo: una app web no puede rastrear en segundo plano,
+   y un rastro con huecos miente sobre donde estuvo el camion. Es un sello en
+   los momentos que importan, que es justo cuando el chofer tiene la app
+   abierta delante.
+
+   REGLA: el GPS NUNCA bloquea nada. Si el chofer niega el permiso, si el
+   telefono no lo tiene o si tarda demasiado, la entrega se guarda IGUAL, sin
+   sello. Dejar a un chofer sin poder entregar porque el GPS no engancha
+   seria cambiar un problema pequeño por uno grande. */
+function posicionAhora(){
+  return new Promise((listo)=>{
+    if(!navigator.geolocation) { listo(null); return; }
+    let respondido = false;
+    const cerrar = (v)=>{ if(!respondido){ respondido = true; listo(v); } };
+    /* 8 s de tope: un GPS que no engancha no puede tener al chofer esperando
+       en la puerta del cliente. */
+    setTimeout(()=>cerrar(null), 8000);
+    try{
+      navigator.geolocation.getCurrentPosition(
+        (p)=>cerrar({ lat:p.coords.latitude, lng:p.coords.longitude,
+                      precision:Math.round(p.coords.accuracy||0) }),
+        ()=>cerrar(null),
+        { enableHighAccuracy:true, timeout:7000, maximumAge:30000 });
+    }catch(e){ cerrar(null); }
+  });
+}
+
+async function sellarPosicion(guiaId, momento){
+  if(!guiaId) return null;
+  const pos = await posicionAhora();
+  if(!pos) return null;
+  try{
+    const r = await window.SB.rpc("sellar_posicion", {
+      p_guia_id:guiaId, p_momento:momento,
+      p_lat:pos.lat, p_lng:pos.lng, p_precision:pos.precision });
+    if(r && r.error) return null;
+    return (r && r.data) || null;
+  }catch(e){ return null; }
 }
 
 /* Letrero permanente de donde salen los datos. Se ve SIEMPRE: la peor pantalla
@@ -3076,6 +3117,9 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
         alert("⚠ LA ENTREGA SÍ QUEDÓ REGISTRADA, PERO LA FOTO DE LA GUÍA NO SUBIÓ.\n\n" +
               f.motivo + "\n\nGuárdala en el teléfono y mándasela a logística por mensaje.");
       }
+      /* El sello va DESPUES y sin esperar: la entrega ya esta guardada y el
+         chofer puede seguir su camino. Si el GPS no engancha, no pasa nada. */
+      sellarPosicion(p.guiaId, "entrega");
     }
 
     const r = rutaDePedido(p.id) || {};
@@ -3220,6 +3264,8 @@ function HojaNovedad({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
         alert("⚠ LA NOVEDAD SÍ QUEDÓ REGISTRADA (" + g.nov + "), PERO LA FOTO NO SUBIÓ.\n\n" +
               "Guárdala en el teléfono y mándasela a logística por mensaje.");
       }
+      /* Donde estaba cuando el cliente rechazo: en un reclamo, eso vale. */
+      sellarPosicion(p.guiaId, "novedad");
     }
 
     const r = rutaDePedido(p.id) || {};
