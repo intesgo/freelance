@@ -11,11 +11,29 @@
    mitad del campo es un problema real.
    ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE = "freelance-v171";
+const CACHE = "freelance-v172";
 const PIEZAS = [
   "./", "./index.html",
   "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
   "./freelance-completo.html", "./proveedor-freelance.html",
+];
+
+/* ── LAS LIBRERIAS · sin esto la app NO abre sin internet ────────────────
+   MEDIDO el 01/08/2026: se guardaban las pantallas pero NO las librerias que
+   esas pantallas cargan de un CDN. Sin señal el HTML salia de la cache, los
+   cuatro archivos de abajo fallaban, y el resultado era PANTALLA EN BLANCO.
+   Comprobado: 0 hijos dentro de <div id="root">.
+   O sea que el modo offline no existia, aunque el comentario de arriba de
+   este archivo llevaba semanas prometiendolo. Una promesa que nadie habia
+   puesto a prueba.
+   Van aparte de PIEZAS porque son de otro dominio y conviene que una que
+   falle no arrastre a las demas. */
+const LIBRERIAS = [
+  "https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js",
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js",
 ];
 
 /* ── Instalación: guarda las pantallas.
@@ -27,7 +45,7 @@ self.addEventListener("install", (e) => {
     caches.open(CACHE).then((c) =>
       /* addAll falla entero si una pieza falla; se guardan una por una para que
          una sola pieza rota no deje la app sin caché. */
-      Promise.all(PIEZAS.map((p) => c.add(p).catch(() => {})))
+      Promise.all(PIEZAS.concat(LIBRERIAS).map((p) => c.add(p).catch(() => {})))
     )
   );
 });
@@ -89,7 +107,36 @@ self.addEventListener("notificationclick", (e) => {
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;   /* Supabase y demás van directo a internet */
+
+  /* ── LAS LIBRERIAS DE OTRO DOMINIO · primero la copia guardada ─────────
+     Aqui estaba la otra mitad del fallo: se salia con `return` para TODO lo
+     que no fuera de este dominio, asi que aunque las librerias estuvieran
+     guardadas, el navegador iba a internet a buscarlas y sin señal fallaba.
+     Guardarlas sin servirlas no sirve de nada.
+
+     Ojo con la distincion: el ARCHIVO de supabase-js (jsdelivr) si se guarda;
+     las LLAMADAS a la base (*.supabase.co) NO se tocan nunca. Cachear una
+     respuesta de la base seria enseñarle al chofer datos viejos como si
+     fueran de ahora, que es peor que no enseñarle nada. */
+  if (url.origin !== location.origin) {
+    const esLibreria = LIBRERIAS.some((l) => l === e.request.url);
+    if (!esLibreria) return;                    /* la base y demas van directo a internet */
+    e.respondWith((async () => {
+      const guardada = await caches.match(e.request, { ignoreSearch: true });
+      if (guardada) return guardada;            /* copia primero: no cambian nunca */
+      try {
+        const resp = await fetch(e.request);
+        if (resp && resp.ok) {
+          const copia = resp.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copia)).catch(() => {});
+        }
+        return resp;
+      } catch (err) {
+        return new Response("", { status: 504, statusText: "sin conexion" });
+      }
+    })());
+    return;
+  }
 
   e.respondWith((async () => {
     const guardada = await caches.match(e.request, { ignoreSearch: true });
