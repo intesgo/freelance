@@ -1509,7 +1509,10 @@ async function vivoDecidir(){
     ]);
     const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
     const items=(ri&&ri.data)||[];
-    let peds=((rp&&rp.data)||[]).filter(p=>p.estado==="enviado_proveedor" || p.estado==="facturado");
+    /* se incluye "anulado" a proposito: si no, la factura que acabas de anular
+       desaparece de la lista al recargar y no queda constancia en pantalla de
+       lo que hiciste. */
+    let peds=((rp&&rp.data)||[]).filter(p=>p.estado==="enviado_proveedor" || p.estado==="facturado" || p.estado==="anulado");
     if(mio) peds=peds.filter(p=>p.prov_cod===mio);
     const facturar=peds.map(p=>{
       const its=items.filter(i=>i.ped_id===p.ped_id);
@@ -1518,7 +1521,9 @@ async function vivoDecidir(){
       return { id:p.ped_id, cliente:nCli[p.cli_id]||p.cli_id||"Cliente",
         detalle:(its.length?its[0].descripcion:"Pedido")+" · "+qq+" qq · "+(p.condicion==="contado"?"contado":"crédito"),
         monto, fecha:soloDia(p.creado),
-        estado: p.estado==="facturado" ? "facturado" : "pendiente",
+        /* si aqui no se distingue "anulado", una factura anulada volveria a
+           salir en ambar como "Por facturar" y alguien la volveria a facturar. */
+        estado: p.estado==="facturado" ? "facturado" : p.estado==="anulado" ? "anulado" : "pendiente",
         factura:p.factura||null, demo:!!p.es_demo,
         /* las líneas, para poder confirmar cuánto salió de cada producto */
         lineas: its.map(i=>({ itemId:i.item_id, nombre:i.descripcion,
@@ -1529,6 +1534,10 @@ async function vivoDecidir(){
     if(mio) sols=sols.filter(s=>!s.prov_cod || s.prov_cod===mio);
     const solics=sols.map(s=>({
       id:s.sol_id, tipo:TIPO_SOL_PROV[s.tipo]||("📌 "+(s.tipo||"Solicitud")),
+      /* el tipo CRUDO y el pedido: sin ellos, una devolucion aceptada no se
+         puede atar a la factura que hay que anular, y la cadena se corta justo
+         en el paso que toca el dinero. */
+      tipoRaw:s.tipo||"", pedId:s.ped_id||null,
       detalle:s.detalle||"", cliente:nCli[s.cli_id]||"—", fecha:soloDia(s.creado),
       estado:s.estado, motivoResp:s.motivo_resp||null, demo:!!s.es_demo,
     }));
@@ -1551,6 +1560,38 @@ async function guardarNC({itemId, qq, valor, motivo, origen, numero}){
     if(error) return { ok:false, motivo:error.message||"No se pudo registrar" };
     const r=(data&&data[0])||{};
     return { ok:true, aviso:r.aviso||"Nota de crédito registrada", estado:r.estado };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* ── LA CADENA DE LA DEVOLUCIÓN ────────────────────────────────────────
+   Cuatro manos: el chofer reporta la novedad, el vendedor pide la devolución,
+   la piladora la acepta, y solo entonces la piladora anula la factura.
+   Aquí viven los dos últimos pasos.
+
+   Ojo con la diferencia: una devolución NO se responde como las demás
+   solicitudes. Las otras solo cambian su propio estado; esta abre la puerta a
+   borrar una deuda de cartera y una comisión. Por eso va por su propia
+   función de la base, que comprueba que la solicitud sea de esta piladora. */
+async function resolverDevolucion(solId, aceptar, motivo){
+  try{
+    const { data, error } = await window.SB.rpc("resolver_devolucion", {
+      p_sol_id:solId, p_aceptar:!!aceptar, p_motivo:motivo||"",
+      p_op_id:(aceptar?"ACE-":"REC-")+solId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo responder" };
+    return { ok:true, estado:data||(aceptar?"aprobada":"rechazada") };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* Anular NO es cambiar un estado: deshace las TRES cosas que nacieron al
+   facturar —la deuda en cartera, la comisión del vendedor y el estado del
+   pedido—. La base se niega si no hay devolución aceptada, si esa factura ya
+   recibió dinero, o si la comisión ya se le pagó al vendedor. */
+async function anularFacturaEnBase(pedId, motivo){
+  try{
+    const { data, error } = await window.SB.rpc("anular_factura", {
+      p_ped_id:pedId, p_motivo:motivo||"", p_op_id:"ANU-"+pedId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo anular" };
+    return { ok:true, estado:data||"anulado" };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
@@ -1632,6 +1673,9 @@ function Decisiones({ctx, datos}){
   const [ncMot,setNcMot]=useState(""); const [ncOri,setNcOri]=useState("");
   const [ncNum,setNcNum]=useState(""); const [ncGuardando,setNcGuardando]=useState(false);
   const [rechazo,setRechazo]=useState(null);      // {id, motivo}
+  const [respondiendo,setRespondiendo]=useState(null);  // id de la devolución que se está guardando
+  const [anulando,setAnulando]=useState(null);   // {id, factura, cliente, monto, motivo}
+  const [anuGuardando,setAnuGuardando]=useState(false);
   const [aviso,setAviso]=useState("");
   /* lo que el sistema tenga guardado manda sobre la demostración */
   React.useEffect(()=>{
@@ -1696,21 +1740,71 @@ function Decisiones({ctx, datos}){
     setPagos(ps=>ps.map(x=>x.id===p.id?{...x,estado:"confirmado"}:x));
     toca("Pago confirmado ✓ La comisión "+p.comId+" ("+money(p.comision)+") queda LIBERADA para Daniel.");
   };
-  const aprobarSol=(s)=>{
+  const aprobarSol=async(s)=>{
+    /* Una DEVOLUCIÓN no es una solicitud cualquiera: aceptarla habilita borrar
+       una deuda y una comisión. Va por su propia puerta, y si la base la
+       rechaza NO se pinta como aceptada. Antes, cualquier respuesta se pintaba
+       primero y se guardaba después: la pantalla decía "aprobada" aunque la
+       base hubiera dicho que no. */
+    if(s.tipoRaw==="devolucion"){
+      if(!datos){ toca("Estás viendo datos de demostración: entra con tu cuenta para aceptar una devolución de verdad."); return; }
+      setRespondiendo(s.id);
+      const r=await resolverDevolucion(s.id,true,"");
+      setRespondiendo(null);
+      if(!r.ok){ toca("No se aceptó: "+r.motivo); return; }
+      setSolics(ss=>ss.map(x=>x.id===s.id?{...x,estado:"aprobada",motivoResp:"Aceptada"}:x));
+      toca("Devolución aceptada ✓ Ahora anula la factura para que se borre la deuda del cliente.");
+      return;
+    }
     setSolics(ss=>ss.map(x=>x.id===s.id?{...x,estado:"aprobada",motivoResp:"Aprobada"}:x));
     if(datos) responderSolicitud(s.id,"aprobada","Aprobada");
     toca("Solicitud aprobada · Daniel lo ve en su sistema.");
   };
-  const confirmarRechazo=()=>{
+  const confirmarRechazo=async()=>{
     if(!rechazo.motivo.trim()){ toca("El motivo es obligatorio: Daniel lo leerá tal cual."); return; }
+    const s=solics.find(x=>x.id===rechazo.id);
+    if(s && s.tipoRaw==="devolucion"){
+      if(!datos){ toca("Datos de demostración: entra con tu cuenta para rechazar de verdad."); return; }
+      setRespondiendo(rechazo.id);
+      const r=await resolverDevolucion(rechazo.id,false,rechazo.motivo.trim());
+      setRespondiendo(null);
+      if(!r.ok){ toca("No se rechazó: "+r.motivo); return; }
+      setSolics(ss=>ss.map(x=>x.id===rechazo.id?{...x,estado:"rechazada",motivoResp:rechazo.motivo.trim()}:x));
+      setRechazo(null);
+      toca("Devolución rechazada · la factura sigue vigente y el vendedor ve tu motivo.");
+      return;
+    }
     setSolics(ss=>ss.map(x=>x.id===rechazo.id?{...x,estado:"rechazada",motivoResp:rechazo.motivo.trim()}:x));
     if(datos) responderSolicitud(rechazo.id,"rechazada",rechazo.motivo.trim());
     setRechazo(null); toca("Rechazada con motivo · queda en el historial.");
+  };
+
+  /* Anular la factura · el último paso de la cadena */
+  const confirmarAnulacion=async()=>{
+    if(!anulando) return;
+    if(anulando.motivo.trim().length < 5){ toca("Escribe el motivo de la anulación."); return; }
+    setAnuGuardando(true);
+    const r=await anularFacturaEnBase(anulando.id, anulando.motivo.trim());
+    setAnuGuardando(false);
+    if(!r.ok){
+      alert("⚠ LA FACTURA NO SE ANULÓ\n\n"+r.motivo+
+            "\n\nNada cambió: la deuda del cliente y la comisión del vendedor siguen como estaban.");
+      return;
+    }
+    setFacturar(fs=>fs.map(x=>x.id===anulando.id?{...x,estado:"anulado"}:x));
+    setAnulando(null);
+    toca("Factura anulada ✓ Se borró la deuda del cliente y la comisión de esa venta.");
   };
   const autorizarCheque=(c,ok)=>{
     setCheques(cs=>cs.map(x=>x.id===c.id?{...x,estado:ok?"autorizado":"denegado"}:x));
     toca(ok?"Depósito autorizado ✓ Daniel puede depositar el cheque (culmina su custodia).":"Depósito denegado · avisa a Daniel el nuevo acuerdo.");
   };
+
+  /* ¿este pedido tiene una devolución YA ACEPTADA? De eso depende que se
+     pueda anular su factura. */
+  const devolAceptada=(pedId)=> solics.some(s=>
+    s.tipoRaw==="devolucion" && s.pedId===pedId && s.estado==="aprobada");
+  const devolPend = solics.filter(s=>s.tipoRaw==="devolucion" && s.estado==="pendiente");
 
   const pendF=facturar.filter(x=>x.estado==="pendiente");
   const pendP=pagos.filter(x=>x.estado==="pendiente");
@@ -1733,7 +1827,9 @@ function Decisiones({ctx, datos}){
               <div style={{fontSize:12.5,color:"#6B6455",marginTop:2}}>{p.detalle}</div>
               <div className="num" style={{fontSize:12,color:"#6B6455",marginTop:2}}>{p.fecha} · {money(p.monto)}</div>
             </div>
-            {p.estado==="facturado" ? chip("var(--ok-suave)","var(--ok)","Facturada · "+p.factura) : chip("var(--maiz-suave)","#8A6A00","Por facturar")}
+            {p.estado==="facturado" ? chip("var(--ok-suave)","var(--ok)","Facturada · "+p.factura)
+              : p.estado==="anulado" ? chip("#F8E3DC","#C0392B","Anulada · "+(p.factura||""))
+              : chip("var(--maiz-suave)","#8A6A00","Por facturar")}
           </div>
           {/* ── Ya facturado y salió corto: queda a la vista, no se esconde ── */}
           {p.estado==="facturado" && (p.lineas||[]).some(l=>l.despachado!=null && l.despachado < l.pedido) && (
@@ -1759,6 +1855,30 @@ function Decisiones({ctx, datos}){
                 </button>
               ))}
             </div>
+          )}
+
+          {/* ── ÚLTIMO PASO DE LA CADENA · anular la factura ──
+               Solo aparece si el vendedor pidió la devolución Y esta piladora
+               ya la aceptó. Sin ese permiso el botón no existe: la base lo
+               rechazaría igual, pero enseñar un botón que siempre falla es
+               peor que no enseñarlo. */}
+          {p.estado==="facturado" && devolAceptada(p.id) && datos && (
+            <div style={{marginTop:10,borderTop:"1px solid var(--linea)",paddingTop:10}}>
+              <div style={{fontSize:12,color:"#8A4B2A",fontWeight:700,marginBottom:6}}>
+                ↩ Devolución aceptada · falta anular la factura</div>
+              <div style={{fontSize:11.5,color:"#6B6455",marginBottom:8,lineHeight:1.5}}>
+                Al anular se borra la deuda de {money(p.monto)} del cliente y se
+                deja sin efecto la comisión del vendedor por esta venta.
+                Mientras no lo hagas, el cliente sigue debiendo.</div>
+              <button style={{...btn2,background:"#C0392B",color:"#fff",border:"none",width:"100%"}}
+                onClick={()=>setAnulando({id:p.id,factura:p.factura,cliente:p.cliente,monto:p.monto,motivo:""})}>
+                Anular factura {p.factura||""}</button>
+            </div>
+          )}
+          {p.estado==="anulado" && (
+            <div style={{marginTop:10,borderTop:"1px solid var(--linea)",paddingTop:10,
+              fontSize:12.5,color:"#C0392B",fontWeight:700}}>
+              ✕ Factura anulada · la deuda salió de cartera</div>
           )}
 
           {p.estado==="pendiente" && (<>
@@ -1927,8 +2047,13 @@ function Decisiones({ctx, datos}){
           </div>
           {s.estado==="pendiente" && (
             <div style={{display:"flex",gap:8,marginTop:10}}>
-              <button style={{...btn2,color:"#C0392B",borderColor:"#E3B7A8",background:"#FBEFEA"}} onClick={()=>setRechazo({id:s.id,motivo:""})}>Rechazar</button>
-              <button style={{...btn2,background:"var(--ok)",color:"#fff",border:"none"}} onClick={()=>aprobarSol(s)}>Aprobar ✓</button>
+              <button style={{...btn2,color:"#C0392B",borderColor:"#E3B7A8",background:"#FBEFEA",
+                opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
+                onClick={()=>setRechazo({id:s.id,motivo:""})}>Rechazar</button>
+              <button style={{...btn2,background:"var(--ok)",color:"#fff",border:"none",
+                opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
+                onClick={()=>aprobarSol(s)}>
+                {respondiendo===s.id ? "Guardando…" : (s.tipoRaw==="devolucion" ? "Aceptar devolución ✓" : "Aprobar ✓")}</button>
             </div>
           )}
         </div>
@@ -1956,6 +2081,32 @@ function Decisiones({ctx, datos}){
           )}
         </div>
       ))}
+
+      {/* ══ ANULAR LA FACTURA · el paso que borra la deuda ══ */}
+      {anulando && (
+        <div onClick={()=>!anuGuardando&&setAnulando(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:80,padding:22}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:"18px 16px",width:"100%",maxWidth:360}}>
+            <div style={{fontFamily:"Space Grotesk",fontWeight:700,fontSize:15,marginBottom:8}}>
+              Anular la factura {anulando.factura||""}</div>
+            <div style={{fontSize:12.5,color:"#6B6455",marginBottom:10,lineHeight:1.55}}>
+              Cliente: <b>{anulando.cliente}</b><br/>
+              Al anular ocurren tres cosas a la vez: se le quita al cliente la
+              deuda de <b>{money(anulando.monto)}</b>, la comisión del vendedor
+              por esta venta queda sin efecto, y el pedido pasa a anulado.
+              <br/><b>Esto no se deshace desde la app.</b>
+            </div>
+            <input value={anulando.motivo} onChange={e=>setAnulando(x=>({...x,motivo:e.target.value}))}
+              placeholder="Motivo · ej: devolución total, arroz con humedad"
+              style={{width:"100%",boxSizing:"border-box",padding:"12px",border:"1px solid var(--linea)",borderRadius:10,fontSize:13.5,fontFamily:"inherit",marginBottom:12,outline:"none"}}/>
+            <div style={{display:"flex",gap:8}}>
+              <button style={btn2} disabled={anuGuardando} onClick={()=>setAnulando(null)}>Cancelar</button>
+              <button style={{...btn2,background:"#C0392B",color:"#fff",border:"none",opacity:anuGuardando?.5:1}}
+                disabled={anuGuardando} onClick={confirmarAnulacion}>
+                {anuGuardando ? "Anulando…" : "Anular factura"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rechazo con motivo obligatorio */}
       {rechazo && (

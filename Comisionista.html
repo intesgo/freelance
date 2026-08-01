@@ -8312,7 +8312,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
    ámbar = todavía no salió del teléfono, verde = cerrado y cobrado, gris =
    en camino. El vendedor recorre esta lista para saber qué reclamar.
    ═══════════════════════════════════════════════════════════════════════════ */
-function FilaPedido({ pedido, money, onAbrir }) {
+function FilaPedido({ pedido, money, onAbrir, onDevolver }) {
   const sinEnviar = pedido.sync==="pend";
   const cerrado = /cobrad|liberad/i.test(pedido.estado||"");
   const barraP = sinEnviar ? "#C9A227" : cerrado ? "#2E7D52" : "#8A9A8E";
@@ -8337,6 +8337,35 @@ function FilaPedido({ pedido, money, onAbrir }) {
           fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pedido.estado} ›</span>
       </div>
       <Pipe n={pedido.etapa}/>
+
+      {/* ── DEVOLUCIÓN ──────────────────────────────────────────────────
+          Solo en pedidos facturados. Si ya hay una pedida, se enseña en qué va
+          en vez del botón: pedirla dos veces solo trae un error que el
+          vendedor no puede entender.
+          El stopPropagation es obligatorio: toda la tarjeta abre el detalle. */}
+      {pedido.estadoBd==="facturado" && onDevolver && (
+        <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--linea, #E7E1D3)"}}>
+          {!pedido.devolucion ? (
+            <button className="ghost" style={{width:"100%",fontSize:12,padding:"9px 10px"}}
+              onClick={e=>{ e.stopPropagation(); onDevolver(pedido); }}>
+              ↩ Pedir devolución</button>
+          ) : pedido.devolucion.estado==="pendiente" ? (
+            <div style={{fontSize:11.5,color:"#8A6A00",fontWeight:600}}>
+              ↩ Devolución pedida · esperando a la piladora</div>
+          ) : pedido.devolucion.estado==="aprobada" ? (
+            <div style={{fontSize:11.5,color:"#2E7D52",fontWeight:600}}>
+              ↩ Devolución aceptada · la piladora debe anular la factura</div>
+          ) : (
+            <div style={{fontSize:11.5,color:"#C0392B",fontWeight:600}}>
+              ↩ Devolución rechazada{pedido.devolucion.motivo_resp ? " · "+pedido.devolucion.motivo_resp : ""}</div>
+          )}
+        </div>
+      )}
+      {pedido.estadoBd==="anulado" && (
+        <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--linea, #E7E1D3)",
+          fontSize:11.5,color:"#C0392B",fontWeight:700}}>
+          ✕ Factura anulada · esta venta no genera comisión</div>
+      )}
     </div>
   );
 }
@@ -8370,8 +8399,30 @@ function LineaTiempoPedido({ pasos }) {
   );
 }
 
-function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
+function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
   const [sel,setSel]=useState(null);
+  const [devol,setDevol]=useState(null);        // {ped, motivo}
+  const [devGuardando,setDevGuardando]=useState(false);
+  const [devHechas,setDevHechas]=useState({});  // ped_id -> solicitud recién pedida
+
+  /* Pedir la devolución NO anula nada: abre la solicitud para que la piladora
+     decida. Si la base la rechaza, la pantalla NO se pinta como si hubiera
+     salido bien. */
+  const confirmarDevol=async()=>{
+    if(!devol || devGuardando) return;
+    if(devol.motivo.trim().length < 5){ toast && toast("Escribe por qué se devuelve."); return; }
+    setDevGuardando(true);
+    const r=await pedirDevolucion(devol.ped.id, devol.motivo.trim());
+    setDevGuardando(false);
+    if(!r.ok){
+      alert("⚠ LA DEVOLUCIÓN NO SE PIDIÓ\n\n"+r.motivo+
+            "\n\nNadie de la piladora se ha enterado. Vuelve a intentarlo y, si sigue igual, avisa al equipo.");
+      return;
+    }
+    setDevHechas(d=>({...d,[devol.ped.id]:{estado:"pendiente"}}));
+    setDevol(null);
+    toast && toast("Devolución pedida ("+(r.sol||"")+") · la piladora ya la ve.");
+  };
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("activos");  // activos | historial
   const [pagina,setPagina]=useState(1);
@@ -8475,7 +8526,9 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
 
     <Deslizable pag={pagina} total={totalPag} onPag={setPagina}>
     {visibles.map(p=>(
-      <FilaPedido key={p.id} pedido={p} money={money} onAbrir={()=>setSel(p.id)} />
+      <FilaPedido key={p.id} money={money} onAbrir={()=>setSel(p.id)}
+        pedido={devHechas[p.id] ? {...p, devolucion:devHechas[p.id]} : p}
+        onDevolver={vivo ? (ped)=>setDevol({ped, motivo:""}) : null} />
     ))}
     {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
 
@@ -8489,6 +8542,32 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
         <span className="meta" style={{fontSize:12}}>Página {pagActual} de {totalPag}</span>
         <button className="back" style={{width:"auto",opacity:pagActual>=totalPag?.4:1}} disabled={pagActual>=totalPag}
           onClick={()=>setPagina(p=>Math.min(totalPag,p+1))}>Siguiente ›</button>
+      </div>
+    )}
+
+    {/* ── PEDIR DEVOLUCIÓN ── */}
+    {devol && (
+      <div className="ov" onClick={()=>!devGuardando&&setDevol(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Pedir devolución</h3>
+          <div className="meta" style={{marginBottom:10,lineHeight:1.55}}>
+            <b>{devol.ped.cli}</b> · pedido {devol.ped.id}
+            {devol.ped.factura ? <> · factura {devol.ped.factura}</> : null}
+            <br/>
+            Esto <b>no anula nada todavía</b>: la piladora recibe tu pedido y
+            decide. Si lo acepta, ella anula la factura y recién ahí se le quita
+            la deuda al cliente. Tu comisión de esta venta también se cae.
+          </div>
+          <div className="field"><label>¿Por qué se devuelve?</label>
+            <input className="inp" value={devol.motivo}
+              onChange={e=>setDevol(x=>({...x,motivo:e.target.value}))}
+              placeholder="Ej: el cliente rechazó toda la carga, arroz con humedad"/></div>
+          <button className="cta" style={{marginTop:8,opacity:devGuardando?.5:1}}
+            disabled={devGuardando} onClick={confirmarDevol}>
+            {devGuardando ? "Enviando…" : "Pedir devolución a la piladora"}</button>
+          <button className="back" style={{width:"100%",marginTop:10}}
+            disabled={devGuardando} onClick={()=>setDevol(null)}>Cancelar</button>
+        </div>
       </div>
     )}
 
@@ -10065,17 +10144,23 @@ const PED_MAPA={
 async function vivoPedidos(){
   try{
     const yo=await yoUsuario(); if(!yo) return null;
-    const [rp, ri, rc, rv, rm] = await Promise.all([
+    const [rp, ri, rc, rv, rm, rd] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
       window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
+      /* las devoluciones que este vendedor ya pidió: sin esto, la pantalla le
+         dejaría pedir la misma dos veces y la base lo rechazaría con un error
+         que él no puede entender. */
+      window.SB.from("solicitudes").select("sol_id,ped_id,estado,motivo_resp")
+        .eq("tipo","devolucion").limit(500),
     ]);
     let peds=(rp&&rp.data)||[];
     if(soloLoMio(yo)) peds=peds.filter(p=>p.sub_id===yo.usr_id);
     if(!peds.length) return null;
-    const nCli={}, nProv={}, com={};
+    const nCli={}, nProv={}, com={}, dev={};
+    ((rd&&rd.data)||[]).forEach(d=>{ if(d.ped_id) dev[d.ped_id]=d; });
     ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
     ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
@@ -10096,6 +10181,11 @@ async function vivoPedidos(){
         estado:m.t, etapa:m.etapa, sync:"ok",
         comisionLiberada: p.estado==="cerrado" || (c && c.estado==="Pagada"),
         factura:p.factura||"", demo:!!p.es_demo,
+        /* el estado CRUDO: `estado` de arriba ya viene traducido a español
+           ("Facturado"), y comparar textos de pantalla para decidir si se puede
+           pedir una devolución es frágil: cambia la etiqueta y se rompe. */
+        estadoBd:p.estado||"", monto:Number(importe.toFixed(2)),
+        devolucion: dev[p.ped_id] || null,
         linea: ETAPAS_PEDIDO.map((t,i)=>({
           t,
           f: i===0 ? selloCorto(p.creado) : (i<m.linea ? "✓ cumplido" : "—"),
@@ -10161,6 +10251,22 @@ async function vivoAgenda(){
 }
 
 /* guarda (crea o actualiza) una actividad de la agenda */
+/* ── PEDIR LA DEVOLUCIÓN ───────────────────────────────────────────────
+   Primer paso del vendedor en la cadena: el chofer reportó la novedad, y
+   ahora el dueño de la venta pide que la mercadería vuelva. Esto NO anula
+   nada: solo abre la solicitud. La piladora la acepta o la rechaza, y solo
+   ella puede anular la factura después.
+   El op_id es fijo por pedido: si se toca dos veces el botón, la base
+   devuelve la misma solicitud en vez de crear dos. */
+async function pedirDevolucion(pedId, motivo){
+  try{
+    const { data, error } = await window.SB.rpc("pedir_devolucion", {
+      p_ped_id:pedId, p_motivo:motivo, p_op_id:"DEV-"+pedId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo pedir la devolución" };
+    return { ok:true, sol:data||null };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
 async function guardarActividad(t){
   try{
     const yo=await yoUsuario(); if(!yo || !t) return false;
@@ -12927,7 +13033,7 @@ function App({usuario}){
         {tab==="inicio" && <Inicio go={navegar}/>}
         {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado}
           onGuardarPedido={(data)=>{ guardarPedido(data); irAPedidosGuardado(); }}/>}
-        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos} vivo={pedidosVivos}/>}
+        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos} vivo={pedidosVivos} toast={show}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar}/>}
         {tab==="midia" && <MiDia toast={show} yo="Carlos Andrade (Cobrador)"/>}
         {tab==="boveda" && <Boveda toast={show} yo="Carlos Andrade (Cobrador)"/>}
