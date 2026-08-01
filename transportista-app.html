@@ -532,7 +532,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"27", fecha:"27 jul 2026", desc:"Lo que mas reportas queda arriba, y el telefono se acuerda al dia siguiente" };
+const VERSION = { n:"28", fecha:"1 ago 2026", desc:"Tu viaje sale de la base y la entrega que confirmas llega a la oficina" };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -794,11 +794,146 @@ function rutaDePedido(id){ return RUTAS.find(function(r){return r.pedidos.indexO
 function choferPorNombre(n){ return CHOFERES.find(function(c){return c.nombre===n;}); }
 function choferPorUsuario(u){ return CHOFERES.find(function(c){return c.usuario===(u||"").trim().toLowerCase();}); }
 function bultos(p){ return p.items.reduce(function(a,i){return a+i.q;},0); }
+
+/* ═══ LOS QUINTALES: DE LA BASE, NO ADIVINADOS ═══════════════════════════════
+   ESTE ERROR LO CAZO LA PRUEBA EN NAVEGADOR, NO LEER EL CODIGO.
+   La app calculaba los quintales a partir del NOMBRE del producto: partia el
+   texto por el "·" y buscaba la presentacion en una tabla de pesos
+   ("Quintal (100 lb)" = 45.4 kg, "Saco 50 kg" = 50 kg...). Con los datos de
+   demostracion cuadraba, porque los nombres estaban escritos igual que la
+   tabla.
+   Con datos de VERDAD no cuadra: la descripcion la escribe quien vende, y
+   "Arroz Conejo · Quintal" (sin el "(100 lb)") no esta en esa tabla, asi que
+   pesa 0. En la prueba, una parada de 65 quintales salio como "22 qq" y otra
+   de 72 salio como "0 qq". Sin error, sin aviso: solo el numero equivocado en
+   la pantalla del chofer, que es justo el numero que no se puede equivocar.
+   Ahora, cuando el pedido viene de la base, los quintales se LEEN de la base. */
+function qqDePedido(p){
+  if(!p) return 0;
+  if(p.vivo) return p.items.reduce(function(a,i){ return a+(Number(i.q)||0); },0);
+  return qqDeKg(pesoPedido(p));
+}
+function qqDeRuta(r){
+  if(!r || !r.pedidos) return 0;
+  return r.pedidos.reduce(function(a,id){ return a+qqDePedido(ped(id)); },0);
+}
 function rutasDe(chofer){ return RUTAS.filter(function(r){return r.chofer===chofer;}); }
 function fletesDe(ch){ return FLETES.filter(function(f){return f.chofer===ch;}); }
 function solicitudesDe(ch){ return SOLICITUDES.filter(function(s){return s.chofer===ch;}); }
 function historialDe(ch){ return HISTORIAL.filter(function(h){return h.chofer===ch;}); }
 function dineroUSD(n){ return "$"+(Math.round(n*100)/100).toFixed(2); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LA HOJA DE RUTA DE VERDAD
+   Hasta hoy esta app vivia ENTERA de las listas de demostracion de arriba: el
+   chofer veia la ruta de "Marlon Cedeño" aunque el se llamara de otro modo, y
+   al confirmar una entrega solo se movia un array en memoria. En la oficina no
+   se enteraba nadie.
+
+   Ahora, si hay sesion y la base tiene viajes suyos, se REEMPLAZAN PEDIDOS y
+   RUTAS por los de verdad.
+
+   POR QUE POR UNA VENTANILLA Y NO LEYENDO LAS TABLAS
+   Se midio con los ojos de un transportista real: puede leer sus viajes y sus
+   guias, pero de `pedidos`, `clientes`, `ubicaciones_cliente` y `pedido_items`
+   lee CERO. No es un fallo, es la regla: un chofer no es dueño de ningun
+   pedido. Si esta app intentara leer esas tablas recibiria listas vacias y
+   dibujaria una hoja de entrega EN BLANCO, sin ningun error visible. Por eso
+   todo entra por mi_hoja_de_ruta(), que le da solo lo suyo y sin precios.
+   ═══════════════════════════════════════════════════════════════════════════ */
+var FUENTE_VIAJE = "demo";   /* "demo" | "vivo" */
+var AVISO_VIAJE  = "";       /* por que no hay datos de verdad, o que falta */
+
+async function cargarMiHoja(nombreChofer){
+  if(!window.SB){ AVISO_VIAJE = "La app no pudo conectarse a la base."; return false; }
+  var r;
+  try{ r = await window.SB.rpc("mi_hoja_de_ruta"); }
+  catch(e){ AVISO_VIAJE = "No se pudo consultar la base: "+(e.message||"error"); return false; }
+  /* supabase-js NO lanza excepcion cuando la base responde con error: la
+     devuelve en r.error. Un try/catch a secas aqui no atraparia nada. */
+  if(r && r.error){ AVISO_VIAJE = "La base respondio con un error: "+(r.error.message||""); return false; }
+
+  var filas = (r && r.data) || [];
+  if(filas.length === 0){ AVISO_VIAJE = "vacio"; return false; }
+
+  var pedidos = [], porViaje = {}, sinPedido = 0;
+  filas.forEach(function(f){
+    if(!porViaje[f.viaje_id]){
+      porViaje[f.viaje_id] = {
+        id: f.viaje_id, viaje: f.viaje_id,
+        nombre: f.ruta_nombre || ("Viaje "+f.viaje_id),
+        chofer: nombreChofer, placa: f.placa || "—",
+        pedidos: [], fecha: "hoy",
+        /* cargas vacio = sin puntos de recogida definidos. cargaCompleta()
+           devuelve true con lista vacia, asi que la ruta abre directo en
+           entregas en vez de trabarse en una fase de carga que la base
+           todavia no conoce. */
+        cargas: [], vivo: true
+      };
+    }
+    /* una guia sin pedido no es una parada: no hay a quien entregarle ni que.
+       Se cuenta y se avisa, en vez de dibujar una tarjeta vacia. */
+    if(!f.ped_id){ sinPedido++; return; }
+    porViaje[f.viaje_id].pedidos.push(f.ped_id);
+    pedidos.push({
+      id: f.ped_id,
+      guiaId: f.guia_id,              /* lo pide registrar_entrega */
+      guia: f.guia_id,
+      cli: f.cliente || f.cli_id || "—",
+      ciudad: f.ciudad || "—",
+      dir: f.direccion || "(sin direccion registrada)",
+      ref: f.referencia || "",
+      tel: f.telefono || "",
+      factura: f.factura || "—",
+      items: (f.items||[]).map(function(it){
+        return { p: it.desc || "producto", q: Number(it.qq)||0, prov: it.prov || "—" };
+      }),
+      /* vivo:true → los quintales se leen, no se deducen del nombre */
+      vivo: true,
+      guiaQq: Number(f.guia_qq)||0,
+      estadoEntrega: (!f.estado_entrega || f.estado_entrega==="pendiente")
+        ? "pendiente" : f.estado_entrega
+    });
+  });
+
+  PEDIDOS = pedidos;
+  RUTAS   = Object.keys(porViaje).map(function(k){ return porViaje[k]; });
+  FUENTE_VIAJE = "vivo";
+  AVISO_VIAJE  = sinPedido
+    ? (sinPedido+" guia(s) de tu viaje no tienen pedido asociado y no se muestran. Avisa a logistica.")
+    : "";
+  return true;
+}
+
+/* Letrero permanente de donde salen los datos. Se ve SIEMPRE: la peor pantalla
+   es la que no distingue un ensayo de la operacion de verdad. */
+function BannerFuenteViaje({ hayRutas }){
+  var vivo = FUENTE_VIAJE === "vivo";
+  /* si abajo no se dibuja ninguna ruta, el letrero NO puede decir "lo de abajo
+     es demostracion": abajo no hay nada. */
+  var colaDemo = hayRutas
+    ? " Lo de abajo son rutas de DEMOSTRACION, para practicar: no son tuyas y nada de lo que confirmes se guarda."
+    : "";
+  var est;
+  if(vivo){
+    est = { bg:"#EAF6EF", bd:"#B6DCC6", tx:"#1E5B3C", t:"Tu viaje de verdad",
+      s:"Esto sale de la base. Al confirmar una entrega queda guardada y la oficina la ve."
+        + (AVISO_VIAJE ? "  ⚠ "+AVISO_VIAJE : "") };
+  } else if(AVISO_VIAJE === "vacio"){
+    est = { bg:"#FFF7E4", bd:"#EBD79B", tx:"#8A6100", t:"No tienes ningun viaje asignado",
+      s:"Logistica todavia no te ha despachado nada. Cuando lo haga, aparecera aqui solo."+colaDemo };
+  } else {
+    est = { bg:"#FDEEE6", bd:"#F0C3A8", tx:"#9A4A22", t:"No se pudo traer tu viaje",
+      s:(AVISO_VIAJE || "La base no respondio.")
+        +" Vuelve a abrir la app. Si sigue igual, llama a logistica ANTES de salir a ruta."+colaDemo };
+  }
+  return (
+    <div style={{background:est.bg,border:"1px solid "+est.bd,color:est.tx,borderRadius:12,
+      padding:"11px 13px",marginBottom:12,fontSize:12.5,lineHeight:1.5}}>
+      <b>{est.t}</b><br/>{est.s}
+    </div>
+  );
+}
 
 /* ===================== FASE DE CARGA ===================== */
 /* Los puntos de carga los define LOGÍSTICA en r.cargas[] (orden estricto 1,2,3...).
@@ -1435,12 +1570,12 @@ function Shell({ who, name, onSalir, extraDer, children, menu, chofer, irSeccion
 function TarjetaRuta({ r, completada, onAbrir }){
   const total = r.pedidos.length;
   const hechos = r.pedidos.filter((id)=>ped(id).estadoEntrega!=="pendiente").length;
-  const qq = Math.round(qqDeKg(r.pedidos.reduce((a,id)=>a+pesoPedido(ped(id)),0)));
+  const qq = Math.round(qqDeRuta(r));
   const veh = VEHICULOS[r.placa] || { tipo: r.placa };
   return (
     <div className={"ruta-hero"+(completada?" done":"")} style={{ cursor:"pointer" }} onClick={onAbrir}>
       <div className="rh-head"><div className="rh-dest">{r.nombre}</div>{completada && <span className="ruta-check">✓ Completada</span>}</div>
-      <div className="rh-veh">{r.placa} · {veh.tipo}</div>
+      <div className="rh-veh">{r.placa}{(veh.tipo && veh.tipo!==r.placa) ? " · "+veh.tipo : ""}</div>
       <div className="rh-stats">
         <div className="rh-stat"><div className="v num">{total}</div><div className="l">paradas</div></div>
         <div className="rh-stat"><div className="v num">{qq}</div><div className="l">quintales</div></div>
@@ -1482,6 +1617,8 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
         margin:"0 0 10px",letterSpacing:".02em"}}>
         v{VERSION.n} · {VERSION.fecha}</div>
 
+      <BannerFuenteViaje hayRutas={rutas.length > 0} />
+
       {docsPend.length > 0 && (<>
         <div className="sect-h">📑 Documentos que llevo de vuelta · {docsPend.length}</div>
         <div style={{ background:"#fff", border:"1px solid var(--line)", borderRadius:14, padding:"4px 14px", marginBottom:14 }}>
@@ -1498,23 +1635,16 @@ function PantallaRutas({ chofer, choferNuevo, onAbrirRuta, onSeccion, onSalir })
 
       {activas.length===0 && completadas.length===0 ? (
         <div className="empty"><div className="ico">📭</div><div className="t">Sin rutas hoy</div>
-          {choferPorNombre(chofer) ? (
-            <div className="s">Cuando logística te asigne una ruta, aparecerá aquí.</div>
-          ) : registroGuardado ? (<>
-            {/* se registró por enlace y sus datos siguen en el teléfono: sí perdió la ruta */}
-            <div className="s">Tu registro se perdió al recargar la app. En la demo los datos
-              viven en el teléfono; al conectar el sistema, tu ruta quedará guardada.</div>
-            <button className="b-carga-accion" style={{ maxWidth:260, margin:"16px auto 0" }}
-              onClick={onSalir}>Volver a ingresar</button>
-          </>) : (<>
-            {/* nunca existió: no es una falla de la app, es un usuario que no está en la demo */}
-            <div className="s">Este usuario no está registrado como transportista en la demo.
-              No es una falla de la app: el nombre que ingresaste no existe en los datos de prueba.</div>
-            <div className="s" style={{ marginTop:10, fontWeight:600 }}>
-              Transportistas de la demo: marlon · wilson · galo (clave 1234)</div>
-            <button className="b-carga-accion" style={{ maxWidth:260, margin:"16px auto 0" }}
-              onClick={onSalir}>Ingresar con otro usuario</button>
-          </>)}
+          {/* Antes, a un chofer de verdad sin ruta esta pantalla le decia que
+              su usuario "no existe en los datos de prueba" y le ofrecia las
+              claves de la demo. Culpaba al chofer de algo que no era suyo, y
+              de paso publicaba credenciales. */}
+          <div className="s">Cuando logística despache un viaje a tu nombre, aparecerá aquí solo.
+            No hace falta que hagas nada.</div>
+          {registroGuardado && (
+            <div className="s" style={{ marginTop:10 }}>
+              Si esperabas una ruta hoy, llama a logística antes de salir.</div>
+          )}
         </div>
       ) : (<>
         {activas.length>0 ? (<>
@@ -2214,6 +2344,19 @@ function App(){
   /* El motor necesita saber quién está logueado para "mi ruta / mis entregas". */
   React.useEffect(()=>{ CHOFER_ACTIVO = chofer || null; }, [chofer]);
 
+  /* Trae el viaje de verdad de este chofer antes de dibujar la lista. */
+  const [hojaLista, setHojaLista] = useState(false);
+  React.useEffect(()=>{
+    if(!chofer){ setHojaLista(false); return; }
+    let vivo = true;
+    (async ()=>{
+      try{ await cargarMiHoja(chofer); }
+      catch(e){ AVISO_VIAJE = "No se pudo traer tu viaje: "+(e.message||"error"); }
+      if(vivo) setHojaLista(true);
+    })();
+    return ()=>{ vivo = false; };
+  }, [chofer]);
+
   const salir = () => { salirDeVerdad(); setChofer(null); setChoferNuevo(null); setRutaId(null); setSeccion(null); };
   /* onIr del asistente: solo navega a la sección del drawer. */
   const irDesdeAsist = (destino) => {
@@ -2276,6 +2419,20 @@ function App(){
   };
 
   if (!chofer) return <PuertaPortal onEntrar={(nombre, nuevo)=>{ setChofer(nombre); setChoferNuevo(nuevo); setRutaId(null); setSeccion(null); }} />;
+
+  /* Antes de pintar nada, se pregunta a la base si este chofer tiene un viaje
+     de verdad. Si lo tiene, PEDIDOS y RUTAS quedan reemplazados. Mientras
+     tanto NO se dibuja la lista: dibujar primero la demo y cambiarla despues
+     seria enseñarle una ruta ajena aunque fuera medio segundo. */
+  if (!hojaLista) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"#123024",color:"#fff",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{textAlign:"center",padding:"0 22px"}}>
+        <div style={{fontSize:34,marginBottom:10}}>🚚</div>
+        <div style={{fontSize:15,opacity:.85}}>Buscando tu viaje…</div>
+      </div>
+    </div>
+  );
 
   let pantalla;
   if (seccion) pantalla = <PantallaSeccion seccion={seccion} chofer={chofer}
@@ -2590,7 +2747,7 @@ function PantallaCarga({ r, chofer, onVolver, onSalir, onIrEntregas, refrescar }
       extraDer={<span className="badge-est" style={{ background:"rgba(255,255,255,.12)", color:"#EAF0EA" }}>Carga</span>}>
       <div className="ruta-hero">
         <div className="rh-dest">{r.nombre}</div>
-        <div className="rh-veh">{r.placa} · {veh.tipo}</div>
+        <div className="rh-veh">{r.placa}{(veh.tipo && veh.tipo!==r.placa) ? " · "+veh.tipo : ""}</div>
         <div className="progbar"><i style={{ width: pct+"%" }}></i></div>
         <div className="prog-label">Cargados {cargadoQq} de {totalQq} qq · {listos}/{pts.length} puntos listos</div>
       </div>
@@ -2738,6 +2895,7 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
   const [foto, setFoto] = useState(null);
   const [rec, setRec] = useState("");
   const [ced, setCed] = useState("");
+  const [guardando, setGuardando] = useState(false);
 
   const pedidoTot = items.reduce((a,it)=>a+it.q, 0);
   const entTot = items.reduce((a,it)=>a+it.qEntregada, 0);
@@ -2751,8 +2909,51 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
   if (entTot <= 0) faltan.push("cantidad entregada (no puede ser 0)");
   const ok = faltan.length === 0;
 
-  const confirmar = () => {
-    if(!ok) return;
+  /* ── EL GUARDADO DE VERDAD ──────────────────────────────────────────────
+     Antes esto solo empujaba un objeto a un array en memoria: el chofer leia
+     "Entrega registrada ✓", cerraba la app y en la oficina no se enteraba
+     nadie. Ahora, cuando el viaje es real, la entrega pasa por
+     registrar_entrega() y si la base la rechaza, NO se da por hecha.
+
+     El op_id es FIJO por guia (no lleva la hora). Asi, si el chofer pierde
+     señal a mitad de camino y vuelve a tocar el boton, la base reconoce el
+     reintento y devuelve el mismo viaje, en vez de gritar "esa guia ya fue
+     resuelta" y dejarlo pensando que fallo. */
+  const guardarEntregaEnBase = async (esParcial) => {
+    if (!p.guiaId) {
+      return { ok:false, motivo:"Esta parada no tiene guía en la base. El viaje se despachó sin guía para este pedido: avisa a logística." };
+    }
+    let res;
+    try {
+      res = await window.SB.rpc("registrar_entrega", {
+        p_guia_id:  p.guiaId,
+        p_receptor: rec.trim(),
+        p_cedula:   ced.trim(),
+        p_parcial:  esParcial,
+        p_op_id:    "ENT-" + p.guiaId
+      });
+    } catch (e) {
+      return { ok:false, motivo:"No se pudo hablar con la base: " + (e.message||"error") };
+    }
+    if (res && res.error) return { ok:false, motivo:(res.error.message || "error") };
+    return { ok:true, viaje:(res && res.data) || null };
+  };
+
+  const confirmar = async () => {
+    if(!ok || guardando) return;
+
+    if (FUENTE_VIAJE === "vivo") {
+      setGuardando(true);
+      const g = await guardarEntregaEnBase(entTot < pedidoTot);
+      setGuardando(false);
+      if (!g.ok) {
+        alert("⚠ LA ENTREGA NO SE GUARDÓ\n\n" + g.motivo +
+              "\n\nNo la des por hecha: en la oficina sigue pendiente. Vuelve a " +
+              "intentarlo, y si sigue igual llama a logística ANTES de irte del local.");
+        return;
+      }
+    }
+
     const r = rutaDePedido(p.id) || {};
     const devs = [];
     const itemsReg = items.map((it)=>{
@@ -2763,7 +2964,8 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
     p.estadoEntrega = esParcial ? "parcial" : "entregado";
     p.entrega = {
       tipo:"entrega", pedidoId:p.id, guia:p.guia, factura:p.factura,
-      viaje:r.viaje||null, quien:"App Transportista",
+      viaje:r.viaje||null, quien:chofer||"App Transportista",
+      enBase:(FUENTE_VIAJE==="vivo"),
       ruta:r.id, rutaNombre:r.nombre, chofer:chofer, placa:r.placa,
       recibe:rec.trim(), cedula:ced.trim(), foto:true,
       items:itemsReg, parcial:esParcial, devoluciones:devs,
@@ -2787,7 +2989,9 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
     <Hoja titulo="Confirmar entrega" onCerrar={onCerrar}
       pie={<div className="sheet-foot">
         <div className="falta-hint" style={{ display: ok ? "none" : "block" }}>{ok ? "" : ("Falta: "+faltan.join(", "))}</div>
-        <button className={"b-confirm"+(ok?"":" dis")} onClick={confirmar}>{(entTot>0 && entTot<pedidoTot) ? "Registrar entrega parcial" : "Registrar entrega"}</button>
+        <button className={"b-confirm"+((ok && !guardando)?"":" dis")} onClick={confirmar}>
+          {guardando ? "Guardando en la base…"
+            : ((entTot>0 && entTot<pedidoTot) ? "Registrar entrega parcial" : "Registrar entrega")}</button>
       </div>}>
       <div className="field"><label>{p.cli} · {p.ciudad}</label></div>
       <div className="field"><label>Cantidad entregada por producto</label>
@@ -2818,7 +3022,7 @@ function HojaEntregar({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
         <div className="et-cell et-ok"><div className="v num">{entTot}</div><div className="l">se entrega</div></div>
         <div className="et-cell et-dev"><div className="v num">{dev}</div><div className="l">devolución</div></div>
       </div>
-      {dev>0 && <div className="aviso-parc"><b>Entrega parcial.</b> El saldo de <b className="num">{dev}</b> bulto(s) regresa a logística como devolución. La factura y la comisión se ajustan sobre lo realmente entregado.</div>}
+      {dev>0 && <div className="aviso-parc"><b>Entrega parcial.</b> El saldo de <b className="num">{dev}</b> {p.vivo ? "quintal(es)" : "bulto(s)"} regresa a logística como devolución. La factura y la comisión se ajustan sobre lo realmente entregado.</div>}
       <CampoFoto label="Guía firmada" hint="Toma la foto de la guía firmada por quien recibe" requerida foto={foto} setFoto={setFoto} />
       <div className="field"><label>Nombre de quien recibe <span className="req">*</span></label>
         <input className="inp" value={rec} placeholder="Nombre y apellido" onChange={(e)=>setRec(e.target.value)} /></div>
@@ -2848,7 +3052,17 @@ function HojaNovedad({ p, chofer, onCerrar, refrescar, onRutaCompleta }){
       foto:!!foto, hora:ahora(), fechaISO:(new Date()).toISOString()
     };
     REGISTROS.push(p.entrega);
-    onCerrar(); refrescar(); toast("Novedad guardada");
+    onCerrar(); refrescar();
+    /* Honestidad: la base todavia NO tiene donde guardar una novedad de
+       entrega. No existe funcion para eso. Decir "Novedad guardada" en un
+       viaje real seria mentirle al chofer, que es lo que mas caro sale. */
+    if (FUENTE_VIAJE === "vivo"){
+      alert("⚠ ESTA NOVEDAD NO QUEDA GUARDADA\n\nLa quedó anotada en tu teléfono, pero " +
+            "el sistema todavía no tiene dónde registrarla.\n\nLlama a logística y cuéntasela: " +
+            "es la única forma de que se enteren.");
+    } else {
+      toast("Novedad guardada");
+    }
     onRutaCompleta();
   };
 
@@ -2872,7 +3086,7 @@ function PantallaEntrega({ r, chofer, onVolver, onSalir, onVerCarga, onRutaCompl
   const hechos = r.pedidos.filter((id)=>ped(id).estadoEntrega!=="pendiente").length;
   const pct = total ? Math.round(hechos/total*100) : 0;
   const veh = VEHICULOS[r.placa] || { tipo: r.placa };
-  const kg = r.pedidos.reduce((a,id)=>a+pesoPedido(ped(id)),0);
+  const qqRuta = qqDeRuta(r);
   const nEnt = r.pedidos.filter((id)=>ped(id).estadoEntrega==="entregado").length;
   const nParc = r.pedidos.filter((id)=>ped(id).estadoEntrega==="parcial").length;
   const nNov = r.pedidos.filter((id)=>ped(id).estadoEntrega==="novedad").length;
@@ -2882,9 +3096,9 @@ function PantallaEntrega({ r, chofer, onVolver, onSalir, onVerCarga, onRutaCompl
       extraDer={<span className={"badge-est "+(hechos===total?"be-ok":"")} style={{ background:"rgba(255,255,255,.12)", color:"#EAF0EA" }}>{hechos}/{total}</span>}>
       <div className="ruta-hero">
         <div className="rh-dest">{r.nombre}</div>
-        <div className="rh-veh">{r.placa} · {veh.tipo}</div>
+        <div className="rh-veh">{r.placa}{(veh.tipo && veh.tipo!==r.placa) ? " · "+veh.tipo : ""}</div>
         <div className="progbar"><i style={{ width: pct+"%" }}></i></div>
-        <div className="prog-label">{hechos} de {total} entregas · {Math.round(qqDeKg(kg))} qq</div>
+        <div className="prog-label">{hechos} de {total} entregas · {Math.round(qqRuta)} qq</div>
       </div>
 
       <button className="b-ver-carga" onClick={onVerCarga}>📦 Ver resumen de carga</button>
@@ -2916,8 +3130,14 @@ function PantallaEntrega({ r, chofer, onVolver, onSalir, onVerCarga, onRutaCompl
               <div className="stop-ciudad">{p.ciudad}</div>
             </div>
             <div className="stop-carga">
-              <span className="stop-tag"><b className="num">{bultos(p)}</b> bultos</span>
-              <span className="stop-tag"><b className="num">{Math.round(qqDeKg(pesoPedido(p)))}</b> qq</span>
+              {p.vivo
+                /* de la base los quintales vienen ya contados: un solo dato,
+                   sin "bultos" deducidos de un texto. */
+                ? <span className="stop-tag"><b className="num">{Math.round(qqDePedido(p))}</b> qq</span>
+                : (<>
+                    <span className="stop-tag"><b className="num">{bultos(p)}</b> bultos</span>
+                    <span className="stop-tag"><b className="num">{Math.round(qqDePedido(p))}</b> qq</span>
+                  </>)}
               <span className="stop-tag">Guía <b>{p.guia}</b></span>
             </div>
             {est==="pendiente" && (<>
