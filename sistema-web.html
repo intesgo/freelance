@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"77", fecha:"1 ago 2026", desc:"En Subir pedido del Sistema web, el catálogo por piladora sale de las ofertas vigentes (igual que el freelance): muestra todos los productos que ofrece cada piladora, no solo los del campo antiguo" };
+const VERSION = { n:"78", fecha:"1 ago 2026", desc:"Buscadores de clientes: buscan por palabras sueltas (nombre y apellido en cualquier orden) y muestran la razón social en la lista. Aplicado en el Sistema web y en las apps de vendedor" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4908,9 +4908,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           <div style={{ marginBottom:8 }}>
             <BuscadorPredictivo cat="clientes" items={CLIENTES} value={cliTexto} disabled={carrito.length>0}
               placeholder="Escribe para buscar un cliente…"
-              label={c=>c.nombre}
-              extra={c=>c.razonSocial||""}
-              sub={c=>(c.razonSocial && c.razonSocial!==c.nombre ? c.razonSocial+" · " : "")+(c.bloqueado ? "Bloqueado" : "Cupo disponible " + money(Math.max(0,(c.cupo||0)-(c.usado||0))))}
+              label={c=>c.razonSocial || c.nombre}
+              extra={c=>(c.nombre||"")+" "+(c.ruc||"")}
+              sub={c=>(c.nombre && c.nombre!==c.razonSocial ? c.nombre+" · " : "")+(c.bloqueado ? "Bloqueado" : "Cupo disponible " + money(Math.max(0,(c.cupo||0)-(c.usado||0))))}
               onText={t=>{ setCliTexto(t); if(t==="") setCli(null); }}
               onPick={c=>{ setCli(c); setCliTexto(c.nombre); }} />
           </div>
@@ -11525,8 +11525,8 @@ function TableroPrincipal({ usuario, navegar }) {
   const hallazgos = !q ? [] : [
     ...SECCIONES.filter(s => norm(s.label).includes(q) || norm(s.sub).includes(q))
       .slice(0, 5).map(s => ({ ic: s.icon, t: s.label, s: "Módulo · " + s.sub, key: s.key })),
-    ...D.clis.filter(c => norm(c.nombre).includes(q) || norm(c.razon_social||"").includes(q)).slice(0, 5)
-      .map(c => ({ ic: "👤", t: c.nombre, s: "Cliente" + (c.es_demo ? " · DEMO" : ""), key: "clientes" })),
+    ...D.clis.filter(c => { const campos = norm(c.nombre)+" "+norm(c.razon_social||"")+" "+(c.ruc||""); return q.split(/\s+/).every(w => campos.includes(w)); }).slice(0, 5)
+      .map(c => ({ ic: "👤", t: c.razon_social || c.nombre, s: "Cliente" + (c.nombre && c.razon_social && c.razon_social!==c.nombre ? " · "+c.nombre : "") + (c.es_demo ? " · DEMO" : ""), key: "clientes" })),
   ].slice(0, 8);
 
   const ultPedidos = D.peds.filter(p => !p.es_demo).slice(0, 5);
@@ -15536,7 +15536,8 @@ function ClientesWeb({ usuario, navegar }) {
   const lista = clientes.filter(c => {
     const t = norm(busca).trim();
     if (t==="") return true;
-    return norm(c.nombre).includes(t) || (c.ruc||"").includes(t) || norm(c.razonSocial||"").includes(t) || norm(c.dueno||"").includes(t);
+    const campos = norm(c.nombre) + " " + norm(c.razonSocial||"") + " " + (c.ruc||"") + " " + norm(c.dueno||"");
+    return t.split(/\s+/).every(w => campos.includes(w));
   });
 
   const cli = abierto ? clientes.find(c=>c.id===abierto) : null;
@@ -15650,8 +15651,9 @@ function ClientesWeb({ usuario, navegar }) {
 
   // Resultados del buscador (solo cuando se escribe algo)
   const sugerencias = busca.trim()==="" ? [] : clientes.filter(c => {
-    const t = norm(busca).trim();
-    return norm(c.nombre).includes(t) || (c.ruc||"").includes(t) || norm(c.razonSocial||"").includes(t) || norm(c.dueno||"").includes(t);
+    // Busca por palabras sueltas: "pedro castillo" encuentra "Pedro Rodrigo Castillo Rosero"
+    const campos = norm(c.nombre) + " " + norm(c.razonSocial||"") + " " + (c.ruc||"") + " " + norm(c.dueno||"");
+    return norm(busca).trim().split(/\s+/).every(w => campos.includes(w));
   }).slice(0, 8);
 
   const ciudadDe = (c) => { const u=(c.ubicaciones||[]).find(x=>x.principal) || (c.ubicaciones||[])[0]; return u ? (u.ciudad||"—") : "—"; };
@@ -15767,8 +15769,8 @@ function ClientesWeb({ usuario, navegar }) {
                           style={{ padding:"12px 16px", cursor:"pointer", borderTop: i>0?`1px solid ${COLOR.border}`:"none", display:"flex", justifyContent:"space-between", alignItems:"center" }}
                           onMouseEnter={e=>e.currentTarget.style.background=COLOR.tealLight} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
                           <div>
-                            <p style={{ fontWeight:700, color:COLOR.text, fontSize:14 }}>{c.nombre}<ChipDemo si={c.demo}/></p>
-                            <p className="num" style={{ fontSize:11.5, color:COLOR.muted }}>RUC {c.ruc||"—"}{c.razonSocial && c.razonSocial!==c.nombre ? " · "+c.razonSocial : ""}</p>
+                            <p style={{ fontWeight:700, color:COLOR.text, fontSize:14 }}>{c.razonSocial || c.nombre}<ChipDemo si={c.demo}/></p>
+                            <p className="num" style={{ fontSize:11.5, color:COLOR.muted }}>{c.razonSocial && c.nombre && c.razonSocial!==c.nombre ? c.nombre+" · " : ""}RUC {c.ruc||"—"}</p>
                           </div>
                           {c.bloqueado && <span style={{ fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:999, color:"#c0392b", background:"#FDECEA" }}>Bloqueado</span>}
                         </div>
