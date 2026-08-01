@@ -51,6 +51,11 @@ for (const app of APPS) {
   const rutaOut = path.join(DIST, destino);
   fs.mkdirSync(path.dirname(rutaOut), { recursive: true });
   fs.writeFileSync(rutaOut, out);
+  /* version.json junto al sistema web: lo lee la app para avisar "hay nueva versión" */
+  if (app === "sistema-web.html") {
+    const mv = src.match(/VERSION\s*=\s*\{\s*n:"(\d+)"/);
+    fs.writeFileSync(path.join(DIST, "home", "version.json"), JSON.stringify({ v: mv ? mv[1] : "0" }));
+  }
   console.log(`✓ ${app}: compilada (${(js.length/1024).toFixed(0)} KB de JS)`);
 }
 if (fallo) { console.error("\nHay errores: NO se publica."); process.exit(1); }
