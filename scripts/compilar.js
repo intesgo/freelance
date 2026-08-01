@@ -8,7 +8,7 @@ const path = require("path");
 const Babel = require("@babel/standalone");
 
 const APPS = ["freelance-completo.html","Comisionista.html","socio-comercial.html",
-              "proveedor-freelance.html","transportista-app.html"];
+              "proveedor-freelance.html","transportista-app.html","sistema-web.html"];
 const RAIZ = path.join(__dirname, "..");
 const DIST = path.join(RAIZ, "dist");
 const RE_BABEL = /<script[^>]*type=["']text\/babel["'][^>]*>([\s\S]*?)<\/script>/i;
