@@ -3865,8 +3865,30 @@ function LineaPago({modalidad, onSave, onCancel}){
 }
 
 // ---------- MIS PEDIDOS ----------
-function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
+function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
   const [sel,setSel]=useState(null);
+  const [devol,setDevol]=useState(null);        // {ped, motivo}
+  const [devGuardando,setDevGuardando]=useState(false);
+  const [devHechas,setDevHechas]=useState({});  // ped_id -> lo recien pedido
+
+  /* Pedir la anulacion NO anula nada: abre la solicitud para que la piladora
+     decida. Si la base la rechaza, la pantalla NO se pinta como si hubiera
+     salido bien. */
+  const confirmarDevol=async()=>{
+    if(!devol || devGuardando) return;
+    if(devol.motivo.trim().length < 5){ toast && toast("Escribe por qué se anula."); return; }
+    setDevGuardando(true);
+    const r=await pedirDevolucion(devol.ped.id, devol.motivo.trim());
+    setDevGuardando(false);
+    if(!r.ok){
+      alert("⚠ LA SOLICITUD NO SE ENVIÓ\n\n"+r.motivo+
+            "\n\nLa piladora no se ha enterado. Vuelve a intentarlo y, si sigue igual, avisa al equipo.");
+      return;
+    }
+    setDevHechas(d=>({...d,[devol.ped.id]:{estado:"pendiente"}}));
+    setDevol(null);
+    toast && toast("Solicitud enviada ("+(r.sol||"")+") · la piladora ya la ve.");
+  };
   const [q,setQ]=useState("");
   const [estado,setEstado]=useState("Todos");
   const [desde,setDesde]=useState("");
@@ -3947,9 +3969,64 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo}){
           <span className="meta" style={{fontWeight:600,color:"var(--field)"}}>{p.estado} ›</span>
         </div>
         <Pipe n={p.etapa}/>
+
+        {/* ── ANULACIÓN DE FACTURA ────────────────────────────────────────
+            Solo en ventas facturadas. Si ya se pidió, se enseña en qué va en
+            vez del botón. El stopPropagation es obligatorio: la tarjeta entera
+            abre el detalle. */}
+        {p.estadoBd==="facturado" && vivo && (() => {
+          const d = devHechas[p.id] || p.devolucion;
+          if(!d) return (
+            <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--linea, #E7E1D3)"}}>
+              <button className="mini-link" style={{fontSize:12}}
+                onClick={e=>{ e.stopPropagation(); setDevol({ped:p, motivo:""}); }}>
+                ↩ Pedir anulación de la factura</button>
+            </div>
+          );
+          const est = d.estado==="pendiente"
+            ? {c:"#8A6A00", t:"↩ Anulación pedida · esperando a la piladora"}
+            : d.estado==="aprobada"
+            ? {c:"#2E7D52", t:"↩ Aceptada · la piladora debe anular la factura"}
+            : {c:"#C0392B", t:"↩ Rechazada"+(d.motivo_resp ? " · "+d.motivo_resp : "")};
+          return (
+            <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--linea, #E7E1D3)",
+              fontSize:11.5,fontWeight:600,color:est.c}}>{est.t}</div>
+          );
+        })()}
+        {p.estadoBd==="anulado" && (
+          <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--linea, #E7E1D3)",
+            fontSize:11.5,fontWeight:700,color:"#C0392B"}}>
+            ✕ Factura anulada · esta venta no genera comisión</div>
+        )}
       </div>
     ))}
     {ordenada.length===0 && <div className="ph">Sin pedidos que coincidan con los filtros.</div>}
+
+    {/* ── PEDIR ANULACIÓN ── */}
+    {devol && (
+      <div className="ov" onClick={()=>!devGuardando&&setDevol(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Pedir anulación de la factura</h3>
+          <div className="meta" style={{marginBottom:10,lineHeight:1.55}}>
+            <b>{devol.ped.cli}</b> · pedido {devol.ped.id}
+            {devol.ped.factura ? <> · factura {devol.ped.factura}</> : null}
+            <br/>
+            Esto <b>no anula nada todavía</b>: la piladora recibe tu solicitud y
+            decide. Si la acepta, ella anula la factura y recién ahí se le quita
+            la deuda al cliente. Tu comisión de esta venta también se cae.
+          </div>
+          <div className="field"><label>¿Por qué se anula?</label>
+            <input className="inp" value={devol.motivo}
+              onChange={e=>setDevol(x=>({...x,motivo:e.target.value}))}
+              placeholder="Ej: el cliente rechazó toda la carga, harina húmeda"/></div>
+          <button className="cta" style={{marginTop:8,opacity:devGuardando?.5:1}}
+            disabled={devGuardando} onClick={confirmarDevol}>
+            {devGuardando ? "Enviando…" : "Enviar solicitud a la piladora"}</button>
+          <button className="back" style={{width:"100%",marginTop:10}}
+            disabled={devGuardando} onClick={()=>setDevol(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
 
     {/* ventana de filtros */}
     {verFiltros && (
@@ -6118,20 +6195,39 @@ const PED_MAPA={
   cerrado:              {linea:10, etapa:7, t:"Comisión liberada"},
   anulado:              {linea:0,  etapa:0, t:"Anulado"},
 };
+/* ── PEDIR LA ANULACIÓN DE LA FACTURA ──────────────────────────────────
+   El socio pide que la mercaderia vuelva y la factura se anule. Esto NO
+   anula nada por si mismo: la piladora acepta o rechaza, y solo ella anula.
+   op_id fijo por pedido: dos toques devuelven la misma solicitud. */
+async function pedirDevolucion(pedId, motivo){
+  try{
+    const { data, error } = await window.SB.rpc("pedir_devolucion", {
+      p_ped_id:pedId, p_motivo:motivo, p_op_id:"DEV-"+pedId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo pedir la anulación" };
+    return { ok:true, sol:data||null };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
 async function vivoPedidos(){
   try{
     const yo=await yoUsuario(); if(!yo) return null;
-    const [rp, ri, rc, rv, rm] = await Promise.all([
+    const [rp, ri, rc, rv, rm, rd] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
       window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
+      /* las devoluciones ya pedidas: sin esto la pantalla dejaria pedir la
+         misma dos veces y la base lo rechazaria con un error que el socio no
+         puede entender. */
+      window.SB.from("solicitudes").select("sol_id,ped_id,estado,motivo_resp")
+        .eq("tipo","devolucion").limit(500),
     ]);
     let peds=(rp&&rp.data)||[];
     if(soloLoMio(yo)) peds=peds.filter(p=>p.sub_id===yo.usr_id);
     if(!peds.length) return null;
-    const nCli={}, nProv={}, com={};
+    const nCli={}, nProv={}, com={}, dev={};
+    ((rd&&rd.data)||[]).forEach(d=>{ if(d.ped_id) dev[d.ped_id]=d; });
     ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
     ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
@@ -6152,6 +6248,11 @@ async function vivoPedidos(){
         estado:m.t, etapa:m.etapa, sync:"ok",
         comisionLiberada: p.estado==="cerrado" || (c && c.estado==="Pagada"),
         factura:p.factura||"", demo:!!p.es_demo,
+        /* el estado CRUDO: `estado` de arriba ya viene traducido ("Facturado"),
+           y decidir sobre texto de pantalla se rompe el dia que cambie la
+           etiqueta. */
+        estadoBd:p.estado||"", monto:Number(importe.toFixed(2)),
+        devolucion: dev[p.ped_id] || null,
         linea: ETAPAS_PEDIDO.map((t,i)=>({
           t,
           f: i===0 ? selloCorto(p.creado) : (i<m.linea ? "✓ cumplido" : "—"),
@@ -8186,7 +8287,7 @@ function App({usuario}){
         {tab==="mensajes" && <ChatEquipo usuario={usuario} toast={show}/>}
         {tab==="inicio" && <Inicio go={navegar}/>}
         {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)} go={navegar} irGuardado={irAPedidosGuardado} paso={pasoPedido} setPaso={setPasoPedido}/>}
-        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos} vivo={pedidosVivos}/>}
+        {tab==="pedidos" && <Pedidos irInicio={irInicio} pedidos={pedidos} vivo={pedidosVivos} toast={show}/>}
         {tab==="cobros" && <Cobros toast={show}/>}
         {tab==="cuenta" && <Cuenta onDemoBloquear={()=>setBloqueado(true)} toast={show} datos={comisionesApp}/>}
         {tab==="agenda" && <Agenda toast={show} datos={agendaApp}/>}
