@@ -50,4 +50,26 @@ for (const app of APPS) {
   console.log(`✓ ${app}: compilada (${(js.length/1024).toFixed(0)} KB de JS)`);
 }
 if (fallo) { console.error("\nHay errores: NO se publica."); process.exit(1); }
+/* 3) EL CNAME · 31/07/2026 ─────────────────────────────────────────────────
+   El robot publica haciendo `git init` dentro de dist/ y un push FORZADO a
+   gh-pages. Eso significa que gh-pages queda siendo EXACTAMENTE dist/ y nada
+   más: lo que no esté aquí, desaparece de la rama publicada.
+
+   El archivo CNAME es el que le dice a GitHub Pages que este sitio se sirve
+   en intesgo.app. GitHub lo guarda ahí solo, la primera vez que configuras el
+   dominio en la pantalla de Settings. La primera publicación posterior lo
+   BORRABA, y el sitio se caía del dominio propio —404 en intesgo.app— aunque
+   siguiera vivo en intesgo.github.io/freelance/. Pasó de verdad el 31/07/2026.
+
+   Como el paso 1 copia todos los archivos sueltos de la raíz, basta con que
+   CNAME exista en la raíz del repositorio. Esta comprobación está aquí para
+   que, si alguien lo borra, el compilador se plante ANTES de publicar en vez
+   de tumbar el dominio y que nos enteremos por un cliente. */
+if (!fs.existsSync(path.join(DIST, "CNAME"))) {
+  console.error("\nFALTA el archivo CNAME en dist/.");
+  console.error("Sin él, la publicación BORRA el dominio propio y el sitio se cae de intesgo.app.");
+  console.error("Solución: crear un archivo CNAME en la raíz del repositorio con una sola línea: intesgo.app");
+  process.exit(1);
+}
+
 console.log("\nListo: dist/ contiene la publicación precompilada.");
