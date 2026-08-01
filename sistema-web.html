@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"74", fecha:"1 ago 2026", desc:"Expediente de crédito: los botones Ver/Subir ahora funcionan de verdad (suben y abren el archivo de cada documento) en el formulario y en la ficha" };
+const VERSION = { n:"75", fecha:"1 ago 2026", desc:"Expediente: en la ficha solo se puede Ver (sin subir); subir/cambiar/eliminar solo al editar el cliente y solo freelance y financiero. Se agregó eliminar documento" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -639,7 +639,18 @@ function useExpediente(cliId, activo) {
       window.open(data.signedUrl, "_blank");
     } catch (e) { alert("No se pudo abrir el archivo: " + ((e && e.message) || e)); }
   };
-  return { subidos, ocupado, subir, ver, disponible: !!cliId };
+  const eliminar = async (i) => {
+    if (!cliId) return;
+    if (!window.confirm("¿Eliminar este documento del expediente? Luego podrás subir uno nuevo.")) return;
+    setOcupado(i);
+    try {
+      const { error } = await window.supa.storage.from(BUCKET).remove([ruta(i)]);
+      if (error) throw error;
+      setSubidos(prev => prev.filter(x => x !== i));
+    } catch (e) { alert("No se pudo eliminar: " + ((e && e.message) || e)); }
+    setOcupado(-1);
+  };
+  return { subidos, ocupado, subir, ver, eliminar, disponible: !!cliId };
 }
 // Botón por documento: "Ver" si ya hay archivo, "Subir"/"Cambiar" para adjuntarlo
 function BotonExpediente({ exp, i, editable }) {
@@ -653,6 +664,8 @@ function BotonExpediente({ exp, i, editable }) {
         onChange={e=>{ const f = e.target.files && e.target.files[0]; if (f) exp.subir(i, f); e.target.value=""; }} />
       {subido && <button onClick={()=>exp.ver(i)} style={{ ...btn, color:COLOR.teal }}>Ver</button>}
       {editable && <button disabled={cargando || !exp.disponible} onClick={()=>ref.current && ref.current.click()} style={{ ...btn, color: exp.disponible?COLOR.muted:"#bbb", cursor: exp.disponible?"pointer":"not-allowed" }}>{cargando ? "…" : (subido ? "Cambiar" : "Subir")}</button>}
+      {editable && subido && <button disabled={cargando} onClick={()=>exp.eliminar(i)} style={{ ...btn, color: COLOR.red||"#c0392b" }}>Eliminar</button>}
+      {!editable && !subido && <span style={{ fontSize:11, color:COLOR.muted, fontWeight:600 }}>Pendiente</span>}
     </div>
   );
 }
@@ -14834,6 +14847,8 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   const [aviso, setAviso] = useState("");
   const [excepcionFreelance, setExcepcionFreelance] = useState(false); // freelance autoriza guardar crédito incompleto
   const esFreelance = usuario && usuario.rol === "Freelance";
+  // Solo freelance y financiero (cargo contadora) pueden subir/cambiar/eliminar archivos del expediente
+  const puedeEditarExp = !!usuario && (usuario.cargo==="freelance" || usuario.cargo==="contadora" || usuario.rol==="Freelance" || usuario.rol==="Contadora");
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
   const exp = useExpediente(form.id, (form.condicionPago==="Crédito")||(form.listaPrecio==="Crédito"));
 
@@ -15343,7 +15358,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
                 <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 13px", borderRadius:8, marginBottom:6, background: ok?"#E9F8EF":"#F7F9FB", border:`1px solid ${ok?"#bce5cd":COLOR.border}` }}>
                   <div onClick={()=>set("docsOk", ok ? i : i+1)} title="Marcar o desmarcar entregado" style={{ width:26, height:26, borderRadius:6, background: ok?"#1c7a44":COLOR.border, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff", cursor:"pointer", flexShrink:0 }}>{i+1}</div>
                   <p onClick={()=>set("docsOk", ok ? i : i+1)} style={{ flex:1, fontSize:13, color:COLOR.text, cursor:"pointer" }}>{doc}</p>
-                  <BotonExpediente exp={exp} i={i} editable={true} />
+                  <BotonExpediente exp={exp} i={i} editable={puedeEditarExp} />
                   <span style={{ fontSize:16 }}>{ok ? "✅" : "📎"}</span>
                 </div>
               );
@@ -16490,12 +16505,12 @@ function FichaCliente({ cli, money, nombreProd, soloLectura, onVolver, onInicio,
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 13px", borderRadius:9, background: ok?"#E9F8EF":"#F7F9FB", border:`1px solid ${ok?"#bce5cd":COLOR.border}` }}>
                     <span style={{ fontSize:16 }}>{ok ? "✅" : "📎"}</span>
                     <span style={{ flex:1, fontSize:12, color: ok?"#1c7a44":COLOR.muted, fontWeight: ok?600:500 }}>{doc}</span>
-                    <BotonExpediente exp={exp} i={i} editable={!soloLectura} />
+                    <BotonExpediente exp={exp} i={i} editable={false} />
                   </div>
                 );
               })}
             </div>
-            <p style={{ fontSize:11, color:COLOR.muted, marginTop:8 }}>“Ver” abre el archivo; “Subir” lo adjunta. Los de contado no requieren expediente. Los archivos se guardan en el depósito privado del sistema.</p>
+            <p style={{ fontSize:11, color:COLOR.muted, marginTop:8 }}>“Ver” abre cada documento subido. Para subir, cambiar o eliminar archivos, edita el cliente (solo freelance y financiero pueden hacerlo).</p>
           </div>
         )}
         </>)}
