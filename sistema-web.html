@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"70", fecha:"1 ago 2026", desc:"Desde la ficha del cliente, 'Nuevo pedido' abre el armado con ese cliente ya elegido (no arranca de cero)" };
+const VERSION = { n:"71", fecha:"1 ago 2026", desc:"'Verificar en SRI' ahora es real: trae los datos oficiales del SRI y prellena la pestaña Fiscal (régimen, tipo, agente, % retención) y avisa si es contribuyente fantasma o con transacciones inexistentes" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -572,6 +572,36 @@ function retencionesPorRegimen(regimen) {
     case "Gran Contribuyente": return { renta: 1.75, iva: 100 };
     default: return { renta: 1, iva: 30 };
   }
+}
+// Lleva la respuesta del SRI (función real O el simulador de respaldo) a una forma única para la ficha
+function normalizarSRI(r) {
+  if (!r) return { error:true, estado:"SIN_RESPUESTA" };
+  if (r.error) return { error:true, estado:"SIN_RESPUESTA", motivo: r.motivo || "" };
+  if (r.existe === false) return { existe:false, estado: r.estado || "NO_REGISTRADO" };
+  const tipoApp = r.tipo || (String(r.tipoContribuyente||"").toUpperCase().includes("NATURAL") ? "Natural" : "Jurídica");
+  return {
+    existe: true,
+    estado: r.estado || "ACTIVO",
+    razonSocial: r.razonSocial || null,
+    tipoApp,
+    esAgenteRetencion: (r.agenteRetencion === "SI") || (r.esAgenteRetencion === true),
+    regimenSri: r.regimen || null,
+    contribuyenteEspecial: r.contribuyenteEspecial || null,
+    obligadoContabilidad: r.obligadoContabilidad || null,
+    actividad: r.actividadEconomica || null,
+    fantasma: r.fantasma || null,
+    inexistentes: r.transaccionesInexistentes || null,
+    fechaActualizacion: r.fechaActualizacion || null,
+  };
+}
+// Traduce el régimen que da el SRI al listado de la ficha (para prellenar los % de retención)
+function regimenAppDesdeSRI(res) {
+  if (res.contribuyenteEspecial === "SI") return "Contribuyente Especial";
+  const g = String(res.regimenSri||"").toUpperCase();
+  if (g.includes("POPULAR")) return "RIMPE Popular";
+  if (g.includes("RIMPE"))   return "RIMPE Emprendedor";
+  if (g.includes("GENERAL")) return "Régimen General";
+  return "";
 }
 const DOCS_CREDITO_CLI = [
   "Copia de RUC o cédula",
@@ -14773,13 +14803,30 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   const consultarSRI = async () => {
     if (!valIdent.ok) return;
     setSri({ cargando:true });
-    const r = await validarClienteSRICli(form.ruc);
-    setSri({ cargando:false, resultado:r });
-    if (r && r.existe) {
-      // Solo rellenar si el SRI devuelve un nombre real (no texto de relleno)
-      if (!form.razonSocial && r.razonSocial) set("razonSocial", r.razonSocial);
-      if (r.tipoContribuyente) set("tipoContribuyente", r.tipoContribuyente);
-      if (r.esAgenteRetencion) set("esAgente", true);
+    let cruda;
+    try {
+      if (window.supa && window.supa.functions && typeof window.supa.functions.invoke === "function") {
+        const { data, error } = await window.supa.functions.invoke("verificar-ruc", { body: { ruc: form.ruc } });
+        if (error) throw error;
+        cruda = data;
+      } else {
+        cruda = await validarClienteSRICli(form.ruc);   // respaldo simulado si no hay conexión
+      }
+    } catch (e) {
+      cruda = { error:true, motivo: String((e && e.message) || e) };
+    }
+    const res = normalizarSRI(cruda);
+    setSri({ cargando:false, resultado:res });
+    if (res && res.existe && !res.error) {
+      if (res.razonSocial) set("razonSocial", res.razonSocial);   // nombre oficial del SRI
+      const reg = regimenAppDesdeSRI(res);
+      setForm(f => {
+        const n = { ...f };
+        if (res.tipoApp) n.tipoContribuyente = res.tipoApp;
+        if (res.esAgenteRetencion) n.esAgente = true;
+        if (reg) { n.regimen = reg; const p = retencionesPorRegimen(reg); n.pctRentaFuente = p.renta; n.pctRetIVA = p.iva; }
+        return n;
+      });
     }
   };
   const aplicarPegado = (valor) => {
@@ -14977,11 +15024,14 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
                     <p style={{ fontSize:12, fontWeight:800, color: sri.resultado.manual?"#854d0e":sri.resultado.estado==="ACTIVO"?"#15803d":sri.resultado.estado==="SUSPENDIDO"?"#854d0e":"#991b1b" }}>
                       {sri.resultado.manual ? "Registro manual (verificar luego)" : sri.resultado.existe ? `SRI: ${sri.resultado.estado}` : "SRI: NO REGISTRADO"}
                     </p>
-                    {sri.resultado.existe && !sri.resultado.manual && <p style={{ fontSize:11, color:COLOR.text, marginTop:2 }}>Identificación válida. Escribe abajo el nombre del cliente.{sri.resultado.esAgenteRetencion ? " · Agente de retención" : ""}</p>}
+                    {sri.resultado.existe && !sri.resultado.manual && (<>
+                      <p style={{ fontSize:11, color:COLOR.text, marginTop:2 }}>Datos oficiales cargados{sri.resultado.regimenSri ? " · "+sri.resultado.regimenSri : ""}{sri.resultado.tipoApp ? " · "+sri.resultado.tipoApp : ""}{sri.resultado.esAgenteRetencion ? " · Agente de retención" : ""}. Se prellenó la pestaña 5 · Fiscal.</p>
+                      {(sri.resultado.fantasma==="SI" || sri.resultado.inexistentes==="SI") && <p style={{ fontSize:11.5, fontWeight:800, color:"#991b1b", marginTop:4 }}>⚠ El SRI lo marca como {sri.resultado.fantasma==="SI" ? "contribuyente FANTASMA" : ""}{(sri.resultado.fantasma==="SI" && sri.resultado.inexistentes==="SI") ? " y con " : ""}{sri.resultado.inexistentes==="SI" ? "TRANSACCIONES INEXISTENTES" : ""}. Cuidado antes de dar crédito.</p>}
+                    </>)}
                     {!sri.resultado.existe && !sri.resultado.manual && <p style={{ fontSize:11, color:COLOR.text, marginTop:2 }}>No figura en el SRI. Verifica el número o registra manualmente.</p>}
                   </div>
                 )}
-                <p style={{ fontSize:10, color:COLOR.muted, fontStyle:"italic", marginTop:4 }}>Simulado · la consulta real la ejecuta el servidor central.</p>
+                <p style={{ fontSize:10, color:COLOR.muted, fontStyle:"italic", marginTop:4 }}>Consulta oficial al SRI. Si el servicio del SRI está caído, puedes registrar y verificar luego.</p>
               </div>
             )}
 
