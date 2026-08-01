@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"71", fecha:"1 ago 2026", desc:"'Verificar en SRI' ahora es real: trae los datos oficiales del SRI y prellena la pestaña Fiscal (régimen, tipo, agente, % retención) y avisa si es contribuyente fantasma o con transacciones inexistentes" };
+const VERSION = { n:"72", fecha:"1 ago 2026", desc:"N° de resolución del agente ahora es opcional (no traba el guardado); y el menú lateral funciona como acordeón: solo un grupo desplegado a la vez" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1928,8 +1928,18 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
     gruposNormales.forEach(g => { init[g.titulo] = g.titulo === "Principal" || g.items.some(s => s.key === active); });
     return init;
   });
-  // "Principal" no se puede plegar (Dashboard siempre visible)
-  const toggle = (t) => { if (t === "Principal") return; setAbiertos(prev => ({ ...prev, [t]: !prev[t] })); };
+  // Acordeón: solo un grupo desplegado a la vez. "Principal" queda siempre visible (Dashboard).
+  // Al abrir un grupo, los demás se pliegan; si tocas el que ya está abierto, se cierra.
+  const toggle = (t) => {
+    if (t === "Principal") return;
+    setAbiertos(prev => {
+      const yaAbierto = !!prev[t];
+      const next = {};
+      gruposNormales.forEach(g => { next[g.titulo] = (g.titulo === "Principal"); });
+      if (!yaAbierto) next[t] = true;
+      return next;
+    });
+  };
 
   return (
     <div style={{ width:236, background:COLOR.sidebar, display:"flex", flexDirection:"column", minHeight:"100vh", flexShrink:0 }}>
@@ -1957,7 +1967,7 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
           return (
             <div key={g.titulo} style={{ marginBottom:4 }}>
               {/* Encabezado del grupo */}
-              <div onClick={() => toggle(g.titulo)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", cursor: g.titulo==="Principal"?"default":"pointer", userSelect:"none" }}>
+              <div onClick={() => toggle(g.titulo)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:8, background: (open && g.titulo!=="Principal") ? "#16242f" : "transparent", cursor: g.titulo==="Principal"?"default":"pointer", userSelect:"none" }}>
                 {g.titulo!=="Principal" && <span style={{ fontSize:9, color:"#4a7a8a", transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}>▶</span>}
                 {/* v1.0 · el ícono del grupo viene del propio GRUPOS_MENU. Si un grupo
                     no lo trae, el encabezado se pinta igual, solo sin ícono: por eso
@@ -14873,7 +14883,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
     }
     if (i===4 && esCredito) { // Fiscal
       if (!form.tipoContribuyente) return "Falta el tipo de contribuyente";
-      if (form.esAgente && (!form.numResolucion || !form.numResolucion.trim())) return "Falta N° de resolución (agente)";
+      // N° de resolución del agente: opcional (no bloquea el guardado)
       return "";
     }
     /* v54 · pestaña 5 es FACTURACIÓN (terceros). Antes este bloque decía i===5 y
@@ -15212,7 +15222,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
                 <span style={{ position:"absolute", top:3, left: form.esAgente?23:3, width:18, height:18, borderRadius:"50%", background:"#fff", transition:"left .15s" }} />
               </span>
             </div>
-            {form.esAgente && campo("Número resolución agente","numResolucion")}
+            {form.esAgente && campo("Número resolución agente (opcional)","numResolucion")}
             {campo("% Retención en la fuente","pctRentaFuente","1","number")}
             {campo("% Retención IVA","pctRetIVA","30","number")}
             {campo("Plazo entrega retención (días háb.)","plazoRetencion","5","number")}
