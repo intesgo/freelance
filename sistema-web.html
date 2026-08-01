@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"76", fecha:"1 ago 2026", desc:"En Subir pedido, la lista de clientes ahora muestra la razón social (y se busca por nombre o razón social)" };
+const VERSION = { n:"77", fecha:"1 ago 2026", desc:"En Subir pedido del Sistema web, el catálogo por piladora sale de las ofertas vigentes (igual que el freelance): muestra todos los productos que ofrece cada piladora, no solo los del campo antiguo" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4585,22 +4585,41 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   // Fuente de clientes: reales si cargaron, demo si no
   const CLIENTES = (clientesReales && clientesReales.length > 0) ? clientesReales : CLIENTES_WEB;
 
-  // Productos reales (de arroz, activos) desde Supabase + proveedores
+  // Catálogo por PILADORA desde las ofertas vigentes (igual que la app del freelance).
+  // Un mismo arroz puede ofrecerlo más de una piladora, por eso el catálogo sale de las
+  // ofertas (v_ofertas_vigentes), no del campo "proveedor" del maestro de productos.
   const [prodsReales, setProdsReales] = useState(null);
   React.useEffect(() => {
     if (!window.supa) return;
     (async () => {
       try {
-        const { data: prods } = await window.supa.from("productos")
-          .select("prod_id, nombre, linea, proveedor, proveedor_cod")
-          .eq("estado", "activo").order("nombre");
-        if (prods && prods.length > 0) {
-          setProdsReales(prods.map(p => ({
-            id: p.prod_id, nombre: p.nombre, linea: p.linea,
-            prov: p.proveedor || "POR ASIGNAR", provCod: p.proveedor_cod || "",
-            ic: "🌾", unidad: "qq",
-          })));
-        } else { setProdsReales([]); }
+        const [{ data: prods }, { data: ofertas }, { data: provs }] = await Promise.all([
+          window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
+          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod").limit(2000),
+          window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
+        ]);
+        if (prods && prods.length && ofertas && ofertas.length) {
+          const nombreProd = {}, lineaProd = {};
+          prods.forEach(p => { nombreProd[p.prod_id] = p.nombre; lineaProd[p.prod_id] = p.linea; });
+          const nombreProv = {};
+          (provs || []).forEach(v => { nombreProv[v.prov_cod] = v.nombre; });
+          const vistos = new Set();
+          const catalogo = [];
+          ofertas.forEach(o => {
+            if (!o.prod_id || !o.prov_cod || !nombreProd[o.prod_id]) return;   // sin producto activo: no se lista
+            const clave = o.prov_cod + "·" + o.prod_id;
+            if (vistos.has(clave)) return;                                     // una entrada por (piladora, producto)
+            vistos.add(clave);
+            catalogo.push({
+              id: o.prod_id, nombre: nombreProd[o.prod_id], linea: lineaProd[o.prod_id] || "Arroz",
+              prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
+              ic: "🌾", unidad: "qq",
+            });
+          });
+          catalogo.sort((a,b) => a.nombre.localeCompare(b.nombre));
+          if (catalogo.length) { setProdsReales(catalogo); return; }
+        }
+        setProdsReales([]);
       } catch (e) { setProdsReales([]); }
     })();
   }, []);
