@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"88", fecha:"2 ago 2026", desc:"Rediseño del marco (menú lateral + cabecera): logo con más presencia, respuesta al pasar el cursor en menú y pestañas, módulo activo más marcado, y cabecera con acento y mejor jerarquía. Sin tocar lógica ni datos" };
+const VERSION = { n:"89", fecha:"2 ago 2026", desc:"Nuevo menú lateral verde bosque (según imagen de referencia): logo hoja, tarjeta de empresa activa, grupos como barras, módulo activo en verde con punto, y tarjeta de usuario con iniciales y menú de cambiar clave / cerrar sesión. Sin tocar lógica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2063,60 +2063,64 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
     });
   };
 
+  const [verMenuUsr, setVerMenuUsr] = useState(false);
+  const iniciales = ((usuario.nombre||"?").split(/\s+/).filter(Boolean).map(w=>w[0]).slice(0,2).join("").toUpperCase()) || "?";
+  // Paleta verde bosque del menú (como la imagen de referencia)
+  const SB = { bg:"#0e1a14", card:"#16261d", line:"#22362b", green:"#18a558", txt:"#c6d7cd", mut:"#7f998b", label:"#5f9c7e" };
+
   return (
-    <div style={{ width:236, background:COLOR.sidebar, display:"flex", flexDirection:"column", minHeight:"100vh", flexShrink:0 }}>
-      <div style={{ padding:"22px 20px 16px", borderBottom:"1px solid #1e2d3d" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:40, height:40, background:"linear-gradient(135deg,#1a7a6e,#0f5a52)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, boxShadow:"0 3px 10px rgba(26,122,110,.45)" }}>🌾</div>
-          <div>
-            <p style={{ color:"#fff", fontSize:15, fontWeight:800, letterSpacing:.3 }}>FREELANCE</p>
-            <p style={{ color:"#4a7a8a", fontSize:11 }}>Sistema Web · Central</p>
+    <div style={{ width:248, background:SB.bg, display:"flex", flexDirection:"column", minHeight:"100vh", flexShrink:0 }}>
+      {/* Marca + empresa activa */}
+      <div style={{ padding:"20px 18px 14px", borderBottom:`1px solid ${SB.line}` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:11 }}>
+          <span style={{ fontSize:30, lineHeight:1 }}>🌱</span>
+          <div style={{ minWidth:0 }}>
+            <p style={{ color:"#fff", fontSize:17, fontWeight:800, letterSpacing:.3 }}>FREELANCE</p>
+            <p style={{ color:SB.mut, fontSize:11 }}>Sistema Web · Central</p>
             <EstadoConexion />
           </div>
         </div>
-        <div style={{ marginTop:14, padding:"9px 11px", background:"#16242f", borderRadius:9, display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ fontSize:13 }}>🏢</span>
-          <div style={{ minWidth:0 }}>
-            <p style={{ color:"#6f8a96", fontSize:9.5, fontWeight:700, textTransform:"uppercase", letterSpacing:.4 }}>Empresa</p>
-            <p style={{ color:"#dfe9ed", fontSize:12, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{empresa}</p>
+        <div style={{ marginTop:14, padding:"11px 12px", background:SB.card, borderRadius:12, border:`1px solid ${SB.line}`, display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:38, height:38, background:"#123529", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>🏢</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <p style={{ color:SB.green, fontSize:9, fontWeight:800, textTransform:"uppercase", letterSpacing:.5 }}>Empresa activa</p>
+            <p style={{ color:"#fff", fontSize:12.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{empresa}</p>
+            <p style={{ color:SB.mut, fontSize:10.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre} · {usuario.rol}</p>
           </div>
         </div>
       </div>
-      <nav style={{ flex:1, padding:"10px 10px", overflowY:"auto" }}>
+      <nav style={{ flex:1, padding:"12px 10px", overflowY:"auto" }}>
         {gruposVisibles.map(g => {
           const open = abiertos[g.titulo];
           const tieneActiva = g.items.some(s => s.key === active);
           return (
-            <div key={g.titulo} style={{ marginBottom:4 }}>
-              {/* Encabezado del grupo */}
+            <div key={g.titulo} style={{ marginBottom:6 }}>
+              {/* Encabezado del grupo (barra) */}
               <div onClick={() => toggle(g.titulo)}
-                onMouseEnter={e=>{ if(g.titulo!=="Principal" && !open) e.currentTarget.style.background="#131f29"; }}
-                onMouseLeave={e=>{ if(g.titulo!=="Principal" && !open) e.currentTarget.style.background="transparent"; }}
-                style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", borderRadius:8, background: (open && g.titulo!=="Principal") ? "#16242f" : "transparent", cursor: g.titulo==="Principal"?"default":"pointer", userSelect:"none", transition:"background .15s" }}>
-                {g.titulo!=="Principal" && <span style={{ fontSize:9, color:"#4a7a8a", transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}>▶</span>}
-                {/* v1.0 · el ícono del grupo viene del propio GRUPOS_MENU. Si un grupo
-                    no lo trae, el encabezado se pinta igual, solo sin ícono: por eso
-                    quitar los íconos es borrar seis campos, no tocar esta línea. */}
-                {g.icono && <span style={{ fontSize:12, lineHeight:1 }}>{g.icono}</span>}
-                <span style={{ color:"#6f8a96", fontSize:10.5, fontWeight:700, textTransform:"uppercase", letterSpacing:.5 }}>{g.titulo}</span>
-                {!open && tieneActiva && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:COLOR.teal }} />}
+                onMouseEnter={e=>{ if(g.titulo!=="Principal") e.currentTarget.style.borderColor=SB.green; }}
+                onMouseLeave={e=>{ if(g.titulo!=="Principal") e.currentTarget.style.borderColor=SB.line; }}
+                style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:10, background:SB.card, border:`1px solid ${SB.line}`, cursor: g.titulo==="Principal"?"default":"pointer", userSelect:"none", marginBottom:4, transition:"border-color .15s" }}>
+                {g.titulo!=="Principal" && <span style={{ fontSize:9, color:SB.green, transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}>▶</span>}
+                {g.icono && <span style={{ fontSize:11, lineHeight:1 }}>{g.icono}</span>}
+                <span style={{ color:SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
+                {!open && tieneActiva && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green }} />}
               </div>
               {/* Secciones del grupo */}
               {open && g.items.map(s => {
                 const on = s.key === active;
                 return (
                   <div key={s.key} onClick={() => onNav(s.key)}
-                    onMouseEnter={e=>{ if(!on) e.currentTarget.style.background="#16242f"; }}
+                    onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=SB.card; }}
                     onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}
                     style={{
-                    display:"flex", alignItems:"center", gap:11,
-                    padding:"9px 12px", borderRadius:10, marginBottom:3, marginLeft:2,
-                    background: on ? COLOR.teal : "transparent", cursor:"pointer", transition:"background .15s",
-                    boxShadow: on ? "0 2px 8px rgba(26,122,110,.4)" : "none",
+                    display:"flex", alignItems:"center", gap:12,
+                    padding:"10px 12px", borderRadius:10, marginBottom:2, marginLeft:2,
+                    background: on ? SB.green : "transparent", cursor:"pointer", transition:"background .15s",
+                    boxShadow: on ? "0 4px 12px rgba(24,165,88,.4)" : "none",
                   }}>
                     <span style={{ fontSize:15, width:20, textAlign:"center" }}>{s.icon}</span>
-                    <span style={{ color: on ? "#fff" : "#8aa4b4", fontSize:13, fontWeight: on ? 700 : 500 }}>{s.label}</span>
-                    {on && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:"#fff" }} />}
+                    <span style={{ color: on ? "#fff" : SB.txt, fontSize:13, fontWeight: on ? 700 : 500 }}>{s.label}</span>
+                    {on && <div style={{ marginLeft:"auto", width:7, height:7, borderRadius:"50%", background:"#c7f7d8" }} />}
                   </div>
                 );
               })}
@@ -2124,21 +2128,26 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
           );
         })}
       </nav>
-      <div style={{ padding:"14px 16px", borderTop:"1px solid #1e2d3d" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:10 }}>
-          <div style={{ width:34, height:34, background:"#1e2d3d", borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15 }}>👤</div>
+      {/* Usuario (tarjeta) */}
+      <div style={{ padding:"10px 14px 14px", borderTop:`1px solid ${SB.line}` }}>
+        <div onClick={()=>setVerMenuUsr(v=>!v)} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 12px", background:"linear-gradient(135deg,#12362a,#0f2a20)", borderRadius:14, border:`1px solid ${SB.line}`, cursor:"pointer" }}>
+          <div style={{ width:38, height:38, background:SB.green, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#fff", flexShrink:0 }}>{iniciales}</div>
           <div style={{ flex:1, minWidth:0 }}>
-            <p style={{ color:"#fff", fontSize:12.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre}</p>
-            <p style={{ color:"#4a7a8a", fontSize:11 }}>{usuario.rol}</p>
+            <p style={{ color:"#fff", fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre}</p>
+            <p style={{ color:SB.green, fontSize:11 }}>{usuario.rol}</p>
           </div>
+          <span style={{ color:SB.mut, fontSize:12, transform: verMenuUsr?"rotate(180deg)":"none", transition:"transform .15s" }}>▾</span>
         </div>
-        {onCambiarClave && (
-          <button onClick={onCambiarClave} style={{ width:"100%", padding:"9px", borderRadius:9, border:"1px solid #1e2d3d", background:"transparent", color:"#8aa4b4", fontSize:12.5, fontWeight:600, cursor:"pointer", marginBottom:8 }}>🔑 Cambiar clave</button>
+        {verMenuUsr && (
+          <div style={{ marginTop:8 }}>
+            {onCambiarClave && (
+              <button onClick={onCambiarClave} style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.txt, fontSize:12.5, fontWeight:600, cursor:"pointer", marginBottom:8 }}>🔑 Cambiar clave</button>
+            )}
+            <button onClick={onSalir} style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.txt, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>⏻ Cerrar sesión</button>
+          </div>
         )}
-        <button onClick={onSalir} style={{ width:"100%", padding:"9px", borderRadius:9, border:"1px solid #1e2d3d", background:"transparent", color:"#8aa4b4", fontSize:12.5, fontWeight:600, cursor:"pointer" }}>⏻ Cerrar sesión</button>
-        <p style={{ color:"#4a7a8a", fontSize:10, textAlign:"center", marginTop:10, lineHeight:1.4 }}>
-          Versión {VERSION.fecha} b{VERSION.n}<br/>
-          <span style={{ color:"#3d6675" }}>{VERSION.desc}</span>
+        <p style={{ color:SB.mut, fontSize:9.5, textAlign:"center", marginTop:10, lineHeight:1.4 }}>
+          Versión {VERSION.fecha} b{VERSION.n}
         </p>
       </div>
     </div>
