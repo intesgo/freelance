@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"80", fecha:"2 ago 2026", desc:"Al verificar en SRI, el nombre de personas naturales se normaliza a Nombres Apellidos (el SRI lo da como Apellidos Nombres). Así el nombre corto siempre sale bien (Pedro Castillo)" };
+const VERSION = { n:"81", fecha:"2 ago 2026", desc:"Arreglado el error al elegir 'Promoción freelance' en Subir pedido: los productos del catálogo real ya traen sus precios base (de las ofertas) y no rompen la pantalla" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4625,7 +4625,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       try {
         const [{ data: prods }, { data: ofertas }, { data: provs }] = await Promise.all([
           window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
-          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod").limit(2000),
+          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, costo, costo_contado").limit(3000),
           window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
         ]);
         if (prods && prods.length && ofertas && ofertas.length) {
@@ -4633,18 +4633,23 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           prods.forEach(p => { nombreProd[p.prod_id] = p.nombre; lineaProd[p.prod_id] = p.linea; });
           const nombreProv = {};
           (provs || []).forEach(v => { nombreProv[v.prov_cod] = v.nombre; });
-          const vistos = new Set();
-          const catalogo = [];
+          const porClave = {};   // (piladora · producto) → mejor oferta; se prefiere la presentación QQ para el precio base
           ofertas.forEach(o => {
             if (!o.prod_id || !o.prov_cod || !nombreProd[o.prod_id]) return;   // sin producto activo: no se lista
             const clave = o.prov_cod + "·" + o.prod_id;
-            if (vistos.has(clave)) return;                                     // una entrada por (piladora, producto)
-            vistos.add(clave);
-            catalogo.push({
+            const actual = porClave[clave];
+            if (!actual || (o.pres_cod === "QQ" && actual.pres_cod !== "QQ")) porClave[clave] = o;
+          });
+          const catalogo = Object.keys(porClave).map(clave => {
+            const o = porClave[clave];
+            const credito = Number(o.costo) || Number(o.costo_contado) || 0;
+            const contado = Number(o.costo_contado) || Number(o.costo) || 0;
+            return {
               id: o.prod_id, nombre: nombreProd[o.prod_id], linea: lineaProd[o.prod_id] || "Arroz",
               prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
               ic: "🌾", unidad: "qq",
-            });
+              baseContado: contado, baseCredito: credito, promos: [],   // el catálogo real no trae promos del freelance
+            };
           });
           catalogo.sort((a,b) => a.nombre.localeCompare(b.nombre));
           if (catalogo.length) { setProdsReales(catalogo); return; }
