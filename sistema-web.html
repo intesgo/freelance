@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"83", fecha:"2 ago 2026", desc:"Subir pedido, Fase 1: reloj de cupo + historial de compras del cliente por producto (precio promedio, tendencia y últimas compras reales de la base), como en el freelance" };
+const VERSION = { n:"84", fecha:"2 ago 2026", desc:"Subir pedido, Fase 2: el catálogo ahora muestra presentaciones (Quintal, Arroba…) con su precio, y se agregó el tipo de precio 'Promoción proveedor' (P6) junto a los demás" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1120,7 +1120,8 @@ const TIPOS_PRECIO_WEB = [
   { id:"P1", nombre:"Contado",            desc:"Base de contado" },
   { id:"P2", nombre:"Crédito",            desc:"Base de crédito" },
   { id:"P3", nombre:"Promoción vendedor", desc:"Armas producto gratis" },
-  { id:"P4", nombre:"Promoción freelance",desc:"Eliges una promo de la lista" },
+  { id:"P4", nombre:"Promoción freelance",desc:"Promo de la lista · las gratis las paga el freelance" },
+  { id:"P6", nombre:"Promoción proveedor",desc:"Promo de la piladora · las gratis las paga el proveedor" },
   { id:"P5", nombre:"Precio especial",    desc:"Propones precio y comisión" },
 ];
 
@@ -4650,7 +4651,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       try {
         const [{ data: prods }, { data: ofertas }, { data: provs }] = await Promise.all([
           window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
-          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, costo, costo_contado").limit(3000),
+          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado").limit(4000),
           window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
         ]);
         if (prods && prods.length && ofertas && ofertas.length) {
@@ -4658,23 +4659,23 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           prods.forEach(p => { nombreProd[p.prod_id] = p.nombre; lineaProd[p.prod_id] = p.linea; });
           const nombreProv = {};
           (provs || []).forEach(v => { nombreProv[v.prov_cod] = v.nombre; });
-          const porClave = {};   // (piladora · producto) → mejor oferta; se prefiere la presentación QQ para el precio base
+          // Una entrada por PRESENTACIÓN (Quintal, Arroba, Saco…). El costo de la oferta ya viene por presentación.
+          const catalogo = [];
           ofertas.forEach(o => {
             if (!o.prod_id || !o.prov_cod || !nombreProd[o.prod_id]) return;   // sin producto activo: no se lista
-            const clave = o.prov_cod + "·" + o.prod_id;
-            const actual = porClave[clave];
-            if (!actual || (o.pres_cod === "QQ" && actual.pres_cod !== "QQ")) porClave[clave] = o;
-          });
-          const catalogo = Object.keys(porClave).map(clave => {
-            const o = porClave[clave];
             const credito = Number(o.costo) || Number(o.costo_contado) || 0;
             const contado = Number(o.costo_contado) || Number(o.costo) || 0;
-            return {
-              id: o.prod_id, nombre: nombreProd[o.prod_id], linea: lineaProd[o.prod_id] || "Arroz",
+            const pres = o.presentacion || o.pres_cod || "Unidad";
+            catalogo.push({
+              id: o.prod_id + "-" + (o.pres_cod || "U"),
+              prodId: o.prod_id,
+              nombre: nombreProd[o.prod_id] + " · " + pres,
+              linea: lineaProd[o.prod_id] || "Arroz",
               prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
-              ic: "🌾", unidad: "qq",
-              baseContado: contado, baseCredito: credito, promos: [],   // el catálogo real no trae promos del freelance
-            };
+              ic: "🌾", unidad: pres, equiv: Number(o.equiv_qq) || 1,
+              baseContado: contado, baseCredito: credito,
+              promos: [], promosProv: [],   // sin promos reales (tabla de promociones vacía por ahora)
+            });
           });
           catalogo.sort((a,b) => a.nombre.localeCompare(b.nombre));
           if (catalogo.length) { setProdsReales(catalogo); return; }
@@ -4705,21 +4706,23 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [gratis, setGratis] = useState("");
   const [condP3, setCondP3] = useState("contado");
   const [promoF, setPromoF] = useState(null);
+  const [promoP, setPromoP] = useState(null);   // promoción del proveedor (P6)
   const [comProp, setComProp] = useState("");
   const [motivo, setMotivo] = useState("");
   const [carrito, setCarrito] = useState([]);
 
   // Historial de compras real del cliente para el producto elegido (últimas compras desde la base)
   const [histCompras, setHistCompras] = useState(null);
+  const prodBaseId = prod ? (prod.prodId || prod.id) : null;
   React.useEffect(() => {
-    if (!cli || !cli.id || !prod || !prod.id || !window.supa) { setHistCompras(null); return; }
+    if (!cli || !cli.id || !prodBaseId || !window.supa) { setHistCompras(null); return; }
     let activo = true;
     setHistCompras("cargando");
     (async () => {
       try {
         const { data, error } = await window.supa.from("pedido_items")
           .select("cantidad_qq, precio_usd, tipo_precio, ped_id, pedidos!inner(cli_id, creado)")
-          .eq("prod_id", prod.id).eq("pedidos.cli_id", cli.id)
+          .eq("prod_id", prodBaseId).eq("pedidos.cli_id", cli.id)
           .order("ped_id", { ascending:false }).limit(10);
         if (!activo) return;
         if (error) { setHistCompras([]); return; }
@@ -4730,13 +4733,14 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       } catch (e) { if (activo) setHistCompras([]); }
     })();
     return () => { activo = false; };
-  }, [cli && cli.id, prod && prod.id]);
+  }, [cli && cli.id, prodBaseId]);
 
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseContado
     : tipo==="P2" ? prod.baseCredito
     : tipo==="P3" ? (condP3==="credito"?prod.baseCredito:prod.baseContado)
     : tipo==="P4" ? (promoF?promoF.base:0)
+    : tipo==="P6" ? (promoP?promoP.base:0)
     : 0;
   const cantNum = parseInt(cant)||0;
   const precioNum = parseFloat(precio)||0;
@@ -4758,7 +4762,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const exponeCupo = esCredito ? totalLinea : 0;
   const excedeCupo = cli && !cli.bloqueado && esCredito && (cli.usado + totalCarrito + exponeCupo > cli.cupo);
 
-  const baseLista = esP5 || (tipo==="P4" ? !!promoF : true);
+  const baseLista = esP5 || (tipo==="P4" ? !!promoF : (tipo==="P6" ? !!promoP : true));
   const precioOk = precio!=="" && precioNum>0 && (esP5 || !bajoBase);
   const p5Ok = !esP5 || (comProp!=="" && motivo.trim().length>2);
   const valido = cli && !cli.bloqueado && prod && cantNum>0 && baseLista && precioOk && p5Ok && !excedeCupo;
@@ -4766,7 +4770,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const PROVEEDORES_LISTA = [...new Set(PRODS_PED.map(p=>p.prov))].filter(p=>p!=="POR ASIGNAR");     // proveedores disponibles
   const productosDelProv = provSel ? PRODS_PED.filter(p=>p.prov===provSel) : [];
 
-  const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P2"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setComProp(""); setMotivo(""); };
+  const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P2"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };
   const abrir = () => { setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
   const volver = () => { setVista("lista"); setAviso(""); };
   const elegirProd = (p) => { setProd(p); setProdTexto(p.nombre); setTipo("P2"); setPrecio(""); setPromoF(null); };
@@ -5082,9 +5086,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 </div>
               </div>
               <label style={lbl}>Tipo de precio</label>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:7, marginBottom:14 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:7, marginBottom:14 }}>
                 {TIPOS_PRECIO_WEB.map(t => (
-                  <button key={t.id} onClick={()=>{ setTipo(t.id); setPrecio(""); setPromoF(null); }} title={t.desc} style={{
+                  <button key={t.id} onClick={()=>{ setTipo(t.id); setPrecio(""); setPromoF(null); setPromoP(null); }} title={t.desc} style={{
                     padding:"9px 4px", borderRadius:9, cursor:"pointer", fontSize:11.5, fontWeight:700, lineHeight:1.2,
                     border:`1px solid ${tipo===t.id?COLOR.teal:COLOR.border}`, background: tipo===t.id?COLOR.tealLight:"#fff", color: tipo===t.id?COLOR.tealDark:COLOR.text }}>{t.nombre}</button>
                 ))}
@@ -5099,7 +5103,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               )}
               {tipo==="P4" && (
                 <div style={{ marginBottom:12 }}>
-                  {prod.promos.length===0
+                  {(!prod.promos || prod.promos.length===0)
                     ? <p style={{ fontSize:12.5, color:COLOR.red, fontWeight:600 }}>Este producto no tiene promociones del freelance.</p>
                     : prod.promos.map(pm => (
                         <button key={pm.id} onClick={()=>{ setPromoF(pm); setPrecio(""); }} style={{ width:"100%", textAlign:"left", padding:"11px 13px", borderRadius:9, marginBottom:6, cursor:"pointer", border:`1px solid ${promoF&&promoF.id===pm.id?COLOR.teal:COLOR.border}`, background: promoF&&promoF.id===pm.id?COLOR.tealLight:"#fff" }}>
@@ -5109,8 +5113,21 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                       ))}
                 </div>
               )}
+              {tipo==="P6" && (
+                <div style={{ marginBottom:12 }}>
+                  <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:6 }}>Promoción de la piladora. Las unidades gratis las asume el proveedor.</p>
+                  {(!prod.promosProv || prod.promosProv.length===0)
+                    ? <p style={{ fontSize:12.5, color:COLOR.red, fontWeight:600 }}>Este producto no tiene promociones del proveedor.</p>
+                    : prod.promosProv.map(pm => (
+                        <button key={pm.id} onClick={()=>{ setPromoP(pm); setPrecio(""); }} style={{ width:"100%", textAlign:"left", padding:"11px 13px", borderRadius:9, marginBottom:6, cursor:"pointer", border:`1px solid ${promoP&&promoP.id===pm.id?COLOR.teal:COLOR.border}`, background: promoP&&promoP.id===pm.id?COLOR.tealLight:"#fff" }}>
+                          <span style={{ fontSize:13, fontWeight:700, color:COLOR.text }}>{pm.nombre}</span>
+                          <span style={{ fontSize:12, color:COLOR.muted }}> · base {money(pm.base)} · {pm.detalle}</span>
+                        </button>
+                      ))}
+                </div>
+              )}
               {tipo!=="P5" && base>0 && (
-                <p style={{ fontSize:12, color:COLOR.muted, marginBottom:12 }}>Base de referencia: <b className="num" style={{ color:COLOR.text }}>{money(base)}</b>{tipo==="P4"&&promoF?" (promo)":""}</p>
+                <p style={{ fontSize:12, color:COLOR.muted, marginBottom:12 }}>Base de referencia: <b className="num" style={{ color:COLOR.text }}>{money(base)}</b>{((tipo==="P4"&&promoF)||(tipo==="P6"&&promoP))?" (promo)":""}</p>
               )}
 
               {/* Historial de compras del cliente para este producto (como en el freelance) */}
