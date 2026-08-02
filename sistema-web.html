@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"99", fecha:"2 ago 2026", desc:"Subir pedido: Flete y Estibada ahora son botones para elegir quién asume (freelance ↔ cliente) en cada pedido; por defecto toma lo del cliente. Si el cliente retira en bodega, se apagan (no aplica). La elección aún no se guarda en la base (pendiente de aprobar el campo)" };
+const VERSION = { n:"100", fecha:"2 ago 2026", desc:"Subir pedido: los botones ¿Quién asume? (Flete/Estibada) ahora van debajo de ¿Cómo lo recibe? y la elección SE GUARDA en el pedido (campos asume_flete/asume_estibada). Si retira en bodega, se guardan como 'no aplica'. Sin tocar otra lógica" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4933,6 +4933,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         ped_id:pedId, cli_id:cli.id, sub_id:subId, prov_cod:provCod,
         ubicacion_id: retiroBodega ? null : ((ubicPed && ubicPed.ubic_id) || null),
         retiro_bodega: !!retiroBodega,
+        asume_flete: retiroBodega ? null : asumeFlete,
+        asume_estibada: retiroBodega ? null : asumeEstibada,
         estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
       if (e1) return { ok:false, motivo:e1.message||"error_pedido" };
       const filas = items.map((it,i)=>({
@@ -5179,34 +5181,6 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               🔒 Cliente bloqueado: {cli.motivoBloqueo}. No se puede tomar pedido.
             </div>
           )}
-          {cli && !cli.bloqueado && (<>
-            <label style={lbl}>¿Quién asume?</label>
-            <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
-              {[
-                { ic:"🚚", lbl:"Flete", val:asumeFlete, set:setAsumeFlete },
-                { ic:"📦", lbl:"Estibada", val:asumeEstibada, set:setAsumeEstibada },
-              ].map((f,idx) => {
-                const cliente = f.val==="cliente";
-                const off = retiroBodega;   // si retira en bodega del proveedor, no hay flete ni estibada
-                return (
-                  <button key={idx} disabled={off} onClick={()=>f.set(cliente?"freelance":"cliente")}
-                    style={{ flex:"1 1 160px", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:10,
-                      border:`1px solid ${off?COLOR.border:(cliente?COLOR.teal:COLOR.border)}`,
-                      background: off?"#f3f5f4":(cliente?COLOR.tealLight:"#fff"),
-                      cursor: off?"default":"pointer", textAlign:"left", opacity: off?.55:1, transition:"all .15s" }}>
-                    <span style={{ fontSize:17 }}>{f.ic}</span>
-                    <span style={{ lineHeight:1.25 }}>
-                      <span style={{ fontSize:12.5, fontWeight:700, color: off?"#9aa3ad":COLOR.text }}>{f.lbl}</span><br/>
-                      <span style={{ fontSize:11, fontWeight:600, color: off?"#9aa3ad":(cliente?COLOR.tealDark:COLOR.muted) }}>
-                        {off ? "No aplica" : (cliente ? "lo asume el cliente" : "lo asume el freelance")}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </>)}
-
           {cli && !cli.bloqueado && ultimoPedido && carrito.length===0 && (
             <button onClick={repetirUltimo} style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:`1.5px dashed ${COLOR.teal}`, background:COLOR.tealLight, color:COLOR.tealDark, cursor:"pointer", fontSize:13, fontWeight:700, marginBottom:16, textAlign:"left" }}>
               🔁 Repetir último pedido <span style={{ fontWeight:500, color:COLOR.muted }}>· {ultimoPedido.items.length} producto(s){ultimoPedido.fecha?" · "+ultimoPedido.fecha:""}</span>
@@ -5231,6 +5205,33 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             )}
             {retiroBodega && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>El cliente retira en la bodega del proveedor. Este pedido no va a la ruta del chofer.</p>}
             {!retiroBodega && ubicPed && ubicsCli.length<=1 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>Entrega en: {ubicPed.nombre}{ubicPed.ciudad?" · "+ubicPed.ciudad:""}</p>}
+
+            {/* ¿Quién asume? flete/estibada — se apagan si el cliente retira en bodega */}
+            <label style={lbl}>¿Quién asume?</label>
+            <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+              {[
+                { ic:"🚚", lbl:"Flete", val:asumeFlete, set:setAsumeFlete },
+                { ic:"📦", lbl:"Estibada", val:asumeEstibada, set:setAsumeEstibada },
+              ].map((f,idx) => {
+                const cliente = f.val==="cliente";
+                const off = retiroBodega;
+                return (
+                  <button key={idx} disabled={off} onClick={()=>f.set(cliente?"freelance":"cliente")}
+                    style={{ flex:"1 1 160px", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:10,
+                      border:`1px solid ${off?COLOR.border:(cliente?COLOR.teal:COLOR.border)}`,
+                      background: off?"#f3f5f4":(cliente?COLOR.tealLight:"#fff"),
+                      cursor: off?"default":"pointer", textAlign:"left", opacity: off?.55:1, transition:"all .15s" }}>
+                    <span style={{ fontSize:17 }}>{f.ic}</span>
+                    <span style={{ lineHeight:1.25 }}>
+                      <span style={{ fontSize:12.5, fontWeight:700, color: off?"#9aa3ad":COLOR.text }}>{f.lbl}</span><br/>
+                      <span style={{ fontSize:11, fontWeight:600, color: off?"#9aa3ad":(cliente?COLOR.tealDark:COLOR.muted) }}>
+                        {off ? "No aplica" : (cliente ? "lo asume el cliente" : "lo asume el freelance")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Proveedor primero */}
             <label style={lbl}>Proveedor</label>
