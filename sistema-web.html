@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"86", fecha:"2 ago 2026", desc:"Subir pedido de la oficina ahora GUARDA el pedido en Supabase (pedidos + pedido_items) como el freelance, y se agregó 'Repetir último pedido'. Con esto el flujo queda totalmente vinculado a la base" };
+const VERSION = { n:"87", fecha:"2 ago 2026", desc:"Subir pedido: se agregó '¿Cómo lo recibe?' (entrega a domicilio con su local, o retira en bodega del proveedor) y se guarda en el pedido (ubicación / retiro en bodega)" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4771,6 +4771,27 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     return () => { activo = false; };
   }, [cli && cli.id]);
 
+  // ¿Cómo lo recibe? domicilio (con local de entrega) o retira en bodega del proveedor
+  const [ubicsCli, setUbicsCli] = useState([]);
+  const [ubicPed, setUbicPed] = useState(null);
+  const [retiroBodega, setRetiroBodega] = useState(false);
+  React.useEffect(() => {
+    setRetiroBodega(false); setUbicPed(null); setUbicsCli([]);
+    if (!cli || !cli.id || !window.supa) return;
+    let activo = true;
+    (async () => {
+      try {
+        const { data } = await window.supa.from("ubicaciones_cliente")
+          .select("ubic_id, nombre, principal, ciudad, direccion").eq("cli_id", cli.id);
+        if (!activo) return;
+        const lista = data || [];
+        setUbicsCli(lista);
+        setUbicPed(lista.find(u=>u.principal) || lista[0] || null);
+      } catch (e) {}
+    })();
+    return () => { activo = false; };
+  }, [cli && cli.id]);
+
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseContado
     : tipo==="P2" ? prod.baseCredito
@@ -4867,7 +4888,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       try { const { data:yo } = await window.supa.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1); if (yo && yo[0]) subId = yo[0].usr_id; } catch(e0){}
       const { error:e1 } = await window.supa.from("pedidos").insert({
         ped_id:pedId, cli_id:cli.id, sub_id:subId, prov_cod:provCod,
-        ubicacion_id:null, retiro_bodega:false,
+        ubicacion_id: retiroBodega ? null : ((ubicPed && ubicPed.ubic_id) || null),
+        retiro_bodega: !!retiroBodega,
         estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
       if (e1) return { ok:false, motivo:e1.message||"error_pedido" };
       const filas = items.map((it,i)=>({
@@ -5159,6 +5181,24 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           )}
 
           {cli && !cli.bloqueado && (<>
+            {/* ¿Cómo lo recibe? domicilio (a la ruta del chofer) o retira en bodega del proveedor */}
+            <label style={lbl}>¿Cómo lo recibe?</label>
+            <div style={{ display:"flex", gap:8, marginBottom: (retiroBodega || ubicsCli.length>1) ? 8 : 16 }}>
+              {[["domicilio","🚚 Entrega a domicilio"],["bodega","🏭 Retira en bodega del proveedor"]].map(([k,t])=>{
+                const on = (k==="bodega")===retiroBodega;
+                return <button key={k} onClick={()=>setRetiroBodega(k==="bodega")} style={{ flex:1, padding:"10px 8px", borderRadius:9, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t}</button>;
+              })}
+            </div>
+            {!retiroBodega && ubicsCli.length>1 && (
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+                {ubicsCli.map(u=>{ const on = ubicPed && ubicPed.ubic_id===u.ubic_id; return (
+                  <button key={u.ubic_id} onClick={()=>setUbicPed(u)} style={{ padding:"8px 12px", borderRadius:9, cursor:"pointer", fontSize:12, fontWeight:700, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>📍 {u.nombre}{u.ciudad?" · "+u.ciudad:""}</button>
+                );})}
+              </div>
+            )}
+            {retiroBodega && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>El cliente retira en la bodega del proveedor. Este pedido no va a la ruta del chofer.</p>}
+            {!retiroBodega && ubicPed && ubicsCli.length<=1 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>Entrega en: {ubicPed.nombre}{ubicPed.ciudad?" · "+ubicPed.ciudad:""}</p>}
+
             {/* Proveedor primero */}
             <label style={lbl}>Proveedor</label>
             <div style={{ marginBottom:14 }}>
