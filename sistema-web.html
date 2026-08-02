@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"79", fecha:"1 ago 2026", desc:"Al elegir un cliente se muestra un nombre corto: persona natural = primer nombre + primer apellido (Pedro Castillo); empresa = nombre de la empresa. El nombre comercial y el cupo quedan en la línea de abajo" };
+const VERSION = { n:"80", fecha:"2 ago 2026", desc:"Al verificar en SRI, el nombre de personas naturales se normaliza a Nombres Apellidos (el SRI lo da como Apellidos Nombres). Así el nombre corto siempre sale bien (Pedro Castillo)" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -668,6 +668,19 @@ function BotonExpediente({ exp, i, editable }) {
       {!editable && !subido && <span style={{ fontSize:11, color:COLOR.muted, fontWeight:600 }}>Pendiente</span>}
     </div>
   );
+}
+// El SRI entrega a las personas naturales como "APELLIDOS NOMBRES" (ej. "CASTILLO ROSERO PEDRO RODRIGO").
+// Aquí se normaliza a "NOMBRES APELLIDOS" (ej. "Pedro Rodrigo Castillo Rosero"), asumiendo 2 apellidos.
+// Las empresas se dejan igual (solo se corrigen mayúsculas, respetando siglas como S.A. o Cía.).
+function normalizarNombreSRI(rs, esNatural) {
+  const limpio = String(rs || "").trim().replace(/\s+/g, " ");
+  if (!limpio) return limpio;
+  if (!esNatural) return capitalizarNombreCli(limpio);
+  const w = limpio.split(" ");
+  if (w.length < 3) return capitalizarNombreCli(limpio);   // 1-2 palabras: no se reordena con seguridad
+  const apellidos = w.slice(0, 2);
+  const nombres = w.slice(2);
+  return capitalizarNombreCli(nombres.concat(apellidos).join(" "));
 }
 // Nombre corto para mostrar el cliente ya elegido:
 //  · Persona natural → primer nombre + primer apellido (asumiendo nombres antes de apellidos): "Pedro Rodrigo Castillo Rosero" → "Pedro Castillo"
@@ -14933,7 +14946,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
     const res = normalizarSRI(cruda);
     setSri({ cargando:false, resultado:res });
     if (res && res.existe && !res.error) {
-      if (res.razonSocial) set("razonSocial", res.razonSocial);   // nombre oficial del SRI
+      if (res.razonSocial) set("razonSocial", normalizarNombreSRI(res.razonSocial, res.tipoApp==="Natural"));   // nombre oficial del SRI, normalizado a Nombres Apellidos
       const reg = regimenAppDesdeSRI(res);
       setForm(f => {
         const n = { ...f };
