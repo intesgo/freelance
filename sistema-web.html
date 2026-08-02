@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"82", fecha:"2 ago 2026", desc:"Subir pedido, Fase 1: reloj de cupo (velocímetro) como en el freelance — muestra cupo, deuda, lo del carrito y si el pedido excede el crédito, en vivo" };
+const VERSION = { n:"83", fecha:"2 ago 2026", desc:"Subir pedido, Fase 1: reloj de cupo + historial de compras del cliente por producto (precio promedio, tendencia y últimas compras reales de la base), como en el freelance" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4709,6 +4709,29 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [motivo, setMotivo] = useState("");
   const [carrito, setCarrito] = useState([]);
 
+  // Historial de compras real del cliente para el producto elegido (últimas compras desde la base)
+  const [histCompras, setHistCompras] = useState(null);
+  React.useEffect(() => {
+    if (!cli || !cli.id || !prod || !prod.id || !window.supa) { setHistCompras(null); return; }
+    let activo = true;
+    setHistCompras("cargando");
+    (async () => {
+      try {
+        const { data, error } = await window.supa.from("pedido_items")
+          .select("cantidad_qq, precio_usd, tipo_precio, ped_id, pedidos!inner(cli_id, creado)")
+          .eq("prod_id", prod.id).eq("pedidos.cli_id", cli.id)
+          .order("ped_id", { ascending:false }).limit(10);
+        if (!activo) return;
+        if (error) { setHistCompras([]); return; }
+        setHistCompras((data||[]).map(r => ({
+          fecha: String((r.pedidos && r.pedidos.creado) || "").slice(0,10),
+          cant: Number(r.cantidad_qq)||0, precio: Number(r.precio_usd)||0, tipo: r.tipo_precio || "",
+        })));
+      } catch (e) { if (activo) setHistCompras([]); }
+    })();
+    return () => { activo = false; };
+  }, [cli && cli.id, prod && prod.id]);
+
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseContado
     : tipo==="P2" ? prod.baseCredito
@@ -5089,6 +5112,38 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               {tipo!=="P5" && base>0 && (
                 <p style={{ fontSize:12, color:COLOR.muted, marginBottom:12 }}>Base de referencia: <b className="num" style={{ color:COLOR.text }}>{money(base)}</b>{tipo==="P4"&&promoF?" (promo)":""}</p>
               )}
+
+              {/* Historial de compras del cliente para este producto (como en el freelance) */}
+              {(()=>{
+                const h = histCompras;
+                if (h === "cargando") return <p style={{ fontSize:12, color:COLOR.muted, marginBottom:12 }}>🕘 Buscando historial…</p>;
+                if (!Array.isArray(h) || h.length===0) return <p style={{ fontSize:12, color:COLOR.muted, marginBottom:12 }}>🕘 Primera compra de este producto para este cliente.</p>;
+                const precios = h.map(x=>x.precio).filter(x=>x>0);
+                const prom = precios.length ? Math.round(precios.reduce((a,b)=>a+b,0)/precios.length*100)/100 : 0;
+                const totQq = Math.round(h.reduce((a,b)=>a+b.cant,0)*100)/100;
+                const tend = precios.length>=2 ? Math.round((precios[0]-precios[precios.length-1])*100)/100 : 0;
+                return (
+                  <div style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:10, padding:"12px 14px", marginBottom:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                      <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>🕘 Historial de compras</span>
+                      <span style={{ fontSize:11.5, color:COLOR.muted }}>{h.length} compra(s) · {totQq} qq</span>
+                    </div>
+                    <div style={{ display:"flex", gap:20, marginBottom:8, flexWrap:"wrap" }}>
+                      <div><span style={{ fontSize:10.5, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>Precio promedio</span><p className="num" style={{ fontSize:15, fontWeight:800, color:COLOR.text, margin:"2px 0 0" }}>{money(prom)}</p></div>
+                      {tend!==0 && <div><span style={{ fontSize:10.5, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>Tendencia</span><p className="num" style={{ fontSize:15, fontWeight:800, margin:"2px 0 0", color: tend>0?COLOR.teal:COLOR.red }}>{tend>0?"▲ ":"▼ "}{money(Math.abs(tend))}</p></div>}
+                    </div>
+                    <div>
+                      {h.slice(0,5).map((x,i)=>(
+                        <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderTop: i>0?`1px solid ${COLOR.bg}`:"none", fontSize:12 }}>
+                          <span className="num" style={{ color:COLOR.muted, minWidth:82 }}>{x.fecha||"—"}</span>
+                          <span style={{ color:COLOR.muted, flex:1, textAlign:"center" }}>{x.cant} qq</span>
+                          <span className="num" style={{ fontWeight:700, color:COLOR.text }}>{money(x.precio)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div style={{ display:"flex", gap:12, marginBottom:14 }}>
                 <div style={{ flex:1 }}>
