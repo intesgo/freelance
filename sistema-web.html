@@ -293,7 +293,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"85", fecha:"2 ago 2026", desc:"Subir pedido, Fase 3: precio sugerido según el canal del cliente (avisa si vendes por debajo) y favoritos del cliente (lo que suele comprar de esa piladora, para recomprar en un toque)" };
+const VERSION = { n:"86", fecha:"2 ago 2026", desc:"Subir pedido de la oficina ahora GUARDA el pedido en Supabase (pedidos + pedido_items) como el freelance, y se agregó 'Repetir último pedido'. Con esto el flujo queda totalmente vinculado a la base" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4753,6 +4753,24 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     return () => { activo = false; };
   }, [cli && cli.id]);
 
+  // Último pedido del cliente (para "repetir último pedido"): trae el pedido más reciente con sus productos
+  const [ultimoPedido, setUltimoPedido] = useState(null);
+  React.useEffect(() => {
+    if (!cli || !cli.id || !window.supa) { setUltimoPedido(null); return; }
+    let activo = true;
+    (async () => {
+      try {
+        const { data, error } = await window.supa.from("pedidos")
+          .select("ped_id, prov_cod, creado, pedido_items(prod_id, descripcion, cantidad_qq, precio_usd, tipo_precio)")
+          .eq("cli_id", cli.id).like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
+        if (!activo) return;
+        if (error || !data || !data.length || !data[0].pedido_items || !data[0].pedido_items.length) { setUltimoPedido(null); return; }
+        setUltimoPedido({ provCod: data[0].prov_cod, fecha: String(data[0].creado||"").slice(0,10), items: data[0].pedido_items });
+      } catch (e) { if (activo) setUltimoPedido(null); }
+    })();
+    return () => { activo = false; };
+  }, [cli && cli.id]);
+
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseContado
     : tipo==="P2" ? prod.baseCredito
@@ -4791,14 +4809,37 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P2"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };
   const abrir = () => { setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
   const volver = () => { setVista("lista"); setAviso(""); };
+  // Repetir el último pedido: fija la piladora y arma el carrito con esos productos a precio vigente (presentación Quintal)
+  const repetirUltimo = () => {
+    if (!ultimoPedido || !Array.isArray(ultimoPedido.items)) return;
+    const provName = (PRODS_PED.find(p=>p.provCod===ultimoPedido.provCod)||{}).prov || ultimoPedido.provCod;
+    setProvSel(provName); setProvTexto(provName); setProd(null); setProdTexto("");
+    const nuevas = [];
+    ultimoPedido.items.forEach((it,i) => {
+      const cat = PRODS_PED.find(p => (p.prodId||p.id)===it.prod_id && p.provCod===ultimoPedido.provCod && p.unidad==="Quintal")
+               || PRODS_PED.find(p => (p.prodId||p.id)===it.prod_id && p.provCod===ultimoPedido.provCod);
+      if (!cat) return;
+      const cantN = Number(it.cantidad_qq)||0;
+      const precioN = Number(it.precio_usd)||0;
+      const base = Number(cat.baseCredito)||0;
+      const comision = Math.round((precioN-base)*cantN*100)/100;
+      nuevas.push({ id: Date.now()+i, prod: cat.nombre, prodId: cat.prodId||cat.id, prov: cat.prov, provCod: cat.provCod,
+        ic: cat.ic, unidad: cat.unidad, equiv: Number(cat.equiv)||1, cant: cantN, precio: precioN, gratis:0,
+        cond:"Crédito", credito:true, tipo:"P2", tipoNombre:"Crédito", comision, total: Math.round(precioN*cantN*100)/100, requiere:false });
+    });
+    if (nuevas.length) { setCarrito(prev => [...prev, ...nuevas]); setAviso(""); }
+    else setAviso("Los productos del último pedido ya no están en el catálogo vigente.");
+  };
   const elegirProd = (p) => { setProd(p); setProdTexto(p.nombre); setTipo("P2"); setPrecio(""); setPromoF(null); setPromoP(null); };
 
   const agregarLinea = () => {
     if (!valido) { setAviso("Revisa los campos: precio bajo base, cupo excedido o faltan datos."); return; }
     const linea = {
       id: Date.now(),
-      prod: prod.nombre, prov: prod.prov, ic: prod.ic, unidad: prod.unidad, cant: cantNum, precio: precioNum,
-      cond: esCredito ? "Crédito" : "Contado",
+      prod: prod.nombre, prodId: prod.prodId || prod.id, prov: prod.prov, provCod: prod.provCod || "",
+      ic: prod.ic, unidad: prod.unidad, equiv: Number(prod.equiv)||1,
+      cant: cantNum, precio: precioNum, gratis: (tipo==="P3" ? (parseInt(gratis)||0) : 0),
+      cond: esCredito ? "Crédito" : "Contado", credito: esCredito,
       tipo, tipoNombre: TIPOS_PRECIO_WEB.find(t=>t.id===tipo).nombre,
       comision: comisionTotal, total: totalLinea, requiere: requiereAutorizacion,
     };
@@ -4808,11 +4849,51 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   };
   const quitarLinea = (id) => setCarrito(prev => prev.filter(l => l.id !== id));
 
-  const subirPedido = () => {
+  // Guarda el pedido en Supabase (pedidos + pedido_items), igual que el freelance.
+  const guardarPedidoOficina = async () => {
+    try {
+      if (!window.supa || !window.supa.auth) return { ok:false, motivo:"sin_conexion" };
+      const { data:s } = await window.supa.auth.getSession();
+      if (!s || !s.session) return { ok:false, motivo:"sin_sesion" };
+      if (!cli.id) return { ok:false, motivo:"cliente_demo" };
+      const items = carrito.filter(it => it && it.prodId && it.provCod);
+      if (!items.length) return { ok:false, motivo:"producto_demo" };
+      const provCod = items[0].provCod;   // un pedido = un proveedor (se toma el del primer producto)
+      const { data:ult } = await window.supa.from("pedidos").select("ped_id").like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
+      const n = ult && ult[0] ? (parseInt(String(ult[0].ped_id).replace(/\D/g,""),10)||0) : 0;
+      const pedId = "PD-"+String(n+1).padStart(4,"0");
+      const r2 = x => Math.round(x*100)/100;
+      let subId = null;
+      try { const { data:yo } = await window.supa.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1); if (yo && yo[0]) subId = yo[0].usr_id; } catch(e0){}
+      const { error:e1 } = await window.supa.from("pedidos").insert({
+        ped_id:pedId, cli_id:cli.id, sub_id:subId, prov_cod:provCod,
+        ubicacion_id:null, retiro_bodega:false,
+        estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
+      if (e1) return { ok:false, motivo:e1.message||"error_pedido" };
+      const filas = items.map((it,i)=>({
+        item_id: pedId+"-I"+(i+1), ped_id:pedId, prod_id:it.prodId, descripcion: it.prod,
+        cantidad_qq: r2(it.cant*(it.equiv||1)), precio_usd: r2(it.precio/(it.equiv||1)),
+        tipo_precio: it.tipo, gratis_qq: r2((Number(it.gratis)||0)*(it.equiv||1)),
+        comision_usd: r2(Number(it.comision)||0), es_demo:false }));
+      const { error:e2 } = await window.supa.from("pedido_items").insert(filas);
+      if (e2) { try { await window.supa.from("pedidos").delete().eq("ped_id",pedId); } catch(e3){} return { ok:false, motivo:e2.message||"error_items" }; }
+      return { ok:true, pedId };
+    } catch (e) { return { ok:false, motivo:(e&&e.message)||"error" }; }
+  };
+
+  const subirPedido = async () => {
     if (!cli) { setAviso("Elige un cliente."); return; }
     if (carrito.length===0) { setAviso("Agrega al menos un producto al pedido."); return; }
+    setAviso("Guardando…");
+    const res = await guardarPedidoOficina();
+    // Si la base rechazó de verdad (no es demo/sin sesión), no seguimos.
+    if (res && !res.ok && (String(res.motivo||"").indexOf("error_")===0)) {
+      setAviso("No se pudo guardar en la base: " + res.motivo + ". Revisa e intenta de nuevo.");
+      return;
+    }
+    setAviso("");
     const nuevos = carrito.map((l,i) => ({
-      id: 2000 + pedidos.length + i + Math.floor(Math.random()*90),
+      id: (res && res.pedId) ? (res.pedId+"·"+(i+1)) : (2000 + pedidos.length + i + Math.floor(Math.random()*90)),
       cli: cli.nombre, prod: l.prod, prov: l.prov, cant: l.cant, unidad: l.unidad, precio: l.precio, cond: l.cond,
       estado: l.requiere ? "Por autorizar (precio especial)" : "Esperando aprobación", fecha:"2026-06-13",
     }));
@@ -4824,6 +4905,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       auditar(usuario, "Solicitudes", "Solicitud nacida del pedido · 💲 Precio especial", sId, n.cli+" · pedido #"+n.id);
     });
     setPedidos(prev => [...nuevos, ...prev]);
+    setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
     setVista("lista");
   };
 
@@ -5068,6 +5150,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               <span style={{ fontSize:11.5, fontWeight:600, padding:"5px 11px", borderRadius:999, background: cli.asumeFlete==="cliente"?"#EEF6FF":"#F7F9FB", color: cli.asumeFlete==="cliente"?"#2c5d8f":COLOR.muted }}>🚚 Flete: {cli.asumeFlete==="cliente"?"lo asume el cliente":"lo asume el freelance"}</span>
               <span style={{ fontSize:11.5, fontWeight:600, padding:"5px 11px", borderRadius:999, background: cli.asumeEstibada==="cliente"?"#EEF6FF":"#F7F9FB", color: cli.asumeEstibada==="cliente"?"#2c5d8f":COLOR.muted }}>📦 Estibada: {cli.asumeEstibada==="cliente"?"la asume el cliente":"la asume el freelance"}</span>
             </div>
+          )}
+
+          {cli && !cli.bloqueado && ultimoPedido && carrito.length===0 && (
+            <button onClick={repetirUltimo} style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:`1.5px dashed ${COLOR.teal}`, background:COLOR.tealLight, color:COLOR.tealDark, cursor:"pointer", fontSize:13, fontWeight:700, marginBottom:16, textAlign:"left" }}>
+              🔁 Repetir último pedido <span style={{ fontWeight:500, color:COLOR.muted }}>· {ultimoPedido.items.length} producto(s){ultimoPedido.fecha?" · "+ultimoPedido.fecha:""}</span>
+            </button>
           )}
 
           {cli && !cli.bloqueado && (<>
