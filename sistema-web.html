@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"100", fecha:"2 ago 2026", desc:"Subir pedido: los botones ¿Quién asume? (Flete/Estibada) ahora van debajo de ¿Cómo lo recibe? y la elección SE GUARDA en el pedido (campos asume_flete/asume_estibada). Si retira en bodega, se guardan como 'no aplica'. Sin tocar otra lógica" };
+const VERSION = { n:"101", fecha:"2 ago 2026", desc:"Subir pedido en 3 tarjetas con sombra de distinto color: (1) Cliente/Proveedor/Producto con foto grande + buscador, (2) ¿Dónde lo recibe? + ¿Quién asume?, (3) Tipo de precio hacia abajo. Solo diseño/orden, sin tocar lógica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5162,8 +5162,10 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 380px", gap:22, alignItems:"start" }}>
 
-        {/* IZQUIERDA: formulario */}
-        <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"22px 24px" }}>
+        {/* IZQUIERDA: formulario en 3 tarjetas */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
+          {/* ── TARJETA 1 · Cliente · Proveedor · Producto (sombra verde) ── */}
+          <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(47,158,109,.14)" }}>
           <label style={lbl}>Cliente</label>
           <div style={{ marginBottom:8 }}>
             <BuscadorPredictivo cat="clientes" items={CLIENTES} value={cliTexto} disabled={carrito.length>0}
@@ -5188,51 +5190,6 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           )}
 
           {cli && !cli.bloqueado && (<>
-            {/* ¿Cómo lo recibe? domicilio (a la ruta del chofer) o retira en bodega del proveedor */}
-            <label style={lbl}>¿Cómo lo recibe?</label>
-            <div style={{ display:"flex", gap:8, marginBottom: (retiroBodega || ubicsCli.length>1) ? 8 : 16 }}>
-              {[["domicilio","🚚 Entrega a domicilio"],["bodega","🏭 Retira en bodega del proveedor"]].map(([k,t])=>{
-                const on = (k==="bodega")===retiroBodega;
-                return <button key={k} onClick={()=>setRetiroBodega(k==="bodega")} style={{ flex:1, padding:"10px 8px", borderRadius:9, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t}</button>;
-              })}
-            </div>
-            {!retiroBodega && ubicsCli.length>1 && (
-              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
-                {ubicsCli.map(u=>{ const on = ubicPed && ubicPed.ubic_id===u.ubic_id; return (
-                  <button key={u.ubic_id} onClick={()=>setUbicPed(u)} style={{ padding:"8px 12px", borderRadius:9, cursor:"pointer", fontSize:12, fontWeight:700, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>📍 {u.nombre}{u.ciudad?" · "+u.ciudad:""}</button>
-                );})}
-              </div>
-            )}
-            {retiroBodega && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>El cliente retira en la bodega del proveedor. Este pedido no va a la ruta del chofer.</p>}
-            {!retiroBodega && ubicPed && ubicsCli.length<=1 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>Entrega en: {ubicPed.nombre}{ubicPed.ciudad?" · "+ubicPed.ciudad:""}</p>}
-
-            {/* ¿Quién asume? flete/estibada — se apagan si el cliente retira en bodega */}
-            <label style={lbl}>¿Quién asume?</label>
-            <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
-              {[
-                { ic:"🚚", lbl:"Flete", val:asumeFlete, set:setAsumeFlete },
-                { ic:"📦", lbl:"Estibada", val:asumeEstibada, set:setAsumeEstibada },
-              ].map((f,idx) => {
-                const cliente = f.val==="cliente";
-                const off = retiroBodega;
-                return (
-                  <button key={idx} disabled={off} onClick={()=>f.set(cliente?"freelance":"cliente")}
-                    style={{ flex:"1 1 160px", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:10,
-                      border:`1px solid ${off?COLOR.border:(cliente?COLOR.teal:COLOR.border)}`,
-                      background: off?"#f3f5f4":(cliente?COLOR.tealLight:"#fff"),
-                      cursor: off?"default":"pointer", textAlign:"left", opacity: off?.55:1, transition:"all .15s" }}>
-                    <span style={{ fontSize:17 }}>{f.ic}</span>
-                    <span style={{ lineHeight:1.25 }}>
-                      <span style={{ fontSize:12.5, fontWeight:700, color: off?"#9aa3ad":COLOR.text }}>{f.lbl}</span><br/>
-                      <span style={{ fontSize:11, fontWeight:600, color: off?"#9aa3ad":(cliente?COLOR.tealDark:COLOR.muted) }}>
-                        {off ? "No aplica" : (cliente ? "lo asume el cliente" : "lo asume el freelance")}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
             {/* Proveedor primero */}
             <label style={lbl}>Proveedor</label>
             <div style={{ marginBottom:14 }}>
@@ -5244,50 +5201,101 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 onPick={p=>{ setProvSel(p); setProvTexto(p); setProd(null); setProdTexto(""); }} />
             </div>
 
-            {/* Producto: solo los del proveedor elegido */}
+            {/* Producto: foto grande + buscador (dos columnas) */}
             <label style={{ ...lbl, color: provSel?COLOR.text:COLOR.muted }}>Producto</label>
-            <div style={{ marginBottom:14 }}>
-              {!provSel
-                ? <div style={{ padding:"11px 13px", borderRadius:9, border:`1px dashed ${COLOR.border}`, fontSize:13, color:COLOR.muted, background:"#FBFCFD" }}>Primero elige un proveedor para ver sus productos.</div>
-                : <BuscadorPredictivo cat="productos" items={productosDelProv} value={prodTexto}
-                    placeholder={"Buscar en el catálogo de "+provSel+"…"}
-                    label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
-                    onText={t=>{ setProdTexto(t); if(t==="") setProd(null); }}
-                    onPick={p=>elegirProd(p)} />}
-            </div>
-
-            {/* Favoritos del cliente: lo que suele comprar de esta piladora (recompra en 1 toque) */}
-            {provSel && !prod && Array.isArray(comprasCli) && (()=>{
-              const cnt = {};
-              comprasCli.forEach(it => { if(!cnt[it.prodId]) cnt[it.prodId]={veces:0, ult:it.precio}; cnt[it.prodId].veces++; });
-              const porProd = {};
-              productosDelProv.forEach(p => { const k=p.prodId||p.id; if(!porProd[k] || p.unidad==="Quintal") porProd[k]=p; });
-              const favs = Object.keys(cnt).filter(k=>porProd[k]).sort((a,b)=>cnt[b].veces-cnt[a].veces).slice(0,4);
-              if (!favs.length) return null;
-              return (
-                <div style={{ marginBottom:14 }}>
-                  <p style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted, marginBottom:6 }}>⭐ Suele comprar de {provSel}</p>
-                  <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                    {favs.map(k=>{ const cat=porProd[k]; return (
-                      <button key={k} onClick={()=>{ elegirProd(cat); if(cnt[k].ult>0) setPrecio(String(cnt[k].ult)); }} style={{ textAlign:"left", padding:"8px 12px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer" }}>
-                        <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>{cat.nombre}</span>
-                        <span style={{ fontSize:11, color:COLOR.muted }}> · {cnt[k].veces}× · últ. {money(cnt[k].ult)}</span>
-                      </button>
-                    );})}
+            <div style={{ display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
+              <div style={{ width:128, height:128, borderRadius:14, background: prod?COLOR.tealLight:"#FBFCFD", border:`1px solid ${prod?COLOR.teal:COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod ? prod.ic : "🌾"}</div>
+              <div style={{ flex:"1 1 210px", minWidth:190 }}>
+                {!provSel
+                  ? <div style={{ padding:"11px 13px", borderRadius:9, border:`1px dashed ${COLOR.border}`, fontSize:13, color:COLOR.muted, background:"#FBFCFD" }}>Primero elige un proveedor para ver sus productos.</div>
+                  : <BuscadorPredictivo cat="productos" items={productosDelProv} value={prodTexto}
+                      placeholder={"Buscar en el catálogo de "+provSel+"…"}
+                      label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
+                      onText={t=>{ setProdTexto(t); if(t==="") setProd(null); }}
+                      onPick={p=>elegirProd(p)} />}
+                {prod && (
+                  <div style={{ marginTop:10 }}>
+                    <p style={{ fontSize:14, fontWeight:700, color:COLOR.text }}>{prod.nombre}</p>
+                    <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>{prod.linea} · {prod.prov}</p>
                   </div>
-                </div>
-              );
-            })()}
-
-            {prod && (<>
-              {/* Ficha del producto elegido (con ícono placeholder) */}
-              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:COLOR.tealLight, borderRadius:10, marginBottom:14 }}>
-                <div style={{ width:46, height:46, borderRadius:11, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>{prod.ic}</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontSize:14, fontWeight:700, color:COLOR.text }}>{prod.nombre}</p>
-                  <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>{prod.linea} · {prod.prov}</p>
-                </div>
+                )}
+                {provSel && !prod && Array.isArray(comprasCli) && (()=>{
+                  const cnt = {};
+                  comprasCli.forEach(it => { if(!cnt[it.prodId]) cnt[it.prodId]={veces:0, ult:it.precio}; cnt[it.prodId].veces++; });
+                  const porProd = {};
+                  productosDelProv.forEach(p => { const k=p.prodId||p.id; if(!porProd[k] || p.unidad==="Quintal") porProd[k]=p; });
+                  const favs = Object.keys(cnt).filter(k=>porProd[k]).sort((a,b)=>cnt[b].veces-cnt[a].veces).slice(0,4);
+                  if (!favs.length) return null;
+                  return (
+                    <div style={{ marginTop:10 }}>
+                      <p style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted, marginBottom:6 }}>⭐ Suele comprar de {provSel}</p>
+                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                        {favs.map(k=>{ const cat=porProd[k]; return (
+                          <button key={k} onClick={()=>{ elegirProd(cat); if(cnt[k].ult>0) setPrecio(String(cnt[k].ult)); }} style={{ textAlign:"left", padding:"8px 12px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer" }}>
+                            <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>{cat.nombre}</span>
+                            <span style={{ fontSize:11, color:COLOR.muted }}> · {cnt[k].veces}× · últ. {money(cnt[k].ult)}</span>
+                          </button>
+                        );})}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
+            </div>
+          </>)}
+          </div>
+
+          {/* ── TARJETA 2 · ¿Dónde lo recibe? · ¿Quién asume? (sombra azul) ── */}
+          {cli && !cli.bloqueado && (
+            <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(59,130,246,.13)" }}>
+              <label style={lbl}>¿Dónde lo recibe?</label>
+              <div style={{ display:"flex", gap:8, marginBottom: (retiroBodega || ubicsCli.length>1) ? 8 : 16 }}>
+                {[["domicilio","🚚 Entrega a domicilio"],["bodega","🏭 Retira en bodega del proveedor"]].map(([k,t])=>{
+                  const on = (k==="bodega")===retiroBodega;
+                  return <button key={k} onClick={()=>setRetiroBodega(k==="bodega")} style={{ flex:1, padding:"10px 8px", borderRadius:9, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t}</button>;
+                })}
+              </div>
+              {!retiroBodega && ubicsCli.length>1 && (
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+                  {ubicsCli.map(u=>{ const on = ubicPed && ubicPed.ubic_id===u.ubic_id; return (
+                    <button key={u.ubic_id} onClick={()=>setUbicPed(u)} style={{ padding:"8px 12px", borderRadius:9, cursor:"pointer", fontSize:12, fontWeight:700, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>📍 {u.nombre}{u.ciudad?" · "+u.ciudad:""}</button>
+                  );})}
+                </div>
+              )}
+              {retiroBodega && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>El cliente retira en la bodega del proveedor. Este pedido no va a la ruta del chofer.</p>}
+              {!retiroBodega && ubicPed && ubicsCli.length<=1 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>Entrega en: {ubicPed.nombre}{ubicPed.ciudad?" · "+ubicPed.ciudad:""}</p>}
+
+              <label style={lbl}>¿Quién asume?</label>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {[
+                  { ic:"🚚", lbl:"Flete", val:asumeFlete, set:setAsumeFlete },
+                  { ic:"📦", lbl:"Estibada", val:asumeEstibada, set:setAsumeEstibada },
+                ].map((f,idx) => {
+                  const cliente = f.val==="cliente";
+                  const off = retiroBodega;
+                  return (
+                    <button key={idx} disabled={off} onClick={()=>f.set(cliente?"freelance":"cliente")}
+                      style={{ flex:"1 1 160px", display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:10,
+                        border:`1px solid ${off?COLOR.border:(cliente?COLOR.teal:COLOR.border)}`,
+                        background: off?"#f3f5f4":(cliente?COLOR.tealLight:"#fff"),
+                        cursor: off?"default":"pointer", textAlign:"left", opacity: off?.55:1, transition:"all .15s" }}>
+                      <span style={{ fontSize:17 }}>{f.ic}</span>
+                      <span style={{ lineHeight:1.25 }}>
+                        <span style={{ fontSize:12.5, fontWeight:700, color: off?"#9aa3ad":COLOR.text }}>{f.lbl}</span><br/>
+                        <span style={{ fontSize:11, fontWeight:600, color: off?"#9aa3ad":(cliente?COLOR.tealDark:COLOR.muted) }}>
+                          {off ? "No aplica" : (cliente ? "lo asume el cliente" : "lo asume el freelance")}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── TARJETA 3 · Tipo de precio y línea (sombra morada) ── */}
+          {cli && !cli.bloqueado && prod && (
+            <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(139,92,246,.13)" }}>
               <label style={lbl}>Tipo de precio</label>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:7, marginBottom:14 }}>
                 {TIPOS_PRECIO_WEB.map(t => (
@@ -5428,8 +5436,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               {excedeCupo && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, marginBottom:8 }}>⚠ Excede el cupo de crédito disponible del cliente.</p>}
 
               <button onClick={agregarLinea} disabled={!valido} style={{ width:"100%", padding:"12px", borderRadius:10, border:"none", cursor: valido?"pointer":"not-allowed", fontSize:14, fontWeight:700, color:"#fff", background: valido?COLOR.teal:"#bcc6cf" }}>+ Agregar al pedido</button>
-            </>)}
-          </>)}
+            </div>
+          )}
         </div>
 
         {/* DERECHA: cupo (reloj) + resumen */}
