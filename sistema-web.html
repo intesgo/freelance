@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"101", fecha:"2 ago 2026", desc:"Subir pedido en 3 tarjetas con sombra de distinto color: (1) Cliente/Proveedor/Producto con foto grande + buscador, (2) ¿Dónde lo recibe? + ¿Quién asume?, (3) Tipo de precio hacia abajo. Solo diseño/orden, sin tocar lógica ni datos" };
+const VERSION = { n:"102", fecha:"2 ago 2026", desc:"Subir pedido: al elegir el cliente ya no se puede borrar con la X (evita perder el pedido en curso); se muestra como texto resaltado fijo. Para cambiar de cliente se usa Cancelar. Sin tocar lógica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5167,16 +5167,25 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           {/* ── TARJETA 1 · Cliente · Proveedor · Producto (sombra verde) ── */}
           <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(47,158,109,.14)" }}>
           <label style={lbl}>Cliente</label>
-          <div style={{ marginBottom:8 }}>
-            <BuscadorPredictivo cat="clientes" items={CLIENTES} value={cliTexto} disabled={carrito.length>0}
-              placeholder="Escribe para buscar un cliente…"
-              label={c=>nombreCortoCliente(c)}
-              extra={c=>(c.razonSocial||"")+" "+(c.nombre||"")+" "+(c.ruc||"")}
-              sub={c=>(c.nombre && c.nombre!==c.razonSocial ? c.nombre+" · " : "")+(c.bloqueado ? "Bloqueado" : "Cupo disponible " + money(Math.max(0,(c.cupo||0)-(c.usado||0))))}
-              onText={t=>{ setCliTexto(t); if(t==="") setCli(null); }}
-              onPick={c=>{ setCli(c); setCliTexto(nombreCortoCliente(c)); setAsumeFlete(c.asumeFlete||"freelance"); setAsumeEstibada(c.asumeEstibada||"freelance"); }} />
-          </div>
-          {carrito.length>0 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente, cierra primero el pedido en curso.</p>}
+          {!cli ? (
+            <div style={{ marginBottom:8 }}>
+              <BuscadorPredictivo cat="clientes" items={CLIENTES} value={cliTexto} disabled={carrito.length>0}
+                placeholder="Escribe para buscar un cliente…"
+                label={c=>nombreCortoCliente(c)}
+                extra={c=>(c.razonSocial||"")+" "+(c.nombre||"")+" "+(c.ruc||"")}
+                sub={c=>(c.nombre && c.nombre!==c.razonSocial ? c.nombre+" · " : "")+(c.bloqueado ? "Bloqueado" : "Cupo disponible " + money(Math.max(0,(c.cupo||0)-(c.usado||0))))}
+                onText={t=>{ setCliTexto(t); if(t==="") setCli(null); }}
+                onPick={c=>{ setCli(c); setCliTexto(nombreCortoCliente(c)); setAsumeFlete(c.asumeFlete||"freelance"); setAsumeEstibada(c.asumeEstibada||"freelance"); }} />
+            </div>
+          ) : (
+            <div style={{ marginBottom:8, padding:"12px 14px", borderRadius:10, background:COLOR.tealLight, border:`1px solid ${COLOR.teal}` }}>
+              <p style={{ fontSize:15, fontWeight:800, color:COLOR.tealDark }}>{nombreCortoCliente(cli)}</p>
+              {cli.nombre && cli.nombre!==nombreCortoCliente(cli) && <p style={{ fontSize:12, color:COLOR.muted, marginTop:2 }}>{cli.nombre}</p>}
+            </div>
+          )}
+          {carrito.length>0
+            ? <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente, cierra primero el pedido en curso.</p>
+            : (cli && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente usa “Cancelar”.</p>)}
 
           {cli && cli.bloqueado && (
             <div style={{ background:"#FDECEC", border:"1px solid #F5C4C4", borderRadius:10, padding:"12px 14px", marginBottom:14, fontSize:12.5, color:COLOR.red, fontWeight:600 }}>
