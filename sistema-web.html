@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"109", fecha:"3 ago 2026", desc:"Sistema web RESPONSIVE (base): la pantalla se adapta a escritorio, tablet y celular. En pantallas chicas el menu lateral se vuelve un cajon deslizable con boton hamburguesa. Viewport a device-width. Solo layout, sin tocar logica ni datos" };
+const VERSION = { n:"110", fecha:"3 ago 2026", desc:"Marcas: subir/cambiar foto de producto (4 lados) desde la vista Presentar. Solo rol freelance. Guarda en el bucket publico productos-fotos y en marca_presentaciones. Las fotos se ven en todo el sistema" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -14328,12 +14328,12 @@ function DibujoProductoWeb({ tipo, color, color2, marca, linea="Arroz", lado="fr
     </svg>
   );
 }
-function PortafolioWebVista({ marcas, onNuevaMarca }){
+function PortafolioWebVista({ marcas, usuario, onFoto, onNuevaMarca }){
   const [fLinea, setFLinea] = useState("Todas");
   const lineas = ["Todas", ...Array.from(new Set(marcas.map(m=>m.linea||"Arroz")))];
   const tarjetas = marcas
     .filter(m => fLinea==="Todas" || (m.linea||"Arroz")===fLinea)
-    .flatMap(m => (m.items||[]).map(it => ({ ...it, key:m.id+"·"+it.pres, marca:m.nombre, prov:m.prov, linea:m.linea||"Arroz", color:m.color||"#4E7A3A", color2:m.color2||"#33531F", asignaciones:m.asignaciones })));
+    .flatMap(m => (m.items||[]).map(it => ({ ...it, key:m.id+"·"+it.pres, marcaId:m.id, marca:m.nombre, prov:m.prov, linea:m.linea||"Arroz", color:m.color||"#4E7A3A", color2:m.color2||"#33531F", asignaciones:m.asignaciones })));
   const [cliente, setCliente] = useState(false);
   const [idx, setIdx] = useState(0);
   const [lado, setLado] = useState("frente");
@@ -14353,8 +14353,38 @@ function PortafolioWebVista({ marcas, onNuevaMarca }){
     window.open("https://wa.me/?text=" + encodeURIComponent(msj), "_blank");
   };
   const t0 = tarjetas[idx];
+  const puedeSubir = !!(usuario && usuario.rol === "freelance");
+  const [subiendoF, setSubiendoF] = useState(false);
+  const [avisoF, setAvisoF] = useState("");
+  const [ladoSubir, setLadoSubir] = useState("frente");
+  const fileRef = React.useRef(null);
+  const slugF = (x) => (x||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+  const subirFoto = async (t, lado, file) => {
+    if(!t || !file) return;
+    if(!window.supa || !window.supa.storage){ setAvisoF("Sin conexión con la base."); return; }
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAvisoF("Formato no válido: usa JPG, PNG o WebP."); return; }
+    if(file.size > 1048576){ setAvisoF("La imagen pesa más de 1 MB. Bájala de peso e intenta de nuevo."); return; }
+    setSubiendoF(true); setAvisoF("Subiendo…");
+    try{
+      const ext = file.type==="image/png" ? "png" : (file.type==="image/webp" ? "webp" : "jpg");
+      const ruta = t.marcaId + "/" + slugF(t.pres) + "/" + lado + "." + ext;
+      const { error:eUp } = await window.supa.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
+      if(eUp){ setAvisoF("No se pudo subir: " + (eUp.message||"error")); setSubiendoF(false); return; }
+      const { data:pub } = window.supa.storage.from("productos-fotos").getPublicUrl(ruta);
+      const url = (pub && pub.publicUrl) ? pub.publicUrl + "?v=" + Date.now() : null;
+      const { error:eDb } = await window.supa.from("marca_presentaciones").update({ ["foto_"+lado]: url }).eq("marca_id", t.marcaId).eq("pres", t.pres);
+      if(eDb){ setAvisoF("Subió, pero no se guardó el enlace: " + (eDb.message||"error")); setSubiendoF(false); return; }
+      if(onFoto) onFoto(t.marcaId, t.pres, lado, url);
+      setAvisoF("Foto actualizada ✓");
+    }catch(e){ setAvisoF("Error: " + (e.message||e)); }
+    setSubiendoF(false);
+    setTimeout(()=>setAvisoF(""), 2800);
+  };
   return (
     <div>
+      {puedeSubir && <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
+        onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; if(ff) subirFoto(t0, ladoSubir, ff); }} />}
+      {avisoF && <div style={{ position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:3000, background:"#123529", color:"#fff", padding:"11px 18px", borderRadius:12, fontSize:13.5, fontWeight:600, boxShadow:"0 8px 24px rgba(0,0,0,.3)" }}>{avisoF}</div>}
       {/* ── Barra única: líneas a la izquierda, acciones compactas a la derecha ── */}
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16, flexWrap:"wrap" }}>
         <div style={{ display:"flex", gap:7, flexWrap:"wrap", flex:1, minWidth:200 }}>
@@ -14422,6 +14452,13 @@ function PortafolioWebVista({ marcas, onNuevaMarca }){
               <button onClick={()=>enviarUno(t0)}
                 style={{ marginTop:18, background:"#25D366", color:"#fff", border:"none", borderRadius:11, padding:"12px 26px", fontSize:14, fontWeight:800, cursor:"pointer", boxShadow:"0 6px 18px rgba(37,211,102,.35)" }}>
                 📤 Enviar esta por WhatsApp</button>
+              {puedeSubir && (
+                <div style={{ marginTop:10 }}>
+                  <button onClick={()=>{ setLadoSubir(lado); if(fileRef.current) fileRef.current.click(); }} disabled={subiendoF}
+                    style={{ background:"#fff", color:COLOR.tealDark, border:`1px solid ${COLOR.tealDark}`, borderRadius:11, padding:"10px 20px", fontSize:13, fontWeight:700, cursor: subiendoF?"wait":"pointer" }}>
+                    📷 {(t0.fotos && t0.fotos[lado]) ? "Cambiar" : "Subir"} foto · {({frente:"Frente",lateral:"Lateral",base:"Base",posterior:"Posterior"})[lado]}</button>
+                </div>
+              )}
             </div>
             <button onClick={()=>{ setIdx(i=>(i+1)%tarjetas.length); setLado("frente"); }} style={{ background:"none", border:"none", fontSize:34, color:COLOR.muted, cursor:"pointer", padding:14 }}>›</button>
           </div>
@@ -14468,6 +14505,9 @@ function MarcasWeb({ usuario }) {
 
   const SECTORES = Object.keys(SECTORES_GEO);
   const totalAsign = marcas.reduce((s,m)=>s+m.asignaciones.length, 0);
+  const actualizarFoto = (marcaId, pres, lado, url) => {
+    setMarcas(prev => prev.map(m => m.id!==marcaId ? m : ({ ...m, items:(m.items||[]).map(it => it.pres!==pres ? it : ({ ...it, fotos:{ ...(it.fotos||{}), [lado]:url } })) })));
+  };
 
   // Agregar asignación de exclusividad a una marca (una marca: un exclusivo por zona)
   const agregarAsignacion = (marcaId, asig) => {
@@ -14508,7 +14548,7 @@ function MarcasWeb({ usuario }) {
             background: fuente==="vivo" ? "#E7F6EC" : "#F2F4F7", color: fuente==="vivo" ? "#1a7a4a" : "#8a8a95" }}>
           {fuente==="vivo" ? "🟢 Datos en vivo · Supabase" : "⚪ Demostración"}</span>
       </div>
-      {pestana==="portafolio" && <PortafolioWebVista marcas={marcas} onNuevaMarca={()=>setModalMarca(true)} />}
+      {pestana==="portafolio" && <PortafolioWebVista marcas={marcas} usuario={usuario} onFoto={actualizarFoto} onNuevaMarca={()=>setModalMarca(true)} />}
       {pestana==="exclusividad" && (<>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
         <p style={{ fontSize:13.5, color:COLOR.muted }}>{marcas.length} marcas · {totalAsign} asignaciones de exclusividad</p>
