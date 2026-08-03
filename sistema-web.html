@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"104", fecha:"3 ago 2026", desc:"Subir pedido: el historial de compras del producto ahora se muestra en la columna derecha (debajo del resumen), como en el freelance. Sin tocar lógica ni datos" };
+const VERSION = { n:"105", fecha:"3 ago 2026", desc:"Subir pedido: al elegir producto se ocultan Favoritos y buscador y queda el nombre + botón Cambiar; botón de cabecera Volver renombrado a Cancelar; quitado el mensaje 'Para cambiar de cliente usa Cancelar'. Sin tocar lógica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5156,7 +5156,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
-          <button onClick={volver} style={{ display:"flex", alignItems:"center", gap:6, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontSize:13, fontWeight:700, color:COLOR.text }}>← Volver</button>
+          <button onClick={volver} style={{ display:"flex", alignItems:"center", gap:6, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontSize:13, fontWeight:700, color:COLOR.text }}>Cancelar</button>
           <button onClick={()=>window.dispatchEvent(new CustomEvent("nav-inicio"))} style={{ display:"flex", alignItems:"center", gap:6, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontSize:13, fontWeight:700, color:COLOR.text }}>⌂ Inicio</button>
         </div>
       </div>
@@ -5184,9 +5184,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               {cli.nombre && cli.nombre!==nombreCortoCliente(cli) && <p style={{ fontSize:12, color:COLOR.muted, marginTop:2 }}>{cli.nombre}</p>}
             </div>
           )}
-          {carrito.length>0
-            ? <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente, cierra primero el pedido en curso.</p>
-            : (cli && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente usa “Cancelar”.</p>)}
+          {carrito.length>0 && <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:12 }}>Para cambiar de cliente, cierra primero el pedido en curso.</p>}
 
           {cli && cli.bloqueado && (
             <div style={{ background:"#FDECEC", border:"1px solid #F5C4C4", borderRadius:10, padding:"12px 14px", marginBottom:14, fontSize:12.5, color:COLOR.red, fontWeight:600 }}>
@@ -5221,6 +5219,19 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               <div style={{ display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
                 <div style={{ width:128, height:128, borderRadius:14, background: prod?COLOR.tealLight:"#FBFCFD", border:`1px solid ${prod?COLOR.teal:COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod ? prod.ic : "🌾"}</div>
                 <div style={{ flex:"1 1 220px", minWidth:200, display:"flex", flexDirection:"column", gap:10 }}>
+                  {prod ? (
+                    /* Producto elegido: solo el nombre + botón Cambiar (se ocultan Favoritos y buscador) */
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                      <div style={{ minWidth:0 }}>
+                        <p style={{ fontSize:15, fontWeight:800, color:COLOR.text }}>{prod.nombre}</p>
+                        <p style={{ fontSize:12, color:COLOR.muted, marginTop:2 }}>{prod.linea} · {prod.prov}</p>
+                      </div>
+                      <button onClick={()=>{ setProd(null); setProdTexto(""); setVerFavs(false); }}
+                        style={{ flexShrink:0, padding:"8px 14px", borderRadius:9, border:`1px solid ${COLOR.teal}`, background:COLOR.tealLight, color:COLOR.tealDark, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>
+                        Cambiar
+                      </button>
+                    </div>
+                  ) : (<>
                   {/* Botón Favoritos arriba a la derecha */}
                   <div style={{ display:"flex", justifyContent:"flex-end" }}>
                     <button onClick={()=>setVerFavs(v=>!v)} disabled={!provSel}
@@ -5237,14 +5248,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                         label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
                         onText={t=>{ setProdTexto(t); if(t==="") setProd(null); }}
                         onPick={p=>elegirProd(p)} />}
-                  {prod && (
-                    <div>
-                      <p style={{ fontSize:14, fontWeight:700, color:COLOR.text }}>{prod.nombre}</p>
-                      <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>{prod.linea} · {prod.prov}</p>
-                    </div>
-                  )}
                   {/* Favoritos desplegados: lo que suele comprar, del más reciente al más antiguo */}
-                  {verFavs && provSel && !prod && Array.isArray(comprasCli) && (()=>{
+                  {verFavs && provSel && Array.isArray(comprasCli) && (()=>{
                     const orden = []; const vistos = {};
                     comprasCli.forEach(it => { if(!vistos[it.prodId]){ vistos[it.prodId]={ult:it.precio, veces:0}; orden.push(it.prodId); } vistos[it.prodId].veces++; });
                     const porProd = {};
@@ -5265,6 +5270,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                       </div>
                     );
                   })()}
+                  </>)}
                 </div>
               </div>
             </div>
