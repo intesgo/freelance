@@ -1269,7 +1269,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"178", fecha:"3 ago 2026", desc:"Tomar pedido: se portan mejoras del freelance — busqueda difusa uFuzzy (cliente, piladora, producto), clientes en MAYUSCULAS, Entrega/Retira de Piladora en la misma linea, boton Favoritos siempre visible. El cliente sigue editable (propio de este rol)" };
+const VERSION = { n:"179", fecha:"3 ago 2026", desc:"Muestra la foto del producto (si el freelance la subio) en la lista y favoritos" };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4566,15 +4566,15 @@ function ArcCupo({ total, usado, excede, money }){
    Sin producto activo o sin precio vigente, la oferta no se ofrece. */
 function construirCatalogoPedido(provs, ofertas, prods, precios){
   const r2=n=>Math.round(n*100)/100;
-  const nomDe={}, lineaDe={}, precioDe={};
-  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; });
+  const nomDe={}, lineaDe={}, precioDe={}, fotoDe={};
+  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; fotoDe[p.prod_id]=p.foto||null; });
   (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
   const pres=(ofertas||[]).map(o=>{
     const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
     if(!nom || !pr) return null;
     const eq=Number(o.equiv_qq)||1;
     return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
-      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, diasCredito:30,
+      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoDe[o.prod_id]||null, diasCredito:30,
       baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
       costo:o.costo!=null?r2(Number(o.costo)):null,
       promosFreelance:[], promosProveedor:[] };
@@ -4849,7 +4849,7 @@ function CabeceraPedido({ cli, prov, prod, bloqueado, verFact, pedidoEnCurso,
         text:p=>p.nombre,
         option:p=>(
           <div className="prod-ficha">
-            <div className="pf-img">{EMOJI_LINEA[p.linea]||"📦"}</div>
+            <div className="pf-img">{p.foto ? <img src={p.foto} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:12 }}/> : (EMOJI_LINEA[p.linea]||"📦")}</div>
             <div className="pf-info">
               <div className="pf-nom">{p.marca}</div>
               <div className="pf-pres">{p.unidad}</div>
@@ -4945,7 +4945,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }, { data:ubics }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("v_ofertas_vigentes").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado").limit(1000),
-          window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
+          window.SB.from("productos").select("prod_id,nombre,linea,foto").eq("estado","activo").limit(500),
           window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
           window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
           window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,ciudad,direccion").eq("activo",true).limit(3000),
@@ -5263,7 +5263,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             {favoritos.map(f=>(
               <button key={f.prod.id} className="fav-item"
                 onClick={()=>{ origenProd.current="favorito"; lineaCargada.current=null; setProd(f.prod); reset(); setFavAbierto(false); }}>
-                <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
+                <div className="fav-emoji">{f.prod.foto ? <img src={f.prod.foto} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:11 }}/> : (EMOJI_LINEA[f.prod.linea]||"📦")}</div>
                 <div className="fav-info">
                   <div className="fav-nom">{f.prod.marca}</div>
                   <div className="fav-pres">{f.prod.unidad}</div>

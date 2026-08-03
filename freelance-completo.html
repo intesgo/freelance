@@ -2698,15 +2698,15 @@ const PRESENTACIONES = PRODUCTOS
    la oferta no se ofrece. Promos siempre [] (las reales viven en `promociones`, vacía). */
 function construirCatalogoPedido(provs, ofertas, prods, precios){
   const r2=n=>Math.round(n*100)/100;
-  const nomDe={}, lineaDe={}, precioDe={};
-  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; });
+  const nomDe={}, lineaDe={}, precioDe={}, fotoDe={};
+  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; fotoDe[p.prod_id]=p.foto||null; });
   (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
   const pres=(ofertas||[]).map(o=>{
     const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
     if(!nom || !pr) return null;
     const eq=Number(o.equiv_qq)||1;
     return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
-      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, diasCredito:30,
+      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoDe[o.prod_id]||null, diasCredito:30,
       baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
       costo:o.costo!=null?r2(Number(o.costo)):null,
       promosFreelance:[], promosProveedor:[] };
@@ -5544,7 +5544,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"396", fecha:"3 ago 2026", desc:"Busqueda difusa uFuzzy tambien en los buscadores de piladora y producto (antes solo cliente)" };
+const VERSION = { n:"397", fecha:"3 ago 2026", desc:"Fotos de producto: se muestran en la lista, favoritos y tarjeta; y se puede subir/cambiar la foto del producto desde la tarjeta (solo freelance). Bucket productos-fotos + columna productos.foto" };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5889,6 +5889,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");// quién asume la estibada en este pedido
   const [ubicMap,setUbicMap]=useState({});         // cli_id -> [ubicaciones]
   const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
+  const [subiendoFoto,setSubiendoFoto]=useState(false);
+  const [avisoFoto,setAvisoFoto]=useState("");
+  const fotoRef=React.useRef(null);
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
   const [cant,setCant]=useState(50);
   const [precio,setPrecio]=useState("");
@@ -5919,7 +5922,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }, { data:ubics }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("v_ofertas_vigentes").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado").limit(1000),
-          window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
+          window.SB.from("productos").select("prod_id,nombre,linea,foto").eq("estado","activo").limit(500),
           window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
           window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
           window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,tipo_entrega,ciudad,direccion").eq("activo",true).limit(3000),
@@ -5969,6 +5972,27 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setPromoP(null);setComProp("");setMotivo("");};
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
+  const subirFotoProd = async (p, file) => {
+    if(!p || !file) return;
+    if(!window.SB || !window.SB.storage){ setAvisoFoto("Sin conexión con la base."); return; }
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAvisoFoto("Usa JPG, PNG o WebP."); return; }
+    if(file.size > 1048576){ setAvisoFoto("La imagen pesa más de 1 MB. Bájala de peso."); return; }
+    setSubiendoFoto(true); setAvisoFoto("Subiendo…");
+    try{
+      const ext = file.type==="image/png"?"png":(file.type==="image/webp"?"webp":"jpg");
+      const ruta = "prod/"+p.prodId+"."+ext;
+      const up = await window.SB.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
+      if(up.error){ setAvisoFoto("No se pudo subir: "+(up.error.message||"error")); setSubiendoFoto(false); return; }
+      const pu = window.SB.storage.from("productos-fotos").getPublicUrl(ruta);
+      const url = (pu && pu.data && pu.data.publicUrl) ? pu.data.publicUrl+"?v="+Date.now() : null;
+      const db = await window.SB.from("productos").update({ foto:url }).eq("prod_id", p.prodId);
+      if(db.error){ setAvisoFoto("Subió, pero no se guardó el enlace: "+(db.error.message||"error")); setSubiendoFoto(false); return; }
+      setProd(pr => pr ? ({...pr, foto:url}) : pr);
+      setAvisoFoto("Foto actualizada ✓");
+    }catch(e){ setAvisoFoto("Error: "+(e.message||e)); }
+    setSubiendoFoto(false);
+    setTimeout(()=>setAvisoFoto(""), 2800);
+  };
   const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
@@ -6225,7 +6249,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             {favoritos.map(f=>(
               <button key={f.prod.id} className="fav-item"
                 onClick={()=>{ setProd(f.prod); reset(); setFavAbierto(false); }}>
-                <div className="fav-emoji">{EMOJI_LINEA[f.prod.linea]||"📦"}</div>
+                <div className="fav-emoji">{f.prod.foto ? <img src={f.prod.foto} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:11 }}/> : (EMOJI_LINEA[f.prod.linea]||"📦")}</div>
                 <div className="fav-info">
                   <div className="fav-nom">{f.prod.marca}</div>
                   <div className="fav-pres">{f.prod.unidad}</div>
@@ -6249,7 +6273,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         text:p=>p.nombre,
         option:p=>(
           <div className="prod-ficha">
-            <div className="pf-img">{EMOJI_LINEA[p.linea]||"📦"}</div>
+            <div className="pf-img">{p.foto ? <img src={p.foto} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:12 }}/> : (EMOJI_LINEA[p.linea]||"📦")}</div>
             <div className="pf-info">
               <div className="pf-nom">{p.marca}</div>
               <div className="pf-pres">{p.unidad}</div>
@@ -6544,6 +6568,21 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
     {prod && (
       <div className="prodcard">
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"2px 2px 10px" }}>
+          <div style={{ width:60, height:60, borderRadius:14, border:"1px solid var(--line)", background:"var(--paper)", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", fontSize:28 }}>
+            {prod.foto ? <img src={prod.foto} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : (EMOJI_LINEA[prod.linea]||"📦")}
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontWeight:800, fontSize:13.5, color:"var(--text)" }}>{prod.marca}</div>
+            <div style={{ fontSize:11.5, color:"var(--muted)" }}>{prod.unidad}</div>
+          </div>
+          <button type="button" onClick={()=>{ if(fotoRef.current) fotoRef.current.click(); }} disabled={subiendoFoto}
+            style={{ flexShrink:0, background:"#fff", color:"#1E4D3A", border:"1px solid #2E7D52", borderRadius:10, padding:"8px 12px", fontSize:12.5, fontWeight:700, cursor: subiendoFoto?"wait":"pointer" }}>
+            📷 {prod.foto?"Cambiar":"Subir"}</button>
+          <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
+            onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; if(ff) subirFotoProd(prod, ff); }}/>
+        </div>
+        {avisoFoto && <div style={{ position:"fixed", left:12, right:12, bottom:80, zIndex:9999, background:"#1E3A2B", color:"#EAF0EA", padding:"11px 14px", borderRadius:12, fontSize:13.5, fontWeight:600, textAlign:"center", boxShadow:"0 8px 24px rgba(0,0,0,.28)" }}>{avisoFoto}</div>}
 
         <button className="ghost" style={{width:"100%",margin:"6px 0 4px",padding:"10px 12px",textAlign:"left"}}
           onClick={()=>setVerHist(v=>!v)}>
