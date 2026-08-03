@@ -5544,7 +5544,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"399", fecha:"3 ago 2026", desc:"Subir foto (ficha de la marca): antes de guardar revisa/refresca la sesión; si venció avisa en español claro y no muestra el error en inglés. Reintento tras volver a entrar." };
+const VERSION = { n:"400", fecha:"3 ago 2026", desc:"Diagnóstico de subida de foto: si falla, muestra la identidad que usa la app (uid, correo, token, y si el servidor te ve freelance) para ubicar por qué rechaza el Storage." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16321,6 +16321,25 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
       return ses;
     }catch(e){ return null; }
   };
+  /* DIAGNÓSTICO (v400): arma un resumen de la identidad que la app está usando al subir. */
+  const diagnosticoSesion=async()=>{
+    let txt="🔍 ";
+    try{
+      const {data}=await window.SB.auth.getSession();
+      const s=data&&data.session;
+      if(!s){ return txt+"sin sesión en la app"; }
+      const u=s.user||{};
+      txt+="uid…"+String(u.id||"").slice(-6)+" · "+(u.email||"sin correo");
+      const venc = s.expires_at ? (s.expires_at*1000<Date.now()?"token VENCIDO":"token vigente") : "token ?";
+      txt+=" · "+venc;
+    }catch(e){ return txt+"no pude leer la sesión"; }
+    // ¿el servidor (PostgREST) me reconoce como freelance con este token?
+    try{
+      const r=await window.SB.rpc("es_freelance");
+      txt+=" · servidor te ve freelance: "+(r && r.error ? ("err:"+(r.error.message||"?")) : (r && r.data===true ? "SÍ" : "NO"));
+    }catch(e){ txt+=" · rpc falló"; }
+    return txt;
+  };
   const subirFotoMarca=async(file)=>{
     if(!file) return;
     if(!puedeFoto){ setAvisoFoto("La foto solo se guarda con el catálogo en línea."); return; }
@@ -16328,15 +16347,20 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     if(file.size > 1048576){ setAvisoFoto("La imagen pesa más de 1 MB. Bájala de peso."); return; }
     setSubiendoFoto(true); setAvisoFoto("Subiendo…");
     const ses = await asegurarSesion();
-    if(!ses){ setAvisoFoto("Tu sesión venció. Cierra y vuelve a entrar para subir la foto."); setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return; }
+    if(!ses){
+      const d=await diagnosticoSesion();
+      setAvisoFoto("Tu sesión venció. Cierra y vuelve a entrar para subir la foto.\n"+d);
+      setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
+    }
     try{
       const ext=file.type==="image/png"?"png":(file.type==="image/webp"?"webp":"jpg");
       const ruta="prod/"+marca.id+"."+ext;
       const up=await window.SB.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
       if(up.error){
         const m=up.error.message||"error";
-        setAvisoFoto(esErrorDeSesion(m) ? "Tu sesión venció o no tienes permiso. Cierra y vuelve a entrar para subir la foto." : ("No se pudo subir: "+m));
-        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return;
+        const d=await diagnosticoSesion();
+        setAvisoFoto((esErrorDeSesion(m) ? "Tu sesión venció o no tienes permiso. Cierra y vuelve a entrar para subir la foto." : ("No se pudo subir: "+m))+"\n"+d);
+        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
       }
       const pu=window.SB.storage.from("productos-fotos").getPublicUrl(ruta);
       const url=(pu && pu.data && pu.data.publicUrl) ? pu.data.publicUrl+"?v="+Date.now() : null;
@@ -16375,7 +16399,7 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
         )}
       </div>
     </div>
-    {avisoFoto && <div style={{position:"fixed",left:12,right:12,bottom:80,zIndex:9999,background:"#1E3A2B",color:"#EAF0EA",padding:"11px 14px",borderRadius:12,fontSize:13.5,fontWeight:600,textAlign:"center",boxShadow:"0 8px 24px rgba(0,0,0,.28)"}}>{avisoFoto}</div>}
+    {avisoFoto && <div style={{position:"fixed",left:12,right:12,bottom:80,zIndex:9999,background:"#1E3A2B",color:"#EAF0EA",padding:"11px 14px",borderRadius:12,fontSize:13.5,fontWeight:600,textAlign:"center",whiteSpace:"pre-line",boxShadow:"0 8px 24px rgba(0,0,0,.28)"}}>{avisoFoto}</div>}
 
     <div className="ficha-sec">Unidades y agrupación</div>
     <div className="fcard" style={{marginBottom:14}}>
