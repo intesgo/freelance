@@ -4561,7 +4561,7 @@ function construirCatalogoPedido(provs, ofertas, prods, precios){
 /* nombre del cliente → su código real. Lo llena el módulo Pedido al cargar. */
 const CLI_ID_DE = {};
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -4586,6 +4586,8 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}){
       ped_id:pedId, cli_id:cliId, sub_id:subId, prov_cod:(prov && prov.id)||null,
       ubicacion_id: retiro ? null : ((ubic && ubic.ubic_id) || null),
       retiro_bodega: !!retiro,
+      asume_flete: retiro ? null : (asumeFlete||"freelance"),
+      asume_estibada: retiro ? null : (asumeEstibada||"freelance"),
       estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
     if(e1) return { ok:false, motivo:e1.message||"error_pedido" };
     const filas = items.map((it,i)=>({
@@ -4878,6 +4880,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const [prod,setProd]=useState(null);
   const [ubicPed,setUbicPed]=useState(null);
   const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);
+  const [asumeFletePed,setAsumeFletePed]=useState("freelance");
+  const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");
   const [ubicMap,setUbicMap]=useState({});
   /* el botón atrás cierra lo abierto dentro del módulo antes de salir */
   // Origen del producto elegido: "favorito" (recompra) o "nuevo" (campo Producto nuevo → arranca limpio)
@@ -5204,6 +5208,20 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             </div>
           </div>
         )}
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>¿Quién asume?</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {[["flete","🚚","Flete",asumeFletePed,setAsumeFletePed],["estibada","📦","Estibada",asumeEstibadaPed,setAsumeEstibadaPed]].map(([k,ic,lbl,val,set])=>{
+            const cliente = val==="cliente"; const off = retiroBodegaPed;
+            return (<button key={k} type="button" disabled={off} onClick={()=>set(cliente?"freelance":"cliente")}
+              style={{flex:"1 1 150px",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",borderRadius:11,cursor:off?"default":"pointer",textAlign:"left",opacity:off?.55:1,border:`1.5px solid ${off?"#d8ddd7":(cliente?"#2E7D52":"#d8ddd7")}`,background:off?"#f3f5f4":(cliente?"#E7F3EC":"#fff")}}>
+              <span style={{fontSize:16}}>{ic}</span>
+              <span style={{lineHeight:1.2}}>
+                <span style={{fontSize:12.5,fontWeight:700,color:off?"#9aa3ad":"#1E4D3A"}}>{lbl}</span><br/>
+                <span style={{fontSize:11,fontWeight:600,color:off?"#9aa3ad":(cliente?"#2E7D52":"#6b7a70")}}>{off?"No aplica":(cliente?"lo asume el cliente":"lo asume el freelance")}</span>
+              </span>
+            </button>);
+          })}
+        </div>
       </div>
     )}
 
@@ -5831,7 +5849,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             cli:(cli && cli.nombre) || cli || "—",
             detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
             cuando:"recién" }));
-          if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed});
+          if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed});
           const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre||it.prod} · ${money(it.precio)}`).join("\n");
           setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
           cerrarPedido();
@@ -12960,7 +12978,7 @@ function App({usuario}){
     })();
     return ()=>{ vivo=false; };
   },[]);
-  const guardarPedido=({cli, prov, carrito, ubic, retiro})=>{
+  const guardarPedido=({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada})=>{
     const ahora=new Date();
     const dd=String(ahora.getDate()).padStart(2,"0");
     const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
@@ -12997,7 +13015,7 @@ function App({usuario}){
     /* b170 · y además nace en la base, si hay sesión y todo es real. Si algo es
        de demostración o no hay señal, guardarPedidoEnBase lo detecta y la app
        sigue igual que siempre: el vendedor nunca se queda sin poder cerrar. */
-    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}).then(r=>{
+    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}).then(r=>{
       if(r.ok) show("✓ Pedido "+r.pedId+" guardado en el sistema");
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo en el teléfono: "+r.motivo);
