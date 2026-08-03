@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"102", fecha:"2 ago 2026", desc:"Subir pedido: al elegir el cliente ya no se puede borrar con la X (evita perder el pedido en curso); se muestra como texto resaltado fijo. Para cambiar de cliente se usa Cancelar. Sin tocar lógica ni datos" };
+const VERSION = { n:"103", fecha:"3 ago 2026", desc:"Subir pedido: Producto ahora es su propia tarjeta (sombra ámbar) con foto grande, botón Favoritos arriba a la derecha (despliega lo que suele comprar, del más reciente al más antiguo) y buscador abajo. Sin tocar lógica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4818,6 +4818,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   // Quién asume el flete/estibada EN ESTE pedido (por defecto lo del cliente; casi siempre el freelance)
   const [asumeFlete, setAsumeFlete] = useState("freelance");
   const [asumeEstibada, setAsumeEstibada] = useState("freelance");
+  const [verFavs, setVerFavs] = useState(false);   // botón Favoritos del producto (despliega lo que suele comprar)
   React.useEffect(() => {
     setRetiroBodega(false); setUbicPed(null); setUbicsCli([]);
     if (!cli || !cli.id || !window.supa) return;
@@ -5210,49 +5211,64 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 onPick={p=>{ setProvSel(p); setProvTexto(p); setProd(null); setProdTexto(""); }} />
             </div>
 
-            {/* Producto: foto grande + buscador (dos columnas) */}
-            <label style={{ ...lbl, color: provSel?COLOR.text:COLOR.muted }}>Producto</label>
-            <div style={{ display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
-              <div style={{ width:128, height:128, borderRadius:14, background: prod?COLOR.tealLight:"#FBFCFD", border:`1px solid ${prod?COLOR.teal:COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod ? prod.ic : "🌾"}</div>
-              <div style={{ flex:"1 1 210px", minWidth:190 }}>
-                {!provSel
-                  ? <div style={{ padding:"11px 13px", borderRadius:9, border:`1px dashed ${COLOR.border}`, fontSize:13, color:COLOR.muted, background:"#FBFCFD" }}>Primero elige un proveedor para ver sus productos.</div>
-                  : <BuscadorPredictivo cat="productos" items={productosDelProv} value={prodTexto}
-                      placeholder={"Buscar en el catálogo de "+provSel+"…"}
-                      label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
-                      onText={t=>{ setProdTexto(t); if(t==="") setProd(null); }}
-                      onPick={p=>elegirProd(p)} />}
-                {prod && (
-                  <div style={{ marginTop:10 }}>
-                    <p style={{ fontSize:14, fontWeight:700, color:COLOR.text }}>{prod.nombre}</p>
-                    <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>{prod.linea} · {prod.prov}</p>
-                  </div>
-                )}
-                {provSel && !prod && Array.isArray(comprasCli) && (()=>{
-                  const cnt = {};
-                  comprasCli.forEach(it => { if(!cnt[it.prodId]) cnt[it.prodId]={veces:0, ult:it.precio}; cnt[it.prodId].veces++; });
-                  const porProd = {};
-                  productosDelProv.forEach(p => { const k=p.prodId||p.id; if(!porProd[k] || p.unidad==="Quintal") porProd[k]=p; });
-                  const favs = Object.keys(cnt).filter(k=>porProd[k]).sort((a,b)=>cnt[b].veces-cnt[a].veces).slice(0,4);
-                  if (!favs.length) return null;
-                  return (
-                    <div style={{ marginTop:10 }}>
-                      <p style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted, marginBottom:6 }}>⭐ Suele comprar de {provSel}</p>
-                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                        {favs.map(k=>{ const cat=porProd[k]; return (
-                          <button key={k} onClick={()=>{ elegirProd(cat); if(cnt[k].ult>0) setPrecio(String(cnt[k].ult)); }} style={{ textAlign:"left", padding:"8px 12px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer" }}>
-                            <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>{cat.nombre}</span>
-                            <span style={{ fontSize:11, color:COLOR.muted }}> · {cnt[k].veces}× · últ. {money(cnt[k].ult)}</span>
-                          </button>
-                        );})}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
           </>)}
           </div>
+
+          {/* ── TARJETA PRODUCTO · foto grande + buscador + botón Favoritos (sombra ámbar) ── */}
+          {cli && !cli.bloqueado && (
+            <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(245,166,35,.14)" }}>
+              <label style={{ ...lbl, color: provSel?COLOR.text:COLOR.muted, marginBottom:10 }}>Producto</label>
+              <div style={{ display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
+                <div style={{ width:128, height:128, borderRadius:14, background: prod?COLOR.tealLight:"#FBFCFD", border:`1px solid ${prod?COLOR.teal:COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod ? prod.ic : "🌾"}</div>
+                <div style={{ flex:"1 1 220px", minWidth:200, display:"flex", flexDirection:"column", gap:10 }}>
+                  {/* Botón Favoritos arriba a la derecha */}
+                  <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                    <button onClick={()=>setVerFavs(v=>!v)} disabled={!provSel}
+                      style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 13px", borderRadius:9, cursor: provSel?"pointer":"not-allowed",
+                        border:`1px solid ${verFavs?COLOR.teal:COLOR.border}`, background: verFavs?COLOR.tealLight:"#fff", color: provSel?(verFavs?COLOR.tealDark:COLOR.text):"#aab4bd", fontSize:12.5, fontWeight:700 }}>
+                      ⭐ Favoritos
+                    </button>
+                  </div>
+                  {/* Buscador abajo */}
+                  {!provSel
+                    ? <div style={{ padding:"11px 13px", borderRadius:9, border:`1px dashed ${COLOR.border}`, fontSize:13, color:COLOR.muted, background:"#FBFCFD" }}>Primero elige un proveedor para ver sus productos.</div>
+                    : <BuscadorPredictivo cat="productos" items={productosDelProv} value={prodTexto}
+                        placeholder={"Buscar en el catálogo de "+provSel+"…"}
+                        label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
+                        onText={t=>{ setProdTexto(t); if(t==="") setProd(null); }}
+                        onPick={p=>elegirProd(p)} />}
+                  {prod && (
+                    <div>
+                      <p style={{ fontSize:14, fontWeight:700, color:COLOR.text }}>{prod.nombre}</p>
+                      <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>{prod.linea} · {prod.prov}</p>
+                    </div>
+                  )}
+                  {/* Favoritos desplegados: lo que suele comprar, del más reciente al más antiguo */}
+                  {verFavs && provSel && !prod && Array.isArray(comprasCli) && (()=>{
+                    const orden = []; const vistos = {};
+                    comprasCli.forEach(it => { if(!vistos[it.prodId]){ vistos[it.prodId]={ult:it.precio, veces:0}; orden.push(it.prodId); } vistos[it.prodId].veces++; });
+                    const porProd = {};
+                    productosDelProv.forEach(p => { const k=p.prodId||p.id; if(!porProd[k] || p.unidad==="Quintal") porProd[k]=p; });
+                    const favs = orden.filter(k=>porProd[k]).slice(0,8);
+                    if (!favs.length) return <p style={{ fontSize:12, color:COLOR.muted }}>Este cliente aún no tiene compras con este proveedor.</p>;
+                    return (
+                      <div>
+                        <p style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted, marginBottom:6 }}>⭐ Suele comprar (del más reciente)</p>
+                        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                          {favs.map(k=>{ const cat=porProd[k]; return (
+                            <button key={k} onClick={()=>{ elegirProd(cat); if(vistos[k].ult>0) setPrecio(String(vistos[k].ult)); setVerFavs(false); }} style={{ textAlign:"left", padding:"9px 12px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer" }}>
+                              <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>{cat.nombre}</span>
+                              <span style={{ fontSize:11, color:COLOR.muted }}> · {vistos[k].veces}× · últ. {money(vistos[k].ult)}</span>
+                            </button>
+                          );})}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── TARJETA 2 · ¿Dónde lo recibe? · ¿Quién asume? (sombra azul) ── */}
           {cli && !cli.bloqueado && (
