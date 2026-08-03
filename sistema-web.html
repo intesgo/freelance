@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=1280">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREELANCE · Sistema Web</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"108", fecha:"3 ago 2026", desc:"Dashboard: Ultimos pedidos ahora muestra etiqueta de estado con color (verde aprobado/entregado, ambar pendiente/en proceso, rojo anulado). Solo diseño, sin tocar logica ni datos" };
+const VERSION = { n:"109", fecha:"3 ago 2026", desc:"Sistema web RESPONSIVE (base): la pantalla se adapta a escritorio, tablet y celular. En pantallas chicas el menu lateral se vuelve un cajon deslizable con boton hamburguesa. Viewport a device-width. Solo layout, sin tocar logica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -17301,9 +17301,16 @@ function PanelAvisos({ abierto, onCerrar }) {
   );
 }
 
+function useEsMovil(bp){
+  const [m, setM] = React.useState(typeof window!=="undefined" && window.innerWidth <= bp);
+  React.useEffect(()=>{ const f=()=>setM(window.innerWidth<=bp); window.addEventListener("resize",f); f(); return ()=>window.removeEventListener("resize",f); },[bp]);
+  return m;
+}
 function App() {
   // ⚠ DESARROLLO: ingreso automático como admin (sin login). Para reactivar el login, poner: useState(null)
   const [sesion, setSesion] = useState(null);  // FASE 4: login normal (Supabase Auth con correo, o usuario demo de respaldo)
+  const esMovil = useEsMovil(900);
+  const [menuAbierto, setMenuAbierto] = useState(false);
   /* FASE 4 · Restaurar sesión: si la sesión de Auth sigue viva (recarga de página),
      se entra directo sin pedir la clave otra vez. Solo aplica a cuentas reales. */
   const [restaurando, setRestaurando] = useState(!!(window.supa && window.supa.auth));
@@ -17472,12 +17479,23 @@ function App() {
 
   return (
     <div style={{ display:"flex", minHeight:"100vh" }}>
-      <Sidebar active={seccionOk} onNav={navegar} secciones={permitidas} usuario={sesion} empresa={empresaActiva} onSalir={salir}
-        onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} />
+      {esMovil ? (
+        <>
+          {menuAbierto && <div onClick={()=>setMenuAbierto(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:190 }} />}
+          <div style={{ position:"fixed", top:0, left:0, height:"100vh", zIndex:200, transform: menuAbierto?"translateX(0)":"translateX(-100%)", transition:"transform .25s ease", boxShadow: menuAbierto?"4px 0 30px rgba(0,0,0,.4)":"none" }}>
+            <Sidebar active={seccionOk} onNav={(k)=>{ navegar(k); setMenuAbierto(false); }} secciones={permitidas} usuario={sesion} empresa={empresaActiva} onSalir={salir}
+              onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} />
+          </div>
+        </>
+      ) : (
+        <Sidebar active={seccionOk} onNav={navegar} secciones={permitidas} usuario={sesion} empresa={empresaActiva} onSalir={salir}
+          onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} />
+      )}
       {verCambioClave && <CambioClave sesion={sesion} onCerrar={() => setVerCambioClave(false)} />}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
         {/* Barra de pestañas abiertas */}
         <div style={{ display:"flex", alignItems:"center", gap:4, padding:"7px 12px 0", background:COLOR.header, borderBottom:`1px solid ${COLOR.border}`, overflowX:"auto", flexShrink:0 }}>
+          {esMovil && <button onClick={()=>setMenuAbierto(true)} title="Menú" style={{ flexShrink:0, marginBottom:6, marginRight:4, width:38, height:38, borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:18, lineHeight:1 }}>☰</button>}
           {tabsVisibles.map(key => {
             const s = SECCIONES.find(x => x.key === key) || { icon:"•", label:key };
             const on = key === seccionOk;
