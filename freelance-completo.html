@@ -5544,7 +5544,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"400", fecha:"3 ago 2026", desc:"Diagnóstico de subida de foto: si falla, muestra la identidad que usa la app (uid, correo, token, y si el servidor te ve freelance) para ubicar por qué rechaza el Storage." };
+const VERSION = { n:"401", fecha:"3 ago 2026", desc:"Arreglo subida de foto: la subida a Storage ahora va con tu token puesto explícito en la cabecera, así el servicio de fotos reconoce tu identidad de freelance (antes el sub-cliente de Storage salía sin token y la rechazaba)." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16355,7 +16355,15 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     try{
       const ext=file.type==="image/png"?"png":(file.type==="image/webp"?"webp":"jpg");
       const ruta="prod/"+marca.id+"."+ext;
-      const up=await window.SB.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
+      /* Cliente exclusivo para la subida, con TU token puesto explícito en la cabecera.
+         Así Storage recibe tu identidad de freelance sí o sí, sin depender del sub-cliente
+         interno (que era el que estaba saliendo sin token). */
+      const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg";
+      const token = ses.access_token || null;
+      const sbUp = (window.supabase && window.supabase.createClient && token)
+        ? window.supabase.createClient("https://ztpwtddrblfvcnnhbevq.supabase.co", ANON, { auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}, global:{ headers:{ Authorization:"Bearer "+token } } })
+        : window.SB;
+      const up=await sbUp.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
       if(up.error){
         const m=up.error.message||"error";
         const d=await diagnosticoSesion();
