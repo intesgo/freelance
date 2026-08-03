@@ -5544,7 +5544,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"398", fecha:"3 ago 2026", desc:"Fotos de producto: subir/cambiar ahora vive en el módulo Productos (ficha de la marca), una foto por producto. Tomar pedido quedó limpio (solo muestra la foto). Bucket productos-fotos + columna productos.foto" };
+const VERSION = { n:"399", fecha:"3 ago 2026", desc:"Subir foto (ficha de la marca): antes de guardar revisa/refresca la sesión; si venció avisa en español claro y no muestra el error en inglés. Reintento tras volver a entrar." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16307,21 +16307,45 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
   const [subiendoFoto,setSubiendoFoto]=useState(false);
   const [avisoFoto,setAvisoFoto]=useState("");
   const fotoRef=React.useRef(null);
+  /* Traduce los rechazos de sesión/permiso a un aviso claro en español. */
+  const esErrorDeSesion=(m)=>/row-level security|violates|not authoriz|unauthoriz|jwt|expired|permission|403|401/i.test(m||"");
+  /* Antes de escribir, asegura que la sesión esté viva; si está por vencer, la refresca. */
+  const asegurarSesion=async()=>{
+    try{
+      let ses=null;
+      try{ const {data}=await window.SB.auth.getSession(); ses=(data&&data.session)||null; }catch(e){}
+      const venceEnMs = (ses && ses.expires_at) ? (ses.expires_at*1000 - Date.now()) : -1;
+      if(!ses || venceEnMs < 60000){   // sin sesión, vencida o por vencer en menos de 1 min
+        try{ const {data:rf}=await window.SB.auth.refreshSession(); if(rf && rf.session) ses=rf.session; }catch(e){}
+      }
+      return ses;
+    }catch(e){ return null; }
+  };
   const subirFotoMarca=async(file)=>{
     if(!file) return;
     if(!puedeFoto){ setAvisoFoto("La foto solo se guarda con el catálogo en línea."); return; }
     if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAvisoFoto("Usa JPG, PNG o WebP."); return; }
     if(file.size > 1048576){ setAvisoFoto("La imagen pesa más de 1 MB. Bájala de peso."); return; }
     setSubiendoFoto(true); setAvisoFoto("Subiendo…");
+    const ses = await asegurarSesion();
+    if(!ses){ setAvisoFoto("Tu sesión venció. Cierra y vuelve a entrar para subir la foto."); setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return; }
     try{
       const ext=file.type==="image/png"?"png":(file.type==="image/webp"?"webp":"jpg");
       const ruta="prod/"+marca.id+"."+ext;
       const up=await window.SB.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
-      if(up.error){ setAvisoFoto("No se pudo subir: "+(up.error.message||"error")); setSubiendoFoto(false); return; }
+      if(up.error){
+        const m=up.error.message||"error";
+        setAvisoFoto(esErrorDeSesion(m) ? "Tu sesión venció o no tienes permiso. Cierra y vuelve a entrar para subir la foto." : ("No se pudo subir: "+m));
+        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return;
+      }
       const pu=window.SB.storage.from("productos-fotos").getPublicUrl(ruta);
       const url=(pu && pu.data && pu.data.publicUrl) ? pu.data.publicUrl+"?v="+Date.now() : null;
       const db=await window.SB.from("productos").update({ foto:url }).eq("prod_id", marca.id);
-      if(db.error){ setAvisoFoto("Subió, pero no se guardó el enlace: "+(db.error.message||"error")); setSubiendoFoto(false); return; }
+      if(db.error){
+        const m=db.error.message||"error";
+        setAvisoFoto(esErrorDeSesion(m) ? "La foto subió, pero tu sesión venció al guardar el enlace. Vuelve a entrar y súbela otra vez." : ("Subió, pero no se guardó el enlace: "+m));
+        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return;
+      }
       if(onFoto) onFoto(marca.id, url);
       setAvisoFoto("Foto actualizada ✓");
     }catch(e){ setAvisoFoto("Error: "+(e.message||e)); }
