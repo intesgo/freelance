@@ -2757,7 +2757,7 @@ async function cargarCatalogoReal(){
    falla por PK se avisa). Si fallan los items, se deshace el pedido (borrado manual).
    El trigger fn_auditar audita pedidos solo: NO auditar a mano. */
 const CLI_ID_DE = {};
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -2780,6 +2780,8 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}){
       ped_id:pedId, cli_id:cliId, sub_id:subId, prov_cod:(prov && prov.id)||null,
       ubicacion_id: retiro ? null : ((ubic && ubic.ubic_id) || null),
       retiro_bodega: !!retiro,
+      asume_flete: retiro ? null : (asumeFlete||"freelance"),
+      asume_estibada: retiro ? null : (asumeEstibada||"freelance"),
       estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
     if(e1) return { ok:false, motivo:e1.message||"error_pedido" };
     const filas = items.map((it,i)=>({
@@ -5858,6 +5860,8 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [prod,setProd]=useState(null);
   const [ubicPed,setUbicPed]=useState(null);       // local de entrega (domicilio)
   const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);  // true = retira en bodega del proveedor
+  const [asumeFletePed,setAsumeFletePed]=useState("freelance");     // quién asume el flete en este pedido
+  const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");// quién asume la estibada en este pedido
   const [ubicMap,setUbicMap]=useState({});         // cli_id -> [ubicaciones]
   const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
@@ -6159,6 +6163,20 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             </div>
           </div>
         )}
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>¿Quién asume?</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {[["flete","🚚","Flete",asumeFletePed,setAsumeFletePed],["estibada","📦","Estibada",asumeEstibadaPed,setAsumeEstibadaPed]].map(([k,ic,lbl,val,set])=>{
+            const cliente = val==="cliente"; const off = retiroBodegaPed;
+            return (<button key={k} type="button" disabled={off} onClick={()=>set(cliente?"freelance":"cliente")}
+              style={{flex:"1 1 150px",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",borderRadius:11,cursor:off?"default":"pointer",textAlign:"left",opacity:off?.55:1,border:`1.5px solid ${off?"#d8ddd7":(cliente?"#2E7D52":"#d8ddd7")}`,background:off?"#f3f5f4":(cliente?"#E7F3EC":"#fff")}}>
+              <span style={{fontSize:16}}>{ic}</span>
+              <span style={{lineHeight:1.2}}>
+                <span style={{fontSize:12.5,fontWeight:700,color:off?"#9aa3ad":"#1E4D3A"}}>{lbl}</span><br/>
+                <span style={{fontSize:11,fontWeight:600,color:off?"#9aa3ad":(cliente?"#2E7D52":"#6b7a70")}}>{off?"No aplica":(cliente?"lo asume el cliente":"lo asume el freelance")}</span>
+              </span>
+            </button>);
+          })}
+        </div>
       </div>
     )}
 
@@ -7013,7 +7031,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
             const items = valido ? [...carrito, construirItem()] : carrito;
             if(items.length===0) return;
-            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed});
+            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed});
             const resumen = items.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
             setGuardadoOk({ cli, n:items.length, resumen });
             cerrarPedido();
@@ -7127,7 +7145,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado}
             onClick={()=>{
               if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
-              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed});
+              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed});
               const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
               setGuardadoOk({ cli, n:carrito.length, resumen });
               cerrarPedido();
@@ -23535,7 +23553,7 @@ function App({usuario, onSalir}){
   const tareasActivas=TAREAS_NOTIF.filter(t=>prefsNotif[t.tipo] && t.n>0);
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
 
-  const guardarPedido=({cli, prov, carrito, ubic, retiro})=>{
+  const guardarPedido=({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada})=>{
     const ahora=new Date();
     const dd=String(ahora.getDate()).padStart(2,"0");
     const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
@@ -23575,7 +23593,7 @@ function App({usuario, onSalir}){
     /* FASE 4 · Etapa 4: si hay sesión y cliente/productos reales, el pedido TAMBIÉN nace
        en la base (pedidos + pedido_items; el trigger lo audita solo). Si algo es demo o
        no hay sesión, guardarPedidoEnBase lo detecta y el flujo local sigue como siempre. */
-    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro}).then(r=>{
+    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}).then(r=>{
       if(r.ok) show("✓ Pedido "+r.pedId+" guardado en la base");
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo local: "+r.motivo);
