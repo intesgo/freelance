@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"106", fecha:"3 ago 2026", desc:"Empresa activa renombrada a 'Intesgo Ventas Directas'; la versión (bXX) ahora se muestra también arriba en el menú, junto a 'Sistema Web · Central'. Sin tocar lógica ni datos" };
+const VERSION = { n:"107", fecha:"3 ago 2026", desc:"Subir pedido, columna derecha reordenada: arriba Resumen del pedido, en medio Historial de compras (máx 3, del más reciente), abajo Cupo de crédito. Sin tocar lógica ni datos" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5441,45 +5441,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           )}
         </div>
 
-        {/* DERECHA: cupo (reloj) + resumen */}
+        {/* DERECHA: (superior) resumen · (medio) historial · (inferior) cupo */}
         <div style={{ position:"sticky", top:20 }}>
-          {cli && !cli.bloqueado && esCredito && (Number(cli.cupo)||0)>0 && (()=>{
-            const cupoTotal = Number(cli.cupo)||0;
-            const deudaActual = Number(cli.usado)||0;
-            const creditoEnCarrito = totalCarrito;
-            const montoLinea = exponeCupo;
-            const expuestoTotal = deudaActual + creditoEnCarrito + montoLinea;
-            const excede = expuestoTotal > cupoTotal;
-            const excesoMonto = Math.round((expuestoTotal - cupoTotal)*100)/100;
-            const fila = { display:"flex", justifyContent:"space-between", padding:"3px 0" };
-            return (
-              <div style={{ background:COLOR.card, borderRadius:14, padding:"14px 16px", marginBottom:14, border:`1px solid ${excede?"#f5c4c4":COLOR.border}` }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                  <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>💳 Cupo de crédito</span>
-                  {excede && <span style={{ fontSize:10.5, fontWeight:700, padding:"3px 9px", borderRadius:999, color:"#c0392b", background:"#FDECEA" }}>Excedido</span>}
-                </div>
-                <div style={{ display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" }}>
-                  <div style={{ flex:"0 0 190px", maxWidth:220 }}>
-                    <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excede} money={money}/>
-                    <div style={{ height:6, borderRadius:999, background:"#e6ebef", overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%", background: excede?"#C0392B":COLOR.teal, transition:"width .35s ease" }}/>
-                    </div>
-                  </div>
-                  <div style={{ flex:"1 1 180px", fontSize:12.5 }}>
-                    <div style={fila}><span style={{color:COLOR.muted}}>Cupo</span><b className="num">{money(cupoTotal)}</b></div>
-                    <div style={fila}><span style={{color:COLOR.muted}}>Deuda</span><b className="num">{money(deudaActual)}</b></div>
-                    {creditoEnCarrito>0 && <div style={fila}><span style={{color:COLOR.muted}}>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
-                    {montoLinea>0 && <div style={fila}><span style={{color:COLOR.muted}}>Venta</span><b className="num">{money(montoLinea)}</b></div>}
-                    <div style={{...fila, borderTop:`1px solid ${COLOR.border}`, marginTop:4, paddingTop:6}}>
-                      <span style={{fontWeight:700, color: excede?COLOR.red:COLOR.text}}>{excede?"Excede en":"Disponible"}</span>
-                      <b className="num" style={{ color: excede?COLOR.red:COLOR.teal }}>{excede?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
-                    </div>
-                  </div>
-                </div>
-                {excede && <div style={{ marginTop:10, fontSize:11.5, color:"#8a2018", background:"#FDECEA", borderRadius:8, padding:"9px 11px" }}>⚠️ Este pedido supera el cupo de {nombreCortoCliente(cli)}. Puedes tomarlo, pero quedará pendiente de autorización.</div>}
-              </div>
-            );
-          })()}
           <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
             <div style={{ padding:"16px 18px", borderBottom:`1px solid ${COLOR.border}` }}>
               <h3 style={{ fontSize:15, fontWeight:800, color:COLOR.text }}>Resumen del pedido</h3>
@@ -5536,7 +5499,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 {tend!==0 && <div><span style={{ fontSize:10.5, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>Tendencia</span><p className="num" style={{ fontSize:15, fontWeight:800, margin:"2px 0 0", color: tend>0?COLOR.teal:COLOR.red }}>{tend>0?"▲ ":"▼ "}{money(Math.abs(tend))}</p></div>}
               </div>
               <div>
-                {h.slice(0,5).map((x,i)=>(
+                {h.slice(0,3).map((x,i)=>(
                   <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderTop: i>0?`1px solid ${COLOR.bg}`:"none", fontSize:12 }}>
                     <span className="num" style={{ color:COLOR.muted, minWidth:82 }}>{x.fecha||"—"}</span>
                     <span style={{ color:COLOR.muted, flex:1, textAlign:"center" }}>{x.cant} qq</span>
@@ -5545,6 +5508,45 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 ))}
               </div>
             </>);
+          })()}
+
+          {/* Cupo de crédito (inferior) */}
+          {cli && !cli.bloqueado && esCredito && (Number(cli.cupo)||0)>0 && (()=>{
+            const cupoTotal = Number(cli.cupo)||0;
+            const deudaActual = Number(cli.usado)||0;
+            const creditoEnCarrito = totalCarrito;
+            const montoLinea = exponeCupo;
+            const expuestoTotal = deudaActual + creditoEnCarrito + montoLinea;
+            const excede = expuestoTotal > cupoTotal;
+            const excesoMonto = Math.round((expuestoTotal - cupoTotal)*100)/100;
+            const fila = { display:"flex", justifyContent:"space-between", padding:"3px 0" };
+            return (
+              <div style={{ background:COLOR.card, borderRadius:14, padding:"14px 16px", marginTop:14, border:`1px solid ${excede?"#f5c4c4":COLOR.border}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                  <span style={{ fontSize:12.5, fontWeight:700, color:COLOR.text }}>💳 Cupo de crédito</span>
+                  {excede && <span style={{ fontSize:10.5, fontWeight:700, padding:"3px 9px", borderRadius:999, color:"#c0392b", background:"#FDECEA" }}>Excedido</span>}
+                </div>
+                <div style={{ display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" }}>
+                  <div style={{ flex:"0 0 190px", maxWidth:220 }}>
+                    <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excede} money={money}/>
+                    <div style={{ height:6, borderRadius:999, background:"#e6ebef", overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%", background: excede?"#C0392B":COLOR.teal, transition:"width .35s ease" }}/>
+                    </div>
+                  </div>
+                  <div style={{ flex:"1 1 180px", fontSize:12.5 }}>
+                    <div style={fila}><span style={{color:COLOR.muted}}>Cupo</span><b className="num">{money(cupoTotal)}</b></div>
+                    <div style={fila}><span style={{color:COLOR.muted}}>Deuda</span><b className="num">{money(deudaActual)}</b></div>
+                    {creditoEnCarrito>0 && <div style={fila}><span style={{color:COLOR.muted}}>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
+                    {montoLinea>0 && <div style={fila}><span style={{color:COLOR.muted}}>Venta</span><b className="num">{money(montoLinea)}</b></div>}
+                    <div style={{...fila, borderTop:`1px solid ${COLOR.border}`, marginTop:4, paddingTop:6}}>
+                      <span style={{fontWeight:700, color: excede?COLOR.red:COLOR.text}}>{excede?"Excede en":"Disponible"}</span>
+                      <b className="num" style={{ color: excede?COLOR.red:COLOR.teal }}>{excede?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
+                    </div>
+                  </div>
+                </div>
+                {excede && <div style={{ marginTop:10, fontSize:11.5, color:"#8a2018", background:"#FDECEA", borderRadius:8, padding:"9px 11px" }}>⚠️ Este pedido supera el cupo de {nombreCortoCliente(cli)}. Puedes tomarlo, pero quedará pendiente de autorización.</div>}
+              </div>
+            );
           })()}
         </div>
       </div>
