@@ -25,6 +25,7 @@ for (const f of fs.readdirSync(RAIZ)) {
   if (["package.json","package-lock.json",".gitignore"].includes(f)) continue;
   const p = path.join(RAIZ, f);
   if (fs.statSync(p).isFile()) fs.copyFileSync(p, path.join(DIST, f));
+  else fs.cpSync(p, path.join(DIST, f), { recursive: true }); /* carpetas (pwa: manifest e iconos) tambien se publican */
 }
 
 /* 2) Compilar cada app y dejarla en dist/ con el mismo nombre (misma URL) */
