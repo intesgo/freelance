@@ -2735,22 +2735,30 @@ async function cargarCatalogoReal(){
       /* RENDIMIENTO: el catálogo NO trae fotos (ni de productos ni de presentaciones); solo
          estructura + precios + qué presentaciones YA tienen foto (bandera liviana, sin la imagen).
          La foto real se carga en la ficha del producto, bajo demanda, solo la de ese producto. */
-      const [{ data:prods }, { data:precios }, { data:presen }, { data:conFotoRows }] = await Promise.all([
+      const [{ data:prods }, { data:precios }, { data:presen }, { data:ofertasV }, { data:provsTbl }] = await Promise.all([
         window.SB.from("productos").select("prod_id,nombre,linea,proveedor,proveedor_cod")
           .eq("estado","activo").order("nombre").limit(500),
         window.SB.from("precios").select("prod_id,base_contado,base_credito")
           .is("vigente_hasta",null).limit(500),
         window.SB.from("presentaciones").select("pres_id,prod_id,presentacion_cod")
           .eq("activo",true).limit(2000),
-        window.SB.from("presentaciones").select("pres_id").eq("activo",true).not("foto","is",null).limit(2000),
+        window.SB.from("v_ofertas_vigentes").select("prod_id,prov_cod").limit(3000),
+        window.SB.from("proveedores").select("prov_cod,nombre").limit(500),
       ]);
       if(!prods || !prods.length) return null;
       const r2=n=>Math.round(n*100)/100;
       const precioDe={}; (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
-      const conFoto=new Set((conFotoRows||[]).map(x=>x.pres_id));   // pres_id que YA tienen foto (sin bajar la imagen)
       /* mapa por presentación: prod_id|cod -> pres_id */
       const presDe={}; (presen||[]).forEach(p=>{ presDe[p.prod_id+"|"+p.presentacion_cod]=p.pres_id; });
-      const infoPres=(prodId,cod)=>{ const pid=presDe[prodId+"|"+cod]||null; return { pres_id:pid, tieneFoto: pid?conFoto.has(pid):false }; };
+      const infoPres=(prodId,cod)=>{ const pid=presDe[prodId+"|"+cod]||null; return { pres_id:pid }; };
+      /* PILADORAS por producto: un mismo producto puede salir de varias piladoras (ofertas vigentes) */
+      const nomProv={}; (provsTbl||[]).forEach(p=>{ nomProv[p.prov_cod]=p.nombre; if(p.prov_cod && p.nombre) PROV_REAL_NOMBRES[p.prov_cod]=p.nombre; });
+      const pilaSet={}; (ofertasV||[]).forEach(o=>{ if(!o.prov_cod) return; (pilaSet[o.prod_id]=pilaSet[o.prod_id]||new Set()).add(o.prov_cod); });
+      const piladorasDe=(pid, provFallback, nomFallback)=>{
+        const s=pilaSet[pid];
+        if(s && s.size){ return [...s].map(c=>({cod:c, nombre:nomProv[c]||c})); }
+        return provFallback ? [{cod:provFallback, nombre:nomFallback||nomProv[provFallback]||provFallback}] : [];
+      };
       const lista=prods.map(p=>{
         if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
         const pr=precioDe[p.prod_id];
@@ -2758,12 +2766,13 @@ async function cargarCatalogoReal(){
         const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
         const iQQ=infoPres(p.prod_id,"QQ"), iAR=infoPres(p.prod_id,"ARR");
         const provId=p.proveedor_cod||"", linea=p.linea||"Otros", nom=p.nombre;
+        const piladoras=piladorasDe(p.prod_id, provId, p.proveedor||"");
         /* cada presentación lleva TODO lo que Tomar pedido necesita para venderla directo (foto se carga en la ficha) */
         const base=(cod,tam,eq,bc,bk,info)=>({
-          id:p.prod_id+"-"+(cod==="QQ"?"QQ":"AR"), presId:(info.pres_id||null), presCod:cod, foto:null, tieneFoto:!!info.tieneFoto,
+          id:p.prod_id+"-"+(cod==="QQ"?"QQ":"AR"), presId:(info.pres_id||null), presCod:cod, foto:null,
           tam, prodId:p.prod_id, equiv:eq, provId, linea, marca:nom, nombre:nom+" · "+tam, unidad:tam,
           diasCredito:30, costo:null, baseContado:bc, baseCredito:bk, promosFreelance:[], promosProveedor:[] });
-        return { id:p.prod_id, provId, provNombre:p.proveedor||"",
+        return { id:p.prod_id, provId, provNombre:p.proveedor||"", piladoras,
           marca:nom, linea, foto:null, presentaciones:[
             base("QQ","Quintal",1,qqC,qqK,iQQ),
             base("ARR","Arroba 25 lb",0.25,r2(qqC*.25),r2(qqK*.25),iAR),
@@ -5564,7 +5573,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"410", fecha:"4 ago 2026", desc:"Rendimiento: la lista de Productos y Tomar pedido ya NO cargan fotos (abren rápido siempre). Las fotos se cargan bajo demanda solo en la ficha del producto seleccionado. La lista avisa cuántas fotos faltan por producto." };
+const VERSION = { n:"411", fecha:"4 ago 2026", desc:"Productos: se quita el aviso de fotos faltantes. Si un mismo producto sale de varias piladoras, ahora lo indica (🏭 N piladoras y sus nombres). La lista sigue liviana (sin fotos)." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16319,15 +16328,16 @@ function Productos({vender}){
         {porLinea[ln].map((m,i)=>{
           const activas=m.presentaciones.filter(p=>!p.inhabilitada);
           const nPres=activas.length;
-          const conFotoN=activas.filter(p=>p.tieneFoto).length;
+          const pilas=m.piladoras||[];
+          const variasPilas=pilas.length>1;
           return (
             <div className="card" key={i} style={{cursor:"pointer"}} onClick={()=>setSel(m)}>
               <div className="row" style={{alignItems:"center"}}>
                 <div style={{width:40,height:40,borderRadius:10,background:"var(--paper)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,marginRight:11}}>{EMOJI_LINEA[m.linea]||"📦"}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div className="cli">{m.marca}</div>
-                  <div className="meta">{provName(m.provId)} · {nPres} presentación(es)</div>
-                  {conFotoN<nPres && <div style={{marginTop:2,fontSize:11,fontWeight:700,color:"#B8860B"}}>📷 faltan {nPres-conFotoN} foto(s)</div>}
+                  <div className="meta">{variasPilas ? `🏭 ${pilas.length} piladoras` : (pilas[0]?pilas[0].nombre:provName(m.provId))} · {nPres} presentación(es)</div>
+                  {variasPilas && <div className="meta" style={{fontSize:11,marginTop:2,color:"var(--muted)"}}>{pilas.map(x=>x.nombre).join(" · ")}</div>}
                 </div>
                 <span className="meta" style={{fontSize:18,color:"var(--muted)",marginLeft:8}}>›</span>
               </div>
