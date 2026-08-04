@@ -2696,17 +2696,20 @@ const PRESENTACIONES = PRODUCTOS
    el precio de venta es ÚNICO del freelance (precios vigentes) × equiv_qq de la oferta
    (regla sellada: un producto, un precio). Sin producto activo o sin precio vigente,
    la oferta no se ofrece. Promos siempre [] (las reales viven en `promociones`, vacía). */
-function construirCatalogoPedido(provs, ofertas, prods, precios){
+function construirCatalogoPedido(provs, ofertas, prods, precios, presenTbl){
   const r2=n=>Math.round(n*100)/100;
-  const nomDe={}, lineaDe={}, precioDe={}, fotoDe={};
+  const nomDe={}, lineaDe={}, precioDe={}, fotoDe={}, presFotoDe={};
   (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; fotoDe[p.prod_id]=p.foto||null; });
   (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+  /* foto POR PRESENTACIÓN (clave: prod_id|presentacion_cod). Cae a la del producto si aún no tiene la suya. */
+  (presenTbl||[]).forEach(p=>{ if(p.foto) presFotoDe[p.prod_id+"|"+p.presentacion_cod]=p.foto; });
   const pres=(ofertas||[]).map(o=>{
     const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
     if(!nom || !pr) return null;
     const eq=Number(o.equiv_qq)||1;
-    return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
-      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoDe[o.prod_id]||null, diasCredito:30,
+    const fotoPres = presFotoDe[o.prod_id+"|"+o.pres_cod] || fotoDe[o.prod_id] || null;
+    return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, presCod:o.pres_cod, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
+      marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoPres, diasCredito:30,
       baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
       costo:o.costo!=null?r2(Number(o.costo)):null,
       promosFreelance:[], promosProveedor:[] };
@@ -2729,24 +2732,30 @@ async function cargarCatalogoReal(){
     try{
       const { data:s } = await window.SB.auth.getSession();
       if(!s || !s.session) return null;
-      const [{ data:prods }, { data:precios }] = await Promise.all([
+      const [{ data:prods }, { data:precios }, { data:presen }] = await Promise.all([
         window.SB.from("productos").select("prod_id,nombre,linea,proveedor,proveedor_cod,foto")
           .eq("estado","activo").order("nombre").limit(500),
         window.SB.from("precios").select("prod_id,base_contado,base_credito")
           .is("vigente_hasta",null).limit(500),
+        window.SB.from("presentaciones").select("pres_id,prod_id,presentacion_cod,foto")
+          .eq("activo",true).limit(2000),
       ]);
       if(!prods || !prods.length) return null;
       const r2=n=>Math.round(n*100)/100;
       const precioDe={}; (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+      /* mapa por presentación: prod_id|cod -> {pres_id, foto} */
+      const presDe={}; (presen||[]).forEach(p=>{ presDe[p.prod_id+"|"+p.presentacion_cod]={ pres_id:p.pres_id, foto:p.foto||null }; });
+      const infoPres=(prodId,cod)=>presDe[prodId+"|"+cod]||{};
       const lista=prods.map(p=>{
         if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
         const pr=precioDe[p.prod_id];
         if(!pr) return null;   // sin precio vigente no se ofrece (no inventar precios)
         const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
+        const iQQ=infoPres(p.prod_id,"QQ"), iAR=infoPres(p.prod_id,"ARR");
         return { id:p.prod_id, provId:p.proveedor_cod||"", provNombre:p.proveedor||"",
           marca:p.nombre, linea:p.linea||"Otros", foto:p.foto||null, presentaciones:[
-            { id:p.prod_id+"-QQ", tam:"Quintal",      baseContado:qqC,         baseCredito:qqK,         promosFreelance:[], promosProveedor:[] },
-            { id:p.prod_id+"-AR", tam:"Arroba 25 lb", baseContado:r2(qqC*.25), baseCredito:r2(qqK*.25), promosFreelance:[], promosProveedor:[] },
+            { id:p.prod_id+"-QQ", presId:iQQ.pres_id||null, foto:iQQ.foto||null, tam:"Quintal",      baseContado:qqC,         baseCredito:qqK,         promosFreelance:[], promosProveedor:[] },
+            { id:p.prod_id+"-AR", presId:iAR.pres_id||null, foto:iAR.foto||null, tam:"Arroba 25 lb", baseContado:r2(qqC*.25), baseCredito:r2(qqK*.25), promosFreelance:[], promosProveedor:[] },
           ] };
       }).filter(Boolean);
       if(lista.length) CATALOGO_REAL = lista;
@@ -5544,7 +5553,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"403", fecha:"4 ago 2026", desc:"Foto de producto: ahora se optimiza y se guarda DIRECTO en la base (productos.foto como miniatura), por la vía que sí reconoce al freelance. Se deja de usar el servicio de Storage, que en este proyecto no hacía valer la regla de rol." };
+const VERSION = { n:"404", fecha:"4 ago 2026", desc:"Foto POR PRESENTACIÓN: cada presentación (Quintal, Arroba…) tiene su propia foto. Se sube/cambia desde la ficha de la marca (botón en cada presentación) y se ve por presentación en Tomar pedido. Guarda en presentaciones.foto." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -5924,8 +5933,10 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
           window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,tipo_entrega,ciudad,direccion").eq("activo",true).limit(3000),
         ]);
+        let presenTbl=[];
+        try{ const rp=await window.SB.from("presentaciones").select("prod_id,presentacion_cod,foto").eq("activo",true).limit(2000); presenTbl=(rp&&rp.data)||[]; }catch(e){}
         if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
-        const cat=construirCatalogoPedido(provs, ofertas, prods, precios);
+        const cat=construirCatalogoPedido(provs, ofertas, prods, precios, presenTbl);
         if(!cat.pres.length) return;
         provs.forEach(p=>{ PROV_REAL_NOMBRES[p.prov_cod]=p.nombre; });
         (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
@@ -16236,7 +16247,11 @@ function Productos({vender}){
       return false;                            // entrada del módulo: que el app retroceda de módulo
     });
   if(sel) return <FichaMarca marca={sel} real={!!reales} volver={()=>setSel(null)} vender={vender}
-    onFoto={(id,url)=>{ setReales(rs => (rs||[]).map(m => m.id===id ? ({...m, foto:url}) : m)); setSel(s => s && s.id===id ? ({...s, foto:url}) : s); }}/>;
+    onFoto={(marcaId,presId,url)=>{
+      const actualiza = m => (m.id!==marcaId ? m : ({...m, presentaciones:(m.presentaciones||[]).map(pp => pp.presId===presId ? ({...pp, foto:url}) : pp)}));
+      setReales(rs => (rs||[]).map(actualiza));
+      setSel(s => s ? actualiza(s) : s);
+    }}/>;
 
   const lista=CATALOGO.filter(m=>{
     if(m.inhabilitada) return false; // inhabilitada por proveedor/freelance
@@ -16302,11 +16317,13 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
   const unidadNom=id=>UNIDADES_MEDIDA.find(u=>u.id===id)?.nombre||id;
   const guardarAgr=()=>{ AGRUPACION_INI[marca.marca]={...agr}; setEditAgr(false); setGuardado(true); setTimeout(()=>setGuardado(false),2000); };
 
-  /* Foto del producto (solo con catálogo real y sesión). Una foto por producto (marca.id = prod_id). */
-  const puedeFoto = !!(real && marca && marca.id && window.SB && window.SB.storage);
-  const [subiendoFoto,setSubiendoFoto]=useState(false);
+  /* Foto POR PRESENTACIÓN: se guarda en presentaciones.foto (por pres_id), por la vía de la base
+     que sí reconoce al freelance (sin Storage). */
+  const puedeFoto = !!(real && window.SB && window.SB.auth);
+  const [subiendoFoto,setSubiendoFoto]=useState(null);   // pres_id que se está subiendo
   const [avisoFoto,setAvisoFoto]=useState("");
   const fotoRef=React.useRef(null);
+  const presPend=React.useRef(null);   // presentación a la que se le va a poner foto
   /* Traduce los rechazos de sesión/permiso a un aviso claro en español. */
   const esErrorDeSesion=(m)=>/row-level security|violates|not authoriz|unauthoriz|jwt|expired|permission|403|401/i.test(m||"");
   /* Antes de escribir, asegura que la sesión esté viva; si está por vencer, la refresca. */
@@ -16363,35 +16380,36 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
       img.src=objurl;
     }catch(e){ reject(e); }
   });
-  const subirFotoMarca=async(file)=>{
-    if(!file) return;
-    if(!puedeFoto){ setAvisoFoto("La foto solo se guarda con el catálogo en línea."); return; }
+  const subirFotoPres=async(pres, file)=>{
+    if(!pres || !file) return;
+    if(!puedeFoto){ setAvisoFoto("La foto solo se administra con el catálogo en línea."); return; }
+    if(!pres.presId){ setAvisoFoto("Esta presentación aún no está en el catálogo para ponerle foto."); return; }
     if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAvisoFoto("Usa JPG, PNG o WebP."); return; }
     if(file.size > 15728640){ setAvisoFoto("La imagen es demasiado grande (máx 15 MB)."); return; }
-    setSubiendoFoto(true); setAvisoFoto("Optimizando…");
+    setSubiendoFoto(pres.presId); setAvisoFoto("Optimizando "+pres.tam+"…");
     const ses = await asegurarSesion();
     if(!ses){
       const d=await diagnosticoSesion();
       setAvisoFoto("Tu sesión venció. Cierra y vuelve a entrar para subir la foto.\n"+d);
-      setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
+      setSubiendoFoto(null); setTimeout(()=>setAvisoFoto(""), 12000); return;
     }
     try{
       /* Miniatura cuadrada pequeña (≈20–35 KB) para que el catálogo se mantenga liviano. */
       let dataUrl;
       try{ dataUrl=await imagenAData(file, 320, 0.72); }
-      catch(e){ setAvisoFoto("No se pudo procesar la imagen. Prueba con otra."); setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return; }
+      catch(e){ setAvisoFoto("No se pudo procesar la imagen. Prueba con otra."); setSubiendoFoto(null); setTimeout(()=>setAvisoFoto(""), 4500); return; }
       setAvisoFoto("Guardando…");
-      const db=await window.SB.from("productos").update({ foto:dataUrl }).eq("prod_id", marca.id);
+      const db=await window.SB.from("presentaciones").update({ foto:dataUrl }).eq("pres_id", pres.presId);
       if(db.error){
         const m=db.error.message||"error";
         const d=await diagnosticoSesion();
         setAvisoFoto((esErrorDeSesion(m) ? "Tu sesión venció o no tienes permiso. Cierra y vuelve a entrar para subir la foto." : ("No se pudo guardar: "+m))+"\n"+d);
-        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
+        setSubiendoFoto(null); setTimeout(()=>setAvisoFoto(""), 12000); return;
       }
-      if(onFoto) onFoto(marca.id, dataUrl);
-      setAvisoFoto("Foto actualizada ✓");
+      if(onFoto) onFoto(marca.id, pres.presId, dataUrl);
+      setAvisoFoto("Foto de "+pres.tam+" actualizada ✓");
     }catch(e){ setAvisoFoto("Error: "+(e.message||e)); }
-    setSubiendoFoto(false);
+    setSubiendoFoto(null);
     setTimeout(()=>setAvisoFoto(""), 2800);
   };
 
@@ -16400,23 +16418,9 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     <div className="h1" style={{marginTop:8,marginBottom:4}}>{marca.marca}</div>
     <div className="sub">{provName(marca.provId)} · {activas.length} presentación(es)</div>
 
-    <div style={{display:"flex",alignItems:"center",gap:14,margin:"12px 0 4px"}}>
-      <div style={{width:76,height:76,borderRadius:16,border:"1px solid var(--line)",background:"var(--paper)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",fontSize:34}}>
-        {marca.foto ? <img src={marca.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : (EMOJI_LINEA[marca.linea]||"📦")}
-      </div>
-      <div style={{flex:1,minWidth:0}}>
-        {puedeFoto ? (<>
-          <button type="button" onClick={()=>{ if(fotoRef.current) fotoRef.current.click(); }} disabled={subiendoFoto}
-            style={{background:"#fff",color:"#1E4D3A",border:"1px solid #2E7D52",borderRadius:11,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:subiendoFoto?"wait":"pointer"}}>
-            📷 {subiendoFoto?"Subiendo…":(marca.foto?"Cambiar foto":"Subir foto")}</button>
-          <div className="meta" style={{marginTop:6}}>JPG, PNG o WebP · se ajusta y recorta en cuadro automáticamente</div>
-          <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}}
-            onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; if(ff) subirFotoMarca(ff); }}/>
-        </>) : (
-          <div className="meta">La foto de este producto se administra con el catálogo en línea.</div>
-        )}
-      </div>
-    </div>
+    {puedeFoto && <div className="meta" style={{margin:"8px 2px 2px"}}>📷 Cada presentación tiene su propia foto. Tócala abajo para subir o cambiar (se ajusta en cuadro sola).</div>}
+    {puedeFoto && <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}}
+      onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; const pr=presPend.current; presPend.current=null; if(ff && pr) subirFotoPres(pr, ff); }}/>}
     {avisoFoto && <div style={{position:"fixed",left:12,right:12,bottom:80,zIndex:9999,background:"#1E3A2B",color:"#EAF0EA",padding:"11px 14px",borderRadius:12,fontSize:13.5,fontWeight:600,textAlign:"center",whiteSpace:"pre-line",boxShadow:"0 8px 24px rgba(0,0,0,.28)"}}>{avisoFoto}</div>}
 
     <div className="ficha-sec">Unidades y agrupación</div>
@@ -16448,11 +16452,16 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     {activas.map((pr,i)=>(
       <div className="card prod-card" key={i}>
         <div className="pres-head">
-          <div className="pres-img">{EMOJI_LINEA[marca.linea]||"📦"}</div>
+          <div className="pres-img">{pr.foto ? <img src={pr.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:12}}/> : (EMOJI_LINEA[marca.linea]||"📦")}</div>
           <div style={{flex:1}}>
             <div className="cli">{pr.tam}</div>
             <div className="meta">{marca.marca}</div>
           </div>
+          {puedeFoto && (
+            <button type="button" onClick={()=>{ presPend.current=pr; if(fotoRef.current) fotoRef.current.click(); }} disabled={subiendoFoto===pr.presId || !pr.presId}
+              style={{flexShrink:0, background:"#fff", color: pr.presId?"#1E4D3A":"#9AA6A0", border:"1px solid "+(pr.presId?"#2E7D52":"#CBD5D0"), borderRadius:10, padding:"7px 11px", fontSize:12, fontWeight:700, cursor: (subiendoFoto===pr.presId?"wait":(pr.presId?"pointer":"not-allowed"))}}>
+              📷 {subiendoFoto===pr.presId ? "Subiendo…" : (pr.foto?"Cambiar":"Subir")}</button>
+          )}
         </div>
         <div className="prod-bases">
           <div className="pb">

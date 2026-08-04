@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"112", fecha:"4 ago 2026", desc:"Catalogo · Fotos de productos: ahora optimiza y guarda la miniatura DIRECTO en productos.foto (misma via que la app freelance), sin depender del servicio de Storage que rechazaba la subida. Solo rol freelance." };
+const VERSION = { n:"113", fecha:"4 ago 2026", desc:"Catalogo · Fotos POR PRESENTACIÓN: el panel ahora lista cada presentación (Quintal, Arroba…) con su propia foto; guarda en presentaciones.foto. Buscador por producto o presentación. Solo rol freelance." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5578,13 +5578,13 @@ function FotosProductosWeb({ usuario }){
   const cargar = React.useCallback(async () => {
     if(!window.supa){ setProds([]); return; }
     try{
-      const r = await window.supa.from("productos").select("prod_id,nombre,linea,marca,foto").eq("estado","activo").order("nombre").limit(1000);
+      const r = await window.supa.from("presentaciones").select("pres_id,prod_id,producto,presentacion,presentacion_cod,foto").eq("activo",true).order("producto").limit(3000);
       setProds(r.error ? [] : (r.data||[]));
     }catch(e){ setProds([]); }
   }, []);
   useEffect(()=>{ if(abierto && prods===null) cargar(); }, [abierto]);
   const norm = x => (x||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  const lista = (prods||[]).filter(p => q.trim()==="" || norm((p.nombre||"")+" "+(p.marca||"")).includes(norm(q)));
+  const lista = (prods||[]).filter(p => q.trim()==="" || norm((p.producto||"")+" "+(p.presentacion||"")).includes(norm(q)));
   const total = (prods||[]).length;
   const conFoto = (prods||[]).filter(p=>p.foto).length;
   /* Reduce la imagen a un cuadrado pequeño y la devuelve como texto (data URL),
@@ -5613,14 +5613,14 @@ function FotosProductosWeb({ usuario }){
     if(!file) return;
     if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAviso("Usa JPG, PNG o WebP."); return; }
     if(file.size > 15728640){ setAviso("La imagen es demasiado grande (máx 15 MB)."); return; }
-    setSubiendo(p.prod_id); setAviso("");
+    setSubiendo(p.pres_id); setAviso("");
     try{
       let dataUrl;
       try{ dataUrl = await imagenAData(file, 320, 0.72); }
       catch(e){ setAviso("No se pudo procesar la imagen. Prueba con otra."); setSubiendo(null); return; }
-      const db = await window.supa.from("productos").update({ foto:dataUrl }).eq("prod_id", p.prod_id);
+      const db = await window.supa.from("presentaciones").update({ foto:dataUrl }).eq("pres_id", p.pres_id);
       if(db.error){ setAviso("No se pudo guardar: "+(db.error.message||"error")); setSubiendo(null); return; }
-      setProds(ps => (ps||[]).map(x => x.prod_id===p.prod_id ? ({...x, foto:dataUrl}) : x));
+      setProds(ps => (ps||[]).map(x => x.pres_id===p.pres_id ? ({...x, foto:dataUrl}) : x));
     }catch(e){ setAviso("Error: "+(e.message||e)); }
     setSubiendo(null);
   };
@@ -5628,31 +5628,32 @@ function FotosProductosWeb({ usuario }){
   return (
     <div style={{ background:COLOR.card, border:"1px solid "+COLOR.border, borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
       <button onClick={()=>setAbierto(a=>!a)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, background:"none", border:"none", cursor:"pointer", padding:"2px 0" }}>
-        <span style={{ fontSize:14, fontWeight:800, color:COLOR.text }}>📷 Fotos de productos</span>
+        <span style={{ fontSize:14, fontWeight:800, color:COLOR.text }}>📷 Fotos por presentación</span>
         <span style={{ fontSize:12, fontWeight:700, color:COLOR.teal, background:COLOR.tealLight, padding:"2px 9px", borderRadius:999 }}>{prods===null ? "…" : (conFoto+" / "+total+" con foto")}</span>
         <span style={{ marginLeft:"auto", color:COLOR.muted, fontSize:14 }}>{abierto?"▲":"▼"}</span>
       </button>
       {abierto && (
         <div style={{ marginTop:12 }}>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar producto…"
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar producto o presentación…"
             style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1px solid "+COLOR.border, fontSize:13.5, marginBottom:12, boxSizing:"border-box" }}/>
           {aviso && <div style={{ background:"#FDECEC", color:COLOR.red, padding:"9px 12px", borderRadius:10, fontSize:12.5, fontWeight:600, marginBottom:12 }}>{aviso}</div>}
-          {prods===null ? <p style={{ fontSize:13, color:COLOR.muted, padding:"14px 2px" }}>Cargando productos…</p> : (
+          {prods===null ? <p style={{ fontSize:13, color:COLOR.muted, padding:"14px 2px" }}>Cargando presentaciones…</p> : (
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:12 }}>
               {lista.map(p=>(
-                <div key={p.prod_id} style={{ border:"1px solid "+COLOR.border, borderRadius:12, padding:10, textAlign:"center" }}>
+                <div key={p.pres_id} style={{ border:"1px solid "+COLOR.border, borderRadius:12, padding:10, textAlign:"center" }}>
                   <div style={{ height:96, borderRadius:10, background:COLOR.bg, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", fontSize:34, marginBottom:8 }}>
                     {p.foto ? <img src={p.foto} alt="" style={{ width:"100%", height:"100%", objectFit:"contain" }}/> : "📦"}
                   </div>
-                  <div style={{ fontSize:12, fontWeight:700, color:COLOR.text, minHeight:32, lineHeight:1.25, marginBottom:8 }}>{p.nombre}</div>
-                  <button onClick={()=>{ if(refs.current[p.prod_id]) refs.current[p.prod_id].click(); }} disabled={subiendo===p.prod_id}
-                    style={{ width:"100%", background: p.foto?"#fff":COLOR.teal, color: p.foto?COLOR.tealDark:"#fff", border:"1px solid "+(p.foto?COLOR.tealDark:COLOR.teal), borderRadius:9, padding:"7px 8px", fontSize:12, fontWeight:700, cursor: subiendo===p.prod_id?"wait":"pointer" }}>
-                    {subiendo===p.prod_id ? "Subiendo…" : (p.foto?"Cambiar":"Subir")}</button>
-                  <input ref={el=>refs.current[p.prod_id]=el} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
+                  <div style={{ fontSize:12, fontWeight:700, color:COLOR.text, lineHeight:1.2 }}>{p.producto}</div>
+                  <div style={{ fontSize:11, fontWeight:700, color:COLOR.teal, minHeight:15, marginBottom:8 }}>{p.presentacion}</div>
+                  <button onClick={()=>{ if(refs.current[p.pres_id]) refs.current[p.pres_id].click(); }} disabled={subiendo===p.pres_id}
+                    style={{ width:"100%", background: p.foto?"#fff":COLOR.teal, color: p.foto?COLOR.tealDark:"#fff", border:"1px solid "+(p.foto?COLOR.tealDark:COLOR.teal), borderRadius:9, padding:"7px 8px", fontSize:12, fontWeight:700, cursor: subiendo===p.pres_id?"wait":"pointer" }}>
+                    {subiendo===p.pres_id ? "Subiendo…" : (p.foto?"Cambiar":"Subir")}</button>
+                  <input ref={el=>refs.current[p.pres_id]=el} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
                     onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; if(ff) subir(p, ff); }}/>
                 </div>
               ))}
-              {lista.length===0 && <p style={{ fontSize:13, color:COLOR.muted, gridColumn:"1/-1", padding:"14px 2px" }}>No hay productos que coincidan.</p>}
+              {lista.length===0 && <p style={{ fontSize:13, color:COLOR.muted, gridColumn:"1/-1", padding:"14px 2px" }}>No hay presentaciones que coincidan.</p>}
             </div>
           )}
         </div>
