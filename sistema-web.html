@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"111", fecha:"3 ago 2026", desc:"Catalogo: herramienta Fotos de productos (colapsable) para subir/cambiar en bloque las fotos de los productos, con buscador y contador X/total. Solo rol freelance; guarda en productos.foto y bucket productos-fotos" };
+const VERSION = { n:"112", fecha:"4 ago 2026", desc:"Catalogo · Fotos de productos: ahora optimiza y guarda la miniatura DIRECTO en productos.foto (misma via que la app freelance), sin depender del servicio de Storage que rechazaba la subida. Solo rol freelance." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5587,20 +5587,40 @@ function FotosProductosWeb({ usuario }){
   const lista = (prods||[]).filter(p => q.trim()==="" || norm((p.nombre||"")+" "+(p.marca||"")).includes(norm(q)));
   const total = (prods||[]).length;
   const conFoto = (prods||[]).filter(p=>p.foto).length;
+  /* Reduce la imagen a un cuadrado pequeño y la devuelve como texto (data URL),
+     para guardarla DIRECTO en la base (productos.foto), sin depender del servicio de Storage. */
+  const imagenAData = (file, lado, calidad) => new Promise((resolve, reject) => {
+    try{
+      const img = new Image();
+      const objurl = URL.createObjectURL(file);
+      img.onload = () => {
+        try{
+          URL.revokeObjectURL(objurl);
+          const min = Math.min(img.width, img.height);
+          const sx = (img.width-min)/2, sy = (img.height-min)/2;
+          const c = document.createElement("canvas"); c.width = lado; c.height = lado;
+          const ctx = c.getContext("2d");
+          ctx.fillStyle = "#fff"; ctx.fillRect(0,0,lado,lado);
+          ctx.drawImage(img, sx, sy, min, min, 0, 0, lado, lado);
+          resolve(c.toDataURL("image/jpeg", calidad));
+        }catch(e){ reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(objurl); reject(new Error("no se pudo leer la imagen")); };
+      img.src = objurl;
+    }catch(e){ reject(e); }
+  });
   const subir = async (p, file) => {
     if(!file) return;
     if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAviso("Usa JPG, PNG o WebP."); return; }
-    if(file.size > 1048576){ setAviso("La imagen pesa más de 1 MB. Bájala de peso."); return; }
+    if(file.size > 15728640){ setAviso("La imagen es demasiado grande (máx 15 MB)."); return; }
     setSubiendo(p.prod_id); setAviso("");
     try{
-      const ext = file.type==="image/png"?"png":(file.type==="image/webp"?"webp":"jpg");
-      const ruta = "prod/"+p.prod_id+"."+ext;
-      const up = await window.supa.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
-      if(up.error){ setAviso("No se pudo subir: "+(up.error.message||"error")); setSubiendo(null); return; }
-      const url = window.supa.storage.from("productos-fotos").getPublicUrl(ruta).data.publicUrl + "?v=" + Date.now();
-      const db = await window.supa.from("productos").update({ foto:url }).eq("prod_id", p.prod_id);
-      if(db.error){ setAviso("Subió, pero no se guardó el enlace: "+(db.error.message||"error")); setSubiendo(null); return; }
-      setProds(ps => (ps||[]).map(x => x.prod_id===p.prod_id ? ({...x, foto:url}) : x));
+      let dataUrl;
+      try{ dataUrl = await imagenAData(file, 320, 0.72); }
+      catch(e){ setAviso("No se pudo procesar la imagen. Prueba con otra."); setSubiendo(null); return; }
+      const db = await window.supa.from("productos").update({ foto:dataUrl }).eq("prod_id", p.prod_id);
+      if(db.error){ setAviso("No se pudo guardar: "+(db.error.message||"error")); setSubiendo(null); return; }
+      setProds(ps => (ps||[]).map(x => x.prod_id===p.prod_id ? ({...x, foto:dataUrl}) : x));
     }catch(e){ setAviso("Error: "+(e.message||e)); }
     setSubiendo(null);
   };
