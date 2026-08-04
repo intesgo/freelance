@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"118", fecha:"4 ago 2026", desc:"Subir pedido: el producto seleccionado ahora muestra su foto real (cruzada por producto+presentación); si no tiene foto, cae al ícono." };
+const VERSION = { n:"119", fecha:"4 ago 2026", desc:"Pedidos (aprobaciones): la columna Cliente muestra la razón social (p. ej. Pedro Rodrigo Castillo Rosero) con el nombre comercial como subtítulo." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4620,7 +4620,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         if (!s || !s.session) return;
         const [{ data: p }, { data: it }] = await Promise.all([
           window.supa.from("pedidos")
-            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre),proveedores(nombre)")
+            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre,razon_social),proveedores(nombre)")
             .order("creado", { ascending: false }).limit(200),
           window.supa.from("pedido_items")
             .select("ped_id,prod_id,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq").limit(1000),
@@ -4634,7 +4634,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         const filas = [];
         p.forEach(pd => (porPed[pd.ped_id]||[]).forEach((x,i) => filas.push({
           id: pd.ped_id + ((porPed[pd.ped_id].length>1) ? ("·"+(i+1)) : ""),
-          cli: (pd.clientes && pd.clientes.nombre) || pd.cli_id,
+          cli: (pd.clientes && pd.clientes.nombre) || pd.cli_id,          // nombre comercial · llave para cruzar con guías
+          razon: (pd.clientes && pd.clientes.razon_social) || null,       // razón social · lo que se muestra en la lista
           prod: x.descripcion || x.prod_id,
           prov: (pd.proveedores && pd.proveedores.nombre) || pd.prov_cod || "—",
           cant: Number(x.cantidad_qq)||0, unidad:"qq",
@@ -4674,7 +4675,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           }));
           setClientesReales(reales);
           // Actualizar los pedidos demo con nombres de clientes reales (los primeros 3)
-          setPedidos(prev => prev.map((ped, i) => reales[i] ? { ...ped, cli: reales[i].nombre } : ped));
+          setPedidos(prev => prev.map((ped, i) => reales[i] ? { ...ped, cli: reales[i].nombre, razon: reales[i].razonSocial || ped.razon } : ped));
         } else { setClientesReales([]); }
       } catch (e) { setClientesReales([]); }
     })();
@@ -5132,7 +5133,10 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           {usarPaginacion(pedidos, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
             return (
               <div key={p.id} style={{ display:"grid", gridTemplateColumns:"1.3fr 1.7fr .6fr .9fr .8fr 1.3fr 96px", gap:10, padding:"14px 18px", borderTop: i>0 ? `1px solid ${COLOR.border}` : "none", alignItems:"center", fontSize:13 }}>
-                <span style={{ fontWeight:700, color:COLOR.text }}>{p.cli}<ChipDemo si={p.demo}/></span>
+                <span style={{ fontWeight:700, color:COLOR.text, minWidth:0 }}>
+                  {p.razon || p.cli}<ChipDemo si={p.demo}/>
+                  {p.razon && p.cli && p.razon!==p.cli && <span style={{ display:"block", fontWeight:600, fontSize:11, color:COLOR.muted }}>{p.cli}</span>}
+                </span>
                 <span style={{ color:COLOR.muted }}>{p.prod}</span>
                 <span className="num">{p.cant} {p.unidad||"qq"}</span>
                 <span className="num" style={{ fontWeight:700, color:COLOR.teal }}>{money(p.cant*p.precio)}</span>
