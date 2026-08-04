@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"117", fecha:"4 ago 2026", desc:"Subir pedido: la caja de imagen del producto se oculta hasta seleccionar el producto (ya no muestra la espiga de relleno)." };
+const VERSION = { n:"118", fecha:"4 ago 2026", desc:"Subir pedido: el producto seleccionado ahora muestra su foto real (cruzada por producto+presentación); si no tiene foto, cae al ícono." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4690,16 +4690,21 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     if (!window.supa) return;
     (async () => {
       try {
-        const [{ data: prods }, { data: ofertas }, { data: provs }] = await Promise.all([
+        const [{ data: prods }, { data: ofertas }, { data: provs }, { data: presFotos }] = await Promise.all([
           window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
           window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado").limit(4000),
           window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
+          // Fotos reales por presentación (Quintal, Arroba…). Solo las que tienen foto, para no pesar.
+          window.supa.from("presentaciones").select("prod_id, presentacion_cod, foto").not("foto", "is", null).limit(4000),
         ]);
         if (prods && prods.length && ofertas && ofertas.length) {
           const nombreProd = {}, lineaProd = {};
           prods.forEach(p => { nombreProd[p.prod_id] = p.nombre; lineaProd[p.prod_id] = p.linea; });
           const nombreProv = {};
           (provs || []).forEach(v => { nombreProv[v.prov_cod] = v.nombre; });
+          // Índice de fotos: clave = prod_id + presentación (QQ/ARR). Así cada presentación muestra la suya.
+          const fotoPres = {};
+          (presFotos || []).forEach(pf => { if (pf.foto) fotoPres[pf.prod_id + "|" + pf.presentacion_cod] = pf.foto; });
           // Una entrada por PRESENTACIÓN (Quintal, Arroba, Saco…). El costo de la oferta ya viene por presentación.
           const catalogo = [];
           ofertas.forEach(o => {
@@ -4713,7 +4718,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               nombre: nombreProd[o.prod_id] + " · " + pres,
               linea: lineaProd[o.prod_id] || "Arroz",
               prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
-              ic: "🌾", unidad: pres, equiv: Number(o.equiv_qq) || 1,
+              ic: "🌾", foto: fotoPres[o.prod_id + "|" + (o.pres_cod || "")] || null,
+              unidad: pres, equiv: Number(o.equiv_qq) || 1,
               baseContado: contado, baseCredito: credito,
               promos: [], promosProv: [],   // sin promos reales (tabla de promociones vacía por ahora)
             });
@@ -5219,7 +5225,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(245,166,35,.14)" }}>
               <label style={{ ...lbl, color: provSel?COLOR.text:COLOR.muted, marginBottom:10 }}>Producto</label>
               <div style={{ display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
-                {prod && <div style={{ width:128, height:128, borderRadius:14, background:COLOR.tealLight, border:`1px solid ${COLOR.teal}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod.ic}</div>}
+                {prod && <div style={{ width:128, height:128, borderRadius:14, overflow:"hidden", background:COLOR.tealLight, border:`1px solid ${COLOR.teal}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod.foto ? <img src={prod.foto} alt={prod.nombre} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : prod.ic}</div>}
                 <div style={{ flex:"1 1 220px", minWidth:200, display:"flex", flexDirection:"column", gap:10 }}>
                   {prod ? (
                     /* Producto elegido: solo el nombre + botón Cambiar (se ocultan Favoritos y buscador) */
