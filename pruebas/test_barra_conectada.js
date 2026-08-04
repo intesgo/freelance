@@ -112,10 +112,10 @@ const guion=(tab)=>`(async()=>{
   console.log("═══ CON datos del sistema");
   {
     const m=montar(true);
-    const pedidos=await vm.runInContext(guion("Mis pedidos"), m.ctx);
-    comprobar("Mis pedidos muestra el sello de datos vivos", /Mis pedidos\s*🟢 Datos vivos/.test(pedidos));
-    comprobar("Mis pedidos trae clientes de verdad (Comercial Nilo)", pedidos.indexOf("Comercial Nilo")>=0);
-    comprobar("Mis pedidos ya no muestra el ejemplo (Comercial Mendoza)", pedidos.indexOf("Comercial Mendoza")<0);
+    const pedidos=await vm.runInContext(guion("Pedidos"), m.ctx);
+    comprobar("Pedidos muestra el sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(pedidos));
+    comprobar("Pedidos trae clientes de verdad (Comercial Nilo)", pedidos.indexOf("Comercial Nilo")>=0);
+    comprobar("Pedidos ya no muestra el ejemplo (Comercial Mendoza)", pedidos.indexOf("Comercial Mendoza")<0);
     comprobar("el estado guardado se traduce al del negocio", pedidos.indexOf("Enviado al proveedor")>=0);
     comprobar("el proveedor sale por su nombre", pedidos.indexOf("Agrícola del Valle")>=0);
   }
@@ -159,7 +159,7 @@ const guion=(tab)=>`(async()=>{
     comprobar("el globo de Solicitudes cuenta la pendiente real (1)", g["Solicitudes"]==="1");
     comprobar("el globo de Novedades cuenta la respuesta recibida (1)", g["Novedades"]==="1");
     comprobar("el globo de Agenda cuenta lo de hoy (2: 1 agendada + 1 sugerida)", g["Agenda"]==="2");
-    comprobar("el globo de Mis pedidos ya no inventa pendientes", g["Mis pedidos"]==="0"||g["Mis pedidos"]===undefined);
+    comprobar("el globo de Pedidos ya no inventa pendientes", g["Pedidos"]==="0"||g["Pedidos"]===undefined);
   }
   console.log("═══ Lo que se decide, se guarda");
   {
@@ -191,8 +191,8 @@ const guion=(tab)=>`(async()=>{
   console.log("═══ SIN sesión (la app no puede quedarse en blanco)");
   {
     const m=montar(false);
-    const t=await vm.runInContext(guion("Mis pedidos"), m.ctx);
-    comprobar("sin datos, Mis pedidos sigue con la demostración", /Mis pedidos\s*⚪ Demostración/.test(t) && t.indexOf("Comercial Mendoza")>=0);
+    const t=await vm.runInContext(guion("Pedidos"), m.ctx);
+    comprobar("sin datos, Pedidos sigue con la demostración", /Pedidos\s*⚪ Demostración/.test(t) && t.indexOf("Comercial Mendoza")>=0);
     const t2=await vm.runInContext(guion("Agenda"), m.ctx);
     comprobar("sin datos, la Agenda conserva su ejemplo", /Agenda\s*⚪ Demostración/.test(t2));
   }

@@ -93,8 +93,8 @@ const guion=(tab)=>`(async()=>{
   console.log("═══ "+nombre+" · con datos del sistema");
   {
     const m=montar(true);
-    const t=await vm.runInContext(guion("Mis pedidos"), m.ctx);
-    comprobar("Mis pedidos con sello de datos vivos", /Mis pedidos\s*🟢 Datos vivos/.test(t));
+    const t=await vm.runInContext(guion("Pedidos"), m.ctx);
+    comprobar("Pedidos con sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(t));
     comprobar("aparece su pedido de verdad (Comercial Nilo)", t.indexOf("Comercial Nilo")>=0);
     comprobar("NO aparece el pedido de otro vendedor (Bodega San Miguel)", t.indexOf("Bodega San Miguel")<0);
     comprobar("ya no se ve el ejemplo (Comercial Mendoza)", t.indexOf("Comercial Mendoza")<0);
@@ -130,7 +130,7 @@ const guion=(tab)=>`(async()=>{
       var out={}; var bs=cont.querySelectorAll(".nav button");
       for(var i=0;i<bs.length;i++){ var b=bs[i]; var gl=b.querySelector(".badge");
         var txt=(b.textContent||"").replace(/[0-9]/g,"");
-        ["Novedades","Mis pedidos","Agenda","Comisiones","Mensajes"].forEach(function(k){
+        ["Novedades","Pedidos","Agenda","Comisiones","Mensajes"].forEach(function(k){
           if(txt.indexOf(k)>=0) out[k]= gl? gl.textContent : "0"; }); }
       return JSON.stringify(out);
     })()`, m.ctx));
@@ -141,14 +141,14 @@ const guion=(tab)=>`(async()=>{
   console.log("═══ el freelance ve todo el equipo");
   {
     const m=montar(true,"freelance");
-    const t=await vm.runInContext(guion("Mis pedidos"), m.ctx);
+    const t=await vm.runInContext(guion("Pedidos"), m.ctx);
     comprobar("con rol freelance entran los pedidos de todo el equipo", /2\s*Pedidos/.test(t) || t.indexOf("Bodega San Miguel")>=0 || /2 pedido/.test(t));
   }
   console.log("═══ sin sesión");
   {
     const m=montar(false);
-    const t=await vm.runInContext(guion("Mis pedidos"), m.ctx);
-    comprobar("sin datos sigue la demostración", /Mis pedidos\s*⚪ Demostración/.test(t) && t.indexOf("Comercial Mendoza")>=0);
+    const t=await vm.runInContext(guion("Pedidos"), m.ctx);
+    comprobar("sin datos sigue la demostración", /Pedidos\s*⚪ Demostración/.test(t) && t.indexOf("Comercial Mendoza")>=0);
   }
   console.log("═══ lo que se marca, se guarda");
   {

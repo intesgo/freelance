@@ -162,7 +162,7 @@ async function hastaGuardar(ctx, cant, precio) {
   comprobar("con el visto verde", /✅/.test(t));
   comprobar("dice a qué cliente se le guardó", t.indexOf(CLIENTE) >= 0);
   comprobar("dice cuántos productos son", /1 producto\(s\)/.test(t));
-  comprobar("y dónde encontrarlo después", /lo ves en Mis pedidos/.test(t));
+  comprobar("y dónde encontrarlo después", /lo ves en Pedidos/.test(t));
   comprobar("ofrece avisar al cliente por WhatsApp",
     !!corre(ctx, `!!window.__botonQueDice("Avisar al cliente por WhatsApp")`));
   comprobar("ofrece tomarle otro pedido al mismo cliente, por su nombre",
