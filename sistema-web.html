@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"115", fecha:"4 ago 2026", desc:"Nombres de módulos unificados con las apps: Catálogo→Productos, Comunicación→Mensajes, Custodia de documentos→Documentos." };
+const VERSION = { n:"116", fecha:"4 ago 2026", desc:"Menú lateral: sin íconos en encabezados de grupo; Principal reemplaza a Dashboard (clic va al panel); Operación por encima de Comercial." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -433,12 +433,12 @@ const TODAS_LAS_SECCIONES = SECCIONES.map(s => s.key);
    no se pliega. Si algún día se renombra, hay que cambiarlo también allá o la
    regla deja de funcionar en silencio. */
 const GRUPOS_MENU = [
-  { titulo:"Principal",  icono:"🏠", keys:["dashboard"] },
-  { titulo:"Comercial",  icono:"🤝", keys:["clientes","catalogo","emparejar","marcas","preciosvig","socio"] },
-  { titulo:"Operación",  icono:"🚚", keys:["pedidos","solicitudes","trazabilidad","recepcion","calidad"] },
-  { titulo:"Finanzas",   icono:"💰", keys:["cobranza","pagos","comisiones","conciliacion"] },
-  { titulo:"Gestión",    icono:"📊", keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
-  { titulo:"Sistema",    icono:"⚙️", keys:["config","fallos","cuentas","empresas","admin"] },
+  { titulo:"Principal",  keys:["dashboard"] },
+  { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","recepcion","calidad"] },
+  { titulo:"Comercial",  keys:["clientes","catalogo","emparejar","marcas","preciosvig","socio"] },
+  { titulo:"Finanzas",   keys:["cobranza","pagos","comisiones","conciliacion"] },
+  { titulo:"Gestión",    keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
+  { titulo:"Sistema",    keys:["config","fallos","cuentas","empresas","admin"] },
 ];
 
 // ── Empresas (cada licencia = una empresa). Las gestiona el Administrador ──
@@ -2114,20 +2114,21 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
         {gruposVisibles.map(g => {
           const open = abiertos[g.titulo];
           const tieneActiva = g.items.some(s => s.key === active);
+          const esPrincipal = g.titulo === "Principal";
+          const principalActiva = esPrincipal && tieneActiva;   // "Principal" hace de Dashboard (sin ítem aparte)
           return (
             <div key={g.titulo} style={{ marginBottom:6 }}>
               {/* Encabezado del grupo (barra) */}
-              <div onClick={() => toggle(g.titulo)}
-                onMouseEnter={e=>{ if(g.titulo!=="Principal") e.currentTarget.style.borderColor=SB.green; }}
-                onMouseLeave={e=>{ if(g.titulo!=="Principal") e.currentTarget.style.borderColor=SB.line; }}
-                style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:10, background:SB.card, border:`1px solid ${SB.line}`, cursor: g.titulo==="Principal"?"default":"pointer", userSelect:"none", marginBottom:4, transition:"border-color .15s" }}>
-                {g.titulo!=="Principal" && <span style={{ fontSize:9, color:SB.green, transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}>▶</span>}
-                {g.icono && <span style={{ fontSize:11, lineHeight:1 }}>{g.icono}</span>}
-                <span style={{ color:SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
-                {!open && tieneActiva && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green }} />}
+              <div onClick={() => esPrincipal ? (g.items[0] && onNav(g.items[0].key)) : toggle(g.titulo)}
+                onMouseEnter={e=>{ if(!esPrincipal) e.currentTarget.style.borderColor=SB.green; }}
+                onMouseLeave={e=>{ if(!esPrincipal) e.currentTarget.style.borderColor=SB.line; }}
+                style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:10, background: principalActiva?SB.green:SB.card, border:`1px solid ${principalActiva?SB.green:SB.line}`, cursor:"pointer", userSelect:"none", marginBottom:4, transition:"all .15s", boxShadow: principalActiva?"0 4px 12px rgba(24,165,88,.4)":"none" }}>
+                {!esPrincipal && <span style={{ fontSize:9, color:SB.green, transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}>▶</span>}
+                <span style={{ color: principalActiva?"#fff":SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
+                {!open && tieneActiva && !esPrincipal && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green }} />}
               </div>
-              {/* Secciones del grupo */}
-              {open && g.items.map(s => {
+              {/* Secciones del grupo (Principal no lista ítems: su encabezado ES el Dashboard) */}
+              {open && !esPrincipal && g.items.map(s => {
                 const on = s.key === active;
                 return (
                   <div key={s.key} onClick={() => onNav(s.key)}
