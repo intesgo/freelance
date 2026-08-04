@@ -5544,7 +5544,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"402", fecha:"4 ago 2026", desc:"Login: se quita el salto de cursor al escribir el correo (ya no brinca a Contraseña en cada letra después de la @). Antes: subida de foto con token explícito en Storage." };
+const VERSION = { n:"403", fecha:"4 ago 2026", desc:"Foto de producto: ahora se optimiza y se guarda DIRECTO en la base (productos.foto como miniatura), por la vía que sí reconoce al freelance. Se deja de usar el servicio de Storage, que en este proyecto no hacía valer la regla de rol." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16340,12 +16340,35 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     }catch(e){ txt+=" · rpc falló"; }
     return txt;
   };
+  /* Reduce la imagen a un cuadrado pequeño y la devuelve como texto (data URL).
+     Así la foto se guarda DIRECTO en la base (columna productos.foto) por la vía que
+     sí reconoce tu identidad de freelance, sin depender del servicio de Storage. */
+  const imagenAData=(file, lado, calidad)=>new Promise((resolve,reject)=>{
+    try{
+      const img=new Image();
+      const objurl=URL.createObjectURL(file);
+      img.onload=()=>{
+        try{
+          URL.revokeObjectURL(objurl);
+          const min=Math.min(img.width, img.height);
+          const sx=(img.width-min)/2, sy=(img.height-min)/2;   // recorte cuadrado centrado
+          const c=document.createElement("canvas"); c.width=lado; c.height=lado;
+          const ctx=c.getContext("2d");
+          ctx.fillStyle="#fff"; ctx.fillRect(0,0,lado,lado);
+          ctx.drawImage(img, sx, sy, min, min, 0, 0, lado, lado);
+          resolve(c.toDataURL("image/jpeg", calidad));
+        }catch(e){ reject(e); }
+      };
+      img.onerror=()=>{ URL.revokeObjectURL(objurl); reject(new Error("no se pudo leer la imagen")); };
+      img.src=objurl;
+    }catch(e){ reject(e); }
+  });
   const subirFotoMarca=async(file)=>{
     if(!file) return;
     if(!puedeFoto){ setAvisoFoto("La foto solo se guarda con el catálogo en línea."); return; }
     if(!/^image\/(jpeg|png|webp)$/.test(file.type)){ setAvisoFoto("Usa JPG, PNG o WebP."); return; }
-    if(file.size > 1048576){ setAvisoFoto("La imagen pesa más de 1 MB. Bájala de peso."); return; }
-    setSubiendoFoto(true); setAvisoFoto("Subiendo…");
+    if(file.size > 15728640){ setAvisoFoto("La imagen es demasiado grande (máx 15 MB)."); return; }
+    setSubiendoFoto(true); setAvisoFoto("Optimizando…");
     const ses = await asegurarSesion();
     if(!ses){
       const d=await diagnosticoSesion();
@@ -16353,32 +16376,19 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
       setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
     }
     try{
-      const ext=file.type==="image/png"?"png":(file.type==="image/webp"?"webp":"jpg");
-      const ruta="prod/"+marca.id+"."+ext;
-      /* Cliente exclusivo para la subida, con TU token puesto explícito en la cabecera.
-         Así Storage recibe tu identidad de freelance sí o sí, sin depender del sub-cliente
-         interno (que era el que estaba saliendo sin token). */
-      const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg";
-      const token = ses.access_token || null;
-      const sbUp = (window.supabase && window.supabase.createClient && token)
-        ? window.supabase.createClient("https://ztpwtddrblfvcnnhbevq.supabase.co", ANON, { auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}, global:{ headers:{ Authorization:"Bearer "+token } } })
-        : window.SB;
-      const up=await sbUp.storage.from("productos-fotos").upload(ruta, file, { upsert:true, contentType:file.type });
-      if(up.error){
-        const m=up.error.message||"error";
-        const d=await diagnosticoSesion();
-        setAvisoFoto((esErrorDeSesion(m) ? "Tu sesión venció o no tienes permiso. Cierra y vuelve a entrar para subir la foto." : ("No se pudo subir: "+m))+"\n"+d);
-        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
-      }
-      const pu=window.SB.storage.from("productos-fotos").getPublicUrl(ruta);
-      const url=(pu && pu.data && pu.data.publicUrl) ? pu.data.publicUrl+"?v="+Date.now() : null;
-      const db=await window.SB.from("productos").update({ foto:url }).eq("prod_id", marca.id);
+      /* Miniatura cuadrada pequeña (≈20–35 KB) para que el catálogo se mantenga liviano. */
+      let dataUrl;
+      try{ dataUrl=await imagenAData(file, 320, 0.72); }
+      catch(e){ setAvisoFoto("No se pudo procesar la imagen. Prueba con otra."); setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return; }
+      setAvisoFoto("Guardando…");
+      const db=await window.SB.from("productos").update({ foto:dataUrl }).eq("prod_id", marca.id);
       if(db.error){
         const m=db.error.message||"error";
-        setAvisoFoto(esErrorDeSesion(m) ? "La foto subió, pero tu sesión venció al guardar el enlace. Vuelve a entrar y súbela otra vez." : ("Subió, pero no se guardó el enlace: "+m));
-        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 4500); return;
+        const d=await diagnosticoSesion();
+        setAvisoFoto((esErrorDeSesion(m) ? "Tu sesión venció o no tienes permiso. Cierra y vuelve a entrar para subir la foto." : ("No se pudo guardar: "+m))+"\n"+d);
+        setSubiendoFoto(false); setTimeout(()=>setAvisoFoto(""), 12000); return;
       }
-      if(onFoto) onFoto(marca.id, url);
+      if(onFoto) onFoto(marca.id, dataUrl);
       setAvisoFoto("Foto actualizada ✓");
     }catch(e){ setAvisoFoto("Error: "+(e.message||e)); }
     setSubiendoFoto(false);
@@ -16399,7 +16409,7 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
           <button type="button" onClick={()=>{ if(fotoRef.current) fotoRef.current.click(); }} disabled={subiendoFoto}
             style={{background:"#fff",color:"#1E4D3A",border:"1px solid #2E7D52",borderRadius:11,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:subiendoFoto?"wait":"pointer"}}>
             📷 {subiendoFoto?"Subiendo…":(marca.foto?"Cambiar foto":"Subir foto")}</button>
-          <div className="meta" style={{marginTop:6}}>JPG, PNG o WebP · máx 1 MB · cuadrada</div>
+          <div className="meta" style={{marginTop:6}}>JPG, PNG o WebP · se ajusta y recorta en cuadro automáticamente</div>
           <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}}
             onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; if(ff) subirFotoMarca(ff); }}/>
         </>) : (
