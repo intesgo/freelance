@@ -5553,7 +5553,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"405", fecha:"4 ago 2026", desc:"Productos: el listado de marcas ahora muestra una miniatura (la de Quintal, o la primera presentación con foto). Sigue: foto por presentación (Quintal, Arroba…) en ficha, Tomar pedido y sistema web." };
+const VERSION = { n:"406", fecha:"4 ago 2026", desc:"Productos: listado rediseñado como galería en cuadrícula (foto grande, chip de N presentaciones, nombre y proveedor; sin precios) con aviso de fotos faltantes. Fotos por presentación en ficha, Tomar pedido y sistema web." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16279,32 +16279,29 @@ function Productos({vender}){
     {lineasOrd.map(ln=>(
       <div key={ln} style={{marginBottom:18}}>
         <div className="sec-h"><h2>{ln}</h2><div className="grain"></div></div>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12}}>
         {porLinea[ln].map((m,i)=>{
           const activas=m.presentaciones.filter(p=>!p.inhabilitada);
           const nPres=activas.length;
-          const nPromos=activas.reduce((s,p)=>s+p.promosFreelance.length,0);
-          const desde=activas.length?Math.min(...activas.map(p=>p.baseContado)):0;
+          const conFotoN=activas.filter(p=>p.foto).length;
           /* miniatura del listado: la de Quintal si tiene; si no, la primera presentación con foto */
           const fotoMarca=((m.presentaciones||[]).find(p=>p.foto && /-QQ$/.test(p.id))||(m.presentaciones||[]).find(p=>p.foto)||{}).foto||m.foto||null;
           return (
-            <div className="card" key={i} style={{cursor:"pointer"}} onClick={()=>setSel(m)}>
-              <div className="row" style={{alignItems:"center"}}>
-                <div style={{width:46,height:46,borderRadius:11,border:"1px solid var(--line)",background:"var(--paper)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",fontSize:22,marginRight:11}}>
-                  {fotoMarca ? <img src={fotoMarca} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : (EMOJI_LINEA[m.linea]||"📦")}
-                </div>
-                <div style={{flex:1}}>
-                  <div className="cli">{m.marca}</div>
-                  <div className="meta">{provName(m.provId)} · {nPres} presentación(es){nPromos>0?` · ${nPromos} promo(s)`:""}</div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div className="amt num">{money(desde)}</div>
-                  <div className="meta">desde · contado</div>
-                </div>
-                <span className="meta" style={{fontSize:18,color:"var(--muted)",marginLeft:8}}>›</span>
+            <div key={i} onClick={()=>setSel(m)}
+              style={{cursor:"pointer", background:"var(--card,#fff)", border:"1px solid var(--line)", borderRadius:16, overflow:"hidden", boxShadow:"0 1px 3px rgba(0,0,0,.05)", display:"flex", flexDirection:"column"}}>
+              <div style={{position:"relative", width:"100%", aspectRatio:"1 / 1", background:"var(--paper)", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", fontSize:52}}>
+                {fotoMarca ? <img src={fotoMarca} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : (EMOJI_LINEA[m.linea]||"📦")}
+                <span style={{position:"absolute", top:8, right:8, background:"rgba(20,45,32,.82)", color:"#EAF0EA", fontSize:10.5, fontWeight:700, padding:"2px 7px", borderRadius:999}}>{nPres} pres.</span>
+              </div>
+              <div style={{padding:"9px 11px 12px", flex:1, display:"flex", flexDirection:"column"}}>
+                <div style={{fontWeight:800, fontSize:13.5, color:"var(--text)", lineHeight:1.2, minHeight:33, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden"}}>{m.marca}</div>
+                <div className="meta" style={{marginTop:4, fontSize:11}}>{provName(m.provId)}</div>
+                {conFotoN<nPres && <div style={{marginTop:6, fontSize:10.5, fontWeight:700, color:"#B8860B"}}>📷 faltan {nPres-conFotoN} foto(s)</div>}
               </div>
             </div>
           );
         })}
+        </div>
       </div>
     ))}
     {lista.length===0 && <div className="ph">Sin marcas que coincidan con “{q}”.</div>}
