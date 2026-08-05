@@ -2692,28 +2692,66 @@ const PRESENTACIONES = PRODUCTOS
 
 /* ── FASE 4 · Etapa 2: catálogo del pedido con datos REALES ──
    Función PURA y global (antes de Pedido, que la usa): arma piladoras y presentaciones
-   desde la base. La oferta define QUÉ vende cada piladora (ofertas_piladora activas);
-   el precio de venta es ÚNICO del freelance (precios vigentes) × equiv_qq de la oferta
-   (regla sellada: un producto, un precio). Sin producto activo o sin precio vigente,
-   la oferta no se ofrece. Promos siempre [] (las reales viven en `promociones`, vacía). */
-function construirCatalogoPedido(provs, ofertas, prods, precios, presenTbl){
+   desde la base. Promos siempre [] (las reales viven en `promociones`, vacía).
+
+   ── FA-0011 · el PEDIDO sale de las OFERTAS, ya no de `precios` ──
+   El sistema web dejó de escribir en `precios`: hoy un producto nuevo nace con sus
+   ofertas en `ofertas_piladora` y CERO filas en `precios`. Leyendo `precios`, el
+   producto se veía en la pantalla Productos pero NO se podía PEDIR. Medido contra
+   producción el 05/08/2026: 59 productos activos · 58 con fila en `precios` · 59 con
+   oferta vigente. El que faltaba era P-00197 «Arroz Crecedor», sin marca, con 2
+   presentaciones y 2 ofertas vivas de Piladora San Agustín.
+
+   OJO CON EL PRECIO — aquí NO es el mismo que en la ficha de Productos:
+   la línea del pedido se cobra por la PRESENTACIÓN, y `precio_contado` de la oferta YA
+   viene por presentación ($37,00 el quintal, $9,25 la arroba). Entra DIRECTO: ni se
+   multiplica ni se divide por equiv_qq. Antes se multiplicaba porque
+   `precios.base_contado` venía por quintal. Confundirlo saca el pedido con importes
+   falsos. El equiv_qq sigue viajando en `equiv` porque al guardar todo se convierte a
+   quintales (cantidad_qq = cant × equiv · precio_usd = precio ÷ equiv).
+
+   La oferta define QUÉ vende cada piladora y a qué precio: en el pedido la piladora se
+   elige primero, así que cada una muestra SU precio. Sin producto activo o sin oferta
+   vigente, la oferta no se ofrece. */
+function construirCatalogoPedido(provs, ofertas, prods, presenTbl){
   const r2=n=>Math.round(n*100)/100;
-  const nomDe={}, lineaDe={}, precioDe={}, fotoDe={}, presFotoDe={};
-  (prods||[]).forEach(p=>{ nomDe[p.prod_id]=p.nombre; lineaDe[p.prod_id]=p.linea||"Otros"; fotoDe[p.prod_id]=p.foto||null; });
-  (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+  const nomDe={}, lineaDe={}, fotoDe={}, presFotoDe={};
+  /* Un producto dado de baja no se puede pedir aunque su oferta siga viva: la
+     consulta ya filtra por estado, pero la regla vive AQUÍ para que no dependa
+     de que quien llame se acuerde de filtrar. */
+  (prods||[]).forEach(p=>{ if(p.estado && p.estado!=="activo") return;
+    nomDe[p.prod_id]=p.nombre||p.marca||p.prod_id; lineaDe[p.prod_id]=p.linea||"Otros"; fotoDe[p.prod_id]=p.foto||null; });
   /* foto POR PRESENTACIÓN (clave: prod_id|presentacion_cod). Cae a la del producto si aún no tiene la suya. */
   (presenTbl||[]).forEach(p=>{ if(p.foto) presFotoDe[p.prod_id+"|"+p.presentacion_cod]=p.foto; });
-  const pres=(ofertas||[]).map(o=>{
-    const nom=nomDe[o.prod_id], pr=precioDe[o.prod_id];
-    if(!nom || !pr) return null;
-    const eq=Number(o.equiv_qq)||1;
+  /* La fecha del TELÉFONO, no la de Greenwich: con toISOString(), en Ecuador (UTC-5)
+     desde las 19h ya sería "mañana" y una oferta entraría a regir cinco horas antes. */
+  const _h=new Date();
+  const hoyISO=_h.getFullYear()+"-"+String(_h.getMonth()+1).padStart(2,"0")+"-"+String(_h.getDate()).padStart(2,"0");
+  /* Una sola línea por piladora + producto + presentación: si la base trajera dos
+     ofertas vivas para la misma, manda la MÁS BARATA (nunca se ofrece de más). */
+  const porClave={};
+  (ofertas||[]).forEach(o=>{
+    if(o.activo === false) return;
+    if(o.vigente_desde && String(o.vigente_desde).slice(0,10) >  hoyISO) return;
+    if(o.vigente_hasta && String(o.vigente_hasta).slice(0,10) <= hoyISO) return;
+    const nom=nomDe[o.prod_id];
+    if(!nom) return;                                   // producto de baja o inexistente
+    const eq=Number(o.equiv_qq)||0;
+    if(!(eq>0)) return;                                // sin equivalencia no se puede pasar a quintales
+    const pc=Number(o.precio_contado)||0;
+    if(!(pc>0)) return;                                // sin precio no se inventa uno
+    const pk=Number(o.precio_credito)||pc;
+    const clave=o.prod_id+"-"+o.pres_cod+"|"+(o.prov_cod||"");
+    const ya=porClave[clave];
+    if(ya && ya.baseContado <= r2(pc)) return;
     const fotoPres = presFotoDe[o.prod_id+"|"+o.pres_cod] || fotoDe[o.prod_id] || null;
-    return { id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, presCod:o.pres_cod, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
+    porClave[clave]={ id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, presCod:o.pres_cod, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
       marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoPres, diasCredito:30,
-      baseContado:r2((Number(pr.base_contado)||0)*eq), baseCredito:r2((Number(pr.base_credito)||0)*eq),
+      baseContado:r2(pc), baseCredito:r2(pk),
       costo:o.costo!=null?r2(Number(o.costo)):null,
       promosFreelance:[], promosProveedor:[] };
-  }).filter(Boolean);
+  });
+  const pres=Object.keys(porClave).map(k=>porClave[k]);
   return { provs:(provs||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})), pres };
 }
 
@@ -5979,17 +6017,22 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       try{
         const { data:s } = await window.SB.auth.getSession();
         if(!s || !s.session) return;
-        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:precios }, { data:clis }, { data:ubics }] = await Promise.all([
+        /* FA-0011 · las ofertas se traen CRUDAS de `ofertas_piladora`, no de la vista
+           `v_ofertas_vigentes`: esa vista corta con CURRENT_DATE, que es el día del
+           servidor, no el del teléfono. La vigencia se filtra en construirCatalogoPedido
+           con la fecha local. Y `precios` ya no se consulta: el precio es el de la oferta. */
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:clis }, { data:ubics }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
-          window.SB.from("v_ofertas_vigentes").select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado").limit(1000),
-          window.SB.from("productos").select("prod_id,nombre,linea").eq("estado","activo").limit(500),
-          window.SB.from("precios").select("prod_id,base_contado,base_credito").is("vigente_hasta",null).limit(500),
+          window.SB.from("ofertas_piladora")
+            .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
+            .limit(4000),
+          window.SB.from("productos").select("prod_id,nombre,marca,linea").eq("estado","activo").limit(500),
           window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
           window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,tipo_entrega,ciudad,direccion").eq("activo",true).limit(3000),
         ]);
         if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
         /* RENDIMIENTO: Tomar pedido NO trae fotos (lista liviana); la foto se ve en la ficha del producto. */
-        const cat=construirCatalogoPedido(provs, ofertas, prods, precios, []);
+        const cat=construirCatalogoPedido(provs, ofertas, prods, []);
         if(!cat.pres.length) return;
         provs.forEach(p=>{ PROV_REAL_NOMBRES[p.prov_cod]=p.nombre; });
         (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });

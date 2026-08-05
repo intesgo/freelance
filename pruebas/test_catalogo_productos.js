@@ -308,8 +308,13 @@ async function bateria(js, ruidoso) {
 
 /* ══ Las roturas a propósito: la prueba tiene que NACER ROJA ══ */
 const MUTANTES = [
+  /* el ancla lleva su .select() pegado: desde que el módulo Pedido también lee
+     `ofertas_piladora`, «from("ofertas_piladora")» a secas ya no es único */
   ["vuelve a leer la tabla `precios`",
-    `window.SB.from("ofertas_piladora")`, `window.SB.from("precios")`],
+    `window.SB.from("ofertas_piladora")
+          .select("prod_id,prov_cod,pres_cod,equiv_qq,precio_contado,precio_credito,costo,costo_contado,activo,vigente_desde,vigente_hasta")`,
+    `window.SB.from("precios")
+          .select("prod_id,base_contado,base_credito")`],
   ["se le olvida mirar si la oferta sigue activa",
     `o.activo !== false &&`, `true &&`],
   ["se le olvida la fecha en que la oferta empieza a regir",
