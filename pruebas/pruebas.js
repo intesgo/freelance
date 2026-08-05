@@ -60,6 +60,8 @@ const PLAN = [
   { arnes:"test_qq_carrito.js",      que:"el total en quintales sale de la oferta, no del texto",
     apps:["Comisionista","socio-comercial","freelance-completo"],
     salvo:{ "freelance-completo": "su módulo de pedido no arma un total en quintales del carrito: no hay qué medir" } },
+  { arnes:"test_gratis_desglose.js", que:"el desglose de las gratis sale de la oferta y del producto, no del texto ni de la marca",
+    apps:["Comisionista","socio-comercial","freelance-completo"] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */

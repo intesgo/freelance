@@ -1844,9 +1844,37 @@ const qqDeTam = t => { if(!t) return 1;
   let m=t.match(/([\d.]+)\s*kg/i); if(m) return (parseFloat(m[1])||0)/45.4;
   m=t.match(/([\d.]+)\s*lb/i); if(m) return (parseFloat(m[1])||0)/100;
   return 1; };
-const descomponerGratis = (qq, marca) => {
-  const dispo = PRESENTACIONES.filter(p=>p.marca===marca)
-    .map(p=>({tam:p.unidad, eq:qqDeTam(p.unidad)})).sort((a,b)=>b.eq-a.eq);
+/* ═══ EL DESGLOSE DE LAS UNIDADES GRATIS ═══════════════════════════════════
+   Cuánto grano se REGALA y en qué presentaciones sale de la bodega. Dos reglas,
+   las dos aprendidas a golpes:
+
+   1) La equivalencia sale de la OFERTA (`equiv`), NUNCA del texto de la unidad.
+      «10 libras» son 0,1 qq en la oferta y el conversor por texto devuelve 1:
+      diez veces más grano regalado del que la piladora despacha. Es el mismo
+      antecedente del transportista, donde una parada de 65 qq se veía como
+      «22 qq» porque los quintales salían del NOMBRE del producto.
+
+   2) Las presentaciones hermanas se emparejan por PRODUCTO (`prodId`), nunca
+      por marca: hay productos vivos con la marca en blanco (P-00197 «Arroz
+      Crecedor»), y con el filtro por marca no calzaban con nada, así que el
+      desglose salía VACÍO y en pantalla solo quedaba el aviso naranja «No calza
+      N qq en presentaciones». Y solo entran las de la MISMA piladora: no se
+      puede regalar un saco que esa piladora no despacha.
+
+   En la demostración no hay oferta ni `prodId`: solo ahí se cae a la marca y a
+   qqDeTam, el conversor por texto que el resto de la app ya usa.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const equivDe = p => (p && Number(p.equiv)>0) ? Number(p.equiv) : qqDeTam(p && p.unidad);
+const hermanasDe = (prod, lista) => {
+  if(!prod) return [];
+  const todas = (lista && lista.length) ? lista : PRESENTACIONES;
+  return todas.filter(p => (prod.prodId && p.prodId)
+    ? (p.prodId===prod.prodId && (!prod.provId || !p.provId || p.provId===prod.provId))
+    : (p.marca!=null && p.marca===prod.marca));
+};
+const descomponerGratis = (qq, prod, lista) => {
+  const dispo = hermanasDe(prod, lista)
+    .map(p=>({tam:p.unidad, eq:equivDe(p)})).filter(p=>p.eq>0).sort((a,b)=>b.eq-a.eq);
   const partes=[]; let resto=Math.round(qq*10000)/10000;
   for(const p of dispo){
     const n=Math.floor(resto/p.eq + 1e-9);
@@ -3233,7 +3261,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const bajoMinimo = !!(promoActiva && promoActiva.minimo && cantN < promoActiva.minimo);
   /* b14 · desglose de las gratis en presentaciones reales del producto */
   const desgloseGratis = (gratisNum>0 && prod && (tipo==="P4"||esP6))
-    ? descomponerGratis(gratisNum*qqDeTam(prod.unidad), prod.marca) : null;
+    ? descomponerGratis(gratisNum*equivDe(prod), prod, PRES_PED) : null;
 
   // validaciones por tipo
   const baseLista = esP5 || (tipo==="P4"? !!promoF : tipo==="P6"? !!promoP : true);
