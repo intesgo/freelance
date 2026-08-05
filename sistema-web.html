@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"128", fecha:"5 ago 2026", desc:"Ficha de Producto: ahora el costo se puede editar PILADORA POR PILADORA (toca el costo de cada piladora en Presentaciones y ofertas); se guarda en ofertas_piladora y recalcula el margen." };
+const VERSION = { n:"129", fecha:"5 ago 2026", desc:"Nuevo producto ahora es real: lista las piladoras reales (no demo), pide precio base contado/crédito y costo contado/crédito, y al Crear guarda de verdad en la base (producto + presentación + oferta de la piladora), activo y listo para pedidos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -6975,21 +6975,73 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
 function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const [nombre, setNombre] = useState("");
   const [provModo, setProvModo] = useState("existente");
-  const [provSel, setProvSel] = useState("");
+  const [provSel, setProvSel] = useState(null);      // { prov_cod, nombre }
   const [provTexto, setProvTexto] = useState("");
   const [provNuevo, setProvNuevo] = useState("");
   const [unidad, setUnidad] = useState("qq");
-  const [precio, setPrecio] = useState("");
+  const [baseContado, setBaseContado] = useState("");
+  const [baseCredito, setBaseCredito] = useState("");
+  const [costoContado, setCostoContado] = useState("");
+  const [costoCredito, setCostoCredito] = useState("");
   const [aviso, setAviso] = useState("");
   const [listo, setListo] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [provsReales, setProvsReales] = useState([]);
+
+  // Piladoras reales (no las demo) para el selector "De la lista"
+  React.useEffect(() => {
+    if (!window.supa) return;
+    (async () => {
+      try {
+        const { data } = await window.supa.from("proveedores").select("prov_cod,nombre").eq("es_demo", false).order("nombre");
+        if (data) setProvsReales(data);
+      } catch (e) {}
+    })();
+  }, []);
+
+  const PRES_MAP = { qq:{cod:"QQ",nom:"Quintal",eq:1}, saco:{cod:"SACO",nom:"Saco",eq:1},
+    caja:{cod:"CAJA",nom:"Caja",eq:1}, funda:{cod:"FUNDA",nom:"Funda",eq:1}, unidad:{cod:"UND",nom:"Unidad",eq:1} };
 
   const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, marginBottom:16, outline:"none" };
   const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
 
-  const guardar = () => {
-    const prov = provModo==="nuevo" ? provNuevo.trim() : provSel;
-    if (!nombre.trim() || !prov || !precio) { setAviso("Completa nombre, proveedor y precio."); return; }
-    setListo(true);
+  const guardar = async () => {
+    if (guardando) return;
+    const provCod = provSel && provSel.prov_cod;
+    const provNom = provSel && provSel.nombre;
+    if (!nombre.trim()) { setAviso("Escribe el nombre del producto."); return; }
+    if (provModo==="nuevo") { setAviso("Por ahora elige una piladora de la lista. Crear una piladora nueva se hace aparte."); return; }
+    if (!provCod) { setAviso("Elige una piladora de la lista."); return; }
+    const bc = parseFloat(baseContado)||0, bcr = parseFloat(baseCredito)||0;
+    const cc = parseFloat(costoContado)||0, ccr = parseFloat(costoCredito)||0;
+    if (!(bc>0)) { setAviso("Falta el precio base contado."); return; }
+    if (!window.supa) { setAviso("Sin conexión con el servidor."); return; }
+    setGuardando(true); setAviso("");
+    try {
+      const r2 = x => Math.round(x*100)/100;
+      const pres = PRES_MAP[unidad] || PRES_MAP.qq;
+      const { data:ult } = await window.supa.from("productos").select("prod_id").like("prod_id","P-%").order("prod_id",{ascending:false}).limit(1);
+      const n = ult && ult[0] ? (parseInt(String(ult[0].prod_id).replace(/\D/g,""),10)||0) : 0;
+      const prodId = "P-"+String(n+1).padStart(5,"0");
+      const presId = prodId+"-"+pres.cod;
+      const ofertaId = prodId+"-"+pres.cod+"-"+provCod;
+      const { error:e1 } = await window.supa.from("productos").insert({
+        prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo",
+        org_id: "ORG-001", proveedor_cod: provCod, proveedor: provNom, es_demo: false });
+      if (e1) throw new Error("producto: "+e1.message);
+      const { error:e2 } = await window.supa.from("presentaciones").insert({
+        pres_id: presId, prod_id: prodId, producto: nombre.trim(), presentacion_cod: pres.cod, presentacion: pres.nom,
+        equiv_qq: pres.eq, precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), activo: true, es_demo: false });
+      if (e2) throw new Error("presentación: "+e2.message);
+      const { error:e3 } = await window.supa.from("ofertas_piladora").insert({
+        oferta_id: ofertaId, prod_id: prodId, pres_cod: pres.cod, presentacion: pres.nom, equiv_qq: pres.eq,
+        prov_cod: provCod, costo: r2(ccr>0?ccr:cc), costo_contado: r2(cc>0?cc:ccr),
+        precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), margen_min: 8,
+        activo: true, vigente_desde: new Date().toISOString().slice(0,10), es_demo: false });
+      if (e3) throw new Error("oferta: "+e3.message);
+      setListo(true);
+    } catch (e) { setAviso("No se pudo crear: " + (e.message||"error")); }
+    setGuardando(false);
   };
 
   return (
@@ -7002,47 +7054,59 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
         <div style={{ padding:"22px 24px" }}>
           {listo
             ? <div style={{ textAlign:"center", padding:"20px 0" }}>
-                <div style={{ fontSize:40, marginBottom:10 }}>⏳</div>
-                <p style={{ fontSize:15, fontWeight:700, color:COLOR.text }}>Producto enviado</p>
-                <p style={{ fontSize:13, color:COLOR.muted, marginTop:6 }}>Entró como <b>Por aprobar</b>. El freelance debe confirmarlo para que quede disponible.</p>
+                <div style={{ fontSize:40, marginBottom:10 }}>✅</div>
+                <p style={{ fontSize:15, fontWeight:700, color:COLOR.text }}>Producto creado</p>
+                <p style={{ fontSize:13, color:COLOR.muted, marginTop:6 }}>Quedó <b>activo</b> y disponible para pedidos con la piladora y precios que ingresaste.</p>
                 <button onClick={onCerrar} style={{ marginTop:18, padding:"11px 24px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" }}>Entendido</button>
               </div>
             : <>
-                <label style={lbl}>Nombre y presentación</label>
-                <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ej: Arroz Flor · Saco 25 kg" style={inp} />
-                <label style={lbl}>Proveedor</label>
+                <label style={lbl}>Nombre del producto</label>
+                <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ej: Arroz Crecedor Macareño" style={inp} />
+                <label style={lbl}>Piladora</label>
                 <div style={{ display:"flex", gap:10, marginBottom:12 }}>
-                  {[["existente","De la lista"],["nuevo","Proveedor nuevo"]].map(([k,t]) => (
+                  {[["existente","De la lista"],["nuevo","Piladora nueva"]].map(([k,t]) => (
                     <button key={k} onClick={()=>setProvModo(k)} style={{ flex:1, padding:"11px", borderRadius:9, cursor:"pointer", fontSize:13, fontWeight:700, border:`1px solid ${provModo===k?COLOR.teal:COLOR.border}`, background: provModo===k?COLOR.tealLight:"#fff", color: provModo===k?COLOR.tealDark:COLOR.text }}>{t}</button>
                   ))}
                 </div>
                 <div style={{ marginBottom:16 }}>
                   {provModo==="existente"
-                    ? <BuscadorPredictivo cat="proveedores" items={PROVEEDORES_WEB} value={provTexto} placeholder="Escribe para buscar un proveedor…" label={p=>p} onText={t=>{ setProvTexto(t); if(t==="") setProvSel(""); }} onPick={p=>{ setProvSel(p); setProvTexto(p); }} />
-                    : <input value={provNuevo} onChange={e=>setProvNuevo(e.target.value)} placeholder="Nombre del proveedor nuevo" style={{ ...inp, marginBottom:0 }} />}
+                    ? <BuscadorPredictivo cat="proveedores" items={provsReales} value={provTexto} placeholder="Escribe para buscar una piladora…" label={p=>p.nombre} onText={t=>{ setProvTexto(t); if(t==="") setProvSel(null); }} onPick={p=>{ setProvSel(p); setProvTexto(p.nombre); }} />
+                    : <input value={provNuevo} onChange={e=>setProvNuevo(e.target.value)} placeholder="Crear piladora nueva se hace aparte, por ahora elige de la lista" style={{ ...inp, marginBottom:0 }} />}
+                </div>
+                <label style={lbl}>Presentación / unidad</label>
+                <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:16 }}>
+                  {UNIDADES_MEDIDA.map(u => (
+                    <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{u==="qq"?"Quintal (qq)":u}</button>
+                  ))}
                 </div>
                 <div style={{ display:"flex", gap:14 }}>
                   <div style={{ flex:1 }}>
-                    <label style={lbl}>Unidad de medida</label>
-                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:16 }}>
-                      {UNIDADES_MEDIDA.map(u => (
-                        <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{u}</button>
-                      ))}
-                    </div>
+                    <label style={lbl}>Precio base contado</label>
+                    <input type="number" step="0.01" value={baseContado} onChange={e=>setBaseContado(e.target.value)} placeholder="0.00" style={inp} />
                   </div>
                   <div style={{ flex:1 }}>
-                    <label style={lbl}>Precio base</label>
-                    <input type="number" value={precio} onChange={e=>setPrecio(e.target.value)} placeholder="0.00" style={inp} />
+                    <label style={lbl}>Precio base crédito</label>
+                    <input type="number" step="0.01" value={baseCredito} onChange={e=>setBaseCredito(e.target.value)} placeholder="(igual al contado si vacío)" style={inp} />
                   </div>
                 </div>
-                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:"#FFF7E8", borderRadius:10, marginBottom:18 }}>
-                  <span style={{ fontSize:15 }}>⏳</span>
-                  <span style={{ fontSize:12.5, color:"#8a6d1e", lineHeight:1.4 }}>Entrará como <b>Por aprobar</b>. El freelance debe confirmarlo.</span>
+                <div style={{ display:"flex", gap:14 }}>
+                  <div style={{ flex:1 }}>
+                    <label style={lbl}>Costo contado</label>
+                    <input type="number" step="0.01" value={costoContado} onChange={e=>setCostoContado(e.target.value)} placeholder="0.00" style={inp} />
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <label style={lbl}>Costo crédito</label>
+                    <input type="number" step="0.01" value={costoCredito} onChange={e=>setCostoCredito(e.target.value)} placeholder="(igual al contado si vacío)" style={inp} />
+                  </div>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:COLOR.tealLight, borderRadius:10, marginBottom:18 }}>
+                  <span style={{ fontSize:15 }}>✅</span>
+                  <span style={{ fontSize:12.5, color:COLOR.tealDark, lineHeight:1.4 }}>Se crea <b>activo</b> y disponible para pedidos, con la oferta de esta piladora.</span>
                 </div>
                 {aviso && <p style={{ fontSize:12.5, color:COLOR.red, fontWeight:600, marginBottom:12 }}>{aviso}</p>}
                 <div style={{ display:"flex", gap:12 }}>
-                  <button onClick={onCerrar} style={{ flex:1, padding:"13px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
-                  <button onClick={guardar} style={{ flex:1, padding:"13px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" }}>Subir producto</button>
+                  <button onClick={onCerrar} disabled={guardando} style={{ flex:1, padding:"13px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+                  <button onClick={guardar} disabled={guardando} style={{ flex:1, padding:"13px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor: guardando?"wait":"pointer" }}>{guardando?"Creando…":"Crear producto"}</button>
                 </div>
               </>}
         </div>
