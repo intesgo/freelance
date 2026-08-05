@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"130", fecha:"5 ago 2026", desc:"Nuevo producto: se puede subir la imagen del producto (opcional, se guarda con el producto y la presentación) y se agregó la Arroba (@) a las unidades." };
+const VERSION = { n:"131", fecha:"5 ago 2026", desc:"Precios unificados (Fase 1): una sola pantalla «Editar precios por piladora» con los 4 precios (base contado/crédito, costo contado/crédito) por piladora; al guardar versiona con la fecha de hoy (base para comisiones por fecha). Se retiró el modal de ajuste y la edición suelta de costo." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -6667,9 +6667,10 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
   const [variedad, setVariedad] = useState(ficha.variedad || prod.variedad || "");
   const [presentaciones, setPresentaciones] = useState(null); // null = cargando
   const [ofertas, setOfertas] = useState(null);               // null = cargando; [] = sin ofertas
-  const [editCostoKey, setEditCostoKey] = useState(null);     // oferta_id cuyo costo se edita
-  const [editCostoVal, setEditCostoVal] = useState("");
-  const [guardandoCosto, setGuardandoCosto] = useState(false);
+  const [modoPrecios, setModoPrecios] = useState(false);      // pantalla de precios por piladora (#F1)
+  const [editPrecios, setEditPrecios] = useState({});         // { ofertaId: {baseContado, baseCredito, costoContado, costoCredito} }
+  const [guardandoPrecios, setGuardandoPrecios] = useState(false);
+  const [avisoPrecios, setAvisoPrecios] = useState("");
   /* b59 · Una sola lista "Presentaciones y ofertas". Antes eran dos bloques que se
      contradecían: la tabla `presentaciones` puede estar vacía mientras
      v_ofertas_vigentes sí devuelve filas. Se unen por nombre de presentación. */
@@ -6723,7 +6724,7 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
     (async () => {
       try {
         const { data: ofs } = await window.supa.from("v_ofertas_vigentes")
-          .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,precio_contado,precio_credito,margen_min")
+          .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min")
           .eq("prod_id", prod.id);
         const { data: provs } = await window.supa.from("proveedores").select("prov_cod,nombre");
         const nomProv = {}; (provs||[]).forEach(p => { nomProv[p.prov_cod] = p.nombre; });
@@ -6745,7 +6746,10 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
             ofertaId: o.oferta_id,
             provCod: o.prov_cod,
             piladora: nomProv[o.prov_cod] || o.prov_cod,
-            costo,
+            costo,                                          // costo crédito
+            costoContado: Number(o.costo_contado)||0,       // costo contado
+            baseContado: contado,                           // precio base contado (por piladora)
+            baseCredito: Number(o.precio_credito)||0,       // precio base crédito (por piladora)
             margen: margenDeOferta(contado, costo),
           });
         });
@@ -6759,24 +6763,73 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
     })();
   }, [prod.id]);
 
-  /* Editar el costo de UNA piladora (ofertas_piladora) directo desde la ficha */
-  const guardarCostoPiladora = async (pl, contadoPres) => {
-    const nuevo = parseFloat(editCostoVal);
-    if (!(nuevo >= 0)) { setEditCostoKey(null); return; }
-    if (!window.supa || !pl.ofertaId) { setEditCostoKey(null); return; }
-    setGuardandoCosto(true);
+  /* ── PANTALLA DE PRECIOS POR PILADORA · versionada con fecha (#F1) ──────────
+     Un solo lugar para los 4 precios por piladora (base contado, base crédito,
+     costo contado, costo crédito). Al guardar se VERSIONA: se cierra la oferta
+     vigente (vigente_hasta = hoy) y nace una nueva con vigente_desde = hoy.
+     Así queda registrada la fecha del cambio (base para comisiones por fecha). */
+  const abrirPrecios = () => {
+    const ini = {};
+    (ofertas||[]).forEach(f => f.piladoras.forEach(pl => {
+      ini[pl.ofertaId] = {
+        baseContado: String(pl.baseContado ?? f.contado ?? 0),
+        baseCredito: String(pl.baseCredito ?? f.credito ?? 0),
+        costoContado: String(pl.costoContado ?? pl.costo ?? 0),
+        costoCredito: String(pl.costo ?? 0),
+      };
+    }));
+    setEditPrecios(ini); setAvisoPrecios(""); setModoPrecios(true);
+  };
+  const setPrecioCampo = (ofertaId, campo, val) =>
+    setEditPrecios(prev => ({ ...prev, [ofertaId]: { ...prev[ofertaId], [campo]: val } }));
+  const guardarPreciosVersionado = async () => {
+    if (!window.supa) { setAvisoPrecios("Sin conexión con el servidor."); return; }
+    setGuardandoPrecios(true); setAvisoPrecios("");
     try {
       const r2 = x => Math.round(x*100)/100;
-      const { error } = await window.supa.from("ofertas_piladora")
-        .update({ costo: r2(nuevo), costo_contado: r2(nuevo) }).eq("oferta_id", pl.ofertaId);
-      if (error) throw error;
-      setOfertas(prev => (prev||[]).map(f => ({ ...f,
-        piladoras: f.piladoras.map(x => x.ofertaId===pl.ofertaId
-          ? { ...x, costo: r2(nuevo), margen: f.contado>0 ? ((f.contado - r2(nuevo))/f.contado)*100 : 0 }
-          : x).slice().sort((a,b)=>b.costo-a.costo) })));
-      setEditCostoKey(null); setEditCostoVal("");
-    } catch (e) { alert("No se pudo guardar el costo: " + ((e&&e.message)||"error")); }
-    setGuardandoCosto(false);
+      const hoy = new Date().toISOString().slice(0,10);
+      let cambios = 0;
+      for (const f of (ofertas||[])) {
+        for (const pl of f.piladoras) {
+          const e = editPrecios[pl.ofertaId]; if (!e) continue;
+          const bc = r2(parseFloat(e.baseContado)||0), bcr = r2(parseFloat(e.baseCredito)||0);
+          const cc = r2(parseFloat(e.costoContado)||0), ccr = r2(parseFloat(e.costoCredito)||0);
+          const igual = bc===r2(pl.baseContado) && bcr===r2(pl.baseCredito) && cc===r2(pl.costoContado) && ccr===r2(pl.costo);
+          if (igual) continue;
+          if (!(bc>0) || !(ccr>0 || cc>0)) { throw new Error(`${f.presentacion} · ${pl.piladora}: base contado y costo deben ser mayores a 0.`); }
+          // 1) cerrar la oferta vigente con fecha de hoy
+          const c1 = await window.supa.from("ofertas_piladora").update({ vigente_hasta: hoy }).eq("oferta_id", pl.ofertaId);
+          if (c1.error) throw new Error(c1.error.message);
+          // 2) nace la nueva versión con la fecha de hoy
+          const nid = prod.id + "-" + f.presCod + "-" + pl.provCod + "-" + Date.now();
+          const c2 = await window.supa.from("ofertas_piladora").insert({
+            oferta_id: nid, prod_id: prod.id, pres_cod: f.presCod, presentacion: f.presentacion, equiv_qq: f.equivQq,
+            prov_cod: pl.provCod, precio_contado: bc, precio_credito: bcr>0?bcr:bc,
+            costo: ccr>0?ccr:cc, costo_contado: cc>0?cc:ccr, margen_min: f.margenMin||8,
+            activo: true, vigente_desde: hoy, es_demo: false });
+          if (c2.error) throw new Error(c2.error.message);
+          cambios++;
+        }
+      }
+      setModoPrecios(false);
+      if (cambios>0) {
+        // recargar ofertas para ver los nuevos precios/fechas
+        try {
+          const { data: ofs } = await window.supa.from("v_ofertas_vigentes")
+            .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min")
+            .eq("prod_id", prod.id);
+          const { data: provs } = await window.supa.from("proveedores").select("prov_cod,nombre");
+          const nomProv = {}; (provs||[]).forEach(p => { nomProv[p.prov_cod]=p.nombre; });
+          const md = {};
+          (ofs||[]).forEach(o => { const contado=Number(o.precio_contado)||0, costo=Number(o.costo)||0;
+            if (!md[o.pres_cod]) md[o.pres_cod] = { presCod:o.pres_cod, presentacion:o.presentacion||o.pres_cod, equivQq:Number(o.equiv_qq)||0, contado, credito:Number(o.precio_credito)||0, margenMin:Number(o.margen_min)||0, piladoras:[] };
+            md[o.pres_cod].piladoras.push({ ofertaId:o.oferta_id, provCod:o.prov_cod, piladora:nomProv[o.prov_cod]||o.prov_cod, costo, costoContado:Number(o.costo_contado)||0, baseContado:contado, baseCredito:Number(o.precio_credito)||0, margen: contado>0?((contado-costo)/contado)*100:0 });
+          });
+          setOfertas(Object.values(md).map(pr=>({ ...pr, piladoras: pr.piladoras.slice().sort((a,b)=>b.costo-a.costo) })).sort((a,b)=>b.equivQq-a.equivQq));
+        } catch(e){}
+      }
+    } catch (e) { setAvisoPrecios("No se pudo guardar: " + (e.message||"error")); }
+    setGuardandoPrecios(false);
   };
 
   const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none", background: soloLectura?"#f3f5f7":"#fff" };
@@ -6836,10 +6889,10 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
                       background:"#fff", color:COLOR.text, fontSize:12.5, fontWeight:700,
                       fontFamily:"inherit", cursor:"pointer" }}>Ver historial</button>
                   {!soloLectura && (
-                    <button onClick={()=>setAjustar(true)}
+                    <button onClick={abrirPrecios}
                       style={{ flex:1, padding:"9px", borderRadius:9, border:"none",
                         background:COLOR.teal, color:"#fff", fontSize:12.5, fontWeight:700,
-                        fontFamily:"inherit", cursor:"pointer" }}>Ajustar precio</button>
+                        fontFamily:"inherit", cursor:"pointer" }}>Editar precios</button>
                   )}
                 </div>
               </div>
@@ -6857,11 +6910,15 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
 
           {/* Presentaciones y ofertas (b59 · un solo bloque: antes eran dos y se contradecían) */}
           <div style={{ marginBottom:20 }}>
-            <p style={{ ...lbl, marginBottom:10 }}>
-              Presentaciones y ofertas
-              {filas && <span style={{ color:COLOR.muted, fontWeight:500 }}> ({filas.length})</span>}
-              <span style={{ color:COLOR.muted, fontWeight:500, fontSize:11 }}> · {soloLectura ? "costos solo lectura" : "toca un costo para editarlo por piladora"}</span>
-            </p>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:10 }}>
+              <p style={{ ...lbl, marginBottom:0 }}>
+                Presentaciones y ofertas
+                {filas && <span style={{ color:COLOR.muted, fontWeight:500 }}> ({filas.length})</span>}
+              </p>
+              {!soloLectura && ofertas && ofertas.length>0 && (
+                <button onClick={abrirPrecios} style={{ padding:"7px 14px", borderRadius:9, border:"none", background:COLOR.teal, color:"#fff", fontSize:12.5, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>✏️ Editar precios</button>
+              )}
+            </div>
             {filas===null
               ? <p style={{ fontSize:13, color:COLOR.muted }}>Cargando…</p>
               : filas.length===0
@@ -6892,25 +6949,11 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
                           return (
                             <div key={pl.provCod} style={{ padding:"9px 14px", borderTop:`1px solid ${COLOR.border}`, background: bajo?"#fef5e7":"#fff" }}>
                               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8 }}>
-                                <span className="num" style={{ fontWeight:700, fontSize:13, color:COLOR.text }}>{pl.provCod}</span>
+                                <span className="num" style={{ fontWeight:700, fontSize:13, color:COLOR.text }}>{pl.provCod} <span style={{ color:COLOR.muted, fontWeight:500, fontSize:11 }}>{pl.piladora}</span></span>
                                 <span className="num" style={{ fontWeight:700, fontSize:14, color: bajo?"#b9770e":"#1e8449" }}>{pl.margen.toFixed(1)}%</span>
                               </div>
-                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginTop:2 }}>
-                                <span style={{ color:COLOR.muted, fontSize:11, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{pl.piladora}</span>
-                                {editCostoKey===pl.ofertaId ? (
-                                  <span style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                                    <input type="number" step="0.01" autoFocus value={editCostoVal} onChange={e=>setEditCostoVal(e.target.value)}
-                                      onKeyDown={e=>{ if(e.key==="Enter") guardarCostoPiladora(pl, f.contado); if(e.key==="Escape") setEditCostoKey(null); }}
-                                      style={{ width:78, padding:"5px 7px", borderRadius:7, border:`1px solid ${COLOR.teal}`, fontSize:12.5, textAlign:"right" }} />
-                                    <button onClick={()=>guardarCostoPiladora(pl, f.contado)} disabled={guardandoCosto}
-                                      style={{ border:"none", background:COLOR.teal, color:"#fff", borderRadius:6, padding:"5px 9px", fontSize:11.5, fontWeight:700, cursor:"pointer" }}>{guardandoCosto?"…":"OK"}</button>
-                                    <button onClick={()=>setEditCostoKey(null)} style={{ border:"none", background:"none", color:COLOR.muted, fontSize:15, cursor:"pointer" }}>×</button>
-                                  </span>
-                                ) : (
-                                  <span className="num" onClick={()=>{ if(!soloLectura){ setEditCostoKey(pl.ofertaId); setEditCostoVal(String(pl.costo)); } }}
-                                    style={{ color: soloLectura?COLOR.muted:COLOR.tealDark, fontSize:12, flexShrink:0, cursor: soloLectura?"default":"pointer", fontWeight: soloLectura?400:700 }}>
-                                    costo {money(pl.costo)}{!soloLectura && " ✏️"}</span>
-                                )}
+                              <div style={{ fontSize:11, color:COLOR.muted, marginTop:2 }}>
+                                base <b className="num">{money(pl.baseContado)}</b>/<b className="num">{money(pl.baseCredito)}</b> · costo <b className="num">{money(pl.costoContado)}</b>/<b className="num">{money(pl.costo)}</b> <span style={{ fontSize:9.5 }}>(cont/créd)</span>
                               </div>
                             </div>
                           );
@@ -6962,10 +7005,52 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
         <ModalHistorialPrecio prodId={prod.id} producto={prod.nombre}
           onCerrar={()=>setVerHistorial(false)} />
       )}
-      {ajustar && (
-        <ModalAjustePrecio prod={prod} usuario={usuario}
-          onCerrar={()=>setAjustar(false)}
-          onGuardado={()=>{ if (onPrecioCambiado) onPrecioCambiado(); }} />
+      {modoPrecios && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.55)", zIndex:1200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:"#fff", borderRadius:16, width:"min(680px,96vw)", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+            <div style={{ padding:"18px 22px", borderBottom:`1px solid ${COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, background:"#fff" }}>
+              <div>
+                <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text, margin:0 }}>Editar precios por piladora</h3>
+                <p style={{ fontSize:12, color:COLOR.muted, marginTop:2 }}>{prod.nombre} · cada cambio se guarda con la fecha de hoy</p>
+              </div>
+              <button onClick={()=>setModoPrecios(false)} disabled={guardandoPrecios} style={{ border:"none", background:"none", fontSize:24, color:COLOR.muted, cursor:"pointer" }}>×</button>
+            </div>
+            <div style={{ padding:"16px 22px" }}>
+              {(ofertas||[]).map(f => (
+                <div key={f.presCod} style={{ marginBottom:18 }}>
+                  <p style={{ fontSize:13, fontWeight:800, color:COLOR.text, marginBottom:8 }}>{f.presentacion} <span className="num" style={{ color:COLOR.muted, fontWeight:500 }}>({f.equivQq} qq)</span></p>
+                  {f.piladoras.map(pl => { const e = editPrecios[pl.ofertaId] || {};
+                    const bc = parseFloat(e.baseContado)||0, ccr = parseFloat(e.costoCredito)||0;
+                    const mg = bc>0 ? ((bc-ccr)/bc*100) : 0;
+                    return (
+                    <div key={pl.ofertaId} style={{ border:`1px solid ${COLOR.border}`, borderRadius:11, padding:"12px 14px", marginBottom:10 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                        <span style={{ fontSize:13, fontWeight:700, color:COLOR.text }}><span className="num">{pl.provCod}</span> · {pl.piladora}</span>
+                        <span className="num" style={{ fontSize:13, fontWeight:800, color: mg < (f.margenMin||8) ? "#b9770e" : "#1e8449" }}>margen {mg.toFixed(1)}%</span>
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                        {[["baseContado","Precio base contado"],["baseCredito","Precio base crédito"],["costoContado","Costo contado"],["costoCredito","Costo crédito"]].map(([k,lab]) => (
+                          <div key={k}>
+                            <label style={{ fontSize:10.5, fontWeight:700, color:COLOR.muted, display:"block", marginBottom:3 }}>{lab}</label>
+                            <input type="number" step="0.01" value={e[k]||""} onChange={ev=>setPrecioCampo(pl.ofertaId, k, ev.target.value)}
+                              style={{ width:"100%", boxSizing:"border-box", padding:"8px 10px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {(!ofertas || ofertas.length===0) && <p style={{ fontSize:13, color:COLOR.muted, textAlign:"center", padding:"20px 0" }}>Este producto no tiene ofertas de piladora para editar.</p>}
+              {avisoPrecios && <div style={{ background:"#FDECEA", color:"#b3271e", borderRadius:9, padding:"9px 12px", fontSize:12.5, fontWeight:600, marginBottom:12 }}>⚠ {avisoPrecios}</div>}
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={()=>setModoPrecios(false)} disabled={guardandoPrecios} style={{ flex:1, padding:"12px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+                <button onClick={guardarPreciosVersionado} disabled={guardandoPrecios} style={{ flex:1, padding:"12px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:800, cursor: guardandoPrecios?"wait":"pointer" }}>{guardandoPrecios?"Guardando…":"Guardar precios"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
