@@ -54,6 +54,7 @@ const PLAN = [
   { arnes:"test_arranque.js",        que:"el día en que empieza a contar de verdad", apps:["freelance-completo"] },
   { arnes:"test_corte_arranque.js",  que:"los informes arrancan en esa fecha",     apps:["freelance-completo"] },
   { arnes:"test_cotizacion.js",      que:"la cotización",                        apps:["Comisionista","socio-comercial","freelance-completo"] },
+  { arnes:"test_catalogo_productos.js", que:"Productos sale de las ofertas, no de `precios`", apps:["freelance-completo"] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */

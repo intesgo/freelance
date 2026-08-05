@@ -39,24 +39,29 @@ const UBIC_BD = [
   { cli_id:"CLI-A", ciudad:"Cuenca", direccion:"Mariscal Lamar 2-59", principal:true },
   { cli_id:"CLI-B", ciudad:"Ibarra", direccion:"Mariana de Jesús", principal:true },
 ];
+/* La tabla `precios` quedó atrás: la cotización sale de `ofertas_piladora`.
+   Aquí se deja UNA fila envenenada a propósito: si algún día la app vuelve a
+   leer `precios`, los totales saldrían en $999 y esta prueba se cae sola. */
 const PRECIOS_BD = [
-  { prod_id:"P-DAL", producto:"Arroz Dallis", base_contado:47.00, base_credito:48.00, vigente_hasta:null },
-  { prod_id:"P-LIR", producto:"Arroz Extra Lira", base_contado:40.00, base_credito:41.00, vigente_hasta:null },
-  /* precio viejo: NO debe aparecer nunca */
-  { prod_id:"P-VIE", producto:"Arroz Precio Viejo", base_contado:99.00, base_credito:99.00, vigente_hasta:"2026-06-30" },
+  { prod_id:"P-DAL", producto:"NO USAR", base_contado:999, base_credito:999, vigente_hasta:null },
 ];
 const PRODUCTOS_BD = [
   /* la etiqueta miente a propósito: dice una piladora distinta de la que surte */
-  { prod_id:"P-DAL", marca:"Dallis", linea:"Arroz", proveedor:"POR ASIGNAR", estado:"activo" },
-  { prod_id:"P-LIR", marca:"Extra Lira", linea:"Arroz", proveedor:"POR ASIGNAR", estado:"activo" },
+  { prod_id:"P-DAL", nombre:"Arroz Dallis", marca:"Dallis", linea:"Arroz", proveedor:"POR ASIGNAR", estado:"activo" },
+  { prod_id:"P-LIR", nombre:"Arroz Extra Lira", marca:"Extra Lira", linea:"Arroz", proveedor:"POR ASIGNAR", estado:"activo" },
+  { prod_id:"P-VIE", nombre:"Arroz Precio Viejo", marca:"Precio Viejo", linea:"Arroz", proveedor:"POR ASIGNAR", estado:"activo" },
 ];
-/* Quien surte de verdad: la oferta activa. Dallis la tiene una sola piladora;
-   Extra Lira, dos — al cliente se le dice cuántas, no una al azar. */
+/* Quien surte y a qué precio: la OFERTA. Dallis la tiene una sola piladora y
+   en dos presentaciones (quintal y arroba, mismo precio por quintal): tiene
+   que salir UNA vez. Extra Lira la tienen dos — se dice cuántas, no una al
+   azar. La oferta vencida no se ofrece. */
+const AYER = "2026-01-01";
 const OFERTAS_BD = [
-  { prod_id:"P-DAL", prov_cod:"ROS", activo:true },
-  { prod_id:"P-LIR", prov_cod:"AGU", activo:true },
-  { prod_id:"P-LIR", prov_cod:"CRI", activo:true },
-  { prod_id:"P-VIE", prov_cod:"AGU", activo:false },
+  { prod_id:"P-DAL", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"ROS", precio_contado:47.00, precio_credito:48.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"P-DAL", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"ROS", precio_contado:11.75, precio_credito:12.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"P-LIR", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"AGU", precio_contado:40.00, precio_credito:41.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"P-LIR", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"CRI", precio_contado:40.00, precio_credito:41.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"P-VIE", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"AGU", precio_contado:99.00, precio_credito:99.00, activo:true, vigente_desde:AYER, vigente_hasta:"2026-06-30" },
 ];
 const PROVEEDORES_BD = [
   { prov_cod:"ROS", nombre:"Piladora Santa Rosa" },
@@ -81,7 +86,8 @@ function montar(conSesion) {
     if (t === "precios")             return PRECIOS_BD;
     if (t === "productos")           return PRODUCTOS_BD;
     if (t === "organizaciones")      return ORG_BD;
-    if (t === "v_ofertas_vigentes")  return OFERTAS_BD;   /* la vista: solo lo que rige hoy */
+    if (t === "ofertas_piladora")    return OFERTAS_BD;   /* de aquí salen hoy catálogo y precio */
+    if (t === "v_ofertas_vigentes")  return OFERTAS_BD;
     if (t === "proveedores")         return PROVEEDORES_BD;
     if (t === "usuarios")            return [{ usr_id:"SC1", nombre:"Carlos Andrade", rol:"comisionista", activo:true }];
     return [];
@@ -167,7 +173,7 @@ const escribir = (m, k, v) => vm.runInContext(`window.__escribir(${JSON.stringif
   comprobar("y toma la condición que ya tiene acordada (crédito)", /A crédito/.test(t));
 
   /* ── agregar productos ── */
-  escribir(m, "producto para agregarlo", "arroz");
+  escribir(m, "producto, línea o piladora", "arroz");
   await esperar(200);
   t = txt(m);
   comprobar("busca productos", /Dallis/.test(t) && /Extra Lira/.test(t));
@@ -176,7 +182,7 @@ const escribir = (m, k, v) => vm.runInContext(`window.__escribir(${JSON.stringif
 
   tocar(m, "Dallis");
   await esperar(200);
-  escribir(m, "producto para agregarlo", "lira");
+  escribir(m, "producto, línea o piladora", "lira");
   await esperar(200);
   tocar(m, "Extra Lira");
   await esperar(250);

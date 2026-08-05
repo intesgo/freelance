@@ -2718,9 +2718,16 @@ function construirCatalogoPedido(provs, ofertas, prods, precios, presenTbl){
 }
 
 /* ── FASE 4 · Etapa 3: catálogo real COMPARTIDO (pantalla Productos + asistente de voz) ──
-   Cargador único con sesión: productos activos × precios vigentes, en la MISMA forma del
+   Cargador único con sesión: productos activos × OFERTAS vigentes, en la MISMA forma del
    catálogo demo. Single-flight (una sola carga por sesión). Los consumidores transversales
-   leen catProds() al momento de responder: si no hay sesión o aún no carga, demo. */
+   leen catProds() al momento de responder: si no hay sesión o aún no carga, demo.
+
+   ── FA-0011 · el catálogo sale de las OFERTAS, ya no de `precios` ──
+   El sistema web dejó de escribir en `precios`: hoy un producto nuevo nace con sus ofertas
+   en `ofertas_piladora` y CERO filas en `precios`. Leyendo `precios`, el celular no lo veía.
+   Medido contra producción el 05/08/2026: 59 productos activos · 58 con fila en `precios`
+   (por eso el sello decía 58) · 59 con oferta vigente. El que faltaba era P-00197
+   «Arroz Crecedor», con 2 ofertas vigentes, 2 presentaciones activas y sin marca. */
 let CATALOGO_REAL = null;
 let _cargandoCat = null;
 const catProds = () => CATALOGO_REAL || PRODUCTOS;
@@ -2735,26 +2742,45 @@ async function cargarCatalogoReal(){
       /* RENDIMIENTO: el catálogo NO trae fotos (ni de productos ni de presentaciones); solo
          estructura + precios + qué presentaciones YA tienen foto (bandera liviana, sin la imagen).
          La foto real se carga en la ficha del producto, bajo demanda, solo la de ese producto. */
-      const [{ data:prods }, { data:precios }, { data:presen }, { data:ofertasV }, { data:provsTbl }] = await Promise.all([
-        window.SB.from("productos").select("prod_id,nombre,linea,proveedor,proveedor_cod")
+      const [{ data:prods }, { data:presen }, { data:ofertasT }, { data:provsTbl }] = await Promise.all([
+        window.SB.from("productos").select("prod_id,nombre,marca,linea,proveedor,proveedor_cod")
           .eq("estado","activo").order("nombre").limit(500),
-        window.SB.from("precios").select("prod_id,base_contado,base_credito")
-          .is("vigente_hasta",null).limit(500),
         window.SB.from("presentaciones").select("pres_id,prod_id,presentacion_cod")
           .eq("activo",true).limit(2000),
-        window.SB.from("v_ofertas_vigentes").select("prod_id,prov_cod,pres_cod,costo,costo_contado").limit(3000),
+        window.SB.from("ofertas_piladora")
+          .select("prod_id,prov_cod,pres_cod,equiv_qq,precio_contado,precio_credito,costo,costo_contado,activo,vigente_desde,vigente_hasta")
+          .limit(4000),
         window.SB.from("proveedores").select("prov_cod,nombre").limit(500),
       ]);
       if(!prods || !prods.length) return null;
       const r2=n=>Math.round(n*100)/100;
-      const precioDe={}; (precios||[]).forEach(p=>{ precioDe[p.prod_id]=p; });
+      /* La fecha del TELÉFONO, no la de Greenwich: con toISOString(), en Ecuador (UTC-5)
+         desde las 19h ya sería "mañana" y una oferta entraría a regir cinco horas antes. */
+      const _h=new Date();
+      const hoyISO=_h.getFullYear()+"-"+String(_h.getMonth()+1).padStart(2,"0")+"-"+String(_h.getDate()).padStart(2,"0");
+      const ofertasV=(ofertasT||[]).filter(o=>
+        o.activo !== false &&
+        (!o.vigente_desde || String(o.vigente_desde).slice(0,10) <= hoyISO) &&
+        (!o.vigente_hasta || String(o.vigente_hasta).slice(0,10) >  hoyISO));
+      /* PRECIO POR QUINTAL desde la oferta: cada presentación se lleva a quintales
+         (precio ÷ equiv_qq: la arroba de $4,75 con equiv 0,25 es $19 el quintal) y se guarda
+         el MÁS BARATO, que es el precio que el vendedor puede sostener cuando varias
+         piladoras surten el mismo producto. Un producto, un precio. */
+      const precioDe={};
+      ofertasV.forEach(o=>{
+        const eq=Number(o.equiv_qq)||0; if(!(eq>0)) return;
+        const c=(Number(o.precio_contado)||0)/eq; if(!(c>0)) return;
+        const k=(Number(o.precio_credito)||Number(o.precio_contado)||0)/eq;
+        const g=precioDe[o.prod_id];
+        if(!g || c < g.base_contado) precioDe[o.prod_id]={ base_contado:r2(c), base_credito:r2(k||c) };
+      });
       /* mapa por presentación: prod_id|cod -> pres_id */
       const presDe={}; (presen||[]).forEach(p=>{ presDe[p.prod_id+"|"+p.presentacion_cod]=p.pres_id; });
       const infoPres=(prodId,cod)=>{ const pid=presDe[prodId+"|"+cod]||null; return { pres_id:pid }; };
       /* PILADORAS por producto (con su COSTO por presentación): un producto puede salir de varias piladoras */
       const nomProv={}; (provsTbl||[]).forEach(p=>{ nomProv[p.prov_cod]=p.nombre; if(p.prov_cod && p.nombre) PROV_REAL_NOMBRES[p.prov_cod]=p.nombre; });
       const pilaSet={}, ofertasDe={};
-      (ofertasV||[]).forEach(o=>{ if(!o.prov_cod) return; (pilaSet[o.prod_id]=pilaSet[o.prod_id]||new Set()).add(o.prov_cod); (ofertasDe[o.prod_id]=ofertasDe[o.prod_id]||[]).push(o); });
+      ofertasV.forEach(o=>{ if(!o.prov_cod) return; (pilaSet[o.prod_id]=pilaSet[o.prod_id]||new Set()).add(o.prov_cod); (ofertasDe[o.prod_id]=ofertasDe[o.prod_id]||[]).push(o); });
       const piladorasDe=(pid, provFallback, nomFallback)=>{
         const s=pilaSet[pid];
         if(s && s.size){ return [...s].map(c=>({cod:c, nombre:nomProv[c]||c})); }
@@ -2767,10 +2793,12 @@ async function cargarCatalogoReal(){
       const lista=prods.map(p=>{
         if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
         const pr=precioDe[p.prod_id];
-        if(!pr) return null;   // sin precio vigente no se ofrece (no inventar precios)
+        if(!pr) return null;   // sin OFERTA vigente no se ofrece (no inventar precios)
         const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
         const iQQ=infoPres(p.prod_id,"QQ"), iAR=infoPres(p.prod_id,"ARR");
-        const provId=p.proveedor_cod||"", linea=p.linea||"Otros", nom=p.nombre;
+        /* Un producto SIN MARCA no puede quedar en blanco ni invisible: manda su nombre,
+           y si tampoco lo tuviera, el código. Así «Arroz Crecedor» (marca en NULL) se ve. */
+        const provId=p.proveedor_cod||"", linea=p.linea||"Otros", nom=p.nombre||p.marca||p.prod_id;
         const piladoras=piladorasDe(p.prod_id, provId, p.proveedor||"");
         /* cada presentación lleva TODO lo que Tomar pedido necesita para venderla directo (foto se carga en la ficha) */
         const base=(cod,tam,eq,bc,bk,info)=>({
@@ -16307,7 +16335,10 @@ function Productos({vender}){
   const lista=CATALOGO.filter(m=>{
     if(m.inhabilitada) return false; // inhabilitada por proveedor/freelance
     if(m.presentaciones.every(p=>p.inhabilitada)) return false; // todas sus presentaciones inhabilitadas
-    const campos=norm(`${m.marca} ${m.linea} ${m.provNombre||provName(m.provId)}`);
+    /* El buscador mira también las PILADORAS que lo surten: la tarjeta dice
+       «2 piladoras» y sin esto el vendedor no podría buscar por la que tiene en la cabeza. */
+    const pilas=(m.piladoras||[]).map(x=>x.nombre).join(" ");
+    const campos=norm(`${m.marca||""} ${m.linea||""} ${m.provNombre||provName(m.provId)} ${pilas}`);
     return campos.includes(norm(q));
   });
   const porLinea={};
@@ -16322,7 +16353,7 @@ function Productos({vender}){
       🟢 Catálogo y precios vivos de la base · {reales.length} productos</div>}
     <div className="ss" style={{marginBottom:16}}>
       <div className="box"><span className="mag">⌕</span>
-        <input value={q} placeholder="Buscar por marca, línea o proveedor…" onChange={e=>setQ(e.target.value)}/>
+        <input value={q} placeholder="Buscar por producto, línea o piladora…" onChange={e=>setQ(e.target.value)}/>
         {q && <button className="clr" onClick={()=>setQ("")}>×</button>}
         <MicBtn onTexto={setQ}/></div>
     </div>
@@ -16340,7 +16371,7 @@ function Productos({vender}){
               <div className="row" style={{alignItems:"center"}}>
                 <div style={{width:40,height:40,borderRadius:10,background:"var(--paper)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,marginRight:11}}>{EMOJI_LINEA[m.linea]||"📦"}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div className="cli">{m.marca}</div>
+                  <div className="cli">{m.marca||m.id||"Sin marca"}</div>
                   <div className="meta">{variasPilas ? `🏭 ${pilas.length} piladoras` : (pilas[0]?pilas[0].nombre:provName(m.provId))} · {nPres} presentación(es)</div>
                   {variasPilas && <div className="meta" style={{fontSize:11,marginTop:2,color:"var(--muted)"}}>{pilas.map(x=>x.nombre).join(" · ")}</div>}
                 </div>
@@ -16476,7 +16507,7 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
 
   return (<>
     <span className="prod-linea">{marca.linea}</span>
-    <div className="h1" style={{marginTop:8,marginBottom:4}}>{marca.marca}</div>
+    <div className="h1" style={{marginTop:8,marginBottom:4}}>{marca.marca||marca.id||"Sin marca"}</div>
     <div className="sub">{provName(marca.provId)} · {activas.length} presentación(es)</div>
 
     {puedeFoto && <div className="meta" style={{margin:"8px 2px 2px"}}>📷 Cada presentación tiene su propia foto. Tócala abajo para subir o cambiar (se ajusta en cuadro sola).</div>}
