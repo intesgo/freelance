@@ -19,7 +19,7 @@ const fs = require("fs"), vm = require("vm");
 const { JSDOM } = require("jsdom");
 const R = require("./rutas");
 
-const ruta = process.env.SISTEMA_WEB || "/tmp/freelance_work/Freelance-Sistema/sistema-web.html";
+const ruta = process.env.SISTEMA_WEB || require("./rutas").app("sistema-web");
 const html = fs.readFileSync(ruta, "utf-8");
 const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 const js = R.Babel.transform(jsx, { presets: ["react"] }).code;

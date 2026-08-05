@@ -11,11 +11,19 @@
    mitad del campo es un problema real.
    ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE = "freelance-v199";
+const CACHE = "freelance-v200";
 const PIEZAS = [
   "./", "./index.html",
   "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
   "./freelance-completo.html", "./proveedor-freelance.html",
+  /* MEDIDO el 05/08/2026: sin estas tres, la app abre EN BLANCO sin senal
+     ("React is not defined", 0 hijos dentro de #root). Antes venian de cdnjs
+     y jsdelivr: si la primera visita con red no lograba bajarlas, el fallo se
+     tragaba en silencio y el chofer se enteraba recien en la carretera.
+     Ahora salen del propio sitio, asi que se guardan como una pantalla mas. */
+  "./lib/react-18.3.1.min.js",
+  "./lib/react-dom-18.3.1.min.js",
+  "./lib/supabase-2.112.1.min.js",
 ];
 
 /* ── LAS LIBRERIAS · sin esto la app NO abre sin internet ────────────────
@@ -28,13 +36,11 @@ const PIEZAS = [
    puesto a prueba.
    Van aparte de PIEZAS porque son de otro dominio y conviene que una que
    falle no arrastre a las demas. */
-const LIBRERIAS = [
-  "https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js",
-  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js",
-];
+/* Ya no hay librerias de terceros que guardar para arrancar: las tres
+   necesarias viven en ./lib/ y van arriba, en PIEZAS. Quedan en CDN solo
+   piezas de funciones puntuales (jspdf, tesseract, xlsx) que NO bloquean el
+   arranque: si no cargan, esa funcion no anda, pero la app abre igual. */
+const LIBRERIAS = [];
 
 /* ── Instalación: guarda las pantallas.
    OJO: NO se llama skipWaiting() aquí. El service worker nuevo espera en
