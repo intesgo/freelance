@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"123", fecha:"5 ago 2026", desc:"Pedidos: «+ Nuevo pedido» a la derecha, columna Editar nombrada y angosta, Cliente más ancho (nombre completo). Clientes: «Pertenece a» con texto predictivo; nuevo campo «Facturas de contado antes de dar crédito» (se guarda). Se quitó el sello «Catálogo vivo de la base»." };
+const VERSION = { n:"124", fecha:"5 ago 2026", desc:"Editar pedido ahora abre la pantalla de armado con el pedido cargado: se toca cada producto del resumen para cambiar cantidad/precio, se pueden quitar y agregar productos, y «Guardar cambios» actualiza el pedido (no crea uno nuevo)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4621,6 +4621,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [editError, setEditError] = useState("");
   const [ordCampo, setOrdCampo] = useState("fecha");   // columna de orden (#2)
   const [ordDir, setOrdDir] = useState("desc");        // asc | desc · por defecto fecha desc
+  const [editandoPed, setEditandoPed] = useState(null);   // ped_id que se edita en la pantalla de armado (#4)
+  const [itemsOriginales, setItemsOriginales] = useState([]);  // ítems como estaban al abrir (para borrar los quitados)
+  const [lineaEdit, setLineaEdit] = useState(null);       // id de la línea del carrito que se está editando
   const cargarPedidosVivos = React.useCallback(async () => {
     if (!window.supa || !window.supa.auth) return;
     {
@@ -4645,7 +4648,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         const meta = {};
         const filas = [];
         p.forEach(pd => {
-          meta[pd.ped_id] = { pedId:pd.ped_id, provCod:pd.prov_cod, prov:(pd.proveedores&&pd.proveedores.nombre)||pd.prov_cod||"—",
+          meta[pd.ped_id] = { pedId:pd.ped_id, cliId:pd.cli_id, provCod:pd.prov_cod, prov:(pd.proveedores&&pd.proveedores.nombre)||pd.prov_cod||"—",
             cli:(pd.clientes&&pd.clientes.nombre)||pd.cli_id, razon:(pd.clientes&&pd.clientes.razon_social)||null,
             cond: pd.condicion==="contado"?"Contado":"Crédito", editable:editable(pd) };
           (porPed[pd.ped_id]||[]).forEach((x,i) => filas.push({
@@ -5003,8 +5006,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   };
 
   const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P2"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };
-  const abrir = () => { setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
-  const volver = () => { setVista("lista"); setAviso(""); };
+  const abrir = () => { setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null); setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
+  const volver = () => { setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null); setVista("lista"); setAviso(""); };
   // Repetir el último pedido: fija la piladora y arma el carrito con esos productos a precio vigente (presentación Quintal)
   const repetirUltimo = () => {
     if (!ultimoPedido || !Array.isArray(ultimoPedido.items)) return;
@@ -5106,6 +5109,73 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     setPedidos(prev => [...nuevos, ...prev]);
     setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
     setVista("lista");
+  };
+
+  /* ── #4 · Editar un pedido DENTRO de la pantalla de armado ─────────────── */
+  const construirLineaDesdeItem = (it, meta) => {
+    const cat = PRODS_PED.find(p => (p.prodId||p.id) === it.prod_id) || {};
+    const tipo = it.tipo_precio || "P2";
+    const cant = Number(it.cantidad_qq)||0, precio = Number(it.precio_usd)||0;
+    return {
+      id: it.item_id || ("N"+Date.now()+Math.floor(Math.random()*1000)), itemId: it.item_id || null,
+      prodId: it.prod_id, prod: it.descripcion || cat.nombre || it.prod_id,
+      prov: meta.prov, provCod: meta.provCod, ic: cat.ic || "📦",
+      unidad: "qq", equiv: 1, cant, precio, gratis: Number(it.gratis_qq)||0,
+      cond: meta.cond, credito: meta.cond==="Crédito",
+      tipo, tipoNombre: (TIPOS_PRECIO_WEB.find(t=>t.id===tipo)||{}).nombre || "",
+      comision: Number(it.comision_usd)||0, total: cant*precio, requiere:false, existente:true,
+    };
+  };
+  const abrirEdicionArmar = (pedId) => {
+    const meta = pedMeta[pedId]; if (!meta) return;
+    const its = itemsPorPed[pedId] || [];
+    const cliObj = (CLIENTES.find(c => c.id === meta.cliId)) || { id: meta.cliId, nombre: meta.cli, razonSocial: meta.razon, bloqueado:false };
+    setCli(cliObj); setCliTexto(cliObj.nombre || meta.cli || "");
+    setProvSel(meta.prov); setProvTexto(meta.prov || "");
+    setCarrito(its.map(it => construirLineaDesdeItem(it, meta)));
+    setItemsOriginales(its.map(it => it.item_id).filter(Boolean));
+    setEditandoPed(pedId); setLineaEdit(null); setAviso(""); resetLinea(); setVista("armar");
+  };
+  const editarLineaCarrito = (id, campo, val) => setCarrito(prev => prev.map(l => {
+    if (l.id !== id) return l;
+    const nl = { ...l, [campo]: val };
+    return { ...nl, total: (Number(nl.cant)||0)*(Number(nl.precio)||0) };
+  }));
+  const guardarCambiosPedido = async () => {
+    if (!editandoPed) return;
+    const vivos = carrito.filter(l => (Number(l.cant)>0) && (Number(l.precio)>0));
+    if (vivos.length === 0) { setAviso("El pedido no puede quedar sin productos válidos (cantidad y precio > 0)."); return; }
+    if (!window.supa) { setAviso("Sin conexión con el servidor."); return; }
+    setAviso("Guardando…");
+    try {
+      const r2 = x => Math.round(x*100)/100;
+      const idsActuales = carrito.map(l => l.itemId).filter(Boolean);
+      const borrar = itemsOriginales.filter(id => !idsActuales.includes(id));
+      for (const l of carrito) {
+        if (Number(l.cant)<=0 || Number(l.precio)<=0) continue;
+        if (l.itemId) {
+          const { error } = await window.supa.from("pedido_items")
+            .update({ cantidad_qq: r2(Number(l.cant)), precio_usd: r2(Number(l.precio)), descripcion: l.prod, prod_id: l.prodId })
+            .eq("item_id", l.itemId);
+          if (error) throw new Error(error.message);
+        } else {
+          const nid = editandoPed + "-I" + Date.now() + Math.floor(Math.random()*1000);
+          const { error } = await window.supa.from("pedido_items").insert({
+            item_id: nid, ped_id: editandoPed, prod_id: l.prodId, descripcion: l.prod,
+            cantidad_qq: r2(Number(l.cant)), precio_usd: r2(Number(l.precio)),
+            tipo_precio: l.tipo||null, gratis_qq: 0, es_demo:false });
+          if (error) throw new Error(error.message);
+        }
+      }
+      if (borrar.length) {
+        const { error } = await window.supa.from("pedido_items").delete().in("item_id", borrar);
+        if (error) throw new Error(error.message);
+      }
+      setAviso(""); setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null);
+      setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
+      setVista("lista");
+      await cargarPedidosVivos();
+    } catch (e) { setAviso("No se pudo guardar: " + (e.message||"error")); }
   };
 
   const colorEstado = (e) => {
@@ -5268,7 +5338,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
                 <span style={{ textAlign:"right" }}>
                   {p.editable && p.pedId && !p.demo && (
-                    <button onClick={()=>abrirEdicion(p.pedId)} title="Editar pedido"
+                    <button onClick={()=>abrirEdicionArmar(p.pedId)} title="Editar pedido"
                       style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:14, cursor:"pointer", padding:0 }}>✏️</button>
                   )}
                 </span>
@@ -5640,24 +5710,42 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         <div style={{ position:"sticky", top:20 }}>
           <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
             <div style={{ padding:"16px 18px", borderBottom:`1px solid ${COLOR.border}` }}>
-              <h3 style={{ fontSize:15, fontWeight:800, color:COLOR.text }}>Resumen del pedido</h3>
+              <h3 style={{ fontSize:15, fontWeight:800, color:COLOR.text }}>{editandoPed ? ("Editando pedido "+editandoPed) : "Resumen del pedido"}</h3>
               <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>{cli ? cli.nombre : "Sin cliente"} · {carrito.length} producto(s)</p>
             </div>
             {carrito.length===0
               ? <div style={{ padding:"30px 18px", textAlign:"center", color:COLOR.muted, fontSize:13 }}>Aún no agregas productos. Arma una línea a la izquierda y agrégala.</div>
               : <div>
-                  {carrito.map(l => (
-                    <div key={l.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 16px", borderBottom:`1px solid ${COLOR.bg}`, fontSize:13 }}>
+                  {carrito.map(l => { const enEdicion = lineaEdit === l.id;
+                    return (
+                    <div key={l.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 16px", borderBottom:`1px solid ${COLOR.bg}`, fontSize:13, background: enEdicion?COLOR.tealLight:"transparent" }}>
                       <div style={{ width:34, height:34, borderRadius:9, background:COLOR.tealLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{l.ic}</div>
-                      <div style={{ flex:1 }}>
-                        <p style={{ fontWeight:700, color:COLOR.text }}>{l.prod}</p>
-                        <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>{l.cant} {l.unidad} · {money(l.precio)} · {l.tipoNombre}</p>
-                        <p style={{ fontSize:11.5, color:COLOR.muted }}>Comisión {money(l.comision)}{l.requiere?" · por autorizar":""}</p>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontWeight:700, color:COLOR.text, cursor:"pointer" }} onClick={()=>setLineaEdit(enEdicion?null:l.id)}>{l.prod}</p>
+                        {enEdicion ? (
+                          <div style={{ display:"flex", gap:8, marginTop:6, alignItems:"flex-end", flexWrap:"wrap" }}>
+                            <div>
+                              <label style={{ fontSize:10, color:COLOR.muted, display:"block", marginBottom:2 }}>Cantidad (qq)</label>
+                              <input type="number" min="0" value={l.cant} onChange={e=>editarLineaCarrito(l.id,"cant",e.target.value)}
+                                style={{ width:78, padding:"6px 8px", borderRadius:7, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize:10, color:COLOR.muted, display:"block", marginBottom:2 }}>Precio ($/qq)</label>
+                              <input type="number" min="0" step="0.01" value={l.precio} onChange={e=>editarLineaCarrito(l.id,"precio",e.target.value)}
+                                style={{ width:92, padding:"6px 8px", borderRadius:7, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
+                            </div>
+                            <button onClick={()=>setLineaEdit(null)} style={{ border:"none", background:COLOR.teal, color:"#fff", borderRadius:7, padding:"7px 12px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Listo</button>
+                          </div>
+                        ) : (
+                          <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:1, cursor:"pointer" }} onClick={()=>setLineaEdit(l.id)}>{l.cant} {l.unidad} · {money(l.precio)}{l.tipoNombre?" · "+l.tipoNombre:""} · ✏️ toca para editar</p>
+                        )}
+                        {!enEdicion && l.comision>0 && <p style={{ fontSize:11.5, color:COLOR.muted }}>Comisión {money(l.comision)}{l.requiere?" · por autorizar":""}</p>}
                       </div>
                       <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(l.total)}</span>
                       <button onClick={()=>quitarLinea(l.id)} style={{ border:"none", background:"none", fontSize:17, color:COLOR.muted, cursor:"pointer", lineHeight:1 }}>×</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>}
             <div style={{ padding:"14px 18px", borderTop:`1px solid ${COLOR.border}`, background:"#FBFCFD" }}>
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12.5, marginBottom:6 }}>
@@ -5671,7 +5759,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             </div>
           </div>
           {aviso && <p style={{ fontSize:12.5, color:COLOR.red, fontWeight:600, marginTop:12 }}>{aviso}</p>}
-          <button onClick={subirPedido} disabled={carrito.length===0} style={{ width:"100%", marginTop:14, padding:"14px", borderRadius:10, border:"none", background: carrito.length?COLOR.teal:"#bcc6cf", color:"#fff", fontSize:15, fontWeight:700, cursor: carrito.length?"pointer":"not-allowed" }}>Subir pedido · {carrito.length} producto(s)</button>
+          {editandoPed
+            ? <button onClick={guardarCambiosPedido} disabled={carrito.length===0} style={{ width:"100%", marginTop:14, padding:"14px", borderRadius:10, border:"none", background: carrito.length?COLOR.teal:"#bcc6cf", color:"#fff", fontSize:15, fontWeight:700, cursor: carrito.length?"pointer":"not-allowed" }}>Guardar cambios · {carrito.length} producto(s)</button>
+            : <button onClick={subirPedido} disabled={carrito.length===0} style={{ width:"100%", marginTop:14, padding:"14px", borderRadius:10, border:"none", background: carrito.length?COLOR.teal:"#bcc6cf", color:"#fff", fontSize:15, fontWeight:700, cursor: carrito.length?"pointer":"not-allowed" }}>Subir pedido · {carrito.length} producto(s)</button>}
           <button onClick={volver} style={{ width:"100%", marginTop:8, padding:"11px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:13.5, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
 
           {/* Historial de compras del producto elegido (como el freelance) */}
