@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"121", fecha:"4 ago 2026", desc:"Pedidos: editar pedido antes de facturar (Ingresado/Esperando aprobación): cambiar cantidades y precios, quitar y agregar productos; se guarda en la base." };
+const VERSION = { n:"122", fecha:"5 ago 2026", desc:"Pedidos: Fecha primera columna, ordenar por cualquier columna (defecto fecha reciente), sin Rastrear ni mensaje verde, cliente natural=nombre+apellido / jurídica=razón social, presentación abreviada (qq, @), columnas en una fila. Clientes: razón social arriba, representante legal solo jurídica, sin Origen ni Cliente desde (la fecha de creación se guarda sola), y ahora Cupo 2 / meses / nivel se conservan al editar." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4619,6 +4619,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [editTexto, setEditTexto] = useState("");       // buscador para agregar producto
   const [editGuardando, setEditGuardando] = useState(false);
   const [editError, setEditError] = useState("");
+  const [ordCampo, setOrdCampo] = useState("fecha");   // columna de orden (#2)
+  const [ordDir, setOrdDir] = useState("desc");        // asc | desc · por defecto fecha desc
   const cargarPedidosVivos = React.useCallback(async () => {
     if (!window.supa || !window.supa.auth) return;
     {
@@ -4627,7 +4629,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         if (!s || !s.session) return;
         const [{ data: p }, { data: it }] = await Promise.all([
           window.supa.from("pedidos")
-            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre,razon_social),proveedores(nombre)")
+            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre,razon_social,tipo),proveedores(nombre)")
             .order("creado", { ascending: false }).limit(200),
           window.supa.from("pedido_items")
             .select("item_id,ped_id,prod_id,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq").limit(1000),
@@ -4650,7 +4652,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             id: pd.ped_id + ((porPed[pd.ped_id].length>1) ? ("·"+(i+1)) : ""),
             pedId: pd.ped_id,
             cli: (pd.clientes && pd.clientes.nombre) || pd.cli_id,          // nombre comercial · llave para cruzar con guías
-            razon: (pd.clientes && pd.clientes.razon_social) || null,       // razón social · lo que se muestra en la lista
+            razon: (pd.clientes && pd.clientes.razon_social) || null,       // razón social
+            tipoCli: (pd.clientes && pd.clientes.tipo) || null,            // Natural / Empresa (para mostrar el nombre)
             prod: x.descripcion || x.prod_id,
             prov: (pd.proveedores && pd.proveedores.nombre) || pd.prov_cod || "—",
             cant: Number(x.cantidad_qq)||0, unidad:"qq",
@@ -4898,6 +4901,46 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
 
   const PROVEEDORES_LISTA = [...new Set(PRODS_PED.map(p=>p.prov))].filter(p=>p!=="POR ASIGNAR");     // proveedores disponibles
   const productosDelProv = provSel ? PRODS_PED.filter(p=>p.prov===provSel) : [];
+
+  /* Nombre a mostrar en la columna Cliente (#5):
+     · persona jurídica → razón social completa
+     · persona natural → primer nombre + primer apellido (sin nombre comercial abajo) */
+  const nombreClientePedido = (p) => {
+    const rz = (p.razon || "").trim();
+    // jurídica si el tipo lo dice, o si la razón social trae marca de empresa
+    const juridica = /empres|jurid/i.test(p.tipoCli || "")
+      || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
+    if (juridica) return rz || p.cli || "—";
+    const base = rz || p.cli || "";
+    const w = base.split(/\s+/).filter(Boolean);
+    if (w.length <= 1) return base || "—";
+    const nombre = w[0];
+    const apellido = w.length >= 4 ? w[2] : w[1];   // 2 nombres + 2 apellidos → apellido = 3.ª palabra
+    return nombre + " " + apellido;
+  };
+  /* Abrevia la presentación en la columna Producto (#7): Quintal→qq, Arroba→@ */
+  const abreviarPres = (txt) => (txt || "")
+    .replace(/Quintal\s*\(100\s*lb\)/gi, "qq")
+    .replace(/\bQuintal\b/gi, "qq")
+    .replace(/\bArroba\b/gi, "@")
+    .replace(/·\s*@/g, "· @");
+  /* Ordenamiento de la tabla (#2) · por defecto fecha, más reciente primero */
+  const valorOrden = (p) => ({
+    fecha: p.fecha || "", cliente: nombreClientePedido(p).toLowerCase(), producto: (p.prod||"").toLowerCase(),
+    cant: Number(p.cant)||0, total: (Number(p.cant)||0)*(Number(p.precio)||0),
+    cond: (p.cond||"").toLowerCase(), estado: (p.estado||"").toLowerCase(),
+  }[ordCampo]);
+  const pedidosOrdenados = [...pedidos].sort((a,b) => {
+    const va = valorOrden(a), vb = valorOrden(b);
+    const c = va < vb ? -1 : va > vb ? 1 : 0;
+    return ordDir === "asc" ? c : -c;
+  });
+  const clicOrden = (campo) => {
+    if (ordCampo === campo) setOrdDir(d => d === "asc" ? "desc" : "asc");
+    else { setOrdCampo(campo); setOrdDir(campo === "fecha" ? "desc" : "asc"); }
+    setPagP(0);
+  };
+  const flechaOrden = (campo) => ordCampo === campo ? (ordDir === "asc" ? " ▲" : " ▼") : "";
 
   /* ── EDITAR PEDIDO (#6) · solo antes de facturar ─────────────────────────
      Abre una copia de trabajo de los ítems del pedido. Se guardan los cambios
@@ -5202,38 +5245,38 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:18 }}>
           <button onClick={abrir} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700 }}>+ Nuevo pedido</button>
           <p style={{ fontSize:13.5, color:COLOR.muted }}>{pedidos.length} pedidos · {pedidos.filter(p=>p.estado.startsWith("Esperando")||p.estado.startsWith("Por autorizar")).length} por revisar</p>
-          <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-            background:(fuentePed==="vivo"?COLOR.green:"#8a8a95")+"22", color:fuentePed==="vivo"?COLOR.green:"#8a8a95" }}>
-            {fuentePed==="vivo" ? "🟢 Pedidos vivos de la base (incluye los de la app de campo)" : "⚪ Demo local · inicia sesión para pedidos vivos"}</span>
         </div>
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1.3fr 1.5fr .55fr .8fr .6fr 1fr .8fr 92px", gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            <span>Cliente</span><span>Producto</span><span>Cant.</span><span>Total</span><span>Cond.</span><span>Estado</span><span>Fecha</span><span></span>
+          {(() => {
+            const GC = ".72fr 1.25fr 1.35fr .5fr .82fr .6fr .95fr 58px";   // una sola fila, alineada (#6)
+            const th = (campo, txt, extra) => (
+              <span onClick={()=>clicOrden(campo)} style={{ cursor:"pointer", userSelect:"none", whiteSpace:"nowrap", ...(extra||{}) }}>{txt}{flechaOrden(campo)}</span>
+            );
+            return (<>
+          <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
+            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("producto","Producto")}{th("cant","Cant.")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span></span>
           </div>
-          {usarPaginacion(pedidos, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
+          {usarPaginacion(pedidosOrdenados, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
             return (
-              <div key={p.id} style={{ display:"grid", gridTemplateColumns:"1.3fr 1.5fr .55fr .8fr .6fr 1fr .8fr 92px", gap:10, padding:"14px 18px", borderTop: i>0 ? `1px solid ${COLOR.border}` : "none", alignItems:"center", fontSize:13 }}>
-                <span style={{ fontWeight:700, color:COLOR.text, minWidth:0 }}>
-                  {p.razon || p.cli}<ChipDemo si={p.demo}/>
-                  {p.razon && p.cli && p.razon!==p.cli && <span style={{ display:"block", fontWeight:600, fontSize:11, color:COLOR.muted }}>{p.cli}</span>}
-                </span>
-                <span style={{ color:COLOR.muted }}>{p.prod}</span>
-                <span className="num">{p.cant} {p.unidad||"qq"}</span>
-                <span className="num" style={{ fontWeight:700, color:COLOR.teal }}>{money(p.cant*p.precio)}</span>
+              <div key={p.id} style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"13px 18px", borderTop: i>0 ? `1px solid ${COLOR.border}` : "none", alignItems:"center", fontSize:13 }}>
+                <span className="num" style={{ color:COLOR.muted, fontSize:12, whiteSpace:"nowrap" }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
+                <span style={{ fontWeight:700, color:COLOR.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></span>
+                <span style={{ color:COLOR.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{abreviarPres(p.prod)}</span>
+                <span className="num" style={{ whiteSpace:"nowrap" }}>{p.cant} {p.unidad||"qq"}</span>
+                <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(p.cant*p.precio)}</span>
                 <span style={{ color:COLOR.muted }}>{p.cond}</span>
                 <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
-                <span className="num" style={{ color:COLOR.muted, fontSize:12 }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
-                <div style={{ display:"flex", flexDirection:"column", gap:2, alignItems:"flex-end" }}>
+                <span style={{ textAlign:"right" }}>
                   {p.editable && p.pedId && !p.demo && (
-                    <button onClick={()=>abrirEdicion(p.pedId)}
-                      style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:12.5, fontWeight:700, cursor:"pointer", textAlign:"right", padding:0 }}>✏️ Editar</button>
+                    <button onClick={()=>abrirEdicion(p.pedId)} title="Editar pedido"
+                      style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:14, cursor:"pointer", padding:0 }}>✏️</button>
                   )}
-                  <button onClick={()=>{ setPTab("traza"); setTzQ(p.cli); setTzSel(null); }}
-                    style={{ border:"none", background:"transparent", color:COLOR.teal, fontSize:12.5, fontWeight:700, cursor:"pointer", textAlign:"right", padding:0 }}>Rastrear ›</button>
-                </div>
+                </span>
               </div>
             );
           })}
+            </>);
+          })()}
         </div>
         <VerMas pg={usarPaginacion(pedidos, pagP)} onMas={setPagP} />
         </div>
@@ -15953,8 +15996,9 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
                 {em && <p style={{ fontSize:11, marginTop:4, color: emailOk?"#1c7a44":COLOR.red, fontWeight:600 }}>{emailOk ? "✓ Email válido" : "⚠ Debe tener @ y un dominio con punto (ej. .com)"}</p>}
               </div>
             ); })()}
-            {/* Representante legal · fila propia, separada de los datos del cliente */}
-            {valIdent.ok && (
+            {/* Representante legal · SOLO persona jurídica (#9, #10). Para persona natural
+               (cédula o RUC natural) no aplica: se oculta el bloque completo. */}
+            {valIdent.ok && tipoDeducido==="Empresa" && (
               <div style={{ gridColumn:"1/-1", borderTop:`1px solid ${COLOR.border}`, paddingTop:14, marginTop:2 }}>
                 <label style={{ ...lbl, color:COLOR.teal }}>Representante legal (opcional)</label>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginTop:8 }}>
@@ -16039,15 +16083,8 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
               <label style={lbl}>Condición de pago</label>
               <select value={form.condicionPago} onChange={e=>set("condicionPago",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{["Contado","Crédito"].map(c=><option key={c} value={c}>{c}</option>)}</select>
             </div>
-            <div>
-              <label style={lbl}>Origen del cliente</label>
-              <select value={form.origen || "Nuevo"} onChange={e=>set("origen",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{["Nuevo","Migrado"].map(o=><option key={o} value={o}>{o==="Migrado"?"Migrado (ya lo trabajaba)":"Nuevo (captado aquí)"}</option>)}</select>
-            </div>
-            <div>
-              <label style={lbl}>Cliente desde</label>
-              <input type="date" value={form.clienteDesde||""} onChange={e=>set("clienteDesde",e.target.value)} style={inp} />
-              {form.clienteDesde && (()=>{ const meses=Math.floor((Date.now()-new Date(form.clienteDesde).getTime())/(1000*60*60*24*30)); return <p style={{ fontSize:11, color:meses>=(parseInt(form.mesesCupo2)||3)?"#1c7a44":COLOR.muted, marginTop:4 }}>Antigüedad: {meses} mes(es){meses>=(parseInt(form.mesesCupo2)||3)?" · ya califica para Cupo 2":""}</p>; })()}
-            </div>
+            {/* #12 «Origen del cliente» y #13 «Cliente desde» retirados. La fecha de creación
+               la guarda sola la base (columna creado, default now()). */}
             {!esCredito && (
               <div style={{ gridColumn:"1/-1", background:COLOR.tealLight, borderRadius:10, padding:"11px 14px" }}>
                 <p style={{ fontSize:12.5, color:COLOR.tealDark, fontWeight:600 }}>💵 Cliente de contado: paga al recibir. No necesita cupos de crédito ni expediente.</p>
@@ -16244,7 +16281,9 @@ function ClientesWeb({ usuario, navegar }) {
           id: r.cli_id, nombre: r.nombre, razonSocial: r.razon_social, representanteLegal: r.representante_legal || "", representanteCi: r.representante_ci || "", tipo: r.tipo, ruc: r.ruc,
           telefono: r.tel, telefono2: r.tel2, email: r.email, canal: r.canal,
           listaPrecio: r.lista_precio, forma: r.forma, segmento: r.segmento, descuento: r.descuento, referencial: r.referencial,
-          cupo: r.cupo, usado: r.usado, plazo: r.plazo, estadoCredito: r.estado_credito, condicionPago: r.condicion_pago,
+          cupo: r.cupo, cupo2: r.cupo2, mesesCupo2: r.meses_cupo2, nivelCupo: r.nivel_cupo,
+          clienteDesde: r.creado ? String(r.creado).slice(0,10) : "",
+          usado: r.usado, plazo: r.plazo, estadoCredito: r.estado_credito, condicionPago: r.condicion_pago,
           maxFacturas: r.max_facturas, tipoContribuyente: r.tipo_contribuyente, esAgente: r.es_agente,
           numResolucion: r.num_resolucion, pctRentaFuente: r.pct_renta_fuente, pctRetIVA: r.pct_ret_iva,
           plazoRetencion: r.plazo_retencion, retencion: r.es_agente, subId: r.sub_id, docsOk: r.docs_ok,
@@ -16357,7 +16396,8 @@ function ClientesWeb({ usuario, navegar }) {
     cli_id: c.id, org_id: c.orgId || "ORG-001", nombre: c.nombre, razon_social: c.razonSocial, representante_legal: c.representanteLegal || null, representante_ci: c.representanteCi || null, tipo: c.tipo, ruc: c.ruc,
     tel: c.telefono, tel2: c.telefono2, email: c.email, canal: c.canal, lista_precio: c.listaPrecio,
     forma: c.forma, descuento: c.descuento, referencial: c.referencial, segmento: c.segmento,
-    cupo: c.cupo, usado: c.usado || 0, plazo: c.plazo, estado_credito: c.estadoCredito, condicion_pago: c.condicionPago,
+    cupo: c.cupo, cupo2: parseFloat(c.cupo2)||0, meses_cupo2: parseInt(c.mesesCupo2)||3, nivel_cupo: c.nivelCupo||"Cupo 1",
+    usado: c.usado || 0, plazo: c.plazo, estado_credito: c.estadoCredito, condicion_pago: c.condicionPago,
     max_facturas: c.maxFacturas, tipo_contribuyente: c.tipoContribuyente, es_agente: c.esAgente,
     num_resolucion: c.numResolucion, pct_renta_fuente: c.pctRentaFuente, pct_ret_iva: c.pctRetIVA, plazo_retencion: c.plazoRetencion,
     sub_id: c.subId, dueno: c.dueno, estado_cliente: c.estadoCliente,
@@ -16590,8 +16630,9 @@ function ClientesWeb({ usuario, navegar }) {
 
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:14, marginBottom:18, flexWrap:"wrap" }}>
               <div>
-                <h2 style={{ fontSize:21, fontWeight:800, color:COLOR.text, margin:0 }}>{c.nombre}<ChipDemo si={c.demo}/></h2>
-                {c.razonSocial && c.razonSocial!==c.nombre && <p style={{ fontSize:13.5, color:COLOR.muted, marginTop:2 }}>{c.razonSocial}</p>}
+                {/* #8 · razón social resaltada arriba, nombre comercial abajo */}
+                <h2 style={{ fontSize:21, fontWeight:800, color:COLOR.text, margin:0 }}>{c.razonSocial || c.nombre}<ChipDemo si={c.demo}/></h2>
+                {c.nombre && c.razonSocial && c.razonSocial!==c.nombre && <p style={{ fontSize:13.5, color:COLOR.muted, marginTop:2 }}>{c.nombre}</p>}
               </div>
               {c.bloqueado
                 ? <span style={{ fontSize:11, fontWeight:700, padding:"5px 12px", borderRadius:999, color:"#c0392b", background:"#FDECEA" }}>● Bloqueado</span>
