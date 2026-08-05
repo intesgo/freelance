@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"126", fecha:"5 ago 2026", desc:"Productos: la opción «Todos los productos» del selector de proveedor ahora sí cuenta el total (antes mostraba 0)." };
+const VERSION = { n:"127", fecha:"5 ago 2026", desc:"Ficha de Producto → Ajustar: ahora se puede ingresar/editar el «Costo del proveedor» (además de contado y crédito); recalcula margen y queda guardado y auditado en la base." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -7432,6 +7432,7 @@ function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
   const [ajuste, setAjuste] = useState("");
   const [manualC, setManualC] = useState("");
   const [manualCr, setManualCr] = useState("");
+  const [manualCosto, setManualCosto] = useState("");   // costo del proveedor editable
   const [motivo, setMotivo] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState("");
@@ -7440,7 +7441,7 @@ function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
     (async () => {
       try {
         const r = await preLeerVigentes([prod.id]);
-        if (r.length) { setFila(r[0]); setManualC(String(r[0].contado)); setManualCr(String(r[0].credito)); }
+        if (r.length) { setFila(r[0]); setManualC(String(r[0].contado)); setManualCr(String(r[0].credito)); setManualCosto(String(r[0].costo)); }
         else setFila(false);
       } catch (e) { setFila(false); }
     })();
@@ -7453,18 +7454,19 @@ function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
   const aj = parseFloat(ajuste)||0;
   const contadoNuevo = fila ? (modo==="delta" ? preR2(fila.contado + aj) : preR2(parseFloat(manualC)||0)) : 0;
   const creditoNuevo = fila ? (modo==="delta" ? preR2(fila.credito + aj) : preR2(parseFloat(manualCr)||0)) : 0;
-  const margenNuevo  = fila ? preMargen(contadoNuevo, fila.costo) : 0;
-  const bajoCosto    = fila ? contadoNuevo < fila.costo : false;
+  const costoNuevo   = fila ? preR2(parseFloat(manualCosto)||0) : 0;
+  const margenNuevo  = fila ? preMargen(contadoNuevo, costoNuevo) : 0;
+  const bajoCosto    = fila ? contadoNuevo < costoNuevo : false;
   const margenBajo   = margenNuevo < preMargenObjetivo();
-  const sinCambio    = fila ? (contadoNuevo === fila.contado && creditoNuevo === fila.credito) : true;
+  const sinCambio    = fila ? (contadoNuevo === fila.contado && creditoNuevo === fila.credito && costoNuevo === fila.costo) : true;
 
   const guardar = async () => {
     if (guardando || !fila || sinCambio) return;
     setGuardando(true); setAviso("");
     try {
       const r = await preCambiarPrecio({
-        fila, contadoNuevo, creditoNuevo, origen: "Ajuste manual",
-        motivo: motivo.trim() || `Base ${preMoney(fila.contado)} → ${preMoney(contadoNuevo)}`,
+        fila, contadoNuevo, creditoNuevo, costoNuevo, origen: "Ajuste manual",
+        motivo: motivo.trim() || `Costo ${preMoney(fila.costo)}→${preMoney(costoNuevo)} · base ${preMoney(fila.contado)}→${preMoney(contadoNuevo)}`,
         usuario });
       setAviso("Precio actualizado · " + r.au);
       if (onGuardado) onGuardado(prod.id, { contado: r.contado, credito: r.credito, costo: r.costo });
@@ -7485,7 +7487,7 @@ function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
         <div style={{ padding:"18px 22px", borderBottom:`1px solid ${COLOR.border}`,
                       display:"flex", alignItems:"flex-start", gap:12 }}>
           <div style={{ flex:1 }}>
-            <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>Ajustar precio</h3>
+            <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>Ajustar precio y costo</h3>
             <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>{prod.nombre}</p>
           </div>
           <button onClick={onCerrar}
@@ -7546,13 +7548,22 @@ function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
               </div>
             )}
 
+            <div style={{ marginBottom:16 }}>
+              <label style={lbl}>Costo del proveedor (por qq)</label>
+              <input type="number" step="0.01" value={manualCosto} onChange={e=>setManualCosto(e.target.value)}
+                placeholder="0.00" style={{ ...inp, borderColor: costoNuevo!==fila.costo ? COLOR.teal : COLOR.border }} />
+              <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>
+                Costo de compra a la piladora. Al cambiarlo se recalcula el margen; queda guardado y auditado en la base.</p>
+            </div>
+
             <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:11,
                           padding:"12px 14px", marginBottom:14 }}>
               <div style={{ fontSize:11.5, color:COLOR.muted, fontWeight:700, marginBottom:5 }}>QUEDA EN</div>
               <div style={{ fontSize:12.5, color:COLOR.text, lineHeight:1.6 }}>
                 Contado <span className="num" style={{ fontWeight:800 }}>{preMoney(contadoNuevo)}</span> ·
                 crédito <span className="num" style={{ fontWeight:800 }}>{preMoney(creditoNuevo)}</span><br/>
-                Margen <span className="num" style={{ fontWeight:800,
+                Costo <span className="num" style={{ fontWeight:700 }}>{preMoney(costoNuevo)}</span> ·
+                margen <span className="num" style={{ fontWeight:800,
                   color: bajoCosto ? "#c0392b" : (margenBajo ? "#b9770e" : "#1e8449") }}>
                   {margenNuevo.toFixed(1)}%</span>
               </div>
