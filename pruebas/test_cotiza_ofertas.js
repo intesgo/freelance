@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════
    LA COTIZACIÓN SALE DE LAS OFERTAS, YA NO DE `precios`
-   · socio-comercial y Comisionista
+   · socio-comercial, Comisionista y freelance-completo
 
    Qué se rompía: el sistema web dejó de escribir en `precios`. Un producto
    creado hoy nace con sus ofertas en `ofertas_piladora` y CERO filas en
@@ -59,6 +59,17 @@ const ruta = process.argv[2] || R.app("socio-comercial");
 const nombreApp = ruta.split("/").pop();
 const html = fs.readFileSync(ruta, "utf-8");
 const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
+
+/* ── Dónde empieza la cotización dentro de la app ──
+   Las roturas a propósito se aplican SOLO de aquí para abajo. En
+   freelance-completo el catálogo de Productos usa, palabra por palabra, el
+   mismo filtro de vigencia que la cotización: si se buscara el trozo en toda
+   la app aparecería dos veces y el mutante no se podría aplicar, aunque la
+   cotización esté perfecta. Cortando por `cargarBaseCotiza` se rompe la
+   cotización y nada más. */
+const CORTE = jsx.indexOf("function cargarBaseCotiza(");
+if (CORTE < 0) { console.log("✗ no se encontró `cargarBaseCotiza` en " + nombreApp); process.exit(1); }
+const ANTES = jsx.slice(0, CORTE), ZONA = jsx.slice(CORTE);
 
 /* ── Cuántas comprobaciones se esperan. Se declara ANTES de correr para que
       una prueba que se borra sin querer no pase inadvertida. ── */
@@ -419,13 +430,13 @@ const MUTANTES = [
     console.log("  ✗ AVISO: se declararon " + MUTANTES_ESPERADOS + " mutantes y hay " + MUTANTES.length + ".");
   }
   for (const [nombre, dede, aa] of MUTANTES) {
-    const veces = jsx.split(dede).length - 1;
+    const veces = ZONA.split(dede).length - 1;
     if (veces !== 1) {
       mal++;
-      console.log(`  ✗ el mutante «${nombre}» no se pudo aplicar: el trozo aparece ${veces} veces`);
+      console.log(`  ✗ el mutante «${nombre}» no se pudo aplicar: el trozo aparece ${veces} veces en la cotización`);
       continue;
     }
-    const mutado = jsx.replace(dede, aa);
+    const mutado = ANTES + ZONA.replace(dede, aa);
     let res;
     try { res = await bateria(R.Babel.transform(mutado, { presets:["react"] }).code, false); }
     catch (e) { res = { mal:1, fallos:["reventó: " + e.message] }; }

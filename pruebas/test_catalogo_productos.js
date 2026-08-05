@@ -42,6 +42,17 @@ const html = fs.readFileSync(ruta, "utf-8");
 const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 const react = R.reactDev(), reactDom = R.reactDomDev();
 
+/* ── Hasta dónde llega el catálogo dentro de la app ──
+   Las roturas a propósito se aplican SOLO antes de la cotización. Desde que
+   la Cotización también sale de las ofertas, usa palabra por palabra el mismo
+   filtro de vigencia que el catálogo: buscando el trozo en toda la app
+   aparecería dos veces y el mutante no se podría aplicar, aunque el catálogo
+   esté perfecto. Todo lo que este arnés rompe (la carga del catálogo, el
+   buscador y el sello verde) vive antes de `cargarBaseCotiza`. */
+const _corte = jsx.indexOf("function cargarBaseCotiza(");
+const ZONA  = _corte > 0 ? jsx.slice(0, _corte) : jsx;
+const LUEGO = _corte > 0 ? jsx.slice(_corte)    : "";
+
 /* ── Cuántas comprobaciones se esperan. Se declara ANTES de correr para que
       una prueba que se borra sin querer no pase inadvertida. ── */
 const ESPERADAS = 30;
@@ -358,13 +369,13 @@ const MUTANTES = [
     console.log("  ✗ AVISO: se declararon " + MUTANTES_ESPERADOS + " mutantes y hay " + MUTANTES.length + ".");
   }
   for (const [nombre, de, a] of MUTANTES) {
-    const veces = jsx.split(de).length - 1;
+    const veces = ZONA.split(de).length - 1;
     if (veces !== 1) {
       mal++;
-      console.log(`  ✗ el mutante «${nombre}» no se pudo aplicar: el trozo aparece ${veces} veces`);
+      console.log(`  ✗ el mutante «${nombre}» no se pudo aplicar: el trozo aparece ${veces} veces en el catálogo`);
       continue;
     }
-    const mutado = jsx.replace(de, a);
+    const mutado = ZONA.replace(de, a) + LUEGO;
     let res;
     try { res = await bateria(R.Babel.transform(mutado, { presets:["react"] }).code, false); }
     catch (e) { res = { mal:1, fallos:["reventó: " + e.message] }; }

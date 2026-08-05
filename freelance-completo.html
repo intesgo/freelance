@@ -23259,18 +23259,37 @@ function cargarBaseCotiza(){
       if(!window.SB) return null;
       const yo = await yoUsuario();
       if(!yo) return null;
-      const [rc, rb, rp, rd, ro, rf, rv] = await Promise.all([
+      /* ── FA-0011 · la cotización sale de las OFERTAS, ya no de `precios` ──
+         El sistema web dejó de escribir en `precios`: hoy un producto nuevo
+         nace con sus ofertas en `ofertas_piladora` y ninguna fila en `precios`.
+         Leyendo `precios` el celular no lo veía (medido el 05/08/2026: 59
+         productos activos, 58 con fila en `precios`; el que faltaba era
+         P-00197 «Arroz Crecedor»). Ahora la lista se arma con las ofertas
+         ACTIVAS y VIGENTES cruzadas con los productos activos. La misma
+         consulta sirve para el precio y para saber qué piladoras lo surten:
+         una consulta menos que antes. */
+      const [rc, rb, rp, rd, ro, rv] = await Promise.all([
         window.SB.from("clientes")
           .select("cli_id,nombre,razon_social,ruc,tel,tel2,plazo,condicion_pago,activo").limit(2000),
         window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,direccion,principal").limit(2000),
-        window.SB.from("precios").select("prod_id,producto,base_contado,base_credito,vigente_hasta").limit(2000),
-        window.SB.from("productos").select("prod_id,marca,linea,proveedor,estado").limit(2000),
+        window.SB.from("ofertas_piladora")
+          .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
+          .limit(4000),
+        window.SB.from("productos").select("prod_id,nombre,marca,linea,proveedor,estado").limit(2000),
         window.SB.from("organizaciones").select("nombre,ruc,tel,correo").limit(1),
-        window.SB.from("v_ofertas_vigentes").select("prod_id,prov_cod,activo").limit(2000),
         window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
       ]);
       const cls = ((rc && rc.data) || []).filter(c => c.activo !== false);
-      const vig = ((rp && rp.data) || []).filter(x => !x.vigente_hasta);
+      /* La fecha del TELÉFONO, no la de Greenwich: con toISOString(), en
+         Ecuador (UTC-5) desde las 19h ya sería "mañana" y una oferta entraría
+         a regir cinco horas antes de tiempo. */
+      const _h = new Date();
+      const hoyISO = _h.getFullYear() + "-" + String(_h.getMonth()+1).padStart(2,"0") +
+                     "-" + String(_h.getDate()).padStart(2,"0");
+      const vig = ((rp && rp.data) || []).filter(o =>
+        o.activo !== false &&
+        (!o.vigente_desde || String(o.vigente_desde).slice(0,10) <= hoyISO) &&
+        (!o.vigente_hasta || String(o.vigente_hasta).slice(0,10) >  hoyISO));
       if(!cls.length || !vig.length) return null;
 
       const ubic = {};
@@ -23294,24 +23313,44 @@ function cargarBaseCotiza(){
          mira ahí primero, y la etiqueta queda de respaldo. */
       const nProv = {};
       ((rv && rv.data) || []).forEach(x=>{ nProv[x.prov_cod] = x.nombre; });
-      const surten = {};
-      ((rf && rf.data) || []).forEach(o=>{
-        if(o.activo === false) return;
-        const n = nProv[o.prov_cod] || o.prov_cod;
-        if(!n) return;
-        (surten[o.prod_id] = surten[o.prod_id] || new Set()).add(n);
+
+      /* ── Un producto, una línea en la lista ──
+         El mismo producto llega repetido: una fila por presentación (quintal,
+         arroba…) y otra por cada piladora que lo tiene. Se junta todo por
+         prod_id para que NO se duplique en la pantalla.
+         La cotización se cotiza en QUINTALES, así que cada oferta se pasa a
+         precio por quintal (precio ÷ equiv_qq: arroba de $4,75 con equiv 0,25
+         es $19 el qq) y se guarda el MÁS BARATO, que es el "desde" que el
+         vendedor puede ofrecer sin quedar mal. */
+      const porProd = {};
+      vig.forEach(o=>{
+        const d = prod[o.prod_id];
+        if(!d || (d.estado && d.estado !== "activo")) return;   /* producto dado de baja: fuera */
+        const eq = Number(o.equiv_qq || 0);
+        if(!(eq > 0)) return;                                    /* sin equivalencia no hay precio por qq */
+        const c = Number(o.precio_contado || 0) / eq;
+        if(!(c > 0)) return;
+        const k = Number(o.precio_credito || o.precio_contado || 0) / eq;
+        const g = porProd[o.prod_id] || (porProd[o.prod_id] = { contado:c, credito:k, provs:new Set() });
+        if(c < g.contado){ g.contado = c; g.credito = k; }
+        if(o.prov_cod) g.provs.add(o.prov_cod);
       });
 
-      const productos = vig.map(x=>{
-        const d = prod[x.prod_id] || {};
-        const suyas = surten[x.prod_id] ? [...surten[x.prod_id]] : [];
+      const productos = Object.keys(porProd).map(id=>{
+        const g = porProd[id], d = prod[id] || {};
+        const suyas = [...g.provs].map(pc => nProv[pc] || pc).filter(Boolean);
         const etiqueta = (!d.proveedor || /por asignar/i.test(d.proveedor)) ? "" : d.proveedor;
         const piladora = suyas.length === 1 ? suyas[0]
           : suyas.length > 1 ? (suyas.length + " piladoras lo tienen")
           : etiqueta;
-        return { id:x.prod_id || x.producto, nombre:x.producto || d.marca || "—",
-                 linea:d.linea || "", piladora,
-                 contado:Number(x.base_contado || 0), credito:Number(x.base_credito || x.base_contado || 0) };
+        /* Sin marca NO puede quedar en blanco: manda el nombre del producto.
+           `piladoras` guarda los NOMBRES para el buscador: la tarjeta dice
+           "2 piladoras lo tienen" y sin esto el vendedor no podría buscar por
+           la piladora que tiene en la cabeza. */
+        return { id, nombre: d.nombre || d.marca || id,
+                 linea:d.linea || "", piladora, piladoras:suyas.join(" "),
+                 contado: Math.round(g.contado * 100) / 100,
+                 credito: Math.round((g.credito || g.contado) * 100) / 100 };
       }).filter(x => x.contado > 0)
         .sort((a,b)=> (a.linea+a.nombre).localeCompare(b.linea+b.nombre,"es"));
 
@@ -23390,10 +23429,14 @@ function Cotizacion({ toast }){
     const t = buscaCli.trim().toLowerCase();
     return !t || c.nombre.toLowerCase().includes(t) || (c.razon||"").toLowerCase().includes(t) || (c.ruc||"").includes(t) || (c.ciudad||"").toLowerCase().includes(t);
   }).slice(0, 30);
+  /* El buscador mira el NOMBRE del producto, su línea y la piladora que lo
+     surte. Antes no miraba la piladora y el texto de ayuda no lo decía. */
   const listaPro = prods.filter(p=>{
     const t = buscaPro.trim().toLowerCase();
     if(lineas.some(x=>x.id===p.id)) return false;
-    return !t || p.nombre.toLowerCase().includes(t) || (p.linea||"").toLowerCase().includes(t);
+    return !t || (p.nombre||"").toLowerCase().includes(t)
+              || (p.linea||"").toLowerCase().includes(t)
+              || ((p.piladoras||p.piladora||"")).toLowerCase().includes(t);
   }).slice(0, 30);
 
   const hoy = new Date();
@@ -23512,7 +23555,7 @@ function Cotizacion({ toast }){
           </div>
         ))}
         <input style={{...inp, marginTop:10}} value={buscaPro} onChange={e=>setBPro(e.target.value)}
-          placeholder="Busca un producto para agregarlo" />
+          placeholder="Busca por producto, línea o piladora" />
         {buscaPro.trim() !== "" && (
           <div style={{marginTop:8, maxHeight:210, overflowY:"auto"}}>
             {listaPro.length === 0 && <div style={{fontFamily:BODY, fontSize:13, color:CL.grisTenue, padding:"8px 2px"}}>
