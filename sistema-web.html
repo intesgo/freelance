@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"120", fecha:"4 ago 2026", desc:"Ficha cliente: Contado oculta los campos de crédito y ya no traba la creación (la condición de pago manda); pestañas se marcan en rojo si falta algo; estado «Oculto» quita al cliente de los selectores. Pedidos: columna Fecha." };
+const VERSION = { n:"121", fecha:"4 ago 2026", desc:"Pedidos: editar pedido antes de facturar (Ingresado/Esperando aprobación): cambiar cantidades y precios, quitar y agregar productos; se guarda en la base." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4612,10 +4612,16 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
      por window.supa (nombres por FK) y aplana pedido×item. Los pedidos reales que nacen en
      freelance-completo (b334) se ven aquí. Sin sesión: demo. ── */
   const [fuentePed, setFuentePed] = useState("demo");
-  useEffect(() => {
+  const [itemsPorPed, setItemsPorPed] = useState({});   // ped_id → [items crudos] (para editar)
+  const [pedMeta, setPedMeta] = useState({});           // ped_id → { provCod, cond, editable… }
+  const [editPed, setEditPed] = useState(null);         // ped_id que se está editando (o null)
+  const [editItems, setEditItems] = useState([]);       // copia de trabajo de los ítems
+  const [editTexto, setEditTexto] = useState("");       // buscador para agregar producto
+  const [editGuardando, setEditGuardando] = useState(false);
+  const [editError, setEditError] = useState("");
+  const cargarPedidosVivos = React.useCallback(async () => {
     if (!window.supa || !window.supa.auth) return;
-    let activo = true;
-    (async () => {
+    {
       try {
         const { data: s } = await window.supa.auth.getSession();
         if (!s || !s.session) return;
@@ -4624,35 +4630,46 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre,razon_social),proveedores(nombre)")
             .order("creado", { ascending: false }).limit(200),
           window.supa.from("pedido_items")
-            .select("ped_id,prod_id,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq").limit(1000),
+            .select("item_id,ped_id,prod_id,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq").limit(1000),
         ]);
-        if (!activo || !p || !p.length || !it || !it.length) return;
+        if (!p || !p.length || !it || !it.length) return;
         const ESTADO_LINDO = { ingresado:"Ingresado", esperando_aprobacion:"Esperando aprobación",
           enviado_proveedor:"Enviado al proveedor", facturado:"Facturado", despachado:"Despachado",
           entregado:"Entregado", cliente_pago:"Cliente pagó", cerrado:"Cerrado", anulado:"Anulado" };
         const porPed = {};
         it.forEach(x => { (porPed[x.ped_id] = porPed[x.ped_id] || []).push(x); });
+        // Solo se puede editar antes de facturar (#6): ingresado o esperando aprobación.
+        const editable = (pd) => ["ingresado","esperando_aprobacion"].includes(pd.estado_comercial || pd.estado);
+        const meta = {};
         const filas = [];
-        p.forEach(pd => (porPed[pd.ped_id]||[]).forEach((x,i) => filas.push({
-          id: pd.ped_id + ((porPed[pd.ped_id].length>1) ? ("·"+(i+1)) : ""),
-          cli: (pd.clientes && pd.clientes.nombre) || pd.cli_id,          // nombre comercial · llave para cruzar con guías
-          razon: (pd.clientes && pd.clientes.razon_social) || null,       // razón social · lo que se muestra en la lista
-          prod: x.descripcion || x.prod_id,
-          prov: (pd.proveedores && pd.proveedores.nombre) || pd.prov_cod || "—",
-          cant: Number(x.cantidad_qq)||0, unidad:"qq",
-          precio: Number(x.precio_usd)||0,
-          cond: pd.condicion==="contado" ? "Contado" : "Crédito",
-          estado: ESTADO_LINDO[pd.estado_comercial || pd.estado] || pd.estado || "—",
-          fecha: String(pd.creado||"").slice(0,10),
-          demo: !!pd.es_demo,
-        })));
+        p.forEach(pd => {
+          meta[pd.ped_id] = { pedId:pd.ped_id, provCod:pd.prov_cod, prov:(pd.proveedores&&pd.proveedores.nombre)||pd.prov_cod||"—",
+            cli:(pd.clientes&&pd.clientes.nombre)||pd.cli_id, razon:(pd.clientes&&pd.clientes.razon_social)||null,
+            cond: pd.condicion==="contado"?"Contado":"Crédito", editable:editable(pd) };
+          (porPed[pd.ped_id]||[]).forEach((x,i) => filas.push({
+            id: pd.ped_id + ((porPed[pd.ped_id].length>1) ? ("·"+(i+1)) : ""),
+            pedId: pd.ped_id,
+            cli: (pd.clientes && pd.clientes.nombre) || pd.cli_id,          // nombre comercial · llave para cruzar con guías
+            razon: (pd.clientes && pd.clientes.razon_social) || null,       // razón social · lo que se muestra en la lista
+            prod: x.descripcion || x.prod_id,
+            prov: (pd.proveedores && pd.proveedores.nombre) || pd.prov_cod || "—",
+            cant: Number(x.cantidad_qq)||0, unidad:"qq",
+            precio: Number(x.precio_usd)||0,
+            cond: pd.condicion==="contado" ? "Contado" : "Crédito",
+            estado: ESTADO_LINDO[pd.estado_comercial || pd.estado] || pd.estado || "—",
+            fecha: String(pd.creado||"").slice(0,10),
+            demo: !!pd.es_demo, editable: editable(pd),
+          }));
+        });
         if (!filas.length) return;
         setPedidos(filas);
+        setItemsPorPed(porPed);
+        setPedMeta(meta);
         setFuentePed("vivo");
       } catch (e) {}
-    })();
-    return () => { activo = false; };
+    }
   }, []);
+  useEffect(() => { cargarPedidosVivos(); }, [cargarPedidosVivos]);
   const [vista, setVista] = useState("lista");
   const [pTab, setPTab] = useState("pedidos");     // pedidos | traza
   const [tzQ, setTzQ] = useState("");
@@ -4881,6 +4898,66 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
 
   const PROVEEDORES_LISTA = [...new Set(PRODS_PED.map(p=>p.prov))].filter(p=>p!=="POR ASIGNAR");     // proveedores disponibles
   const productosDelProv = provSel ? PRODS_PED.filter(p=>p.prov===provSel) : [];
+
+  /* ── EDITAR PEDIDO (#6) · solo antes de facturar ─────────────────────────
+     Abre una copia de trabajo de los ítems del pedido. Se guardan los cambios
+     directo en pedido_items (actualizar / insertar / borrar por item_id). */
+  const abrirEdicion = (pedId) => {
+    const items = (itemsPorPed[pedId] || []).map(x => ({
+      itemId: x.item_id, prodId: x.prod_id, descripcion: x.descripcion || x.prod_id,
+      cantidad: Number(x.cantidad_qq)||0, precio: Number(x.precio_usd)||0,
+      tipoPrecio: x.tipo_precio || null, gratis: Number(x.gratis_qq)||0, borrar:false, nuevo:false,
+    }));
+    setEditPed(pedId); setEditItems(items); setEditTexto(""); setEditError("");
+  };
+  const cerrarEdicion = () => { setEditPed(null); setEditItems([]); setEditTexto(""); setEditError(""); };
+  const editSet = (idx, campo, val) => setEditItems(arr => arr.map((it,i)=> i===idx ? { ...it, [campo]:val } : it));
+  const editQuitar = (idx) => setEditItems(arr => arr.map((it,i)=> i===idx ? { ...it, borrar: !it.borrar } : it));
+  const editAgregar = (prod) => {
+    if (!prod) return;
+    setEditItems(arr => [...arr, { itemId:null, prodId: prod.prodId||prod.id, descripcion: prod.nombre,
+      cantidad: 1, precio: Number(prod.baseContado)||Number(prod.baseCredito)||0, tipoPrecio:null, gratis:0, borrar:false, nuevo:true }]);
+    setEditTexto("");
+  };
+  const editTotal = editItems.filter(it=>!it.borrar).reduce((s,it)=> s + (Number(it.cantidad)||0)*(Number(it.precio)||0), 0);
+  const guardarEdicion = async () => {
+    setEditError("");
+    const vivos = editItems.filter(it => !it.borrar);
+    if (vivos.length === 0) { setEditError("El pedido no puede quedar sin productos. Si quieres anularlo, hazlo desde su gestión."); return; }
+    for (const it of vivos) {
+      if (!(Number(it.cantidad) > 0)) { setEditError("Todas las cantidades deben ser mayores a 0."); return; }
+      if (!(Number(it.precio) > 0)) { setEditError("Todos los precios deben ser mayores a 0."); return; }
+    }
+    if (!window.supa) { setEditError("Sin conexión con el servidor."); return; }
+    setEditGuardando(true);
+    try {
+      const borrar = editItems.filter(it => it.borrar && it.itemId).map(it => it.itemId);
+      const nuevos = editItems.filter(it => !it.borrar && !it.itemId);
+      const editar = editItems.filter(it => !it.borrar && it.itemId);
+      for (const it of editar) {
+        const { error } = await window.supa.from("pedido_items")
+          .update({ cantidad_qq: Number(it.cantidad), precio_usd: Number(it.precio) })
+          .eq("item_id", it.itemId);
+        if (error) throw new Error(error.message);
+      }
+      if (borrar.length) {
+        const { error } = await window.supa.from("pedido_items").delete().in("item_id", borrar);
+        if (error) throw new Error(error.message);
+      }
+      for (const it of nuevos) {
+        const nid = editPed + "-I" + Date.now() + Math.floor(Math.random()*1000);
+        const { error } = await window.supa.from("pedido_items").insert({
+          item_id: nid, ped_id: editPed, prod_id: it.prodId, descripcion: it.descripcion,
+          cantidad_qq: Number(it.cantidad), precio_usd: Number(it.precio),
+          tipo_precio: it.tipoPrecio, gratis_qq: 0, es_demo: false });
+        if (error) throw new Error(error.message);
+      }
+      cerrarEdicion();
+      setAviso("Pedido actualizado.");
+      await cargarPedidosVivos();
+    } catch (e) { setEditError("No se pudo guardar: " + (e.message||"error")); }
+    setEditGuardando(false);
+  };
 
   const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P2"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };
   const abrir = () => { setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
@@ -5146,8 +5223,14 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 <span style={{ color:COLOR.muted }}>{p.cond}</span>
                 <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
                 <span className="num" style={{ color:COLOR.muted, fontSize:12 }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
-                <button onClick={()=>{ setPTab("traza"); setTzQ(p.cli); setTzSel(null); }}
-                  style={{ border:"none", background:"transparent", color:COLOR.teal, fontSize:12.5, fontWeight:700, cursor:"pointer", width:"100%", textAlign:"right" }}>Rastrear ›</button>
+                <div style={{ display:"flex", flexDirection:"column", gap:2, alignItems:"flex-end" }}>
+                  {p.editable && p.pedId && !p.demo && (
+                    <button onClick={()=>abrirEdicion(p.pedId)}
+                      style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:12.5, fontWeight:700, cursor:"pointer", textAlign:"right", padding:0 }}>✏️ Editar</button>
+                  )}
+                  <button onClick={()=>{ setPTab("traza"); setTzQ(p.cli); setTzSel(null); }}
+                    style={{ border:"none", background:"transparent", color:COLOR.teal, fontSize:12.5, fontWeight:700, cursor:"pointer", textAlign:"right", padding:0 }}>Rastrear ›</button>
+                </div>
               </div>
             );
           })}
@@ -5155,6 +5238,58 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         <VerMas pg={usarPaginacion(pedidos, pagP)} onMas={setPagP} />
         </div>
         )}
+
+        {/* ── MODAL EDITAR PEDIDO (#6) ── */}
+        {editPed && (()=>{ const m = pedMeta[editPed] || {};
+          const editProds = PRODS_PED.filter(p => p.provCod === m.provCod || p.prov === m.prov);
+          return (
+          <div onClick={cerrarEdicion} style={{ position:"fixed", inset:0, background:"rgba(20,30,40,.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:16, zIndex:1000 }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:COLOR.card, borderRadius:16, padding:"22px 24px", maxWidth:640, width:"100%", maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 50px rgba(0,0,0,.25)" }}>
+              <p style={{ fontSize:16, fontWeight:800, color:COLOR.text, margin:"0 0 2px" }}>Editar pedido {editPed}</p>
+              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 16px" }}>{m.razon || m.cli || ""} · {m.prov || ""} · {m.cond || ""}</p>
+
+              {editItems.map((it,idx)=>(
+                <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 76px 90px 70px", gap:8, alignItems:"center", padding:"9px 0", borderTop: idx>0?`1px solid ${COLOR.border}`:"none", opacity: it.borrar?.45:1 }}>
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0, textDecoration: it.borrar?"line-through":"none" }}>{it.descripcion}{it.nuevo && <span style={{ fontSize:10, color:COLOR.tealDark, fontWeight:700 }}> · nuevo</span>}</p>
+                  </div>
+                  <div>
+                    <input type="number" value={it.cantidad} disabled={it.borrar} min="0" onChange={e=>editSet(idx,"cantidad",e.target.value)}
+                      style={{ width:"100%", boxSizing:"border-box", padding:"7px 8px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
+                    <span style={{ fontSize:9.5, color:COLOR.muted }}>qq</span>
+                  </div>
+                  <div>
+                    <input type="number" value={it.precio} disabled={it.borrar} min="0" step="0.01" onChange={e=>editSet(idx,"precio",e.target.value)}
+                      style={{ width:"100%", boxSizing:"border-box", padding:"7px 8px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
+                    <span style={{ fontSize:9.5, color:COLOR.muted }}>$/qq</span>
+                  </div>
+                  <button onClick={()=>editQuitar(idx)} style={{ border:"none", background:"transparent", color: it.borrar?COLOR.teal:COLOR.red, fontSize:12, fontWeight:700, cursor:"pointer" }}>{it.borrar?"Deshacer":"Quitar"}</button>
+                </div>
+              ))}
+
+              <div style={{ marginTop:14 }}>
+                <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>Agregar producto{m.prov?(" de "+m.prov):""}</label>
+                <div style={{ marginTop:6 }}>
+                  <BuscadorPredictivo cat="productos" items={editProds} value={editTexto}
+                    placeholder="Buscar producto…" label={p=>(p.ic?p.ic+"  ":"")+p.nombre} sub={p=>p.linea}
+                    onText={setEditTexto} onPick={editAgregar} />
+                </div>
+              </div>
+
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:16, paddingTop:14, borderTop:`1px solid ${COLOR.border}` }}>
+                <span style={{ fontSize:12.5, color:COLOR.muted }}>Total del pedido</span>
+                <span className="num" style={{ fontSize:17, fontWeight:800, color:COLOR.teal }}>{money(editTotal)}</span>
+              </div>
+
+              {editError && <div style={{ marginTop:12, background:"#FDECEA", color:"#b3271e", borderRadius:9, padding:"9px 12px", fontSize:12.5, fontWeight:600 }}>⚠ {editError}</div>}
+
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <button onClick={cerrarEdicion} disabled={editGuardando} style={{ flex:1, padding:"11px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:13.5, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+                <button onClick={guardarEdicion} disabled={editGuardando} style={{ flex:1, padding:"11px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:13.5, fontWeight:800, cursor: editGuardando?"wait":"pointer" }}>{editGuardando?"Guardando…":"Guardar cambios"}</button>
+              </div>
+            </div>
+          </div>
+          ); })()}
       </div>
     );
   }
