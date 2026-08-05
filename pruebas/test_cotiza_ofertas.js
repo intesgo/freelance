@@ -73,8 +73,8 @@ const ANTES = jsx.slice(0, CORTE), ZONA = jsx.slice(CORTE);
 
 /* ── Cuántas comprobaciones se esperan. Se declara ANTES de correr para que
       una prueba que se borra sin querer no pase inadvertida. ── */
-const ESPERADAS = 27;
-const MUTANTES_ESPERADOS = 13;
+const ESPERADAS = 28;
+const MUTANTES_ESPERADOS = 14;
 
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 120));
 /* fecha LOCAL, la del teléfono: la misma regla que usa la app */
@@ -309,6 +309,23 @@ async function bateria(js, ruidoso) {
   comprobar("ningún producto sale repetido en la lista",
     ids.length > 0 && new Set(ids).size === ids.length);
 
+  /* ── A.2) La DEMOSTRACIÓN, la que se ve SIN sesión ──
+     La base viva ya arregló el producto sin marca (`d.nombre || d.marca || id`),
+     pero la demostración armaba la lista con `nombre: p.marca` a secas: un
+     producto sin marca salía en blanco. Se le mete uno sin marca a la lista de
+     demostración y se mira con qué nombre sale. */
+  let demoSinMarca = null;
+  try {
+    corre(a, `PRODUCTOS.push({ id:"P-SINMARCA", provId:"PROV-A", marca:null, linea:"Arroz",
+      presentaciones:[{ id:"SM-QQ", tam:"Quintal", baseContado:30, baseCredito:31,
+        promosFreelance:[], promosProveedor:[] }] });`);
+    const bd = corre(a, "baseCotizaDemo()");
+    const lista = (bd && bd.productos) ? Array.from(bd.productos) : [];
+    demoSinMarca = lista.find(p => p.id === "P-SINMARCA") || null;
+  } catch (e) { demoSinMarca = null; }
+  comprobar("SIN SESIÓN, el producto sin marca tampoco sale en blanco en la demostración",
+    !!demoSinMarca && !!demoSinMarca.nombre);
+
   /* ── B) La pantalla, como la usa el vendedor ── */
   const m = montar(js);
   pintar(m);
@@ -400,6 +417,9 @@ const MUTANTES = [
     `const g = (porProd[o.prod_id+"-"+o.pres_cod] = { contado:c, credito:k, provs:new Set() });`],
   ["el producto sin marca se queda en blanco",
     `return { id, nombre: d.nombre || d.marca || id,`, `return { id, nombre: d.marca || "",`],
+  ["la DEMOSTRACIÓN deja en blanco el producto sin marca",
+    `nombre:p.nombre || p.marca || p.id, linea:p.linea || "", piladora:"",`,
+    `nombre:p.marca, linea:p.linea || "", piladora:"",`],
   ["el producto dado de baja se cuela en la cotización",
     `if(!d || (d.estado && d.estado !== "activo")) return;`, `if(!d) return;`],
   ["la piladora sale con su código y no con su nombre",
