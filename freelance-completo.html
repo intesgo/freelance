@@ -5578,7 +5578,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"414", fecha:"4 ago 2026", desc:"Equipo → Comisionistas: botón «Agregar comisionista» para darlo de alta desde la app (crea la cuenta y genera el enlace de entrada, sin ir al sistema web)." };
+const VERSION = { n:"415", fecha:"4 ago 2026", desc:"Equipo → Comisionistas: la lista ahora es real (nombre, estado y N.º de clientes de la base); los recién creados aparecen al instante; bloquear/reactivar se guarda en el servidor. Se ocultan ventas/meta por comisionista (aún no calculadas)." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -20532,6 +20532,7 @@ function Equipo({toast}){
       return false;
     });
   const [equipo,setEquipo]=useState(EQUIPO_INI);
+  const [equipoReal,setEquipoReal]=useState(null);   // comisionistas reales de la base (null = aún no carga)
   const [verBloqueo,setVerBloqueo]=useState(null);
   useModal(verBloqueo, React.useCallback(()=>setVerBloqueo(null),[])); // comisionista a bloquear
   const [motivo,setMotivo]=useState("");
@@ -20573,6 +20574,7 @@ function Equipo({toast}){
       if(data && data.error) throw new Error(data.error);
       setAReciente({ nombre:aNombre.trim(), correo:aCorreo.trim(), enlace:(data&&data.enlace)||"" });
       cerrarAlta();
+      cargarEquipoReal();   // que el nuevo aparezca en la lista al instante
       if(toast) toast(aNombre.trim()+" quedó dado de alta como comisionista.");
     }catch(e){ setAError(e.message||"No se pudo crear."); }
     setAGuardando(false);
@@ -20582,7 +20584,34 @@ function Equipo({toast}){
     catch(e){ if(toast) toast("Selecciona el enlace y cópialo a mano."); }
   };
 
-  const ventasEquipo=equipo.reduce((a,s)=>a+s.ventasMes,0);
+  /* ── Comisionistas REALES (b415) ──
+     La lista deja de ser de ejemplo: se leen de la base por la función
+     "cuentas-equipo" (misma que usa el sistema web) y el número de clientes
+     se cuenta de la tabla clientes. Los números de ventas/meta NO existen aún
+     por comisionista, así que en las filas reales no se muestran. */
+  const cargarEquipoReal=React.useCallback(async()=>{
+    if(!window.SB || !window.SB.auth) return;
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      if(!s || !s.session) return;
+      const [resTeam, resCli] = await Promise.all([
+        window.SB.functions.invoke("cuentas-equipo", { body:{ accion:"listar" } }),
+        window.SB.from("clientes").select("sub_id").eq("activo", true).limit(5000),
+      ]);
+      const gente = resTeam && resTeam.data && resTeam.data.gente;
+      if(!gente || !gente.length) return;
+      const cnt={}; ((resCli && resCli.data)||[]).forEach(c=>{ if(c.sub_id) cnt[c.sub_id]=(cnt[c.sub_id]||0)+1; });
+      const comis = gente.filter(g=>g.rol==="comisionista").map(g=>({
+        id:g.usr_id, nombre:g.nombre, activo:!!g.activo, tel:g.telefono||"", email:g.email||"",
+        clientes:cnt[g.usr_id]||0, motivo:g.motivo_bloqueo||undefined, real:true,
+      }));
+      if(comis.length){ setEquipoReal(comis); }
+    }catch(e){ /* sin conexión o sin permiso: se queda la lista de ejemplo */ }
+  },[]);
+  React.useEffect(()=>{ cargarEquipoReal(); },[cargarEquipoReal]);
+  const hayReal = !!equipoReal;
+
+  const ventasEquipo=equipo.reduce((a,s)=>a+(s.ventasMes||0),0);
   const cobradoEquipo=equipo.reduce((a,s)=>a+s.cobradoMes,0);
   const porCobrarEquipo=equipo.reduce((a,s)=>a+s.porCobrar,0);
   const activos=equipo.filter(s=>s.activo).length;
@@ -20608,23 +20637,47 @@ function Equipo({toast}){
   const ranking=[...equipo].sort((a,b)=>b.metaPct-a.metaPct);
   const chequesDev=CHEQUES_DEVUELTOS.filter(c=>c.estado==="pendiente");
 
+  const listaComis = equipoReal || equipo;               // real si carg\u00f3; ejemplo si no
+  const activosLista = listaComis.filter(s=>s.activo).length;
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const zonas=["Todas",...Array.from(new Set(equipo.map(s=>s.zona)))];
-  const equipoFiltrado=equipo.filter(s=>{
+  const equipoFiltrado=listaComis.filter(s=>{
     const okQ = q==="" || norm(s.nombre).includes(norm(q));
-    const okZ = fZona==="Todas" || s.zona===fZona;
+    const okZ = hayReal || fZona==="Todas" || s.zona===fZona;   // real no tiene zona
     const okE = fEstado==="Todos" || (fEstado==="Activos"?s.activo:!s.activo);
     return okQ && okZ && okE;
   });
 
-  const toggleAcceso=(sc)=>{
-    if(sc.activo){ setVerBloqueo(sc); setMotivo(""); }
-    else { setEquipo(e=>e.map(x=>x.id===sc.id?{...x,activo:true,motivo:undefined}:x)); toast(`Acceso reactivado · ${sc.nombre}`); }
+  /* Cambia el estado en la lista que corresponda (real → equipoReal, ejemplo → equipo) */
+  const aplicarEstadoLocal=(sc,activo,motivoTxt)=>{
+    const patch=x=>x.id===sc.id?{...x,activo,motivo:activo?undefined:motivoTxt}:x;
+    if(sc.real) setEquipoReal(e=>(e||[]).map(patch)); else setEquipo(e=>e.map(patch));
   };
-  const confirmarBloqueo=()=>{
+  /* Para comisionistas reales el cambio se guarda en el servidor (misma función
+     que el sistema web). Para los de ejemplo, solo cambia en pantalla. */
+  const guardarEstadoServidor=async(sc,activo)=>{
+    if(!sc.real) return true;
+    try{
+      const { data, error } = await window.SB.functions.invoke("cuentas-equipo",
+        { body:{ accion:"estado", usr_id:sc.id, activo } });
+      if(error){ let d=""; try{ d=(await error.context.json()).error||""; }catch(x){} throw new Error(d||error.message); }
+      if(data && data.error) throw new Error(data.error);
+      return true;
+    }catch(e){ toast("No se pudo guardar: "+(e.message||"error")); return false; }
+  };
+  const toggleAcceso=async(sc)=>{
+    if(sc.activo){ setVerBloqueo(sc); setMotivo(""); }
+    else {
+      const ok=await guardarEstadoServidor(sc,true); if(!ok) return;
+      aplicarEstadoLocal(sc,true); toast(`Acceso reactivado · ${sc.nombre}`);
+    }
+  };
+  const confirmarBloqueo=async()=>{
     if(!motivo.trim()){toast("Indica el motivo del bloqueo.");return;}
-    setEquipo(e=>e.map(x=>x.id===verBloqueo.id?{...x,activo:false,motivo}:x));
-    toast(`Acceso bloqueado · ${verBloqueo.nombre}`);
+    const sc=verBloqueo;
+    const ok=await guardarEstadoServidor(sc,false); if(!ok) return;
+    aplicarEstadoLocal(sc,false,motivo);
+    toast(`Acceso bloqueado · ${sc.nombre}`);
     setVerBloqueo(null); setMotivo("");
   };
 
@@ -20777,7 +20830,7 @@ function Equipo({toast}){
   return (<>
     <div className="cu-head">
       <div><div className="h1" style={{marginBottom:2}}>Mi equipo</div>
-        <div className="sub" style={{margin:0}}>{activos} de {equipo.length} comisionistas activos</div></div>
+        <div className="sub" style={{margin:0}}>{activosLista} de {listaComis.length} comisionistas activos</div></div>
     </div>
 
     <div className="eq-tabs">
@@ -20857,8 +20910,8 @@ function Equipo({toast}){
           {q && <button className="clr" onClick={()=>setQ("")}>×</button>}</div>
       </div>
       <div className="eq-filtros">
-        <FiltroBuscador cat="zonas" items={zonas.filter(z=>z!=="Todas")} value={fZona} onPick={setFZona}
-          todos="Todas" etiquetaTodos="Todas las zonas" render={z=>"Zona "+z}/>
+        {!hayReal && <FiltroBuscador cat="zonas" items={zonas.filter(z=>z!=="Todas")} value={fZona} onPick={setFZona}
+          todos="Todas" etiquetaTodos="Todas las zonas" render={z=>"Zona "+z}/>}
         <FiltroBuscador items={["Activos","Bloqueados"]} value={fEstado} onPick={setFEstado}
           todos="Todos" etiquetaTodos="Todos los estados"
           render={v=>v==="Activos"?"Solo activos":v==="Bloqueados"?"Solo bloqueados":v}/>
@@ -20877,15 +20930,19 @@ function Equipo({toast}){
             </span>
             <div style={{flex:1,minWidth:0}}>
               <div className="sync-t" style={{fontSize:14.5}}>{sc.nombre}</div>
-              <div className="meta">Zona {sc.zona} · {sc.clientes} clientes · {sc.ultima}</div>
+              <div className="meta">{sc.real
+                ? (sc.clientes+" cliente"+(sc.clientes===1?"":"s")+(sc.tel?(" · "+sc.tel):""))
+                : ("Zona "+sc.zona+" · "+sc.clientes+" clientes · "+sc.ultima)}</div>
             </div>
             <span className={"chip "+(sc.activo?"c-ok":"c-bad")}><span className="d"></span>{sc.activo?"Activo":"Bloqueado"}</span>
           </div>
           {bloq && sc.motivo && <div className="sync-nota" style={{marginTop:10,background:"#FBE9E4"}}>🔒 {sc.motivo}</div>}
-          <div className="cu-bar" style={{marginTop:12}}><div className="cu-bar-fill" style={{width:sc.metaPct+"%"}}></div></div>
-          <div className="cu-block-sub">{sc.metaPct}% de meta · {money(sc.ventasMes)} vendido · {money(sc.porCobrar)} por cobrar</div>
+          {!sc.real && <>
+            <div className="cu-bar" style={{marginTop:12}}><div className="cu-bar-fill" style={{width:sc.metaPct+"%"}}></div></div>
+            <div className="cu-block-sub">{sc.metaPct}% de meta · {money(sc.ventasMes)} vendido · {money(sc.porCobrar)} por cobrar</div>
+          </>}
           <div style={{display:"flex",gap:8,marginTop:12}}>
-            <button className="back" style={{flex:1}} onClick={()=>{setPestDet("resumen");setDetalle(sc);}}>Ver detalle</button>
+            {!sc.real && <button className="back" style={{flex:1}} onClick={()=>{setPestDet("resumen");setDetalle(sc);}}>Ver detalle</button>}
             <button className="back" style={{flex:1,color:sc.activo?"var(--clay)":"var(--ok)",borderColor:sc.activo?"#E8C0B0":"#B9D9C5"}} onClick={()=>toggleAcceso(sc)}>
               {sc.activo?"Bloquear acceso":"Reactivar"}
             </button>
