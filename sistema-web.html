@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"129", fecha:"5 ago 2026", desc:"Nuevo producto ahora es real: lista las piladoras reales (no demo), pide precio base contado/crédito y costo contado/crédito, y al Crear guarda de verdad en la base (producto + presentación + oferta de la piladora), activo y listo para pedidos." };
+const VERSION = { n:"130", fecha:"5 ago 2026", desc:"Nuevo producto: se puede subir la imagen del producto (opcional, se guarda con el producto y la presentación) y se agregó la Arroba (@) a las unidades." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1150,7 +1150,7 @@ const TIPOS_PRECIO_WEB = [
 // Productos con base de contado/crédito y promociones del freelance (P4).
 // linea: tipo de producto · ic: ícono placeholder · unidad: unidad de medida (qq, caja, saco, unidad…)
 // El sistema NO asume quintal: cada producto define su unidad y precios/cantidades van en ella.
-const UNIDADES_MEDIDA = ["qq", "caja", "saco", "funda", "unidad"];
+const UNIDADES_MEDIDA = ["qq", "arroba", "caja", "saco", "funda", "unidad"];
 // Variedades de grano (código de variedad + descripción). Una marca pertenece a una variedad.
 // Familias: C09 grano corriente · L11 grano largo 011 · F14 grano feron · niveles 01 económico, 02 bueno, 03 especial.
 // Familias de grano (código de 3 caracteres = tipo de grano). Al elegir una, salen todas sus marcas.
@@ -6987,6 +6987,32 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const [listo, setListo] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [provsReales, setProvsReales] = useState([]);
+  const [fotoData, setFotoData] = useState(null);   // imagen del producto (data URL) · opcional
+  const fileRef = React.useRef(null);
+
+  const imagenAData = (file, lado, calidad) => new Promise((resolve, reject) => {
+    try {
+      const img = new Image(); const objurl = URL.createObjectURL(file);
+      img.onload = () => { try {
+        URL.revokeObjectURL(objurl);
+        const min = Math.min(img.width, img.height);
+        const sx = (img.width-min)/2, sy = (img.height-min)/2;
+        const c = document.createElement("canvas"); c.width = lado; c.height = lado;
+        const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0,0,lado,lado);
+        ctx.drawImage(img, sx, sy, min, min, 0, 0, lado, lado);
+        resolve(c.toDataURL("image/jpeg", calidad));
+      } catch(e){ reject(e); } };
+      img.onerror = () => { URL.revokeObjectURL(objurl); reject(new Error("no se pudo leer la imagen")); };
+      img.src = objurl;
+    } catch(e){ reject(e); }
+  });
+  const elegirFoto = async (file) => {
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setAviso("La imagen debe ser JPG, PNG o WebP."); return; }
+    if (file.size > 15728640) { setAviso("La imagen es muy grande (máx 15 MB)."); return; }
+    try { const d = await imagenAData(file, 320, 0.72); setFotoData(d); setAviso(""); }
+    catch(e){ setAviso("No se pudo procesar la imagen. Prueba con otra."); }
+  };
 
   // Piladoras reales (no las demo) para el selector "De la lista"
   React.useEffect(() => {
@@ -6999,8 +7025,10 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
     })();
   }, []);
 
-  const PRES_MAP = { qq:{cod:"QQ",nom:"Quintal",eq:1}, saco:{cod:"SACO",nom:"Saco",eq:1},
-    caja:{cod:"CAJA",nom:"Caja",eq:1}, funda:{cod:"FUNDA",nom:"Funda",eq:1}, unidad:{cod:"UND",nom:"Unidad",eq:1} };
+  const PRES_MAP = { qq:{cod:"QQ",nom:"Quintal",eq:1}, arroba:{cod:"ARR",nom:"Arroba",eq:0.25},
+    saco:{cod:"SACO",nom:"Saco",eq:1}, caja:{cod:"CAJA",nom:"Caja",eq:1},
+    funda:{cod:"FUNDA",nom:"Funda",eq:1}, unidad:{cod:"UND",nom:"Unidad",eq:1} };
+  const UNI_LABEL = { qq:"Quintal (qq)", arroba:"Arroba (@)" };
 
   const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, marginBottom:16, outline:"none" };
   const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
@@ -7027,11 +7055,11 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
       const ofertaId = prodId+"-"+pres.cod+"-"+provCod;
       const { error:e1 } = await window.supa.from("productos").insert({
         prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo",
-        org_id: "ORG-001", proveedor_cod: provCod, proveedor: provNom, es_demo: false });
+        org_id: "ORG-001", proveedor_cod: provCod, proveedor: provNom, foto: fotoData || null, es_demo: false });
       if (e1) throw new Error("producto: "+e1.message);
       const { error:e2 } = await window.supa.from("presentaciones").insert({
         pres_id: presId, prod_id: prodId, producto: nombre.trim(), presentacion_cod: pres.cod, presentacion: pres.nom,
-        equiv_qq: pres.eq, precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), activo: true, es_demo: false });
+        equiv_qq: pres.eq, precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), foto: fotoData || null, activo: true, es_demo: false });
       if (e2) throw new Error("presentación: "+e2.message);
       const { error:e3 } = await window.supa.from("ofertas_piladora").insert({
         oferta_id: ofertaId, prod_id: prodId, pres_cod: pres.cod, presentacion: pres.nom, equiv_qq: pres.eq,
@@ -7076,7 +7104,7 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                 <label style={lbl}>Presentación / unidad</label>
                 <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:16 }}>
                   {UNIDADES_MEDIDA.map(u => (
-                    <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{u==="qq"?"Quintal (qq)":u}</button>
+                    <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{UNI_LABEL[u]||u}</button>
                   ))}
                 </div>
                 <div style={{ display:"flex", gap:14 }}>
@@ -7099,6 +7127,16 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                     <input type="number" step="0.01" value={costoCredito} onChange={e=>setCostoCredito(e.target.value)} placeholder="(igual al contado si vacío)" style={inp} />
                   </div>
                 </div>
+                <label style={lbl}>Imagen del producto (opcional)</label>
+                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:18 }}>
+                  <div style={{ width:64, height:64, borderRadius:12, border:`1px solid ${COLOR.border}`, background:COLOR.bg, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>
+                    {fotoData ? <img src={fotoData} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : "📦"}
+                  </div>
+                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }} onChange={e=>elegirFoto(e.target.files && e.target.files[0])} />
+                  <button onClick={()=>fileRef.current && fileRef.current.click()} style={{ padding:"9px 14px", borderRadius:9, border:`1px solid ${COLOR.teal}`, background:COLOR.tealLight, color:COLOR.tealDark, fontSize:13, fontWeight:700, cursor:"pointer" }}>{fotoData?"Cambiar imagen":"Subir imagen"}</button>
+                  {fotoData && <button onClick={()=>setFotoData(null)} style={{ border:"none", background:"none", color:COLOR.red, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>Quitar</button>}
+                </div>
+
                 <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:COLOR.tealLight, borderRadius:10, marginBottom:18 }}>
                   <span style={{ fontSize:15 }}>✅</span>
                   <span style={{ fontSize:12.5, color:COLOR.tealDark, lineHeight:1.4 }}>Se crea <b>activo</b> y disponible para pedidos, con la oferta de esta piladora.</span>
