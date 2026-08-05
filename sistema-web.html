@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"124", fecha:"5 ago 2026", desc:"Editar pedido ahora abre la pantalla de armado con el pedido cargado: se toca cada producto del resumen para cambiar cantidad/precio, se pueden quitar y agregar productos, y «Guardar cambios» actualiza el pedido (no crea uno nuevo)." };
+const VERSION = { n:"125", fecha:"5 ago 2026", desc:"Terceros vinculados (#7): en Facturación del principal se enlazan una o varias fichas de cliente que facturan junto a él; comparten cupo (vista combinada), y el tercero aparece al buscar por el nombre del principal. Los terceros con ficha se guardan con principal_id." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -15761,6 +15761,16 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   });
   const [tab, setTab] = useState(0);
   const [sri, setSri] = useState(null);
+  /* #7 · terceros vinculados (fichas de cliente que facturan junto a este y comparten cupo/cartera) */
+  const [vinculados, setVinculados] = useState(() =>
+    (clientes||[]).filter(c => c.principalId && clienteInicial && c.principalId === clienteInicial.id).map(c => c.id));
+  const [vincTxt, setVincTxt] = useState("");
+  const miPrincipal = (clienteInicial && clienteInicial.principalId)
+    ? (clientes||[]).find(c => c.id === clienteInicial.principalId) : null;
+  const nombreCli = (c) => c ? (c.razonSocial || c.nombre || c.id) : "";
+  const tercerosVinc = (clientes||[]).filter(c => vinculados.includes(c.id));   // #7 · fichas de terceros enlazadas
+  const usadoCombinado = (parseFloat((clienteInicial&&clienteInicial.usado))||0)
+    + tercerosVinc.reduce((s,c)=>s+(parseFloat(c.usado)||0),0);
   const [docTipo, setDocTipo] = useState(base.ruc ? ((base.ruc||"").length===10 ? "Cédula" : "RUC") : ""); // elección Cédula/RUC
   const [pegaWa, setPegaWa] = useState({ texto:"", aviso:"" });
   const [duplicados, setDuplicados] = useState([]);
@@ -15940,7 +15950,8 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
       cupo: parseFloat(form.cupo)||0, cupo2: parseFloat(form.cupo2)||0, mesesCupo2: parseInt(form.mesesCupo2)||3, nivelCupo: form.nivelCupo||"Cupo 1",
       origen: form.origen||"Nuevo", clienteDesde: form.clienteDesde||"",
       plazo: parseInt(form.plazo)||0, descuento: parseFloat(form.descuento)||0,
-      excepcionFreelance: excepcionFreelance || form.excepcionFreelance || false };
+      excepcionFreelance: excepcionFreelance || form.excepcionFreelance || false,
+      vinculados };   // #7 · ids de las fichas de tercero enlazadas
     onGuardar(cli, esEdicion);
   };
 
@@ -16203,6 +16214,12 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
                 <input type="number" min="0" value={form.facturasContadoCredito ?? 0} onChange={e=>set("facturasContadoCredito", e.target.value)} placeholder="0" style={inp} />
                 <p style={{ fontSize:11, color:COLOR.muted, marginTop:4 }}>Cuántas compras de contado debe hacer y pagar bien antes de habilitarle el crédito.</p>
               </div>
+              {tercerosVinc.length>0 && (
+                <div style={{ gridColumn:"1/-1", background:"#EAF1FE", border:"1px solid #b9cdf5", borderRadius:10, padding:14 }}>
+                  <p style={{ fontSize:12, fontWeight:800, color:"#274690", marginBottom:4 }}>🔗 Cupo compartido con {tercerosVinc.length} tercero(s)</p>
+                  <p style={{ fontSize:12, color:"#3a4a6b", lineHeight:1.6 }}>Este cupo cubre a este cliente y a sus terceros enlazados: {tercerosVinc.map(c=>nombreCli(c)).join(", ")}. Usado combinado aproximado: <b className="num">{"$"+usadoCombinado.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2})}</b>. Entre todos no deben pasarse del cupo.</p>
+                </div>
+              )}
               <div style={{ gridColumn:"1/-1", background:COLOR.bg, borderRadius:10, padding:14 }}>
                 <p style={{ fontSize:11, fontWeight:700, color:COLOR.muted, marginBottom:8 }}>FÓRMULA DE EXPOSICIÓN</p>
                 <p style={{ fontSize:12.5, color:COLOR.text, lineHeight:1.8 }}>Σ Facturas pendientes + Σ Cheques por acreditar − Σ Notas de crédito no aplicadas <b style={{ color:COLOR.teal }}>= Exposición total del cliente</b></p>
@@ -16251,9 +16268,42 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
         {/* TAB 5: FACTURACIÓN A TERCEROS */}
         {tab===5 && (
           <div>
+            {/* #7 · VÍNCULO a fichas de cliente reales (comparten cupo y cartera) */}
+            {miPrincipal && (
+              <div style={{ background:"#EAF1FE", border:"1px solid #b9cdf5", borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
+                <p style={{ fontSize:12.5, color:"#274690", fontWeight:700 }}>🔗 Este cliente factura junto a <b>{nombreCli(miPrincipal)}</b>.</p>
+                <p style={{ fontSize:11.5, color:"#3a4a6b", marginTop:3 }}>Comparten un solo cupo y su cartera se atribuye al principal. El vínculo se gestiona desde la ficha del principal.</p>
+              </div>
+            )}
+            {!miPrincipal && (
+              <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"16px 18px", marginBottom:16 }}>
+                <p style={{ fontSize:13, fontWeight:800, color:COLOR.text, margin:0 }}>🔗 Clientes vinculados (comparten cupo y cartera)</p>
+                <p style={{ fontSize:12, color:COLOR.muted, margin:"4px 0 12px" }}>Enlaza las fichas de otros clientes que facturan junto a este. Su exposición <b>suma al cupo de este cliente</b> (entre todos no deben pasarse), su factura y cuenta por cobrar se atribuyen a este cliente, y aparecen en las búsquedas por su nombre.</p>
+                <BuscadorPredictivo cat="clientes"
+                  items={(clientes||[]).filter(c => c.id !== form.id && !vinculados.includes(c.id) && (!c.principalId || c.principalId===form.id))}
+                  value={vincTxt} placeholder="Busca la ficha del cliente a vincular…"
+                  label={c=>nombreCli(c)} sub={c=> (c.nombre && c.razonSocial && c.nombre!==c.razonSocial) ? c.nombre : (c.ruc?("RUC "+c.ruc):"")}
+                  onText={setVincTxt}
+                  onPick={c=>{ setVinculados(v=>[...v, c.id]); setVincTxt(""); }} />
+                {vinculados.length>0 ? (
+                  <div style={{ marginTop:12 }}>
+                    {vinculados.map(id => { const c=(clientes||[]).find(x=>x.id===id); return (
+                      <div key={id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 12px", border:`1px solid ${COLOR.border}`, borderRadius:9, marginBottom:6 }}>
+                        <div style={{ minWidth:0 }}>
+                          <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0 }}>{c?nombreCli(c):id}</p>
+                          {c && c.ruc && <p className="num" style={{ fontSize:11, color:COLOR.muted, margin:0 }}>RUC {c.ruc}</p>}
+                        </div>
+                        <button onClick={()=>setVinculados(v=>v.filter(x=>x!==id))} style={{ border:"none", background:"none", color:COLOR.red, fontSize:12.5, fontWeight:700, cursor:"pointer", flexShrink:0 }}>Quitar</button>
+                      </div>
+                    ); })}
+                  </div>
+                ) : <p style={{ fontSize:12, color:COLOR.muted, marginTop:8 }}>Sin clientes vinculados. Este cliente factura solo a su nombre.</p>}
+              </div>
+            )}
+
             <div style={{ background:COLOR.tealLight, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
-              <p style={{ fontSize:13, fontWeight:700, color:COLOR.tealDark }}>🧾 Facturación a terceros</p>
-              <p style={{ fontSize:12, color:COLOR.muted, marginTop:4 }}>Si el cliente pide facturar a otra persona o empresa, regístralos aquí. Marca el habitual. Sirve para saber a quién y dónde cobrar.</p>
+              <p style={{ fontSize:13, fontWeight:700, color:COLOR.tealDark }}>🧾 Facturación a terceros (solo nombre para la factura)</p>
+              <p style={{ fontSize:12, color:COLOR.muted, marginTop:4 }}>Si el cliente pide facturar a otra persona o empresa que NO tiene ficha propia, regístralos aquí. Marca el habitual. Sirve para saber a quién y dónde cobrar.</p>
             </div>
 
             {(form.terceros||[]).map((t,idx)=>(
@@ -16382,6 +16432,7 @@ function ClientesWeb({ usuario, navegar }) {
           plazoRetencion: r.plazo_retencion, retencion: r.es_agente, subId: r.sub_id, docsOk: r.docs_ok,
           comprasTotales: r.compras_totales, numPedidos: r.num_pedidos,
           dueno: r.dueno, estadoCliente: r.estado_cliente, activo: r.activo, bloqueado: r.bloqueado, motivoBloqueo: r.motivo_bloqueo,
+          principalId: r.principal_id || null,   // si está seteado, es un tercero (#7)
           demo: !!r.es_demo,
           vinculos: [], ubicaciones: [], terceros: [],
         }));
@@ -16463,10 +16514,12 @@ function ClientesWeb({ usuario, navegar }) {
   const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const nombreProd = (id) => (PRODUCTOS_WEB.find(p=>p.id===id)||{}).nombre || id;
 
+  // #7 · un tercero también aparece al buscar por el nombre de su cliente principal
+  const nomPrincipalDe = (c) => { if (!c.principalId) return ""; const p = clientes.find(x=>x.id===c.principalId); return p ? norm((p.razonSocial||"")+" "+(p.nombre||"")) : ""; };
   const lista = clientes.filter(c => {
     const t = norm(busca).trim();
     if (t==="") return true;
-    const campos = norm(c.nombre) + " " + norm(c.razonSocial||"") + " " + (c.ruc||"") + " " + norm(c.dueno||"");
+    const campos = norm(c.nombre) + " " + norm(c.razonSocial||"") + " " + (c.ruc||"") + " " + norm(c.dueno||"") + " " + nomPrincipalDe(c);
     return t.split(/\s+/).every(w => campos.includes(w));
   });
 
@@ -16494,7 +16547,7 @@ function ClientesWeb({ usuario, navegar }) {
     usado: c.usado || 0, plazo: c.plazo, estado_credito: c.estadoCredito, condicion_pago: c.condicionPago,
     max_facturas: c.maxFacturas, tipo_contribuyente: c.tipoContribuyente, es_agente: c.esAgente,
     num_resolucion: c.numResolucion, pct_renta_fuente: c.pctRentaFuente, pct_ret_iva: c.pctRetIVA, plazo_retencion: c.plazoRetencion,
-    sub_id: c.subId, dueno: c.dueno, estado_cliente: c.estadoCliente,
+    sub_id: c.subId, dueno: c.dueno, estado_cliente: c.estadoCliente, principal_id: c.principalId || null,
     docs_ok: c.docsOk || 0, compras_totales: c.comprasTotales || 0, num_pedidos: c.numPedidos || 0,
     activo: c.activo !== false, bloqueado: c.bloqueado || false, motivo_bloqueo: c.motivoBloqueo,
   });
@@ -16503,6 +16556,15 @@ function ClientesWeb({ usuario, navegar }) {
     // 1) Actualiza la pantalla de inmediato (respuesta rápida)
     if (esEdicion) setClientes(prev => prev.map(c => c.id===datos.id ? { ...c, ...datos } : c));
     else setClientes(prev => [...prev, datos]);
+    // #7 · reflejar el vínculo en pantalla: soltar los que ya no están y marcar los actuales
+    if (datos.vinculados) {
+      const vinc = datos.vinculados;
+      setClientes(prev => prev.map(c => {
+        if (c.principalId === datos.id && !vinc.includes(c.id)) return { ...c, principalId: null };
+        if (vinc.includes(c.id)) return { ...c, principalId: datos.id };
+        return c;
+      }));
+    }
     /* audita: la ficha define cupo, plazo y dueño — cambia el estado del negocio */
     auditar(usuario, "Clientes", esEdicion ? "Ficha de cliente editada" : "Cliente creado",
       datos.nombre || datos.id,
@@ -16556,6 +16618,12 @@ function ClientesWeb({ usuario, navegar }) {
           relacion: t.relacion || "", nota: t.nota || "", habitual: !!t.habitual, activo: true,
         }));
         if (terc.length > 0) chk(await window.supa.from("terceros_cliente").insert(terc), "los terceros a facturar");
+
+        // 2d) #7 · vínculo de terceros con ficha (comparten cupo y cartera con este cliente).
+        // Suelta primero los que ya no están y luego marca los actuales con principal_id = este cliente.
+        chk(await window.supa.from("clientes").update({ principal_id: null }).eq("principal_id", datos.id), "soltar vínculos anteriores");
+        const vinc = (datos.vinculados||[]).filter(Boolean);
+        if (vinc.length > 0) chk(await window.supa.from("clientes").update({ principal_id: datos.id }).in("cli_id", vinc), "vincular los terceros");
       } catch (e) {
         fallos.push("· error inesperado: " + ((e && e.message) || e));
       }
@@ -16584,7 +16652,8 @@ function ClientesWeb({ usuario, navegar }) {
   // Resultados del buscador (solo cuando se escribe algo)
   const sugerencias = busca.trim()==="" ? [] : clientes.filter(c => {
     // Busca por palabras sueltas: "pedro castillo" encuentra "Pedro Rodrigo Castillo Rosero"
-    const campos = norm(c.nombre) + " " + norm(c.razonSocial||"") + " " + (c.ruc||"") + " " + norm(c.dueno||"");
+    // #7 · y el tercero aparece al buscar por su cliente principal
+    const campos = norm(c.nombre) + " " + norm(c.razonSocial||"") + " " + (c.ruc||"") + " " + norm(c.dueno||"") + " " + nomPrincipalDe(c);
     return norm(busca).trim().split(/\s+/).every(w => campos.includes(w));
   }).slice(0, 8);
 
