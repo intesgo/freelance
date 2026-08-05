@@ -5578,7 +5578,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"413", fecha:"4 ago 2026", desc:"Nombres de módulos unificados con el sistema web: Portafolio de marcas→Marcas, Proveedores→Piladoras, Entrega de documentos→Documentos, Mis pedidos→Pedidos." };
+const VERSION = { n:"414", fecha:"4 ago 2026", desc:"Equipo → Comisionistas: botón «Agregar comisionista» para darlo de alta desde la app (crea la cuenta y genera el enlace de entrada, sin ir al sistema web)." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -20542,6 +20542,46 @@ function Equipo({toast}){
   const [fEstado,setFEstado]=useState("Todos");    // filtro por estado
   const [pestana,setPestana]=useState("resumen");  // resumen | subs
 
+  /* ── Alta de comisionista desde el campo (b414) ──
+     Antes solo se podía crear en el sistema web (Sistema → Cuentas del equipo).
+     Aquí el freelance lo da de alta sin cambiar de app; usa la misma función
+     "cuentas-equipo" del servidor, con el rol fijo en comisionista. */
+  const [altaAbrir,setAltaAbrir]=useState(false);
+  const [aNombre,setANombre]=useState("");
+  const [aCorreo,setACorreo]=useState("");
+  const [aTel,setATel]=useState("");
+  const [aGuardando,setAGuardando]=useState(false);
+  const [aError,setAError]=useState("");
+  const [aReciente,setAReciente]=useState(null);   // { nombre, correo, enlace }
+  useModal(altaAbrir, React.useCallback(()=>setAltaAbrir(false),[]));
+  useModal(aReciente, React.useCallback(()=>setAReciente(null),[]));
+  const cerrarAlta=()=>{ setAltaAbrir(false); setANombre(""); setACorreo(""); setATel(""); setAError(""); };
+  const crearComisionista=async()=>{
+    setAError("");
+    if(aNombre.trim().length<3){ setAError("Escribe el nombre completo."); return; }
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(aCorreo.trim())){ setAError("Ese correo no se ve bien."); return; }
+    if(!window.SB){ setAError("Sin conexión con el servidor. Intenta con internet."); return; }
+    setAGuardando(true);
+    try{
+      const { data, error } = await window.SB.functions.invoke("cuentas-equipo", { body:{
+        accion:"crear", nombre:aNombre.trim(), email:aCorreo.trim(), rol:"comisionista",
+        prov_cod:null, telefono:aTel.trim()||null } });
+      if(error){
+        let detalle=""; try{ detalle=(await error.context.json()).error||""; }catch(x){}
+        throw new Error(detalle || error.message || "No se pudo crear.");
+      }
+      if(data && data.error) throw new Error(data.error);
+      setAReciente({ nombre:aNombre.trim(), correo:aCorreo.trim(), enlace:(data&&data.enlace)||"" });
+      cerrarAlta();
+      if(toast) toast(aNombre.trim()+" quedó dado de alta como comisionista.");
+    }catch(e){ setAError(e.message||"No se pudo crear."); }
+    setAGuardando(false);
+  };
+  const copiarEnlace=(txt)=>{
+    try{ navigator.clipboard.writeText(txt); if(toast) toast("Enlace copiado."); }
+    catch(e){ if(toast) toast("Selecciona el enlace y cópialo a mano."); }
+  };
+
   const ventasEquipo=equipo.reduce((a,s)=>a+s.ventasMes,0);
   const cobradoEquipo=equipo.reduce((a,s)=>a+s.cobradoMes,0);
   const porCobrarEquipo=equipo.reduce((a,s)=>a+s.porCobrar,0);
@@ -20807,6 +20847,9 @@ function Equipo({toast}){
     </>)}
 
     {pestana==="subs" && (<>
+      <button className="cta" style={{width:"100%",margin:"0 0 12px"}} onClick={()=>{setAError("");setAltaAbrir(true);}}>
+        ➕ Agregar comisionista
+      </button>
       <div className="ss" style={{marginBottom:10}}>
         <div className="box"><span className="mag">⌕</span>
           <input value={q} placeholder="Buscar comisionista…" onChange={e=>setQ(e.target.value)}/>
@@ -20862,6 +20905,47 @@ function Equipo({toast}){
             <button className="back" style={{flex:1}} onClick={()=>setVerBloqueo(null)}>Cancelar</button>
             <button className="cta" style={{flex:1,margin:0,background:"var(--clay)"}} onClick={confirmarBloqueo}>Bloquear</button>
           </div>
+        </div>
+      </div>
+    )}
+
+    {altaAbrir && (
+      <div className="ov" onClick={cerrarAlta}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Agregar comisionista</h3>
+          <p className="sync-intro">Se crea su cuenta y se genera un enlace de entrada. El comisionista vende en el campo.</p>
+          <label className="di-t" style={{display:"block",marginTop:6}}>Nombre completo</label>
+          <input value={aNombre} onChange={e=>setANombre(e.target.value)} placeholder="Ej. Juan Pérez"
+            style={{width:"100%",border:"1px solid var(--line)",borderRadius:10,padding:"10px 12px",fontFamily:"inherit",fontSize:14,marginTop:4}}/>
+          <label className="di-t" style={{display:"block",marginTop:10}}>Correo</label>
+          <input value={aCorreo} onChange={e=>setACorreo(e.target.value)} type="email" inputMode="email" autoCapitalize="off" placeholder="correo@ejemplo.com"
+            style={{width:"100%",border:"1px solid var(--line)",borderRadius:10,padding:"10px 12px",fontFamily:"inherit",fontSize:14,marginTop:4}}/>
+          <label className="di-t" style={{display:"block",marginTop:10}}>Teléfono (opcional)</label>
+          <input value={aTel} onChange={e=>setATel(e.target.value)} type="tel" inputMode="tel" placeholder="09xxxxxxxx"
+            style={{width:"100%",border:"1px solid var(--line)",borderRadius:10,padding:"10px 12px",fontFamily:"inherit",fontSize:14,marginTop:4}}/>
+          {aError && <div className="sync-nota" style={{marginTop:10,background:"#FBE9E4",color:"var(--clay)"}}>⚠️ {aError}</div>}
+          <div style={{display:"flex",gap:8,marginTop:14}}>
+            <button className="back" style={{flex:1}} onClick={cerrarAlta} disabled={aGuardando}>Cancelar</button>
+            <button className="cta" style={{flex:1,margin:0}} onClick={crearComisionista} disabled={aGuardando}>
+              {aGuardando?"Creando…":"Crear cuenta"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {aReciente && (
+      <div className="ov" onClick={()=>setAReciente(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>✅ {aReciente.nombre} ya está de alta</h3>
+          <p className="sync-intro">Envíale este enlace de entrada <b>por un canal privado</b> (por ejemplo WhatsApp directo). Nunca lo pegues en un grupo ni en un documento compartido.</p>
+          {aReciente.enlace
+            ? (<>
+                <div style={{wordBreak:"break-all",background:"var(--card)",border:"1px solid var(--line)",borderRadius:10,padding:"10px 12px",fontSize:13,marginTop:6}}>{aReciente.enlace}</div>
+                <button className="cta" style={{width:"100%",margin:"12px 0 0"}} onClick={()=>copiarEnlace(aReciente.enlace)}>Copiar enlace</button>
+              </>)
+            : <div className="sync-nota" style={{marginTop:8}}>La cuenta se creó. Si no ves el enlace, genéralo desde el sistema web (Sistema → Cuentas del equipo).</div>}
+          <button className="back" style={{width:"100%",marginTop:8}} onClick={()=>setAReciente(null)}>Listo</button>
         </div>
       </div>
     )}
