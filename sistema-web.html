@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"132", fecha:"5 ago 2026", desc:"Editar precios: un solo botón (se quitó el duplicado) y el editor ahora es a PANTALLA COMPLETA (no modal), con barra de acción fija abajo." };
+const VERSION = { n:"133", fecha:"5 ago 2026", desc:"Fase 2: el «Precio base» y el margen de la ficha del producto ahora se derivan de las ofertas por piladora (presentación mayor, costo más alto), así coinciden con lo que se edita por piladora y ya no dependen de la tabla vieja precios." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -6846,6 +6846,18 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
 
   const guardar = () => onGuardar(prod.id, { iva, estado, variedad });
 
+  /* #F2 · el precio base y el margen se derivan de las OFERTAS por piladora
+     (presentación de mayor equivalencia = Quintal; costo = el más alto entre
+     piladoras, regla sellada). Así la ficha coincide con lo que se edita por
+     piladora y ya no depende de la tabla vieja `precios`. */
+  const resumenOfertas = (ofertas && ofertas.length) ? (() => {
+    const base = ofertas.slice().sort((a,b)=>b.equivQq-a.equivQq)[0];
+    const costoMax = (base.piladoras||[]).reduce((m,pl)=>Math.max(m, pl.costo||0), 0);
+    const contado = base.contado||0, credito = base.credito||0;
+    return { contado, credito, costo: costoMax, margen: contado>0 ? ((contado-costoMax)/contado)*100 : 0, presentacion: base.presentacion };
+  })() : null;
+  const pb = resumenOfertas || precio;   // ofertas por piladora primero; precios como respaldo
+
   return (
     <div onClick={onCerrar} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:50, padding:20 }}>
       <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:600, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto" }}>
@@ -6865,23 +6877,23 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
               Un precio único por producto, con vigencia. Desde aquí se ve la cadena
               completa y se mueve la base; el costo llega por Propuestas de precio. */}
           <div style={{ marginBottom:20 }}>
-            <p style={{ ...lbl, marginBottom:10 }}>Precio base</p>
-            {precio ? (
+            <p style={{ ...lbl, marginBottom:10 }}>Precio base{resumenOfertas ? <span style={{ color:COLOR.muted, fontWeight:500, fontSize:11 }}> · según ofertas por piladora ({resumenOfertas.presentacion}, costo más alto)</span> : null}</p>
+            {pb ? (
               <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"13px 15px" }}>
                 <div style={{ display:"flex", alignItems:"baseline", gap:10, flexWrap:"wrap" }}>
                   <span className="num" style={{ fontSize:20, fontWeight:800, color:COLOR.text }}>
-                    {preMoney(precio.contado)}</span>
+                    {preMoney(pb.contado)}</span>
                   <span style={{ fontSize:12, color:COLOR.muted }}>contado</span>
                   <span className="num" style={{ fontSize:15, fontWeight:700, color:COLOR.text }}>
-                    {preMoney(precio.credito)}</span>
+                    {preMoney(pb.credito)}</span>
                   <span style={{ fontSize:12, color:COLOR.muted }}>crédito</span>
                 </div>
                 <div style={{ fontSize:12, color:COLOR.muted, marginTop:5 }}>
-                  Costo <span className="num">{preMoney(precio.costo)}</span> · margen{" "}
+                  Costo <span className="num">{preMoney(pb.costo)}</span> · margen{" "}
                   <span className="num" style={{ fontWeight:700,
-                    color: precio.margen < preMargenObjetivo() ? "#b9770e" : "#1e8449" }}>
-                    {precio.margen.toFixed(1)}%</span>
-                  {precio.margen < preMargenObjetivo() ? " · bajo el mínimo" : ""}
+                    color: pb.margen < preMargenObjetivo() ? "#b9770e" : "#1e8449" }}>
+                    {pb.margen.toFixed(1)}%</span>
+                  {pb.margen < preMargenObjetivo() ? " · bajo el mínimo" : ""}
                 </div>
                 <div style={{ display:"flex", gap:9, marginTop:12 }}>
                   <button onClick={()=>setVerHistorial(true)}
@@ -6893,11 +6905,7 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
             ) : (
               <div style={{ border:`1px dashed ${COLOR.border}`, borderRadius:12,
                 padding:"16px 15px", fontSize:12.5, color:COLOR.muted, textAlign:"center" }}>
-                Sin precio vigente en <b>precios</b>.
-                <button onClick={()=>setVerHistorial(true)}
-                  style={{ marginLeft:8, background:"none", border:"none", color:COLOR.teal,
-                    fontSize:12.5, fontWeight:700, fontFamily:"inherit", cursor:"pointer",
-                    textDecoration:"underline" }}>Ver historial</button>
+                Este producto aún no tiene ofertas de piladora con precio.
               </div>
             )}
           </div>
