@@ -314,7 +314,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"119", fecha:"4 ago 2026", desc:"Pedidos (aprobaciones): la columna Cliente muestra la razón social (p. ej. Pedro Rodrigo Castillo Rosero) con el nombre comercial como subtítulo." };
+const VERSION = { n:"120", fecha:"4 ago 2026", desc:"Ficha cliente: Contado oculta los campos de crédito y ya no traba la creación (la condición de pago manda); pestañas se marcan en rojo si falta algo; estado «Oculto» quita al cliente de los selectores. Pedidos: columna Fecha." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -763,6 +763,7 @@ const ESTADO_CLIENTE_CLI = {
   APROBADO:          { lbl:"Aprobado",              color:"#2563eb", bg:"#EAF1FE" },
   ACTIVO:            { lbl:"Activo",                 color:"#1c7a44", bg:"#E9F8EF" },
   RECHAZADO:         { lbl:"Rechazado",             color:"#c0392b", bg:"#FDECEA" },
+  OCULTO:            { lbl:"Oculto",                 color:"#6b7280", bg:"#EEF0F2" },
 };
 const estadoClienteInfo = e => ESTADO_CLIENTE_CLI[e] || ESTADO_CLIENTE_CLI.EN_REVISION;
 const soloDigitosCli = s => (s||"").replace(/\D/g,"");
@@ -4665,13 +4666,13 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     (async () => {
       try {
         const { data } = await window.supa.from("clientes")
-          .select("cli_id, nombre, razon_social, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal")
+          .select("cli_id, nombre, razon_social, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal, estado_cliente")
           .eq("activo", true).order("nombre");
         if (data && data.length > 0) {
           const reales = data.map(c => ({
             id: c.cli_id, nombre: c.nombre, razonSocial: c.razon_social, ruc: c.ruc,
             vendedor: c.sub_id || "", condicionPago: c.condicion_pago || "", cupo: c.cupo||0,
-            usado: c.usado||0, bloqueado: !!c.bloqueado, canal: c.canal || "",
+            usado: c.usado||0, bloqueado: !!c.bloqueado, canal: c.canal || "", estadoCliente: c.estado_cliente || "",
           }));
           setClientesReales(reales);
           // Actualizar los pedidos demo con nombres de clientes reales (los primeros 3)
@@ -4681,7 +4682,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     })();
   }, []);
   // Fuente de clientes: reales si cargaron, demo si no
-  const CLIENTES = (clientesReales && clientesReales.length > 0) ? clientesReales : CLIENTES_WEB;
+  // Los clientes "Oculto" no aparecen en los selectores de pedido (#4)
+  const CLIENTES = ((clientesReales && clientesReales.length > 0) ? clientesReales : CLIENTES_WEB)
+    .filter(c => c.estadoCliente !== "OCULTO");
 
   // Catálogo por PILADORA desde las ofertas vigentes (igual que la app del freelance).
   // Un mismo arroz puede ofrecerlo más de una piladora, por eso el catálogo sale de las
@@ -5127,12 +5130,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             {fuentePed==="vivo" ? "🟢 Pedidos vivos de la base (incluye los de la app de campo)" : "⚪ Demo local · inicia sesión para pedidos vivos"}</span>
         </div>
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1.3fr 1.7fr .6fr .9fr .8fr 1.3fr 96px", gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            <span>Cliente</span><span>Producto</span><span>Cant.</span><span>Total</span><span>Cond.</span><span>Estado</span><span></span>
+          <div style={{ display:"grid", gridTemplateColumns:"1.3fr 1.5fr .55fr .8fr .6fr 1fr .8fr 92px", gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
+            <span>Cliente</span><span>Producto</span><span>Cant.</span><span>Total</span><span>Cond.</span><span>Estado</span><span>Fecha</span><span></span>
           </div>
           {usarPaginacion(pedidos, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
             return (
-              <div key={p.id} style={{ display:"grid", gridTemplateColumns:"1.3fr 1.7fr .6fr .9fr .8fr 1.3fr 96px", gap:10, padding:"14px 18px", borderTop: i>0 ? `1px solid ${COLOR.border}` : "none", alignItems:"center", fontSize:13 }}>
+              <div key={p.id} style={{ display:"grid", gridTemplateColumns:"1.3fr 1.5fr .55fr .8fr .6fr 1fr .8fr 92px", gap:10, padding:"14px 18px", borderTop: i>0 ? `1px solid ${COLOR.border}` : "none", alignItems:"center", fontSize:13 }}>
                 <span style={{ fontWeight:700, color:COLOR.text, minWidth:0 }}>
                   {p.razon || p.cli}<ChipDemo si={p.demo}/>
                   {p.razon && p.cli && p.razon!==p.cli && <span style={{ display:"block", fontWeight:600, fontSize:11, color:COLOR.muted }}>{p.cli}</span>}
@@ -5142,6 +5145,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 <span className="num" style={{ fontWeight:700, color:COLOR.teal }}>{money(p.cant*p.precio)}</span>
                 <span style={{ color:COLOR.muted }}>{p.cond}</span>
                 <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
+                <span className="num" style={{ color:COLOR.muted, fontSize:12 }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
                 <button onClick={()=>{ setPTab("traza"); setTzQ(p.cli); setTzSel(null); }}
                   style={{ border:"none", background:"transparent", color:COLOR.teal, fontSize:12.5, fontWeight:700, cursor:"pointer", width:"100%", textAlign:"right" }}>Rastrear ›</button>
               </div>
@@ -15504,7 +15508,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   // Solo freelance y financiero (cargo contadora) pueden subir/cambiar/eliminar archivos del expediente
   const puedeEditarExp = !!usuario && (usuario.cargo==="freelance" || usuario.cargo==="contadora" || usuario.rol==="Freelance" || usuario.rol==="Contadora");
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
-  const exp = useExpediente(form.id, (form.condicionPago==="Crédito")||(form.listaPrecio==="Crédito"));
+  const exp = useExpediente(form.id, form.condicionPago==="Crédito");
 
   /* ── R-01 · a quién pertenece este cliente ──────────────────────────
      El desplegable sale del padrón real. Al elegir se guardan las dos cosas:
@@ -15569,11 +15573,15 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   };
 
   // Calcula qué falta en cada pestaña. Devuelve "" si está completa, o el texto de lo que falta.
-  const esCredito = (form.condicionPago === "Crédito") || (form.listaPrecio === "Crédito");
+  // La CONDICIÓN DE PAGO manda: Contado = sin crédito (no pide cupos ni expediente).
+  // Antes también contaba la lista de precio "Crédito", y por eso un cliente de contado
+  // con lista Crédito quedaba trabado pidiendo expediente. (arreglo #2)
+  const esCredito = form.condicionPago === "Crédito";
   const u0 = (form.ubicaciones||[])[0];
   const cupo2v = parseFloat(form.cupo2) || 0;
-  const cupoMayor = Math.max(parseFloat(form.cupo)||0, cupo2v);
-  const exigeExpediente = esCredito && (cupo2v > 0 ? (cupoMayor > cupo2v) : true);
+  const cupo1v = parseFloat(form.cupo) || 0;
+  // Expediente solo cuando el cupo operativo (Cupo 1) supera de verdad al Cupo 2.
+  const exigeExpediente = esCredito && cupo2v > 0 && cupo1v > cupo2v;
   const faltaEnTab = (i) => {
     if (i===0) { // Identificación
       if (!docTipo) return "Elige si es Cédula o RUC";
@@ -15705,7 +15713,13 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
       {/* Pestañas */}
       <div style={{ display:"flex", gap:4, borderBottom:`1px solid ${COLOR.border}`, marginBottom:20, overflowX:"auto" }}>
         {tabs.map((t,i) => {
-          const aplica = (i!==3 && i!==4 && i!==5) || (esCredito && (i===3||i===4)) || (exigeExpediente && i===5);
+          // Qué pestaña aplica según contado/crédito. (arreglo #3 · antes el índice del
+          // expediente estaba corrido y el expediente salía siempre en verde ✓)
+          const aplica =
+            (i===0||i===1||i===2) ? true :                       // Identificación, Ubicación, Canal
+            (i===3||i===4) ? esCredito :                         // Crédito, Fiscal (solo crédito)
+            (i===5) ? ((form.terceros||[]).length>0) :           // Facturación a terceros
+            (i===6) ? exigeExpediente : true;                    // Expediente
           const falta = aplica ? faltaEnTab(i) : "";
           const marca = !aplica ? "" : (falta ? " ⚠" : " ✓");
           return (
@@ -15885,10 +15899,10 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
         {/* TAB 3: CRÉDITO */}
         {tab===3 && (
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            {/* Sistema de cupos escalonado por confianza */}
-            <div style={{ gridColumn:"1/-1", background:"#f4f9f7", border:`1px solid ${COLOR.border}`, borderRadius:10, padding:14 }}>
-              <p style={{ fontSize:11.5, fontWeight:800, color:COLOR.tealDark, marginBottom:6 }}>💳 CRÉDITO POR CONFIANZA PROGRESIVA</p>
-              <p style={{ fontSize:12, color:COLOR.muted, lineHeight:1.6 }}>El cliente nuevo arranca en <b>Cupo 1</b> (ventas iniciales, sin expediente). Si paga bien durante los meses indicados, sube solo a <b>Cupo 2</b> (sin llenar formularios). Recién por encima de Cupo 2 se exige el expediente completo, salvo autorización del freelance.</p>
+            {/* Condición de pago = interruptor. Contado oculta todo lo de crédito (#1) */}
+            <div>
+              <label style={lbl}>Condición de pago</label>
+              <select value={form.condicionPago} onChange={e=>set("condicionPago",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{["Contado","Crédito"].map(c=><option key={c} value={c}>{c}</option>)}</select>
             </div>
             <div>
               <label style={lbl}>Origen del cliente</label>
@@ -15899,30 +15913,37 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
               <input type="date" value={form.clienteDesde||""} onChange={e=>set("clienteDesde",e.target.value)} style={inp} />
               {form.clienteDesde && (()=>{ const meses=Math.floor((Date.now()-new Date(form.clienteDesde).getTime())/(1000*60*60*24*30)); return <p style={{ fontSize:11, color:meses>=(parseInt(form.mesesCupo2)||3)?"#1c7a44":COLOR.muted, marginTop:4 }}>Antigüedad: {meses} mes(es){meses>=(parseInt(form.mesesCupo2)||3)?" · ya califica para Cupo 2":""}</p>; })()}
             </div>
-            {campo("Cupo 1 — ventas iniciales (USD)","cupo","500","number")}
-            {campo("Cupo 2 — confianza ampliada (USD)","cupo2","2000","number")}
-            <div>
-              <label style={lbl}>Meses para subir a Cupo 2</label>
-              <select value={form.mesesCupo2 ?? 3} onChange={e=>set("mesesCupo2",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{[3,6,9,12].map(d=><option key={d} value={d}>{d} meses</option>)}</select>
-            </div>
-            <div>
-              <label style={lbl}>Nivel actual del cliente</label>
-              <select value={form.nivelCupo || "Cupo 1"} onChange={e=>set("nivelCupo",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{["Cupo 1","Cupo 2"].map(n=><option key={n} value={n}>{n}</option>)}</select>
-              <p style={{ fontSize:11, color:COLOR.muted, marginTop:4 }}>Subirá solo a Cupo 2 al cumplir los meses con buen pago (cuando estén los pagos en la nube).</p>
-            </div>
-            <div>
-              <label style={lbl}>Plazo (días)</label>
-              <select value={form.plazo} onChange={e=>set("plazo",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{[0,7,15,30,45,60].map(d=><option key={d} value={d}>{d}</option>)}</select>
-            </div>
-            <div>
-              <label style={lbl}>Condición de pago</label>
-              <select value={form.condicionPago} onChange={e=>set("condicionPago",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{["Contado","Crédito"].map(c=><option key={c} value={c}>{c}</option>)}</select>
-            </div>
-            {campo("Máx. facturas activas","maxFacturas","3","number")}
-            <div style={{ gridColumn:"1/-1", background:COLOR.bg, borderRadius:10, padding:14 }}>
-              <p style={{ fontSize:11, fontWeight:700, color:COLOR.muted, marginBottom:8 }}>FÓRMULA DE EXPOSICIÓN</p>
-              <p style={{ fontSize:12.5, color:COLOR.text, lineHeight:1.8 }}>Σ Facturas pendientes + Σ Cheques por acreditar − Σ Notas de crédito no aplicadas <b style={{ color:COLOR.teal }}>= Exposición total del cliente</b></p>
-            </div>
+            {!esCredito && (
+              <div style={{ gridColumn:"1/-1", background:COLOR.tealLight, borderRadius:10, padding:"11px 14px" }}>
+                <p style={{ fontSize:12.5, color:COLOR.tealDark, fontWeight:600 }}>💵 Cliente de contado: paga al recibir. No necesita cupos de crédito ni expediente.</p>
+              </div>
+            )}
+            {esCredito && (<>
+              <div style={{ gridColumn:"1/-1", background:"#f4f9f7", border:`1px solid ${COLOR.border}`, borderRadius:10, padding:14 }}>
+                <p style={{ fontSize:11.5, fontWeight:800, color:COLOR.tealDark, marginBottom:6 }}>💳 CRÉDITO POR CONFIANZA PROGRESIVA</p>
+                <p style={{ fontSize:12, color:COLOR.muted, lineHeight:1.6 }}>El cliente nuevo arranca en <b>Cupo 1</b> (ventas iniciales, sin expediente). Si paga bien durante los meses indicados, sube solo a <b>Cupo 2</b> (sin llenar formularios). Recién por encima de Cupo 2 se exige el expediente completo, salvo autorización del freelance.</p>
+              </div>
+              {campo("Cupo 1 — ventas iniciales (USD)","cupo","500","number")}
+              {campo("Cupo 2 — confianza ampliada (USD)","cupo2","2000","number")}
+              <div>
+                <label style={lbl}>Meses para subir a Cupo 2</label>
+                <select value={form.mesesCupo2 ?? 3} onChange={e=>set("mesesCupo2",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{[3,6,9,12].map(d=><option key={d} value={d}>{d} meses</option>)}</select>
+              </div>
+              <div>
+                <label style={lbl}>Nivel actual del cliente</label>
+                <select value={form.nivelCupo || "Cupo 1"} onChange={e=>set("nivelCupo",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{["Cupo 1","Cupo 2"].map(n=><option key={n} value={n}>{n}</option>)}</select>
+                <p style={{ fontSize:11, color:COLOR.muted, marginTop:4 }}>Subirá solo a Cupo 2 al cumplir los meses con buen pago (cuando estén los pagos en la nube).</p>
+              </div>
+              <div>
+                <label style={lbl}>Plazo (días)</label>
+                <select value={form.plazo} onChange={e=>set("plazo",e.target.value)} style={{ ...inp, cursor:"pointer" }}>{[0,7,15,30,45,60].map(d=><option key={d} value={d}>{d}</option>)}</select>
+              </div>
+              {campo("Máx. facturas activas","maxFacturas","3","number")}
+              <div style={{ gridColumn:"1/-1", background:COLOR.bg, borderRadius:10, padding:14 }}>
+                <p style={{ fontSize:11, fontWeight:700, color:COLOR.muted, marginBottom:8 }}>FÓRMULA DE EXPOSICIÓN</p>
+                <p style={{ fontSize:12.5, color:COLOR.text, lineHeight:1.8 }}>Σ Facturas pendientes + Σ Cheques por acreditar − Σ Notas de crédito no aplicadas <b style={{ color:COLOR.teal }}>= Exposición total del cliente</b></p>
+              </div>
+            </>)}
           </div>
         )}
 
@@ -16052,7 +16073,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
         </div>
       )}
       <div style={{ maxWidth:880, display:"flex", gap:12, marginTop:18, alignItems:"center", justifyContent:"flex-end" }}>
-        {esFreelance && ((form.condicionPago==="Crédito")||(form.listaPrecio==="Crédito")) && (
+        {esFreelance && (form.condicionPago==="Crédito") && (
           <label style={{ display:"flex", alignItems:"center", gap:8, marginRight:"auto", fontSize:12.5, color:COLOR.tealDark, cursor:"pointer", background:"#f4f9f7", border:`1px solid ${COLOR.border}`, padding:"8px 12px", borderRadius:9 }}>
             <input type="checkbox" checked={excepcionFreelance} onChange={e=>setExcepcionFreelance(e.target.checked)} />
             <span>🔓 Autorizar excepción (freelance): guardar a crédito con datos incompletos</span>
