@@ -64,6 +64,10 @@ const PLAN = [
     apps:["Comisionista","socio-comercial","freelance-completo"] },
   { arnes:"test_regalo_promo.js",    que:"el regalo no pasa de lo que concede la promoción",
     apps:["Comisionista","socio-comercial","freelance-completo"] },
+  /* la otra punta de la misma cadena: la piladora CONFIRMA el regalo al
+     despachar y `gratis_despachado_qq` viaja en el jsonb de `facturar_pedido` */
+  { arnes:"test_regalo_piladora.js", que:"la piladora confirma el regalo al despachar",
+    apps:["proveedor-freelance"] },
   { arnes:"test_promos_catalogo.js", que:"las promociones de la base llegan a P4 y P6",
     apps:["Comisionista","socio-comercial","freelance-completo"] },
   /* la regla del regalo vive en la BASE (migración PROMO-03), no en JavaScript: esta

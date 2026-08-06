@@ -1503,7 +1503,7 @@ async function vivoDecidir(){
     const mio = yo.prov_cod || null;   /* si el usuario es de una piladora, solo lo suyo */
     const [rp, ri, rc, rs] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
-      window.SB.from("pedido_items").select("item_id,ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq").limit(2000),
+      window.SB.from("pedido_items").select("item_id,ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq,gratis_qq,gratis_despachado_qq,tipo_precio,prod_id,es_demo").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
     ]);
@@ -1525,10 +1525,19 @@ async function vivoDecidir(){
            salir en ambar como "Por facturar" y alguien la volveria a facturar. */
         estado: p.estado==="facturado" ? "facturado" : p.estado==="anulado" ? "anulado" : "pendiente",
         factura:p.factura||null, demo:!!p.es_demo,
-        /* las líneas, para poder confirmar cuánto salió de cada producto */
+        /* la piladora del pedido: con ella se le pregunta a la base el tope del regalo */
+        provCod:p.prov_cod||null,
+        /* las líneas, para poder confirmar cuánto salió de cada producto.
+           El regalo viaja completo: cuánto se prometió (gratis_qq), cuánto ya
+           consta como entregado (gratis_despachado_qq: null = nadie se ha
+           pronunciado, que NO es lo mismo que 0), y el tipo de precio
+           (P3/P4/P6), que es el que dice DE QUIÉN es el costo del regalo. */
         lineas: its.map(i=>({ itemId:i.item_id, nombre:i.descripcion,
           pedido:Number(i.cantidad_qq||0), precio:Number(i.precio_usd||0),
-          despachado: i.despachado_qq==null ? null : Number(i.despachado_qq) })) };
+          despachado: i.despachado_qq==null ? null : Number(i.despachado_qq),
+          gratis:Number(i.gratis_qq||0),
+          gratisDespachado: i.gratis_despachado_qq==null ? null : Number(i.gratis_despachado_qq),
+          tipo:i.tipo_precio||null, prodId:i.prod_id||null, demo:!!i.es_demo })) };
     });
     let sols=((rs&&rs.data)||[]).filter(s=>s.destino==="proveedor");
     if(mio) sols=sols.filter(s=>!s.prov_cod || s.prov_cod===mio);
@@ -1602,11 +1611,55 @@ async function anularFacturaEnBase(pedId, motivo){
    que no existió. Por eso al facturar se confirma producto por producto.
    Va en una sola llamada a la base: la factura y las cantidades juntas, o
    ninguna de las dos. */
+/* ── EL REGALO SE CONFIRMA COMO LO VENDIDO ─────────────────────────────
+   Los tres tipos de promoción salen físicamente de TU bodega, pero el costo
+   lo absorbe uno distinto en cada caso, y eso se dice junto a cada regalo:
+   P3 lo paga el vendedor con su comisión, P4 lo paga el freelance, P6 lo
+   pagas tú. No es lo mismo regalar 2 qq que te van a pagar, que 2 qq que
+   absorbes tú. Si el tipo no consta (líneas viejas), se dice que no consta:
+   adivinar un bolsillo es peor que preguntar. */
+function quienAsumeRegalo(tipo){
+  if(tipo==="P3") return "te lo paga el vendedor: sale de su comisión";
+  if(tipo==="P4") return "te lo paga el freelance";
+  if(tipo==="P6") return "lo asumes tú: es tu promoción";
+  return "no consta quién lo paga: confírmalo antes de despachar";
+}
+
+/* Cuánto regalo PUEDE salir, con lo que de verdad está saliendo. El número
+   NO se calcula aquí: se le pregunta a `gratis_tope_al_despachar`, la MISMA
+   función que usa la base al facturar. Si la app tuviera su propia fórmula,
+   el día que una se corrija sin la otra la pantalla diría una cosa y el
+   cerrojo otra. En despacho corto el regalo baja en proporción: pidieron
+   100, salen 50, prometidos 2 → pueden salir 1.
+   Devuelve: número = tope en qq · undefined = no se pudo preguntar (sin
+   señal), y entonces la pantalla no bloquea a ciegas: manda el cerrojo de
+   la base. */
+async function topeRegaloAlDespachar({prodId, provCod, cantidadQq, despachadoQq, gratisQq, esDemo}){
+  if(!window.SB || !window.SB.rpc) return undefined;
+  try{
+    const { data, error } = await window.SB.rpc("gratis_tope_al_despachar", {
+      p_prod_id: prodId||null, p_prov_cod: provCod||null,
+      p_cantidad_qq: Number(cantidadQq)||0, p_despachado_qq: Number(despachadoQq)||0,
+      p_gratis_qq: Number(gratisQq)||0, p_es_demo: !!esDemo });
+    if(error) return undefined;
+    return (data===null || data===undefined) ? undefined : Number(data);
+  }catch(e){ return undefined; }
+}
+
 async function guardarFactura(pedId, numero, lineas){
   try{
     const { data, error } = await window.SB.rpc("facturar_pedido", {
       p_ped: pedId, p_factura: numero,
-      p_lineas: (lineas||[]).map(l=>({ item_id:l.itemId, despachado_qq:Number(l.despachado) })),
+      /* PROMO-02 · el regalo viaja JUNTO a lo vendido, en el mismo jsonb.
+         La clave `gratis_despachado_qq` va solo si la piladora se pronunció;
+         confirmar CERO es pronunciarse («no salió regalo»), así que el 0
+         viaja como 0. Si no se pronunció, la clave no va y la base deja su
+         constancia de regalo sin confirmar. */
+      p_lineas: (lineas||[]).map(l=>{
+        const fila = { item_id:l.itemId, despachado_qq:Number(l.despachado) };
+        if(l.gratisDesp!==undefined && l.gratisDesp!==null) fila.gratis_despachado_qq = Number(l.gratisDesp);
+        return fila;
+      }),
     });
     if(error) return { ok:false, motivo:error.message||"No se pudo facturar" };
     const r=(data&&data[0])||{};
@@ -1667,6 +1720,8 @@ function Decisiones({ctx, datos}){
   const [cheques,setCheques]=useState(CHEQ_AUT_INI);
   const [numFac,setNumFac]=useState({});          // id → número de factura digitado
   const [salio,setSalio]=useState({});            // "ped|item" → quintales que salieron
+  const [regalo,setRegalo]=useState({});          // "ped|item" → quintales de REGALO que salieron
+  const [topes,setTopes]=useState({});            // "ped|item" → tope de regalo que dijo la base
   const [facturando,setFacturando]=useState("");  // id del pedido que se está guardando
   const [nc,setNC]=useState(null);                // {pedido, linea} al que se le hace la NC
   const [ncQq,setNcQq]=useState(""); const [ncVal,setNcVal]=useState("");
@@ -1701,19 +1756,65 @@ function Decisiones({ctx, datos}){
   const totalPedido=(p)=> (p.lineas||[]).reduce((s,l)=>s+l.pedido,0);
   const sobrePedido=(p)=> (p.lineas||[]).some(l=>qqSalio(p,l) > l.pedido + 0.001);
 
+  /* ── EL REGALO DE CADA LÍNEA ──────────────────────────────────────────
+     Cuánto regalo salió: lo que la piladora escribió; mientras no escriba
+     nada, el tope que dijo la base (lo normal es que salga completo), y si
+     la base aún no contesta, lo prometido en el pedido. */
+  const qqRegalo=(p,l)=>{
+    const v = regalo[p.id+"|"+l.itemId];
+    if(v!==undefined && v!=="") return parseFloat(v)||0;
+    const t = topes[p.id+"|"+l.itemId];
+    return t!==undefined ? t : (Number(l.gratis)||0);
+  };
+  /* ¿Alguna línea con MÁS regalo del que la base dijo que puede salir?
+     Solo se frena con tope CONOCIDO: sin señal no se bloquea a ciegas,
+     manda el cerrojo de la base. */
+  const sobreRegalo=(p)=> (p.lineas||[]).some(l=>{
+    if(!(Number(l.gratis)>0)) return false;
+    const t = topes[p.id+"|"+l.itemId];
+    return t!==undefined && qqRegalo(p,l) > t + 0.005;
+  });
+  /* El tope se pregunta a la base cada vez que cambia lo que está saliendo:
+     en despacho corto el regalo baja en proporción, y la piladora tiene que
+     verlo ANTES de mandar, no llevarse el rechazo de sorpresa. */
+  React.useEffect(()=>{
+    if(!datos) return;
+    const t=setTimeout(async()=>{
+      for(const p of facturar){
+        if(p.estado!=="pendiente") continue;
+        for(const l of (p.lineas||[])){
+          if(!(Number(l.gratis)>0) || !l.prodId) continue;
+          const tope = await topeRegaloAlDespachar({ prodId:l.prodId, provCod:p.provCod,
+            cantidadQq:l.pedido, despachadoQq:qqSalio(p,l), gratisQq:l.gratis, esDemo:l.demo });
+          if(tope!==undefined) setTopes(x=>({...x,[p.id+"|"+l.itemId]:tope}));
+        }
+      }
+    },350);
+    return ()=>clearTimeout(t);
+  },[datos,facturar,salio]);
+
   const hacerFactura=async (p)=>{
     const num=(numFac[p.id]||"").trim();
     if(!num){ toca("Digita el número de factura para "+p.id+"."); return; }
     if(sobrePedido(p)){ toca("No puedes despachar más de lo que te pidieron."); return; }
+    if(sobreRegalo(p)){ toca("Hay un regalo con más quintales de los que pueden salir. Bájalo al tope que se muestra."); return; }
     if(totalSalio(p)<=0){ toca("Si no salió ni un quintal, eso no es una factura."); return; }
-    const lineas=(p.lineas||[]).map(l=>({ itemId:l.itemId, despachado:qqSalio(p,l) }));
+    /* el regalo viaja confirmado en TODAS las líneas que lo prometen:
+       la pantalla siempre trae un número puesto (el tope, o lo prometido),
+       así que de aquí no sale nunca un regalo «sin pronunciarse» */
+    const lineas=(p.lineas||[]).map(l=>{
+      const fila={ itemId:l.itemId, despachado:qqSalio(p,l) };
+      if(Number(l.gratis)>0) fila.gratisDesp=qqRegalo(p,l);
+      return fila;
+    });
     if(datos){
       setFacturando(p.id);
       const r = await guardarFactura(p.id, num, lineas);
       setFacturando("");
       if(!r.ok){ toca(r.motivo); return; }
       setFacturar(fs=>fs.map(x=>x.id===p.id?{...x,estado:"facturado",factura:num,
-        lineas:(x.lineas||[]).map(l=>({...l, despachado:qqSalio(p,l)}))}:x));
+        lineas:(x.lineas||[]).map(l=>({...l, despachado:qqSalio(p,l),
+          gratisDespachado: Number(l.gratis)>0 ? qqRegalo(p,l) : l.gratisDespachado}))}:x));
       toca(r.aviso);
       return;
     }
@@ -1837,6 +1938,16 @@ function Decisiones({ctx, datos}){
               Salió corto: {totalSalio(p)} de {totalPedido(p)} qq
             </div>
           )}
+          {/* ── Ya facturado y había regalo: queda a la vista qué se dijo ── */}
+          {p.estado==="facturado" && (p.lineas||[]).some(l=>Number(l.gratis)>0) && (
+            (p.lineas||[]).some(l=>Number(l.gratis)>0 && l.gratisDespachado==null)
+              ? <div style={{marginTop:6,fontSize:12,color:"#C2603A",fontWeight:700}}>
+                  ⚠ Regalo sin confirmar: nadie dijo si salió de bodega. Hay un aviso urgente abierto.
+                </div>
+              : <div style={{marginTop:6,fontSize:12,color:"#6B6455",fontWeight:600}}>
+                  🎁 Regalo entregado: {Math.round((p.lineas||[]).reduce((s,l)=>s+(Number(l.gratisDespachado)||0),0)*100)/100} qq · a valor cero
+                </div>
+          )}
 
           {/* ── Ya facturado: si hubo devolución, va nota de crédito ── */}
           {p.estado==="facturado" && (p.lineas||[]).length>0 && datos && (
@@ -1891,8 +2002,14 @@ function Decisiones({ctx, datos}){
                   ¿Cuántos quintales salieron de cada uno?</div>
                 {(p.lineas||[]).map(l=>{
                   const v=qqSalio(p,l), corto=v < l.pedido - 0.001, exceso=v > l.pedido + 0.001;
+                  const conRegalo=Number(l.gratis)>0;
+                  const tope=topes[p.id+"|"+l.itemId];
+                  const g=qqRegalo(p,l);
+                  const gExceso=conRegalo && tope!==undefined && g > tope + 0.005;
+                  const r1=x=>Math.round(x*100)/100;
                   return (
-                    <div key={l.itemId} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0"}}>
+                    <React.Fragment key={l.itemId}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0"}}>
                       <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {l.nombre}
                         <span className="num" style={{display:"block",fontSize:11,color:"#6B6455"}}>
@@ -1906,6 +2023,43 @@ function Decisiones({ctx, datos}){
                           borderRadius:10,fontSize:14,fontFamily:"inherit",outline:"none",
                           background: exceso?"#FDF3F0":corto?"#FCF9EF":"#fff"}}/>
                     </div>
+                    {/* ── EL REGALO DE LA PROMOCIÓN, JUNTO A LO VENDIDO ──
+                         Sale de tu bodega igual que lo vendido, pero se factura
+                         a valor cero y el costo lo absorbe quien dice el tipo
+                         de la línea. Viene puesto lo que puede salir; se toca
+                         solo si salió distinto. Poner 0 también vale: es dejar
+                         dicho que NO salió regalo. */}
+                    {conRegalo && (
+                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 0 6px",
+                        marginLeft:10,borderLeft:"3px solid "+(gExceso?"#C2603A":"#D8CFA8"),paddingLeft:10}}>
+                        <span style={{flex:1,minWidth:0,fontSize:12}}>
+                          🎁 Regalo — {quienAsumeRegalo(l.tipo)}
+                          <span className="num" style={{display:"block",fontSize:11,color:"#6B6455"}}>
+                            prometidos {r1(l.gratis)} qq{tope!==undefined?" · pueden salir hasta "+r1(tope)+" qq":""}
+                            {" · a valor cero en la factura"}</span>
+                        </span>
+                        <input className="num" type="number" inputMode="decimal" step="0.01" min="0"
+                          value={regalo[p.id+"|"+l.itemId] !== undefined ? regalo[p.id+"|"+l.itemId] : String(g)}
+                          onChange={e=>setRegalo(x=>({...x,[p.id+"|"+l.itemId]:e.target.value}))}
+                          style={{width:96,minHeight:48,boxSizing:"border-box",padding:"10px",textAlign:"right",
+                            border:"1px solid "+(gExceso?"#C2603A":"var(--linea)"),
+                            borderRadius:10,fontSize:14,fontFamily:"inherit",outline:"none",
+                            background: gExceso?"#FDF3F0":"#fff"}}/>
+                      </div>
+                    )}
+                    {gExceso && (
+                      <div style={{fontSize:12,color:"#C2603A",fontWeight:700,margin:"0 0 6px",paddingLeft:10}}>
+                        {corto
+                          ? "Como salieron "+r1(v)+" de "+r1(l.pedido)+" qq, el regalo baja a "+r1(tope)+" qq: no puedes despachar "+r1(g)+" qq de regalo."
+                          : "La promoción concede hasta "+r1(tope)+" qq de regalo: no puedes despachar "+r1(g)+" qq."}
+                      </div>
+                    )}
+                    {conRegalo && !gExceso && g===0 && (
+                      <div style={{fontSize:11.5,color:"#6B6455",margin:"0 0 6px",paddingLeft:10}}>
+                        Queda dicho que NO salió regalo de esta línea.
+                      </div>
+                    )}
+                    </React.Fragment>
                   );
                 })}
                 {sobrePedido(p) ? (
@@ -1923,8 +2077,8 @@ function Decisiones({ctx, datos}){
             <input value={numFac[p.id]||""} onChange={e=>setNumFac(n=>({...n,[p.id]:e.target.value}))}
               placeholder="N° de factura · ej: 001-001-0004777" inputMode="numeric"
               style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:"1px solid var(--linea)",borderRadius:10,fontSize:13.5,fontFamily:"inherit",marginTop:10,outline:"none"}}/>
-            <button style={{...btnOk, opacity: (facturando===p.id || sobrePedido(p)) ? .5 : 1}}
-              disabled={facturando===p.id || sobrePedido(p)}
+            <button style={{...btnOk, opacity: (facturando===p.id || sobrePedido(p) || sobreRegalo(p)) ? .5 : 1}}
+              disabled={facturando===p.id || sobrePedido(p) || sobreRegalo(p)}
               onClick={()=>hacerFactura(p)}>
               {facturando===p.id ? "Guardando…" : "Facturar ✓ · nace la comisión y entra a Logística"}</button>
           </>)}
