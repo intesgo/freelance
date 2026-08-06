@@ -70,6 +70,10 @@ const PLAN = [
      levanta un PostgreSQL de juguete y la corre tal cual. Si la máquina no tiene
      PostgreSQL, lo dice y no falla. */
   { arnes:"test_regalo_sql.js",      que:"la regla del regalo, corrida contra PostgreSQL", apps:[null] },
+  /* La otra mitad de lo mismo: hasta el 6 ago 2026 una promoción solo se podía
+     CARGAR escribiendo SQL. Esta mide la pantalla de oficina que las carga
+     (sistema-web.html, que sí vive en este repo: no necesita nada del privado). */
+  { arnes:"test_promos_carga.js",    que:"cargar una promoción sin escribir SQL", apps:[null] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */

@@ -228,6 +228,13 @@ const SECCIONES = [
   { key:"comisiones",   icon:"📊", label:"Comisiones",           sub:"Cortes y anticipos" },
   { key:"conciliacion", icon:"🤝", label:"Conciliación",         sub:"Cuenta corriente con piladoras" },
   { key:"catalogo",     icon:"🏭", label:"Productos",            sub:"Catálogo, precios y promociones" },
+  /* PROMO-05 · 6 ago 2026. Hasta hoy las promociones SOLO se podían meter por
+     SQL: la tabla estaba, el cerrojo del regalo estaba y el catálogo de las
+     apps ya las mostraba en P4 y P6, pero nadie de oficina las podía cargar.
+     Va aparte de Productos porque una promoción no cuelga de un producto:
+     cuelga de producto + presentación + piladora + fechas, y tiene su propio
+     ciclo de estados (pendiente → activa → dada de baja). */
+  { key:"promos",       icon:"🎁", label:"Promociones",          sub:"Compra y lleva · quién la paga y hasta cuándo" },
   { key:"emparejar",    icon:"🔗", label:"Emparejar códigos",   sub:"Códigos del proveedor → catálogo" },
   { key:"marcas",       icon:"🏅", label:"Marcas",               sub:"Exclusividad por zona" },
   /* "precios" (maqueta PreciosWeb) apagada el 24 jul 2026 y BORRADA el 27 jul (b58).
@@ -314,7 +321,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"133", fecha:"5 ago 2026", desc:"Fase 2: el «Precio base» y el margen de la ficha del producto ahora se derivan de las ofertas por piladora (presentación mayor, costo más alto), así coinciden con lo que se edita por piladora y ya no dependen de la tabla vieja precios." };
+const VERSION = { n:"134", fecha:"6 ago 2026", desc:"PROMO-05: nueva pantalla «Promociones». Hasta hoy solo se podían cargar por SQL. Se listan, se crean con producto + presentación + piladora + escalones, se ven en criollo antes de guardar («Por cada 100 Quintal, 2 gratis» y su equivalente en quintales), se activan y se dan de baja. Fechas con la hora de Ecuador." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -340,6 +347,11 @@ const AYUDA_SECCION = {
             "La pestaña Trazabilidad sigue el recorrido completo: pedido → factura → calidad → despacho → entrega → documentos."],
   catalogo: ["El catálogo que ven los vendedores: productos, presentaciones y promociones vigentes.",
              "El proveedor crea el producto y tú lo aceptas para tu equipo. Nada se borra: se marca inactivo."],
+  promos: ["Aquí se cargan las promociones que el vendedor puede ofrecer: «compra 100, lleva 2».",
+           "Una promoción cuelga de un producto Y de una presentación: «compra 100, lleva 2» en arrobas es cuatro veces menos grano que en quintales, y en fundas de 10 libras, diez veces menos.",
+           "Nace pendiente. Mientras está pendiente se puede corregir. Al activarla, el vendedor ya la ve en el pedido; al darla de baja, deja de verla.",
+           "El sistema no deja que el vendedor regale más de lo que aquí se cargó: esa cuenta la hace la base, no el teléfono.",
+           "No pueden convivir dos promociones del mismo tipo pisándose las fechas sobre el mismo producto y presentación: la pantalla avisa antes de guardar."],
   preciosvig: ["La bandeja de decisiones de precio. El precio en sí se ve y se ajusta en Catálogo → ficha del producto.",
             "El precio base lo determina SIEMPRE el Freelance. El proveedor propone su costo, pero nunca fija el precio base.",
             "Cada precio guarda desde y hasta cuándo rigió: al entrar uno nuevo, el anterior se cierra el día antes. Toca Ver historial en cualquier producto para ver su cadena.",
@@ -435,7 +447,7 @@ const TODAS_LAS_SECCIONES = SECCIONES.map(s => s.key);
 const GRUPOS_MENU = [
   { titulo:"Principal",  keys:["dashboard"] },
   { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","recepcion","calidad"] },
-  { titulo:"Comercial",  keys:["clientes","catalogo","emparejar","marcas","preciosvig","socio"] },
+  { titulo:"Comercial",  keys:["clientes","catalogo","promos","emparejar","marcas","preciosvig","socio"] },
   { titulo:"Finanzas",   keys:["cobranza","pagos","comisiones","conciliacion"] },
   { titulo:"Gestión",    keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
   { titulo:"Sistema",    keys:["config","fallos","cuentas","empresas","admin"] },
@@ -7236,6 +7248,664 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
               </>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PROMOCIONES · la pantalla que faltaba (PROMO-05 · 6 ago 2026)
+
+   Toda la cadena del regalo estaba puesta menos esto: la tabla `promociones`
+   con sus escalones en `promocion_tramos`, el cerrojo `gratis_que_concede`
+   que impide regalar de más, y el catálogo de las apps que ya las muestra en
+   P4 y P6. Lo único que faltaba era poder CARGARLAS sin escribir SQL. Eso es
+   esta pantalla.
+
+   LO QUE NO SE HACE AQUÍ, A PROPÓSITO:
+   · No se calcula cuánto regala una promoción. Esa cuenta vive en la función
+     `gratis_que_concede` de la base y ahí se queda: si se copiara en
+     JavaScript, el día que una se corrija la otra seguiría regalando mal.
+     Lo que se muestra en criollo es lo que el usuario acaba de teclear,
+     traducido a español, para que VEA el error antes de guardar.
+   · No se pelea con los guardias de la base, se los respeta:
+       - `tg_promo_guardia` no deja poner una promoción en pie sin ni un
+         escalón. Por eso la cabecera SIEMPRE nace `pendiente`, después se
+         guardan los escalones y solo al final, si el usuario pidió activarla,
+         se cambia el estado. Al revés reventaría siempre.
+       - la presentación tiene que existir para ese producto: por eso la lista
+         de presentaciones sale del producto elegido y no se puede teclear.
+       - dos promociones del mismo origen pisándose las fechas sobre el mismo
+         producto están prohibidas: aquí se avisa ANTES de mandar, con el
+         nombre de la que estorba.
+
+   LAS FECHAS SON DE ECUADOR, NO DE GREENWICH. `toISOString()` desde las 19h
+   de Guayaquil ya escribe la fecha de mañana: una promoción cargada de noche
+   empezaría a regalar cinco horas antes de lo que dice el papel. Se usa
+   `promoHoyEC()`, que es la misma zona que usa la base en su valor por
+   defecto (`now() at time zone 'America/Guayaquil'`).
+
+   LA PRESENTACIÓN NO ES UN DETALLE. «Compra 100, lleva 2» en quintales son
+   100 qq; en arrobas (0,25 qq) son 25 qq; en fundas de 10 libras (0,1 qq) son
+   10 qq. Cuatro y diez veces de diferencia en grano regalado. Por eso debajo
+   de cada escalón se escribe a cuántos quintales equivale lo tecleado.
+
+   Helpers con `function` (no `const`) para que hagan hoisting, como los de
+   Precios: así los puede usar cualquier componente de más arriba.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Las tres formas de promoción que aguanta la base. Hoy las apps de venta
+   solo saben APLICAR la primera: las otras dos se pueden guardar, pero el
+   vendedor todavía no las ve en el pedido, y la pantalla lo dice en voz alta
+   en vez de dejar que alguien cargue algo que nadie va a poder usar. */
+const PROMO_MODALIDADES = [
+  { cod:"compra_lleva",      label:"Compra y lleva gratis",      pista:"Ej: por cada 100, 2 gratis",        enPedido:true  },
+  { cod:"descuento_volumen", label:"Precio especial por volumen", pista:"Ej: desde 100, cada uno a $39,00", enPedido:false },
+  { cod:"descuento_factura", label:"Descuento en la factura",     pista:"Ej: desde 100, $50 o 5% menos",    enPedido:false },
+];
+const PROMO_ESTADOS = {
+  pendiente:{ label:"Pendiente",     color:"#b07d1a", fondo:"#FFF7E8" },
+  aprobada: { label:"Aprobada",      color:"#1c7a44", fondo:"#E9F8EF" },
+  activa:   { label:"Activa",        color:"#1c7a44", fondo:"#E9F8EF" },
+  rechazada:{ label:"No aprobada",   color:"#c0392b", fondo:"#FDECEA" },
+  vencida:  { label:"Vencida",       color:"#6b7280", fondo:"#F1F3F5" },
+  inactiva: { label:"Dada de baja",  color:"#6b7280", fondo:"#F1F3F5" },
+};
+/* Los dos estados que las apps de venta consideran "en pie" (los mismos que
+   filtra `gratis_que_concede`). Cualquier otro no le llega al vendedor. */
+const PROMO_EN_PIE = ["activa","aprobada"];
+const PROMO_LEJANA = "9999-12-31";   /* "sin fecha de fin", para comparar como texto */
+
+/* HOY en Ecuador. Nunca toISOString(): eso es Greenwich y adelanta el día a
+   las 19h, con la promoción rigiendo cinco horas antes de lo escrito. */
+function promoHoyEC() {
+  return new Date().toLocaleDateString("sv-SE", { timeZone:"America/Guayaquil" });
+}
+/* Números con coma, como se leen aquí: 0.5 → "0,50" */
+function promoNum(n) {
+  return Number(n||0).toLocaleString("es-EC", { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+/* Cantidades: 100 se escribe "100", no "100,00"; 2,5 sí lleva su coma. */
+function promoCant(n) {
+  const x = Number(n||0);
+  return Math.round(x) === x ? String(Math.round(x)) : promoNum(x);
+}
+/* "2026-08-10" → "10/08/2026". Sin pasar por Date, que en UTC-5 corre el día. */
+function promoFecha(iso) {
+  const p = String(iso||"").slice(0,10).split("-");
+  return p.length === 3 && p[0] ? p[2]+"/"+p[1]+"/"+p[0] : "—";
+}
+function promoVigenciaTexto(o) {
+  const d = promoFecha(o && o.vigente_desde);
+  return (o && o.vigente_hasta) ? ("del "+d+" al "+promoFecha(o.vigente_hasta))
+                                : ("desde el "+d+", sin fecha de fin");
+}
+/* La presentación tal como va a la base: "*" en pantalla = todas = NULL. */
+function promoPresCod(f) {
+  return (!f || !f.presCod || f.presCod === "*") ? null : f.presCod;
+}
+/* Un escalón tecleado → la fila de `promocion_tramos`, con los huecos que
+   manda el CHECK de la base (cada modalidad llena SU columna y ninguna más). */
+function promoTramoDeFila(modalidad, fila) {
+  const num = (v) => { const x = parseFloat(String(v==null?"":v).replace(",",".")); return isFinite(x) ? x : 0; };
+  const f = fila || {};
+  const t = { modalidad:modalidad, desde_cant:num(f.desde),
+    gratis_cant:null, precio_unit:null, desc_monto:null, desc_pct:null };
+  if (modalidad === "compra_lleva")           t.gratis_cant = num(f.gratis) || null;
+  else if (modalidad === "descuento_volumen") t.precio_unit = num(f.precio) || null;
+  else if (f.tipoDesc === "pct")              t.desc_pct    = num(f.pct)    || null;
+  else                                        t.desc_monto  = num(f.monto)  || null;
+  return t;
+}
+function promoTramoValido(t) {
+  if (!t || !(Number(t.desde_cant) > 0)) return false;
+  if (t.modalidad === "compra_lleva")      return Number(t.gratis_cant) > 0;
+  if (t.modalidad === "descuento_volumen") return Number(t.precio_unit) > 0;
+  return Number(t.desc_monto) > 0 || (Number(t.desc_pct) > 0 && Number(t.desc_pct) <= 100);
+}
+/* EN CRIOLLO: lo que el usuario acaba de teclear, dicho como se lo diría a un
+   cliente, más a cuántos quintales equivale. Los números salen del escalón,
+   no de ninguna cuenta propia. */
+function promoCriollo(modalidad, tramo, presNombre, equivQQ) {
+  const t = tramo || {}, pres = presNombre || "Quintal";
+  const d = Number(t.desde_cant||0);
+  const eq = Number(equivQQ) > 0 ? Number(equivQQ) : 1;
+  const vacio = { linea:"", qq:"" };
+  if (!(d > 0)) return vacio;
+  const compra = "Son " + promoNum(d*eq) + " qq comprados";
+  if (modalidad === "compra_lleva") {
+    const g = Number(t.gratis_cant||0);
+    if (!(g > 0)) return vacio;
+    return { linea: "Por cada " + promoCant(d) + " " + pres + ", " + promoCant(g) + " gratis",
+             qq: compra + " y " + promoNum(g*eq) + " qq de regalo." };
+  }
+  if (modalidad === "descuento_volumen") {
+    const p = Number(t.precio_unit||0);
+    if (!(p > 0)) return vacio;
+    return { linea: "Desde " + promoCant(d) + " " + pres + ", cada uno a $" + promoNum(p),
+             qq: compra + "." };
+  }
+  const m = Number(t.desc_monto||0), pc = Number(t.desc_pct||0);
+  if (m > 0)  return { linea:"Desde "+promoCant(d)+" "+pres+", $"+promoNum(m)+" menos en la factura", qq:compra+"." };
+  if (pc > 0 && pc <= 100)
+    return { linea:"Desde "+promoCant(d)+" "+pres+", "+promoCant(pc)+"% menos en la factura", qq:compra+"." };
+  return vacio;
+}
+/* ¿Hay otra promoción EN PIE que se pise con esta? Se mira igual que la base
+   en `tg_promo_guardia`: mismo producto, misma presentación (NULL solo choca
+   con NULL), mismo origen, lo demo no le estorba a lo real, y las fechas
+   cruzadas. Avisar aquí es mejor que enterarse por el error de Postgres. */
+function promoSolape(f, otras) {
+  if (!f || !f.desde || !f.prodId) return null;
+  const pc = promoPresCod(f);
+  const d1 = String(f.desde).slice(0,10);
+  const h1 = f.hasta ? String(f.hasta).slice(0,10) : PROMO_LEJANA;
+  let choque = null;
+  (otras||[]).forEach(o => {
+    if (choque) return;
+    if (o.promo_id === f.promoId) return;
+    if (PROMO_EN_PIE.indexOf(o.estado) < 0) return;
+    if (o.prod_id !== f.prodId) return;
+    if ((o.pres_cod || null) !== pc) return;
+    if (o.origen !== f.origen) return;
+    if (o.es_demo === true) return;
+    const d2 = String(o.vigente_desde||"").slice(0,10);
+    const h2 = o.vigente_hasta ? String(o.vigente_hasta).slice(0,10) : PROMO_LEJANA;
+    if (d1 <= h2 && h1 >= d2) choque = o;
+  });
+  return choque;
+}
+/* Todo lo que está mal, dicho en cristiano y en una sola pasada, para que el
+   usuario lo arregle de un viaje y no de a un error por vez. */
+function promoAvisos(f, otras) {
+  const a = [];
+  const form = f || {};
+  if (!String(form.nombre||"").trim())
+    a.push("Ponle un nombre a la promoción: así la reconoces en la lista.");
+  if (!form.prodId)
+    a.push("Elige el producto de la promoción.");
+  if (!form.presCod)
+    a.push("Elige la presentación: «compra 100, lleva 2» no es lo mismo en quintal que en arroba.");
+  if (form.origen === "proveedor" && !form.provCod)
+    a.push("Dijiste que la paga la piladora: elige cuál.");
+  if (!form.desde)
+    a.push("Falta la fecha desde la que rige.");
+  if (form.desde && form.hasta && String(form.hasta) < String(form.desde))
+    a.push("Las fechas están al revés: termina el " + promoFecha(form.hasta) +
+           " y empieza el " + promoFecha(form.desde) + ".");
+  const tramos = (form.escalones||[]).map(x => promoTramoDeFila(form.modalidad, x)).filter(promoTramoValido);
+  if (tramos.length === 0)
+    a.push("Falta la regla: no dice cuánto hay que comprar ni qué se lleva. Llena al menos un escalón.");
+  const vistos = {};
+  tramos.forEach(t => {
+    const k = String(t.desde_cant);
+    if (vistos[k]) a.push("Hay dos escalones que arrancan en " + promoCant(t.desde_cant) + ". Deja uno solo.");
+    vistos[k] = true;
+  });
+  const ch = promoSolape(form, otras);
+  if (ch)
+    a.push("Ya hay otra promoción en pie para ese producto: «" + ch.nombre + "», que rige " +
+           promoVigenciaTexto(ch) + ". Dale de baja primero o cambia las fechas.");
+  return a.filter((x,i) => a.indexOf(x) === i);
+}
+/* El formulario → las filas que van a la base. La cabecera SIEMPRE nace
+   `pendiente`: activar sin escalones lo prohíbe `tg_promo_guardia`, y los
+   escalones se escriben después de la cabecera. */
+function promoFilas(f, promoId) {
+  const form = f || {};
+  const tramos = (form.escalones||[]).map(x => promoTramoDeFila(form.modalidad, x))
+    .filter(promoTramoValido).sort((a,b) => a.desde_cant - b.desde_cant);
+  const primero = tramos[0] || null;
+  const cabecera = {
+    promo_id: promoId, org_id:"ORG-001", nombre: String(form.nombre||"").trim(),
+    modalidad: form.modalidad, origen: form.origen, prov_cod: form.provCod || null,
+    prod_id: form.prodId, pres_cod: promoPresCod(form),
+    detalle: primero ? promoCriollo(form.modalidad, primero, form.presNombre, form.equivQQ).linea : null,
+    base: null, estado:"pendiente",
+    vigente_desde: form.desde, vigente_hasta: form.hasta || null, es_demo:false,
+  };
+  const filas = tramos.map(t => ({ promo_id:promoId, modalidad:form.modalidad,
+    desde_cant:t.desde_cant, gratis_cant:t.gratis_cant, precio_unit:t.precio_unit,
+    desc_monto:t.desc_monto, desc_pct:t.desc_pct, es_demo:false }));
+  return { cabecera:cabecera, tramos:filas };
+}
+/* Mismo formato que el valor por defecto de la base (PM-AAMMDD-xxxxxx), con
+   la fecha de Ecuador. Se arma aquí para poder escribir los escalones en la
+   misma pasada, sin tener que releer la fila recién insertada. */
+function promoNuevoId() {
+  const f = promoHoyEC().slice(2).replace(/-/g, "");
+  let s = ""; const abc = "0123456789abcdef";
+  for (let i = 0; i < 6; i++) s += abc[Math.floor(Math.random()*16)];
+  return "PM-" + f + "-" + s;
+}
+
+function PromocionesWeb({ usuario }) {
+  const soloLectura = usuario && usuario.rol === "Administrador de Plataforma";
+  const [promos, setPromos]   = useState([]);
+  const [tramos, setTramos]   = useState({});      /* { promo_id: [tramo, …] } */
+  const [prods, setProds]     = useState([]);
+  const [pres, setPres]       = useState({});      /* { prod_id: [presentación, …] } */
+  const [provs, setProvs]     = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [fuente, setFuente]   = useState("vacio"); /* vivo | vacio */
+  const [modal, setModal]     = useState(null);    /* null | {promo:null|fila} */
+  const [aviso, setAviso]     = useState("");
+  const [filtro, setFiltro]   = useState("todas"); /* todas | enpie | pendiente */
+  const [pag, setPag]         = useState(0);
+  const decir = (m) => { setAviso(m); setTimeout(()=>setAviso(""), 4200); };
+
+  const cargar = React.useCallback(async () => {
+    if (!window.supa) { setCargando(false); return; }
+    setCargando(true);
+    try {
+      const { data:pr } = await window.supa.from("promociones").select("*").order("creado", { ascending:false });
+      const lista = pr || [];
+      setPromos(lista);
+      setFuente(lista.length ? "vivo" : "vacio");
+      const { data:tr } = await window.supa.from("promocion_tramos").select("*").order("desde_cant");
+      const mapa = {};
+      (tr||[]).forEach(t => { (mapa[t.promo_id] = mapa[t.promo_id] || []).push(t); });
+      Object.keys(mapa).forEach(k => mapa[k].sort((a,b) => Number(a.desde_cant) - Number(b.desde_cant)));
+      setTramos(mapa);
+      const { data:ps } = await window.supa.from("productos")
+        .select("prod_id,nombre,proveedor,proveedor_cod").eq("estado","activo").order("nombre");
+      setProds(ps || []);
+      const { data:pe } = await window.supa.from("presentaciones")
+        .select("prod_id,presentacion_cod,presentacion,equiv_qq");
+      const mp = {};
+      (pe||[]).forEach(x => { (mp[x.prod_id] = mp[x.prod_id] || []).push(x); });
+      Object.keys(mp).forEach(k => mp[k].sort((a,b) => Number(b.equiv_qq||0) - Number(a.equiv_qq||0)));
+      setPres(mp);
+      const { data:pv } = await window.supa.from("proveedores").select("prov_cod,nombre").eq("activo", true).order("nombre");
+      setProvs(pv || []);
+    } catch (e) { /* sin sesión o sin red: la lista queda vacía y se dice arriba */ }
+    setCargando(false);
+  }, []);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  /* Cambiar de estado es UNA instrucción; los guardias de la base hacen el
+     resto (no deja activar sin escalones ni pisar otra promoción vigente). */
+  const cambiarEstado = async (p, estado, etiqueta) => {
+    if (soloLectura) return;
+    if (!window.supa) { decir("Sin conexión con el servidor."); return; }
+    const { error } = await window.supa.from("promociones").update({ estado:estado }).eq("promo_id", p.promo_id);
+    if (error) { decir("No se pudo: " + (error.message || "error")); return; }
+    auditar(usuario, "Promociones", etiqueta, p.promo_id + " · " + p.nombre,
+      p.prod_id + (p.pres_cod ? " · " + p.pres_cod : "") + " · " + promoVigenciaTexto(p));
+    await cargar();
+    decir("«" + p.nombre + "» quedó " + (PROMO_ESTADOS[estado] ? PROMO_ESTADOS[estado].label.toLowerCase() : estado) + " ✓");
+  };
+
+  const nombreProd = (id) => { const p = prods.find(x => x.prod_id === id); return p ? p.nombre : id; };
+  const nombrePres = (prodId, cod) => {
+    if (!cod) return "Todas las presentaciones";
+    const l = (pres[prodId] || []).find(x => x.presentacion_cod === cod);
+    return l ? l.presentacion : cod;
+  };
+  const nombreProv = (cod) => {
+    if (!cod) return "Todas las piladoras";
+    const p = provs.find(x => x.prov_cod === cod); return p ? p.nombre : cod;
+  };
+  /* La base guarda el estado; la fecha es otra cosa. Una promoción "activa"
+     cuyo último día ya pasó no regala nada (lo corta `gratis_que_concede`),
+     y hay que verlo en la lista para no quedarse esperando. */
+  const yaVencio = (p) => !!(p.vigente_hasta && String(p.vigente_hasta).slice(0,10) < promoHoyEC());
+  const enPie = (p) => PROMO_EN_PIE.indexOf(p.estado) >= 0 && !yaVencio(p);
+
+  const visibles = promos.filter(p =>
+    filtro === "enpie" ? enPie(p) : filtro === "pendiente" ? p.estado === "pendiente" : true);
+  const pg = usarPaginacion(visibles, pag);
+
+  if (modal) return (
+    <ModalPromocion usuario={usuario} promo={modal.promo} prods={prods} pres={pres} provs={provs}
+      tramos={modal.promo ? (tramos[modal.promo.promo_id] || []) : []} otras={promos}
+      onCerrar={()=>setModal(null)}
+      onGuardado={async (msg)=>{ setModal(null); await cargar(); decir(msg); }} />
+  );
+
+  const chip = (e) => PROMO_ESTADOS[e] || { label:e, color:COLOR.muted, fondo:"#F1F3F5" };
+  const cab = { display:"grid", gridTemplateColumns:"1.5fr 1.6fr 1.5fr 1.2fr 1fr 1.4fr", gap:10 };
+
+  return (
+    <div style={{ padding:"22px 28px 40px" }}>
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:11.5, fontWeight:700, color: fuente==="vivo" ? "#1c7a44" : COLOR.sub || COLOR.muted }}>
+          {cargando ? "Cargando promociones…"
+            : fuente==="vivo" ? "🟢 Promociones guardadas en la base"
+            : "⚪ Todavía no hay ninguna promoción cargada"}
+        </span>
+      </div>
+      {aviso && <div onClick={()=>setAviso("")} style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)",
+        background:"#1E1B14", color:"#fff", borderRadius:10, padding:"11px 18px", fontSize:13, fontWeight:600, zIndex:90, cursor:"pointer" }}>{aviso}</div>}
+
+      <div style={{ display:"flex", gap:14, marginBottom:20, flexWrap:"wrap" }}>
+        {[["En pie ahora", promos.filter(enPie).length, COLOR.teal],
+          ["Pendientes de aprobar", promos.filter(p=>p.estado==="pendiente").length, "#b07d1a"],
+          ["Cargadas en total", promos.length, COLOR.text]].map(([t,n,c]) => (
+          <div key={t} style={{ flex:"1 1 160px", background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"16px 18px" }}>
+            <p style={{ fontSize:11.5, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>{t}</p>
+            <p className="num" style={{ fontSize:24, fontWeight:800, color:c }}>{n}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:6 }}>
+          {[["todas","Todas"],["enpie","En pie"],["pendiente","Pendientes"]].map(([k,t]) => (
+            <button key={k} onClick={()=>{ setFiltro(k); setPag(0); }} style={{ padding:"8px 14px", borderRadius:8, cursor:"pointer",
+              fontSize:12.5, fontWeight:700, border:`1px solid ${filtro===k?COLOR.teal:COLOR.border}`,
+              background: filtro===k?COLOR.tealLight:"#fff", color: filtro===k?COLOR.tealDark:COLOR.text }}>{t}</button>
+          ))}
+        </div>
+        {!soloLectura && <button onClick={()=>setModal({ promo:null })} style={{ padding:"10px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700 }}>+ Nueva promoción</button>}
+      </div>
+
+      <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
+        <div style={{ ...cab, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
+          <span>Promoción</span><span>Producto y presentación</span><span>La regla</span><span>Vigencia</span><span>Estado</span><span>Qué puedes hacer</span>
+        </div>
+        {visibles.length === 0 && (
+          <div style={{ padding:"26px 18px", fontSize:13.5, color:COLOR.muted }}>
+            {cargando ? "Cargando…" : "No hay promociones que mostrar. Toca «+ Nueva promoción» para cargar la primera."}
+          </div>
+        )}
+        {pg.filas.map((p,i) => {
+          const ts = tramos[p.promo_id] || [];
+          const pl = (pres[p.prod_id]||[]).find(x => x.presentacion_cod === p.pres_cod);
+          const cr = ts.length ? promoCriollo(p.modalidad, ts[0], nombrePres(p.prod_id, p.pres_cod), pl ? pl.equiv_qq : 1) : { linea:"", qq:"" };
+          const est = chip(p.estado);
+          const mod = PROMO_MODALIDADES.find(m => m.cod === p.modalidad);
+          return (
+            <div key={p.promo_id} style={{ ...cab, padding:"14px 18px", borderTop: i>0?`1px solid ${COLOR.border}`:"none", alignItems:"center", fontSize:13 }}>
+              <div>
+                <p style={{ fontWeight:700, color:COLOR.text }}>{p.nombre}</p>
+                <p style={{ fontSize:11, color:COLOR.muted }}>{p.origen==="proveedor" ? "La paga " + nombreProv(p.prov_cod) : "La paga el freelance"}</p>
+              </div>
+              <div>
+                <p style={{ color:COLOR.text }}>{nombreProd(p.prod_id)}</p>
+                <p style={{ fontSize:11, color:COLOR.muted }}>{nombrePres(p.prod_id, p.pres_cod)}</p>
+              </div>
+              <div>
+                <p style={{ color:COLOR.text }}>{cr.linea || "Sin escalones cargados"}</p>
+                <p style={{ fontSize:11, color:COLOR.muted }}>
+                  {ts.length > 1 ? ts.length + " escalones · " : ""}{mod && !mod.enPedido ? "El vendedor todavía no la puede usar" : cr.qq}
+                </p>
+              </div>
+              <div>
+                <p className="num" style={{ color:COLOR.text, fontSize:12 }}>{promoVigenciaTexto(p)}</p>
+                {yaVencio(p) && <p style={{ fontSize:11, color:COLOR.red, fontWeight:700 }}>Ya pasó su último día</p>}
+              </div>
+              <span><span style={{ fontSize:10.5, fontWeight:700, padding:"4px 9px", borderRadius:999, color:est.color, background:est.fondo }}>{est.label}</span></span>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {soloLectura ? <span style={{ fontSize:11.5, color:COLOR.muted }}>Solo lectura</span> : <>
+                  {p.estado === "pendiente" && <button onClick={()=>setModal({ promo:p })} style={{ padding:"6px 11px", borderRadius:8, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, color:COLOR.text }}>Corregir</button>}
+                  {(p.estado === "pendiente" || p.estado === "aprobada") && <button onClick={()=>cambiarEstado(p, "activa", "Promoción activada")} style={{ padding:"6px 11px", borderRadius:8, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700 }}>Activar</button>}
+                  {p.estado === "pendiente" && <button onClick={()=>cambiarEstado(p, "rechazada", "Promoción no aprobada")} style={{ padding:"6px 11px", borderRadius:8, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, color:COLOR.red }}>No aprobar</button>}
+                  {PROMO_EN_PIE.indexOf(p.estado) >= 0 && <button onClick={()=>cambiarEstado(p, "inactiva", "Promoción dada de baja")} style={{ padding:"6px 11px", borderRadius:8, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, color:COLOR.red }}>Dar de baja</button>}
+                  {["rechazada","inactiva","vencida"].indexOf(p.estado) >= 0 && <span style={{ fontSize:11.5, color:COLOR.muted }}>Cerrada</span>}
+                </>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <VerMas pg={pg} onMas={setPag} />
+    </div>
+  );
+}
+
+/* La carga en sí. Ocupa la pantalla entera (el menú lateral sigue visible),
+   igual que el registro de control de calidad: en el celular un modal chico
+   con escalones adentro no se puede usar. */
+function ModalPromocion({ usuario, promo, prods, pres, provs, tramos, otras, onCerrar, onGuardado }) {
+  const esNueva = !promo;
+  const presDe = (id) => (pres && pres[id]) || [];
+  const escalonVacio = { desde:"", gratis:"", precio:"", monto:"", pct:"", tipoDesc:"monto" };
+  const [f, setF] = useState(() => {
+    if (promo) {
+      const lista = (tramos||[]).map(t => ({
+        desde: t.desde_cant==null ? "" : String(t.desde_cant),
+        gratis: t.gratis_cant==null ? "" : String(t.gratis_cant),
+        precio: t.precio_unit==null ? "" : String(t.precio_unit),
+        monto: t.desc_monto==null ? "" : String(t.desc_monto),
+        pct: t.desc_pct==null ? "" : String(t.desc_pct),
+        tipoDesc: t.desc_pct!=null ? "pct" : "monto",
+      }));
+      return { promoId:promo.promo_id, nombre:promo.nombre||"", prodId:promo.prod_id||"",
+        presCod: promo.pres_cod || "*", provCod: promo.prov_cod || "", origen: promo.origen || "freelance",
+        modalidad: promo.modalidad || "compra_lleva",
+        desde: String(promo.vigente_desde||"").slice(0,10),
+        hasta: promo.vigente_hasta ? String(promo.vigente_hasta).slice(0,10) : "",
+        escalones: lista.length ? lista : [{ ...escalonVacio }] };
+    }
+    return { promoId:null, nombre:"", prodId:"", presCod:"", provCod:"", origen:"freelance",
+      modalidad:"compra_lleva", desde: promoHoyEC(), hasta:"", escalones:[{ ...escalonVacio }] };
+  });
+  /* al corregir una promoción, el buscador arranca con el nombre del producto
+     ya escrito: si arrancara vacío parecería que se perdió el producto */
+  const [busca, setBusca] = useState(() => {
+    if (!promo) return "";
+    const p = (prods||[]).find(x => x.prod_id === promo.prod_id);
+    return p ? p.nombre : "";
+  });
+  const [avisos, setAvisos] = useState([]);
+  const [guardando, setGuardando] = useState(false);
+  const cambiar = (k, v) => setF(x => ({ ...x, [k]:v }));
+
+  const prodSel = (prods||[]).find(p => p.prod_id === f.prodId) || null;
+  const presList = presDe(f.prodId);
+  const presSel = presList.find(p => p.presentacion_cod === f.presCod) || null;
+  const presNombre = f.presCod === "*" ? "Quintal" : (presSel ? presSel.presentacion : "");
+  const equivQQ = f.presCod === "*" ? 1 : (presSel ? Number(presSel.equiv_qq) : 1);
+  const modSel = PROMO_MODALIDADES.find(m => m.cod === f.modalidad) || PROMO_MODALIDADES[0];
+  const conDatos = { ...f, presNombre:presNombre, equivQQ:equivQQ };
+
+  const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none" };
+  const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
+  const bloque = { background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"18px 20px", marginBottom:16 };
+
+  const ponerEscalon = (i, k, v) => setF(x => ({ ...x, escalones: x.escalones.map((e,j) => j===i ? { ...e, [k]:v } : e) }));
+  const quitarEscalon = (i) => setF(x => ({ ...x, escalones: x.escalones.length<=1 ? x.escalones : x.escalones.filter((e,j)=>j!==i) }));
+  const agregarEscalon = () => setF(x => ({ ...x, escalones: x.escalones.concat([{ ...escalonVacio }]) }));
+
+  const guardar = async (activar) => {
+    if (guardando) return;
+    const problemas = promoAvisos(conDatos, otras);
+    setAvisos(problemas);
+    if (problemas.length) return;
+    if (!window.supa) { setAvisos(["Sin conexión con el servidor: no se puede guardar."]); return; }
+    setGuardando(true);
+    const promoId = f.promoId || promoNuevoId();
+    const { cabecera, tramos:filas } = promoFilas(conDatos, promoId);
+    try {
+      if (esNueva) {
+        /* 1) la cabecera, SIEMPRE pendiente: `tg_promo_guardia` no deja poner
+              en pie una promoción que todavía no tiene ni un escalón. */
+        const { error:e1 } = await window.supa.from("promociones").insert(cabecera);
+        if (e1) throw new Error(e1.message);
+      } else {
+        const { promo_id, org_id, estado, es_demo, ...campos } = cabecera;
+        const { error:e1 } = await window.supa.from("promociones").update(campos).eq("promo_id", promoId);
+        if (e1) throw new Error(e1.message);
+        const { error:e0 } = await window.supa.from("promocion_tramos").delete().eq("promo_id", promoId);
+        if (e0) throw new Error(e0.message);
+      }
+      /* 2) los escalones */
+      const { error:e2 } = await window.supa.from("promocion_tramos").insert(filas);
+      if (e2) throw new Error(e2.message);
+      /* 3) y solo ahora, con la regla ya escrita, se la pone a andar */
+      if (activar) {
+        const { error:e3 } = await window.supa.from("promociones").update({ estado:"activa" }).eq("promo_id", promoId);
+        if (e3) throw new Error(e3.message);
+      }
+      auditar(usuario, "Promociones", esNueva ? (activar ? "Promoción creada y activada" : "Promoción creada (pendiente)") : "Promoción corregida",
+        promoId + " · " + cabecera.nombre,
+        cabecera.prod_id + (cabecera.pres_cod ? " · " + cabecera.pres_cod : " · todas las presentaciones") +
+        " · " + (cabecera.detalle || "sin regla") + " · " + promoVigenciaTexto(cabecera));
+      onGuardado("«" + cabecera.nombre + "» " + (activar ? "quedó activa ✓" : "quedó pendiente de aprobar ✓"));
+    } catch (e) {
+      setAvisos(["No se pudo guardar: " + ((e && e.message) || "error") ]);
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div style={{ padding:"22px 28px 40px", maxWidth:820 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+        <div>
+          <h2 style={{ fontSize:19, fontWeight:800, color:COLOR.text }}>{esNueva ? "Nueva promoción" : "Corregir promoción"}</h2>
+          <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:3 }}>Lo que cargues aquí es lo que el vendedor podrá regalar. Ni un quintal más.</p>
+        </div>
+        <button onClick={onCerrar} style={{ border:"none", background:"none", fontSize:24, color:COLOR.muted, cursor:"pointer" }}>×</button>
+      </div>
+
+      <div style={bloque}>
+        <label style={lbl}>1 · Nombre de la promoción</label>
+        <input value={f.nombre} onChange={e=>cambiar("nombre", e.target.value)}
+          placeholder="Ej: Combo de agosto · Arroz Crecedor" style={{ ...inp, marginBottom:16 }} />
+
+        <label style={lbl}>2 · Producto</label>
+        <div style={{ marginBottom:14 }}>
+          <BuscadorPredictivo cat="productos" items={prods||[]} value={busca}
+            placeholder="Escribe el nombre del producto…"
+            label={p=>p.nombre} sub={p=>p.proveedor || "Sin piladora asignada"}
+            onText={t=>{ setBusca(t); if (t==="") setF(x=>({ ...x, prodId:"", presCod:"" })); }}
+            onPick={p=>{ setBusca(p.nombre);
+              setF(x=>({ ...x, prodId:p.prod_id, presCod:"", provCod: x.provCod || p.proveedor_cod || "" })); }} />
+          {prodSel && <p style={{ fontSize:12, color:COLOR.tealDark, fontWeight:700, marginTop:6 }}>✓ {prodSel.nombre}</p>}
+        </div>
+
+        <label style={lbl}>3 · Presentación</label>
+        <select value={f.presCod} disabled={!f.prodId} onChange={e=>cambiar("presCod", e.target.value)}
+          style={{ ...inp, marginBottom:6, cursor: f.prodId?"pointer":"default", background: f.prodId?"#fff":"#f3f5f7" }}>
+          <option value="">{f.prodId ? "Elige la presentación…" : "Primero elige el producto"}</option>
+          {presList.map(p => (
+            <option key={p.presentacion_cod} value={p.presentacion_cod}>
+              {p.presentacion} · 1 = {promoNum(p.equiv_qq)} qq
+            </option>
+          ))}
+          <option value="*">Todas las presentaciones · los números van en quintales</option>
+        </select>
+        <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:16 }}>
+          «Compra 100, lleva 2» es 4 veces menos grano en arrobas y 10 veces menos en fundas de 10 libras. Por eso la presentación importa.
+        </p>
+
+        <label style={lbl}>4 · Quién paga el regalo</label>
+        <div style={{ display:"flex", gap:10, marginBottom:14 }}>
+          {[["freelance","Lo paga el freelance"],["proveedor","Lo paga la piladora"]].map(([k,t]) => (
+            <button key={k} onClick={()=>cambiar("origen", k)} style={{ flex:1, padding:"11px", borderRadius:9, cursor:"pointer", fontSize:13, fontWeight:700,
+              border:`1px solid ${f.origen===k?COLOR.teal:COLOR.border}`, background: f.origen===k?COLOR.tealLight:"#fff", color: f.origen===k?COLOR.tealDark:COLOR.text }}>{t}</button>
+          ))}
+        </div>
+
+        <label style={lbl}>5 · Piladora</label>
+        <select value={f.provCod} onChange={e=>cambiar("provCod", e.target.value)} style={{ ...inp, marginBottom:16, cursor:"pointer" }}>
+          <option value="">Todas las piladoras</option>
+          {(provs||[]).map(p => <option key={p.prov_cod} value={p.prov_cod}>{p.nombre}</option>)}
+        </select>
+
+        <label style={lbl}>6 · Desde cuándo y hasta cuándo rige</label>
+        <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
+          <div style={{ flex:"1 1 180px" }}>
+            <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:4 }}>Empieza</p>
+            <input type="date" value={f.desde} onChange={e=>cambiar("desde", e.target.value)} style={inp} />
+          </div>
+          <div style={{ flex:"1 1 180px" }}>
+            <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:4 }}>Termina (vacío = sin fecha de fin)</p>
+            <input type="date" value={f.hasta} onChange={e=>cambiar("hasta", e.target.value)} style={inp} />
+          </div>
+        </div>
+        <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>El último día cuenta: si pones hasta el {promoFecha(f.hasta || f.desde)}, ese día todavía regala.</p>
+      </div>
+
+      <div style={bloque}>
+        <label style={lbl}>7 · Tipo de promoción</label>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+          {PROMO_MODALIDADES.map(m => (
+            <button key={m.cod} onClick={()=>cambiar("modalidad", m.cod)} style={{ padding:"10px 13px", borderRadius:9, cursor:"pointer", fontSize:12.5, fontWeight:700, textAlign:"left",
+              border:`1px solid ${f.modalidad===m.cod?COLOR.teal:COLOR.border}`, background: f.modalidad===m.cod?COLOR.tealLight:"#fff", color: f.modalidad===m.cod?COLOR.tealDark:COLOR.text }}>
+              {m.label}<br/><span style={{ fontSize:11, fontWeight:500, color:COLOR.muted }}>{m.pista}</span>
+            </button>
+          ))}
+        </div>
+        {!modSel.enPedido && (
+          <div style={{ background:"#FFF7E8", border:"1px solid #F0D9A8", borderRadius:10, padding:"12px 14px", marginBottom:14 }}>
+            <p style={{ fontSize:12.5, color:"#8a5a00", fontWeight:700 }}>Ojo: esta promoción se guarda, pero el vendedor todavía no la puede usar.</p>
+            <p style={{ fontSize:12, color:"#8a5a00", marginTop:4 }}>Hoy las apps de venta solo saben aplicar «Compra y lleva gratis». Las otras dos quedan cargadas esperando su pantalla en el pedido.</p>
+          </div>
+        )}
+
+        <label style={lbl}>8 · Los escalones</label>
+        <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:10 }}>
+          Cada renglón es un trato. Si hay varios, manda el más alto que alcance el cliente.
+        </p>
+        {f.escalones.map((e,i) => {
+          const t = promoTramoDeFila(f.modalidad, e);
+          const cr = promoCriollo(f.modalidad, t, presNombre || "la presentación", equivQQ);
+          return (
+            <div key={i} style={{ border:`1px solid ${COLOR.border}`, borderRadius:11, padding:"12px 14px", marginBottom:10, background:"#FCFDFE" }}>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap" }}>
+                <div style={{ flex:"1 1 130px" }}>
+                  <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:4 }}>{f.modalidad==="compra_lleva" ? "Por cada" : "Desde"}</p>
+                  <input type="number" step="0.01" value={e.desde} onChange={ev=>ponerEscalon(i,"desde",ev.target.value)} placeholder="100" style={inp} />
+                </div>
+                {f.modalidad==="compra_lleva" && (
+                  <div style={{ flex:"1 1 130px" }}>
+                    <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:4 }}>Se lleva gratis</p>
+                    <input type="number" step="0.01" value={e.gratis} onChange={ev=>ponerEscalon(i,"gratis",ev.target.value)} placeholder="2" style={inp} />
+                  </div>
+                )}
+                {f.modalidad==="descuento_volumen" && (
+                  <div style={{ flex:"1 1 130px" }}>
+                    <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:4 }}>Precio de cada uno</p>
+                    <input type="number" step="0.01" value={e.precio} onChange={ev=>ponerEscalon(i,"precio",ev.target.value)} placeholder="39.00" style={inp} />
+                  </div>
+                )}
+                {f.modalidad==="descuento_factura" && (<>
+                  <div style={{ flex:"0 0 auto", display:"flex", gap:6 }}>
+                    {[["monto","En dólares"],["pct","En porcentaje"]].map(([k,tt]) => (
+                      <button key={k} onClick={()=>ponerEscalon(i,"tipoDesc",k)} style={{ padding:"10px 12px", borderRadius:9, cursor:"pointer", fontSize:12, fontWeight:700,
+                        border:`1px solid ${(e.tipoDesc||"monto")===k?COLOR.teal:COLOR.border}`, background:(e.tipoDesc||"monto")===k?COLOR.tealLight:"#fff", color:(e.tipoDesc||"monto")===k?COLOR.tealDark:COLOR.text }}>{tt}</button>
+                    ))}
+                  </div>
+                  <div style={{ flex:"1 1 130px" }}>
+                    <p style={{ fontSize:11.5, color:COLOR.muted, marginBottom:4 }}>{(e.tipoDesc||"monto")==="pct" ? "Porcentaje" : "Descuento"}</p>
+                    {(e.tipoDesc||"monto")==="pct"
+                      ? <input type="number" step="0.01" value={e.pct} onChange={ev=>ponerEscalon(i,"pct",ev.target.value)} placeholder="5" style={inp} />
+                      : <input type="number" step="0.01" value={e.monto} onChange={ev=>ponerEscalon(i,"monto",ev.target.value)} placeholder="50.00" style={inp} />}
+                  </div>
+                </>)}
+                {f.escalones.length > 1 && (
+                  <button onClick={()=>quitarEscalon(i)} style={{ padding:"10px 12px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.red, cursor:"pointer", fontSize:12.5, fontWeight:700 }}>Quitar</button>
+                )}
+              </div>
+              {/* EN CRIOLLO: lo tecleado, dicho como se lo dirías al cliente */}
+              <div style={{ marginTop:10, padding:"9px 12px", borderRadius:9, background: cr.linea?COLOR.tealLight:"#F4F6F8" }}>
+                <p style={{ fontSize:13.5, fontWeight:800, color: cr.linea?COLOR.tealDark:COLOR.muted }}>
+                  {cr.linea || "Llena el escalón y aquí verás qué le estás ofreciendo al cliente."}
+                </p>
+                {cr.qq && <p style={{ fontSize:12, color:COLOR.tealDark, marginTop:3 }}>{cr.qq}</p>}
+              </div>
+            </div>
+          );
+        })}
+        <button onClick={agregarEscalon} style={{ padding:"9px 14px", borderRadius:9, border:`1px dashed ${COLOR.teal}`, background:"#fff", color:COLOR.tealDark, cursor:"pointer", fontSize:12.5, fontWeight:700 }}>+ Agregar otro escalón</button>
+      </div>
+
+      {avisos.length > 0 && (
+        <div style={{ background:"#FDECEA", border:"1px solid #F5C6C0", borderRadius:12, padding:"14px 16px", marginBottom:16 }}>
+          <p style={{ fontSize:13, fontWeight:800, color:"#c0392b", marginBottom:6 }}>Falta corregir esto antes de guardar:</p>
+          {avisos.map((a,i) => <p key={i} style={{ fontSize:12.5, color:"#c0392b", marginTop:3 }}>· {a}</p>)}
+        </div>
+      )}
+
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+        <button onClick={onCerrar} disabled={guardando} style={{ flex:"1 1 140px", padding:"13px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+        <button onClick={()=>guardar(false)} disabled={guardando} style={{ flex:"1 1 180px", padding:"13px", borderRadius:10, border:`1px solid ${COLOR.teal}`, background:"#fff", color:COLOR.tealDark, fontSize:14, fontWeight:700, cursor: guardando?"wait":"pointer" }}>{guardando?"Guardando…":"Guardar sin activar"}</button>
+        <button onClick={()=>guardar(true)} disabled={guardando} style={{ flex:"1 1 180px", padding:"13px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor: guardando?"wait":"pointer" }}>{guardando?"Guardando…":"Guardar y activar"}</button>
+      </div>
+      <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:10 }}>
+        «Guardar sin activar» la deja pendiente para revisarla. «Guardar y activar» la pone a andar: desde ese momento el vendedor ya la puede usar en el pedido.
+      </p>
     </div>
   );
 }
@@ -18170,6 +18840,8 @@ function App() {
         return <ComisionesWeb usuario={sesion} />;
       case "catalogo":
         return <CatalogoWeb usuario={sesion} />;
+      case "promos":
+        return <PromocionesWeb usuario={sesion} />;
       case "emparejar":
         return <EmparejarWeb usuario={sesion} />;
       case "marcas":
