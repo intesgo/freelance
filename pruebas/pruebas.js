@@ -64,6 +64,8 @@ const PLAN = [
     apps:["Comisionista","socio-comercial","freelance-completo"] },
   { arnes:"test_regalo_promo.js",    que:"el regalo no pasa de lo que concede la promoción",
     apps:["Comisionista","socio-comercial","freelance-completo"] },
+  { arnes:"test_promos_catalogo.js", que:"las promociones de la base llegan a P4 y P6",
+    apps:["Comisionista","socio-comercial","freelance-completo"] },
   /* la regla del regalo vive en la BASE (migración PROMO-03), no en JavaScript: esta
      levanta un PostgreSQL de juguete y la corre tal cual. Si la máquina no tiene
      PostgreSQL, lo dice y no falla. */

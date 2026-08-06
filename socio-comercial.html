@@ -1667,6 +1667,87 @@ const PRESENTACIONES = PRODUCTOS
       }))
   );
 
+/* ═══ PROMO-04 · LAS PROMOCIONES LLEGAN AL CATÁLOGO ════════════════════════════
+   Hasta hoy cada línea del catálogo nacía con promosFreelance:[] y
+   promosProveedor:[]. Por eso P4 y P6 salían grises —«Este producto no tiene
+   promociones del freelance vigentes.»— aunque la promoción ya estuviera cargada
+   en la base. Esto es lo que las reparte.
+
+   EL MISMO COLADOR QUE `gratis_que_concede`, para que la pantalla y el cerrojo de
+   la base nunca digan cosas distintas:
+     · modalidad `compra_lleva`: es la única que P4/P6 saben mostrar (descuento
+       por volumen o sobre la factura no regalan mercadería);
+     · estado `activa` o `aprobada`. `pendiente` y `rechazada` NO se le ofrecen a
+       un vendedor —todavía no son un compromiso de nadie— y `vencida` e
+       `inactiva` ya murieron;
+     · vigente HOY con la fecha LOCAL del teléfono. Con toISOString(), en Ecuador
+       (UTC-5) desde las 19h ya sería mañana y una promoción regiría cinco horas
+       antes o moriría cinco horas después;
+     · producto + presentación + piladora. `prov_cod` en NULL vale para todas las
+       piladoras, igual que en la función de la base.
+
+   LA PRESENTACIÓN NO SE CONVIERTE. «Compra 100 lleva 2» no dice lo mismo en
+   quintales que en arrobas (son 4×) ni en fundas de 10 libras (0,1 qq: son 10×).
+   Los números del tramo se muestran TAL CUAL, así que una promoción solo se
+   ofrece en la presentación en la que fue escrita; si no fija presentación, sus
+   números están en QUINTALES —así los lee la base— y entonces solo se ofrece en
+   la línea de equivalencia 1. Convertirlos aquí sería inventar una cuenta que
+   nadie pidió, y ya hubo un conversor al que el texto «10 libras» engañó.
+
+   LOS NÚMEROS SON PARA MOSTRAR, NO PARA DECIDIR. `minimo` y `gratis` salen del
+   PRIMER escalón de `promocion_tramos` y solo sirven para escribir «por cada 100
+   llevas 2». Cuánto se puede regalar de verdad lo sigue diciendo la base, por RPC
+   a `gratis_que_concede` (topeRegaloQq), que es la misma cuenta del cerrojo de
+   `pedido_items` y de `facturar_pedido`. Dos fuentes para un mismo hecho terminan
+   contradiciéndose. */
+const PROMO_ESTADOS_VIVOS = ["activa","aprobada"];
+function promosDelCatalogo(promoTbl, hoyISO){
+  const tbl = promoTbl || {};
+  /* Escalón de ARRANQUE de cada promoción: el `desde_cant` más bajo. Es el que se
+     enseña; los demás escalones los aplica la base al calcular el tope. */
+  const arranque = {};
+  (tbl.tramos||[]).forEach(t=>{
+    if(t.modalidad && t.modalidad!=="compra_lleva") return;
+    const d=Number(t.desde_cant)||0, g=Number(t.gratis_cant)||0;
+    if(!(d>0) || !(g>0)) return;                 // sin números no hay nada que ofrecer
+    const ya=arranque[t.promo_id];
+    if(!ya || d<ya.minimo) arranque[t.promo_id]={ minimo:d, gratis:g };
+  });
+  const vivas=[];
+  (tbl.promos||[]).forEach(p=>{
+    if(!p || p.modalidad!=="compra_lleva") return;
+    if(p.es_demo===true) return;
+    if(PROMO_ESTADOS_VIVOS.indexOf(p.estado)<0) return;
+    const d = p.vigente_desde ? String(p.vigente_desde).slice(0,10) : null;
+    const h = p.vigente_hasta ? String(p.vigente_hasta).slice(0,10) : null;
+    if(d && d >  hoyISO) return;                 // todavía no rige
+    if(h && h <  hoyISO) return;                 // el ÚLTIMO día sí cuenta, igual que en la base
+    const t = arranque[p.promo_id];
+    if(!t) return;                               // cabecera sin escalones: no se ofrece lo que no se puede cumplir
+    vivas.push({ prodId:p.prod_id, presCod:p.pres_cod||null, provCod:p.prov_cod||null, origen:p.origen,
+      promo:{ id:p.promo_id, nombre:p.nombre, minimo:t.minimo, gratis:t.gratis,
+        detalle: p.detalle || ("compra "+t.minimo+" lleva "+t.gratis),
+        base: (p.base!=null ? Math.round(Number(p.base)*100)/100 : null),
+        desde:d, hasta:h, paga:(p.origen==="proveedor" ? "proveedor" : "freelance") } });
+  });
+  /* Devuelve las promociones de UNA línea del catálogo, ya repartidas: las del
+     freelance van a P4 y las del proveedor a P6. */
+  return function(prodId, presCod, provCod, equiv, baseContado){
+    const f=[], v=[];
+    vivas.forEach(x=>{
+      if(x.prodId !== prodId) return;
+      if(x.presCod ? (x.presCod !== presCod) : Number(equiv)!==1) return;
+      if(x.provCod && provCod && x.provCod !== provCod) return;
+      const pm = Object.assign({}, x.promo);
+      /* Promoción sin base propia: manda el precio de la oferta. Con base 0 la
+         comisión saldría siendo el precio ENTERO de la línea. */
+      if(pm.base==null) pm.base = baseContado;
+      (x.origen==="proveedor" ? v : f).push(pm);
+    });
+    return { freelance:f, proveedor:v };
+  };
+}
+
 /* ── FA-0011 · el PEDIDO sale de las OFERTAS, ya no de `precios` ──
    El sistema web dejó de escribir en `precios`: hoy un producto nuevo nace con sus
    ofertas en `ofertas_piladora` y CERO filas en `precios`. Leyendo `precios`, el
@@ -1686,7 +1767,10 @@ const PRESENTACIONES = PRODUCTOS
    La oferta define QUÉ vende cada piladora y a qué precio: en el pedido la piladora
    se elige primero, así que cada una muestra SU precio. Sin producto activo o sin
    oferta vigente, la oferta no se ofrece. */
-function construirCatalogoPedido(provs, ofertas, prods){
+function construirCatalogoPedido(provs, ofertas, prods, presenTbl, promoTbl){
+  /* `presenTbl` no se usa aquí (esta app no trae foto por presentación); se recibe
+     para que las tres apps se llamen EXACTAMENTE igual y ningún arnés ni ninguna
+     pantalla tenga que acordarse de en cuál va el argumento en otro puesto. */
   const r2=n=>Math.round(n*100)/100;
   const nomDe={}, lineaDe={}, fotoDe={};
   /* Un producto dado de baja no se puede pedir aunque su oferta siga viva: la
@@ -1699,6 +1783,8 @@ function construirCatalogoPedido(provs, ofertas, prods){
      horas antes de tiempo. */
   const _h=new Date();
   const hoyISO=_h.getFullYear()+"-"+String(_h.getMonth()+1).padStart(2,"0")+"-"+String(_h.getDate()).padStart(2,"0");
+  /* PROMO-04 · las promociones vivas, listas para colgarlas de cada línea */
+  const promosDe = promosDelCatalogo(promoTbl, hoyISO);
   /* Una sola línea por piladora + producto + presentación: si la base trajera dos
      ofertas vivas para la misma, manda la MÁS BARATA (nunca se ofrece de más). */
   const porClave={};
@@ -1716,11 +1802,12 @@ function construirCatalogoPedido(provs, ofertas, prods){
     const clave=o.prod_id+"-"+o.pres_cod+"|"+(o.prov_cod||"");
     const ya=porClave[clave];
     if(ya && ya.baseContado <= r2(pc)) return;
+    const prom = promosDe(o.prod_id, o.pres_cod, o.prov_cod, eq, r2(pc));
     porClave[clave]={ id:o.prod_id+"-"+o.pres_cod, prodId:o.prod_id, presCod:o.pres_cod, equiv:eq, provId:o.prov_cod, linea:lineaDe[o.prod_id],
       marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoDe[o.prod_id]||null, diasCredito:30,
       baseContado:r2(pc), baseCredito:r2(pk),
       costo:o.costo!=null?r2(Number(o.costo)):null,
-      promosFreelance:[], promosProveedor:[] };
+      promosFreelance:prom.freelance, promosProveedor:prom.proveedor };
   });
   const pres=Object.keys(porClave).map(k=>porClave[k]);
   return { provs:(provs||[]).map(p=>({id:p.prov_cod, nombre:p.nombre})), pres };
@@ -1904,7 +1991,12 @@ function sacoSVG(linea, pres){
 }
 
 /* ═══ b14 · MOTOR DE PROMOCIONES (reglas selladas, réplica Comisionista b149) ═══ */
-const HOY_PROMO = new Date().toISOString().slice(0,10);
+/* PROMO-04 · la fecha del TELÉFONO, no la de Greenwich. Con toISOString(), en
+   Ecuador (UTC-5) desde las 19h ya sería mañana: una promoción que muere hoy
+   desaparecería del selector cinco horas antes de tiempo, aunque la base la
+   siguiera concediendo. Es el mismo colador que usa el catálogo. */
+const HOY_PROMO = (()=>{ const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
 const promoVigente = pm => (pm.activa!==false)
   && (!pm.desde || pm.desde<=HOY_PROMO) && (!pm.hasta || pm.hasta>=HOY_PROMO);
 const promosVigentes = lista => (lista||[]).filter(promoVigente);
@@ -3225,7 +3317,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
            `v_ofertas_vigentes`: esa vista corta con CURRENT_DATE, que es el día del
            servidor, no el del teléfono. La vigencia se filtra en construirCatalogoPedido
            con la fecha local. Y `precios` ya no se consulta: el precio es el de la oferta. */
-        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:clis }, { data:ubics }] = await Promise.all([
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:clis }, { data:ubics }, { data:promos }, { data:tramos }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("ofertas_piladora")
             .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
@@ -3233,9 +3325,17 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
           window.SB.from("productos").select("prod_id,nombre,marca,linea,foto").eq("estado","activo").limit(500),
           window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
           window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,ciudad,direccion").eq("activo",true).limit(3000),
+          /* PROMO-04 · las promociones se traen CRUDAS y se filtran en
+             construirCatalogoPedido: quién entra y quién no lo decide un solo
+             sitio, con la fecha del teléfono. */
+          window.SB.from("promociones")
+            .select("promo_id,nombre,detalle,modalidad,origen,prov_cod,prod_id,pres_cod,base,estado,vigente_desde,vigente_hasta,es_demo")
+            .eq("es_demo",false).limit(2000),
+          window.SB.from("promocion_tramos").select("promo_id,modalidad,desde_cant,gratis_cant")
+            .eq("es_demo",false).limit(4000),
         ]);
         if(!activo || !provs || !provs.length || !ofertas || !ofertas.length) return;
-        const cat=construirCatalogoPedido(provs, ofertas, prods);
+        const cat=construirCatalogoPedido(provs, ofertas, prods, [], { promos, tramos });
         if(!cat.pres.length) return;
         (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
         cat.clis=(clis||[]).map(c=>c.nombre);

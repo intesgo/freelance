@@ -195,15 +195,30 @@ function bateria(fuenteJsx, ruidoso) {
   comprobar("DEMOSTRACIÓN (sin oferta ni prodId): «Arroz Gustadina», 2 gratis siguen siendo «2 Quintal»",
     dDemo.texto === "2 Quintal");
 
-  /* ── 15 · constancia del hueco que queda ──
-     Con datos vivos el catálogo NO trae promociones (`promociones` está vacía y
-     ni siquiera tiene mínimo/gratis/prod_id), así que P4 y P6 se pintan grises y
-     el desglose todavía no llega a pintarse en producción. Si algún día se
-     enchufan las promos vivas, esta comprobación se cae: es el aviso de que hay
-     que volver a mirar esta pantalla de punta a punta. */
-  comprobar("HUECO CONOCIDO: con datos vivos el catálogo no trae promociones, así que P4/P6 " +
-            "no se pueden elegir y este desglose aún no se pinta en producción",
-    PRES.length > 0 && PRES.every(p => (p.promosFreelance||[]).length === 0 && (p.promosProveedor||[]).length === 0));
+  /* ── 15 · el hueco YA SE CERRÓ (PROMO-04, 06/08/2026) ──
+     Hasta ese día el catálogo dejaba `promosFreelance:[]` y `promosProveedor:[]`
+     en todas las líneas: P4 y P6 salían grises y este desglose no se pintaba
+     nunca en producción. Aquí quedaba escrito el hueco. Ahora las promociones
+     vivas SÍ entran, así que lo que se vigila es lo contrario: que con una
+     promoción cargada la línea la traiga, que es lo que hace que este desglose
+     llegue a verse. El colador completo lo mide test_promos_catalogo.js.
+     Nota: lo que se puede regalar de verdad lo sigue diciendo la base
+     (`gratis_que_concede`); aquí solo se mira que la promoción llegue. */
+  const PROMO_VIVA = { promos:[{ promo_id:"PM-X1", nombre:"Promo del arnés", detalle:null,
+      modalidad:"compra_lleva", origen:"freelance", prov_cod:"AGU", prod_id:"P-00197",
+      pres_cod:"QQ", base:36.00, estado:"activa", vigente_desde:AYER, vigente_hasta:null, es_demo:false }],
+    tramos:[{ promo_id:"PM-X1", modalidad:"compra_lleva", desde_cant:50, gratis_cant:2, es_demo:false }] };
+  let conPromo = null;
+  try {
+    conPromo = corre(`construirCatalogoPedido(${JSON.stringify(PROVEEDORES_BD)}, ${JSON.stringify(OFERTAS_BD)}, ${JSON.stringify(PRODUCTOS_BD)}, [], ${JSON.stringify(PROMO_VIVA)})`);
+  } catch (e) { conPromo = null; }
+  const conPres = conPromo && conPromo.pres ? plano(Array.from(conPromo.pres)) : [];
+  const lineaQQ = conPres.find(p => p.prodId==="P-00197" && p.presCod==="QQ" && p.provId==="AGU") || null;
+  comprobar("HUECO CERRADO (PROMO-04): con una promoción cargada, la línea del pedido YA la trae, " +
+            "que es lo que hace que este desglose se pinte en producción",
+    !!lineaQQ && (lineaQQ.promosFreelance||[]).length === 1 &&
+    lineaQQ.promosFreelance[0].nombre === "Promo del arnés" &&
+    PRES.length > 0 && PRES.every(p => (p.promosFreelance||[]).length === 0));
 
   return { ok, mal, fallos };
 }
