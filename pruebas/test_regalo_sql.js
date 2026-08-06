@@ -422,10 +422,17 @@ const MUTANTES = [
 
   const archivo = R.migracion(MIGRACION);
   if (!fs.existsSync(archivo)) {
-    console.log("  ✗ no está la migración en " + archivo);
-    console.log("    (vive en el repositorio intesgo/Freelance-Sistema; si lo tienes en otro sitio, usa FREELANCE_MIGRACIONES)");
-    console.log("Resultado de la regla del regalo: 0 ✓ · 1 ✗");
-    process.exit(1);
+    /* La migración vive en el repo privado (intesgo/Freelance-Sistema). En la
+       nube (GitHub Actions) ese repo NO está clonado al lado, así que el archivo
+       nunca aparece: eso NO es un fallo de la regla, es que aquí no hay con qué
+       medir — igual que cuando no hay PostgreSQL. Antes tumbaba TODA la
+       publicación (06 ago 2026). Se salta con "sin medir" y NO frena el deploy.
+       Donde sí está el archivo (máquina de desarrollo, o FREELANCE_MIGRACIONES),
+       la prueba corre completa como siempre. */
+    console.log("  (·) no corre aquí: falta la migración " + MIGRACION);
+    console.log("      (vive en el repositorio intesgo/Freelance-Sistema; si lo tienes en otro sitio, usa FREELANCE_MIGRACIONES)");
+    console.log("Resultado de la regla del regalo: sin medir (no está la migración en esta máquina)");
+    process.exit(0);
   }
   const entero = fs.readFileSync(archivo, "utf-8");
   const m = entero.match(/-- ══ INICIO REGLA REGALO ══([\s\S]*?)-- ══ FIN REGLA REGALO ══/);
