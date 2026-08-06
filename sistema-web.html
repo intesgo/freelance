@@ -237,12 +237,12 @@ const SECCIONES = [
   { key:"promos",       icon:"🎁", label:"Promociones",          sub:"Compra y lleva · quién la paga y hasta cuándo" },
   { key:"emparejar",    icon:"🔗", label:"Emparejar códigos",   sub:"Códigos del proveedor → catálogo" },
   { key:"marcas",       icon:"🏅", label:"Marcas",               sub:"Exclusividad por zona" },
-  /* "precios" (maqueta PreciosWeb) apagada el 24 jul 2026 y BORRADA el 27 jul (b58).
-     "ofertas" absorbida el 27 jul dentro de la ficha del producto en Catálogo.
-     "preciosvig" (Precios vigentes) disuelta el 28 jul (b61): buscador e historial
-     se fueron a Catálogo y a la ficha; aquí solo quedó la bandeja de decisiones.
-     Las cuatro rutas viejas caen en Propuestas de precio. */
-  { key:"preciosvig",   icon:"🏷️", label:"Propuestas de precio", sub:"Decisiones de costo del proveedor" },
+  /* b63 · 6 ago 2026. "Propuestas de precio" comparaba las ofertas contra la
+     tabla `precios`, congelada desde el 24 jul, y sus dos botones escribían
+     ahí: decía «guardado» y el vendedor seguía cotizando lo de antes.
+     Ahora las cuatro rutas viejas caen en Precios vigentes, que muestra las
+     ofertas de verdad y sólo deja mover el COSTO de una piladora. */
+  { key:"preciosvig",   icon:"🏷️", label:"Precios vigentes", sub:"Lo que cobra cada piladora hoy" },
   { key:"documentos",   icon:"📑", label:"Documentos",           sub:"Custodia · cadena de documentos" },
   { key:"comunicacion", icon:"💬", label:"Mensajes",             sub:"Equipo y clientes informados" },
   { key:"auditoria",    icon:"🔎", label:"Auditoría",            sub:"Quién hizo qué y cuándo" },
@@ -352,13 +352,13 @@ const AYUDA_SECCION = {
            "Nace pendiente. Mientras está pendiente se puede corregir. Al activarla, el vendedor ya la ve en el pedido; al darla de baja, deja de verla.",
            "El sistema no deja que el vendedor regale más de lo que aquí se cargó: esa cuenta la hace la base, no el teléfono.",
            "No pueden convivir dos promociones del mismo tipo pisándose las fechas sobre el mismo producto y presentación: la pantalla avisa antes de guardar."],
-  preciosvig: ["La bandeja de decisiones de precio. El precio en sí se ve y se ajusta en Catálogo → ficha del producto.",
-            "El precio base lo determina SIEMPRE el Freelance. El proveedor propone su costo, pero nunca fija el precio base.",
-            "Cada precio guarda desde y hasta cuándo rigió: al entrar uno nuevo, el anterior se cierra el día antes. Toca Ver historial en cualquier producto para ver su cadena.",
-            "Cuando la piladora mueve su costo aparece una propuesta y tú decides: TRASLADAR (la base se mueve, tu margen queda igual) o MANTENER (la base no se toca y el margen de la familia absorbe la diferencia). Si el costo subió, usas tu colchón; si bajó, ganas más por unos días.",
-            "Mantener no registra un cambio de precio, porque no lo hubo: registra un cambio de margen con su motivo y su vigencia (margenes_familia).",
-            "Decidir propuestas requiere sesión autenticada (Fase 4): hasta entonces el panel detecta y muestra, pero no guarda.",
-            "El vendedor nunca ve el precio base del proveedor ni tu margen."],
+  preciosvig: ["Aquí ves el precio de verdad: el que cada piladora te cobra y el que tu vendedor cotiza en el celular. Es la misma información, no una copia.",
+            "El precio ya NO es uno solo por producto: vive en la oferta de cada piladora, por presentación. Dos piladoras pueden cobrarte distinto por el mismo arroz, y está bien: cada una pone su precio.",
+            "Para cambiar el precio de un producto suelto: Productos → abre el producto → Editar precios.",
+            "Para subir el costo de toda una línea: el botón «Subir el costo de una piladora». Se elige UNA piladora, se dice cuánto subió, y el sistema te muestra el precio de venta nuevo ANTES de guardar.",
+            "Al subir el costo, el precio de venta sube lo mismo: si ganabas $3 por quintal, sigues ganando $3. Puedes corregir cualquier renglón a mano antes de aprobar.",
+            "Lo que se guarda queda con la fecha de hoy: la oferta anterior se cierra y nace la nueva. Nada se borra.",
+            "El vendedor nunca ve tu costo ni tu margen: sólo el precio de venta."],
   marcas: ["Qué marca puede vender cada quien y en qué zona.",
            "La exclusividad por zona evita que dos vendedores compitan por el mismo cliente con la misma marca."],
   socio: ["El acuerdo con tu socio comercial: qué reparte, qué ve y qué puede hacer.",
@@ -6599,14 +6599,17 @@ function CatalogoWeb({ usuario }) {
             style={{ padding:"8px 13px", borderRadius:9, border:"1px solid rgba(255,255,255,.35)",
               background:"transparent", color:"#fff", fontSize:13, fontWeight:700,
               fontFamily:"inherit", cursor:"pointer", whiteSpace:"nowrap" }}>
-            🏷️ Ajustar precios</button>
+            📈 Subir costo</button>
           </div>
         </div>
       )}
 
-      {/* Ajuste de precios en lote sobre los productos marcados */}
+      {/* b63 · Antes esto abría ModalLotePrecios, que movía la base en la tabla
+          muerta `precios`: decía «guardado» y el vendedor seguía cotizando lo de
+          antes. Ahora abre la subida de COSTO sobre `ofertas_piladora`, limitada
+          a los productos marcados y a UNA piladora a la vez. */}
       {lotePrecios && (
-        <ModalLotePrecios
+        <ModalCostoBloque
           ids={marcados}
           usuario={usuario}
           onCerrar={()=>setLotePrecios(false)}
@@ -6911,7 +6914,7 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
                   <button onClick={()=>setVerHistorial(true)}
                     style={{ flex:1, padding:"9px", borderRadius:9, border:`1px solid ${COLOR.border}`,
                       background:"#fff", color:COLOR.text, fontSize:12.5, fontWeight:700,
-                      fontFamily:"inherit", cursor:"pointer" }}>Ver historial</button>
+                      fontFamily:"inherit", cursor:"pointer" }}>Ver historial anterior</button>
                 </div>
               </div>
             ) : (
@@ -7911,15 +7914,28 @@ function ModalPromocion({ usuario, promo, prods, pres, provs, tramos, otras, onC
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   PRECIOS · b61 · R1 paso 3
-   "Precios vigentes" se disolvió. Lo que era vista de producto (buscador,
-   historial, ajuste) vive ahora dentro de Catálogo y de la ficha. Lo que era
-   bandeja de decisiones sobrevive aquí como módulo propio: Propuestas de precio.
+   PRECIOS · b63 · 6 ago 2026 · EL PRECIO VIVE EN LA OFERTA DE CADA PILADORA
 
-   Los cuatro modales de abajo se reescribieron contra el modelo sellado
-   (producto único · costo por piladora en ofertas_piladora · fila vigente en
-   `precios`). Los originales operaban sobre PRODUCTOS_WEB y una estructura
-   `pr.provContado/provCredito` que ya no existe.
+   Qué se rompía, medido contra producción (ztpwtddrblfvcnnhbevq):
+   la tabla `precios` quedó congelada el 24/07/2026 (58 filas, ninguna nueva).
+   `ofertas_piladora` tiene 153 filas vigentes y recibió datos el 05/08.
+   Ninguna app del celular lee ya `precios`: todas leen las ofertas. El único
+   que todavía ESCRIBÍA en `precios` era esta pantalla. Resultado: oficina
+   subía el arroz de $37 a $39, veía «guardado», y el vendedor seguía
+   cotizando a $37 sin que nadie se enterara.
+
+   Lo que se hizo:
+     · se borró `preCambiarPrecio` (la única puerta de escritura a `precios`);
+     · se borró `ModalAjustePrecio` (estaba declarado y nadie lo abría, pero
+       sostenía un camino de escritura);
+     · `ModalLotePrecios` (subida en bloque a `precios`) se reemplazó por
+       `ModalCostoBloque`, que sube el COSTO en `ofertas_piladora`;
+     · `PropuestasPrecio` se reemplazó por `PreciosWeb`: muestra las ofertas
+       vigentes y no deja tocar `precios` por ningún lado;
+     · `ModalHistorialPrecio` SIGUE leyendo `precios`, a propósito, rotulado
+       como historia vieja: es lo único que esa tabla todavía sirve.
+
+   Sólo queda LECTURA sobre `precios`, y sólo en el historial.
 
    Helpers declarados con `function` (no `const`) a propósito: hacen hoisting,
    así CatalogoWeb —que está más arriba en el archivo— los puede usar sin
@@ -7931,7 +7947,8 @@ function preMoney(n) {
 }
 function preR2(n) { return Math.round(Number(n||0)*100)/100; }
 function preHoy()  { return new Date().toISOString().slice(0,10); }
-function preAyer() { return new Date(Date.now()-86400000).toISOString().slice(0,10); }
+/* preAyer() se fue con preCambiarPrecio (b63): sólo servía para cerrar la
+   vigencia en `precios`. Las ofertas se cierran con la fecha de HOY. */
 function preMargen(contado, costo) {
   const c = Number(contado)||0;
   return c > 0 ? ((c - (Number(costo)||0)) / c) * 100 : 0;
@@ -7943,197 +7960,205 @@ function preAu() {
        + "-" + Math.floor(1000+Math.random()*9000);
 }
 
-/* Lee las filas vigentes de `precios`. Una sola puerta de lectura para que
-   Catálogo, la ficha y Propuestas vean exactamente lo mismo. */
-async function preLeerVigentes(prodIds) {
+/* ── Las ofertas vigentes, crudas, de `ofertas_piladora` ──
+   Una fila por producto · presentación · piladora. Es la única fuente de
+   precio que existe hoy: lo que sale de aquí es lo que el vendedor cotiza. */
+async function preLeerOfertas(prodIds) {
   if (!window.supa) return [];
-  let q = window.supa.from("precios")
-    .select("org_id,prod_id,producto,costo_prov,base_contado,base_credito,origen,vigente_desde,motivo")
-    .is("vigente_hasta", null);
+  let q = window.supa.from("v_ofertas_vigentes")
+    .select("oferta_id,prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min,vigente_desde,vigente_hasta");
   if (prodIds && prodIds.length) q = q.in("prod_id", prodIds);
   const { data } = await q;
-  return (data||[]).map(r => {
-    const costo = Number(r.costo_prov)||0;
-    const cont  = Number(r.base_contado)||0;
+  return (data||[]).map(o => {
+    const costo    = Number(o.costo)||0;
+    const costoCon = Number(o.costo_contado)||0;
+    const contado  = Number(o.precio_contado)||0;
+    const credito  = Number(o.precio_credito)||0;
     return {
-      orgId: r.org_id, prodId: r.prod_id, producto: r.producto || r.prod_id,
-      costo, contado: cont, credito: Number(r.base_credito)||0,
-      origen: r.origen || "", desde: r.vigente_desde || "", motivo: r.motivo || "",
-      margen: preMargen(cont, costo), utilidad: cont - costo,
+      ofertaId: o.oferta_id, prodId: o.prod_id,
+      presCod: o.pres_cod, presentacion: o.presentacion || o.pres_cod,
+      equivQq: Number(o.equiv_qq)||0, provCod: o.prov_cod,
+      costo, costoContado: costoCon, contado, credito,
+      margenMin: Number(o.margen_min)||preMargenObjetivo(),
+      desde: o.vigente_desde || "", hasta: o.vigente_hasta || "",
+      margen: preMargen(contado, costo),
+      utilidadContado: preR2(contado - costoCon),
+      utilidadCredito: preR2(credito - costo),
     };
   });
 }
 
-/* ÚNICA puerta de escritura en `precios`.
-   Cierra la vigencia de hoy con ayer e inserta la fila nueva. La usan el ajuste
-   individual, el ajuste en lote y el traslado de una propuesta. Devuelve el
-   AU- con el que quedó auditada. */
-async function preCambiarPrecio({ fila, contadoNuevo, creditoNuevo, costoNuevo, origen, motivo, usuario }) {
-  const au = preAu();
-  const contado = preR2(contadoNuevo != null ? contadoNuevo : fila.contado);
-  const credito = preR2(creditoNuevo != null ? creditoNuevo : fila.credito);
-  const costo   = preR2(costoNuevo   != null ? costoNuevo   : fila.costo);
-
-  const { error: e1 } = await window.supa.from("precios")
-    .update({ vigente_hasta: preAyer() }).eq("prod_id", fila.prodId).is("vigente_hasta", null);
-  if (e1) throw e1;
-
-  const { error: e2 } = await window.supa.from("precios").insert({
-    org_id: fila.orgId, prod_id: fila.prodId, producto: fila.producto,
-    costo_prov: costo, base_contado: contado, base_credito: credito,
-    origen: origen || "Ajuste manual", motivo: motivo || "",
-    vigente_desde: preHoy(), registrado_por: usuario && usuario.nombre ? usuario.nombre : "",
+/* Un renglón POR PRODUCTO, armado desde las ofertas. Reemplaza a la vieja
+   lectura de `precios` sin cambiarle la forma a quien la consume (el filtro
+   «Margen bajo» del Catálogo y el respaldo de la ficha).
+   Regla sellada, la misma que ya usaba la ficha: se toma la presentación de
+   mayor equivalencia (el quintal) y el costo MÁS ALTO entre piladoras, que es
+   el que decide si el margen aguanta. */
+async function preLeerVigentes(prodIds) {
+  const ofertas = await preLeerOfertas(prodIds);
+  const mapa = {};
+  ofertas.forEach(o => {
+    const g = mapa[o.prodId];
+    if (!g || o.equivQq > g.equivQq) {
+      mapa[o.prodId] = { prodId:o.prodId, producto:o.prodId, equivQq:o.equivQq,
+        contado:o.contado, credito:o.credito, costo:o.costo, desde:o.desde,
+        origen:"Oferta de piladora", motivo:"" };
+    } else if (o.equivQq === g.equivQq && o.costo > g.costo) {
+      g.costo = o.costo;
+    }
   });
-  if (e2) throw e2;
+  return Object.values(mapa).map(f => ({
+    ...f, margen: preMargen(f.contado, f.costo), utilidad: preR2(f.contado - f.costo),
+  }));
+}
 
-  await window.supa.from("auditoria").insert({
-    org_id: fila.orgId, codigo: au, usuario: usuario && usuario.nombre ? usuario.nombre : "",
-    tabla: "precios", operacion: origen || "Ajuste manual", registro_id: fila.prodId,
-    valor_anterior: JSON.stringify({ costo:fila.costo, contado:fila.contado, credito:fila.credito }),
-    valor_nuevo: JSON.stringify({ costo, contado, credito }),
-    fecha: new Date().toISOString(),
-  });
+/* ── CERROJO · b63 ─────────────────────────────────────────────────────────
+   Aquí vivía `preCambiarPrecio`, la única puerta que escribía en `precios`.
+   Está BORRADA. El precio de venta ya no se guarda en `precios`: se guarda en
+   la oferta de cada piladora (`ofertas_piladora`), que es lo que el vendedor
+   lee. Si alguien vuelve a poner un insert/update sobre `precios` en esta
+   pantalla, la app volverá a mentirle a la oficina: dirá «guardado» y el
+   vendedor seguirá cotizando el precio viejo. La prueba
+   pruebas/test_precios_ofertas.js se cae el día que eso pase.
+   `precios` sólo se LEE, y sólo desde ModalHistorialPrecio (historia vieja).
+   ────────────────────────────────────────────────────────────────────────── */
 
-  return { au, contado, credito, costo };
+/* Sube el costo de UNA oferta manteniendo la utilidad en dólares.
+   Medido sobre las 153 ofertas vigentes del 06/08/2026:
+     · precio_contado − costo_contado == precio_credito − costo en 152 de 153
+       (la excepción, P-00025-ARR-SIL, difiere en medio centavo por redondeo);
+     · costo − costo_contado == 1,00 × equiv_qq en 152 de 153;
+     · precio_credito − precio_contado == 1,00 × equiv_qq en 153 de 153;
+     · la utilidad en DÓLARES por quintal va de $2 a $10, pero en porcentaje
+       va de 6,33 % a 30 %. O sea: lo que la casa mantiene es el DÓLAR por
+       quintal, no el porcentaje.
+   Por eso «mantener el margen» = mantener la utilidad en dólares: el precio
+   se mueve exactamente lo mismo que se movió el costo.
+   El porcentaje se aplica al COSTO DE CONTADO y el recargo por crédito de cada
+   fila se conserva tal cual: así los tres invariantes de arriba sobreviven. */
+function preSubirCosto(o, { pct, porQq }) {
+  const costoContado = Number(o.costoContado)||0;
+  const recargoCred  = preR2((Number(o.costo)||0) - costoContado);   // el de ESA fila, intacto
+  const delta = (pct != null && pct !== "")
+    ? preR2(preR2(costoContado * (1 + Number(pct)/100)) - costoContado)
+    : preR2((Number(porQq)||0) * (Number(o.equivQq)||0));
+  return {
+    delta,
+    costoContadoNuevo: preR2(costoContado + delta),
+    costoNuevo:        preR2(costoContado + delta + recargoCred),
+    contadoNuevo:      preR2((Number(o.contado)||0) + delta),
+    creditoNuevo:      preR2((Number(o.credito)||0) + delta),
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   MÓDULO · Propuestas de precio
-   La propuesta NO es una tabla aparte: nace cuando la piladora mueve su costo
-   en ofertas_piladora y difiere del costo_prov de la fila vigente en `precios`.
-   Flujo sellado: la piladora mueve el costo → el freelance decide TRASLADAR
-   (la base se mueve, el margen queda igual) o MANTENER (la base no se toca y
-   el margen de la familia absorbe/retiene la diferencia en margenes_familia).
+   MÓDULO · Precios vigentes · b63
+   Reemplaza a «Propuestas de precio», que comparaba `ofertas_piladora` contra
+   la fila vigente de `precios` y ofrecía dos botones (Trasladar / Mantener)
+   que escribían en `precios`. Como `precios` está congelada desde el
+   24/07/2026, esa pantalla comparaba contra un número muerto y guardaba en
+   una tabla que ya nadie lee: decía «guardado» y el vendedor seguía cotizando
+   lo de antes.
+
+   Ahora esta pantalla MUESTRA y no deja tocar `precios` por ningún camino.
+   Lo único que se escribe desde aquí es el COSTO de una piladora, en
+   `ofertas_piladora`, y eso pasa por ModalCostoBloque con vista previa.
    ══════════════════════════════════════════════════════════════════════════ */
-function PropuestasPrecio({ usuario }) {
-  const [filas, setFilas] = useState([]);
-  const [props, setProps] = useState([]);
-  const [cargando, setCargando] = useState(true);
+function PreciosWeb({ usuario }) {
+  const [ofertas, setOfertas] = useState(null);   // null = cargando
+  const [nomProd, setNomProd] = useState({});
+  const [lineaDe, setLineaDe] = useState({});
+  const [nomProv, setNomProv] = useState({});
+  const [busca, setBusca] = useState("");
+  const [subir, setSubir] = useState(false);
   const [error, setError] = useState("");
-  const [decidir, setDecidir] = useState(null);
-  const [motivoProp, setMotivoProp] = useState("");
-  const [guardandoProp, setGuardandoProp] = useState(false);
-  const [avisoProp, setAvisoProp] = useState("");
 
-  React.useEffect(() => {
-    if (!window.supa) { setCargando(false); setError("Sin conexión a la base."); return; }
-    (async () => {
-      try {
-        const arma = await preLeerVigentes();
-        setFilas(arma);
-        /* Detección: costo máximo activo entre piladoras (QQ, la presentación
-           que se siembra) vs costo_prov de la fila vigente.
-           costo_prov = costo MÁS ALTO entre piladoras (regla sellada). */
-        try {
-          const [{ data: ofs }, { data: prods }] = await Promise.all([
-            window.supa.from("v_ofertas_vigentes").select("prod_id,prov_cod,costo,costo_contado").eq("pres_cod","QQ"),
-            window.supa.from("productos").select("prod_id,linea_cod,linea"),
-          ]);
-          const lineaDe = {}; (prods||[]).forEach(p => lineaDe[p.prod_id] = { cod:p.linea_cod, nom:p.linea });
-          const maxPorProd = {};
-          (ofs||[]).forEach(o => {
-            const c = Number(o.costo)||0;
-            if (!maxPorProd[o.prod_id] || c > maxPorProd[o.prod_id].costo)
-              maxPorProd[o.prod_id] = { costo: c, prov: o.prov_cod };
-          });
-          const pend = [];
-          arma.forEach(f => {
-            const m = maxPorProd[f.prodId];
-            if (!m) return;
-            const delta = preR2(m.costo - f.costo);
-            if (delta === 0) return;
-            const lin = lineaDe[f.prodId] || {};
-            pend.push({ prodId:f.prodId, producto:f.producto, orgId:f.orgId,
-              costoActual:f.costo, costoNuevo:m.costo, prov:m.prov, delta,
-              contado:f.contado, credito:f.credito,
-              lineaCod:lin.cod||"", linea:lin.nom||"",
-              margenAhora: preMargen(f.contado, f.costo),
-              margenSiMantiene: preMargen(f.contado, m.costo) });
-          });
-          pend.sort((a,b) => Math.abs(b.delta) - Math.abs(a.delta));
-          setProps(pend);
-        } catch (e) { /* sin propuestas si falla la lectura secundaria */ }
-      } catch (e) { setError("No se pudieron leer los precios."); }
-      setCargando(false);
-    })();
-  }, []);
-
-  /* TRASLADAR: cierra vigencia e inserta fila nueva (la base se mueve por el
-     delta; el margen queda igual). MANTENER: solo actualiza costo_prov de la
-     fila vigente y registra la decisión en margenes_familia.
-     Ambas auditan con AU-. Requiere sesión autenticada (RLS): hasta Fase 4 el
-     intento avisa y no guarda nada. */
-  const confirmarPropuesta = async (p, modo) => {
-    if (guardandoProp) return;
-    setGuardandoProp(true); setAvisoProp("");
-    const motivo = motivoProp.trim() ||
-      (modo==="trasladar" ? `Costo ${p.prov} ${preMoney(p.costoActual)} → ${preMoney(p.costoNuevo)} · trasladado a la base`
-        : (p.delta>0 ? "Absorbido: costo subió y no se trasladó" : "Retenido: costo bajó y la base se mantuvo"));
+  const cargar = React.useCallback(async () => {
+    if (!window.supa) { setOfertas([]); setError("Sin conexión con la base."); return; }
     try {
-      let au = "";
-      if (modo === "trasladar") {
-        const r = await preCambiarPrecio({
-          fila: { orgId:p.orgId, prodId:p.prodId, producto:p.producto,
-                  costo:p.costoActual, contado:p.contado, credito:p.credito },
-          contadoNuevo: p.contado + p.delta, creditoNuevo: p.credito + p.delta,
-          costoNuevo: p.costoNuevo, origen: "Propuesta proveedor", motivo, usuario });
-        au = r.au;
-      } else {
-        au = preAu();
-        const { error: e1 } = await window.supa.from("precios")
-          .update({ costo_prov: p.costoNuevo }).eq("prod_id", p.prodId).is("vigente_hasta", null);
-        if (e1) throw e1;
-        await window.supa.from("margenes_familia")
-          .update({ vigente_hasta: preAyer() }).eq("familia", p.lineaCod).is("vigente_hasta", null);
-        const { error: e2 } = await window.supa.from("margenes_familia").insert({
-          org_id: p.orgId, familia: p.lineaCod, familia_desc: p.linea,
-          margen_contado: preR2(p.contado - p.costoNuevo), margen_credito: preR2(p.credito - p.costoNuevo),
-          motivo, decision: p.delta > 0 ? "absorbido" : "retenido",
-          prod_origen: p.prodId, delta_costo: p.delta,
-          vigente_desde: preHoy(), registrado_por: usuario.nombre });
-        if (e2) throw e2;
-        await window.supa.from("auditoria").insert({
-          org_id: p.orgId, codigo: au, usuario: usuario.nombre, tabla: "margenes_familia",
-          operacion: p.delta>0 ? "Alza absorbida · base sin cambio" : "Baja retenida · base sin cambio",
-          registro_id: p.prodId,
-          valor_anterior: JSON.stringify({ costo:p.costoActual, contado:p.contado, credito:p.credito }),
-          valor_nuevo: JSON.stringify({ costo:p.costoNuevo, contado:p.contado, credito:p.credito }),
-          fecha: new Date().toISOString() });
-      }
-      setFilas(prev => prev.map(f => f.prodId !== p.prodId ? f : (() => {
-        const costo = p.costoNuevo;
-        const cont = modo==="trasladar" ? preR2(f.contado + p.delta) : f.contado;
-        const cred = modo==="trasladar" ? preR2(f.credito + p.delta) : f.credito;
-        return { ...f, costo, contado: cont, credito: cred,
-          origen: modo==="trasladar" ? "Propuesta proveedor" : f.origen,
-          desde: modo==="trasladar" ? preHoy() : f.desde,
-          margen: preMargen(cont, costo), utilidad: cont - costo };
-      })()));
-      setProps(prev => prev.filter(x => x.prodId !== p.prodId));
-      setDecidir(null); setMotivoProp("");
-      setAvisoProp((modo==="trasladar" ? `Trasladado · base nueva ${preMoney(preR2(p.contado+p.delta))}` :
-        (p.delta>0 ? "Alza absorbida · la base no cambió" : "Baja retenida · la base no cambió")) + " · " + au);
-    } catch (e) {
-      setAvisoProp("No se guardó nada: la escritura requiere sesión autenticada (Fase 4 · RLS). " + (e && e.message ? e.message : ""));
-    }
-    setGuardandoProp(false);
-  };
+      const [ofs, rProds, rProvs] = await Promise.all([
+        preLeerOfertas(),
+        window.supa.from("productos").select("prod_id,nombre,linea").eq("estado","activo"),
+        window.supa.from("proveedores").select("prov_cod,nombre"),
+      ]);
+      const np = {}, ld = {}, nv = {};
+      ((rProds && rProds.data)||[]).forEach(p => { np[p.prod_id] = p.nombre || p.prod_id; ld[p.prod_id] = p.linea || ""; });
+      ((rProvs && rProvs.data)||[]).forEach(p => { nv[p.prov_cod] = p.nombre || p.prov_cod; });
+      setNomProd(np); setLineaDe(ld); setNomProv(nv); setOfertas(ofs);
+      setError(ofs.length ? "" : "No hay ofertas vigentes que mostrar.");
+    } catch (e) { setOfertas([]); setError("No se pudieron leer las ofertas."); }
+  }, []);
+  React.useEffect(() => { cargar(); }, [cargar]);
 
-  if (cargando) return (
-    <div style={{ padding:16, textAlign:"center", color:"#3d6675" }}>Cargando propuestas…</div>
-  );
+  const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+
+  /* Un bloque por producto, con sus presentaciones y las piladoras de cada una. */
+  const grupos = React.useMemo(() => {
+    const g = {};
+    (ofertas||[]).forEach(o => {
+      const nom = nomProd[o.prodId] || o.prodId;
+      if (!g[o.prodId]) g[o.prodId] = { prodId:o.prodId, nombre:nom, linea:lineaDe[o.prodId]||"", pres:{} };
+      const k = o.presCod;
+      if (!g[o.prodId].pres[k]) g[o.prodId].pres[k] = { presCod:k, presentacion:o.presentacion, equivQq:o.equivQq, filas:[] };
+      g[o.prodId].pres[k].filas.push(o);
+    });
+    const t = norm(busca).trim();
+    return Object.values(g)
+      .map(x => ({ ...x, pres: Object.values(x.pres)
+        .map(p => ({ ...p, filas: p.filas.slice().sort((a,b)=>b.costo-a.costo) }))
+        .sort((a,b)=>b.equivQq-a.equivQq) }))
+      .filter(x => {
+        if (!t) return true;
+        const pilas = [].concat.apply([], x.pres.map(p => p.filas.map(f => nomProv[f.provCod]||f.provCod))).join(" ");
+        return t.split(/\s+/).every(w =>
+          norm(x.nombre).includes(w) || norm(x.linea).includes(w) || norm(pilas).includes(w) || norm(x.prodId).includes(w));
+      })
+      .sort((a,b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, [ofertas, nomProd, lineaDe, nomProv, busca]);
+
+  /* Productos que hoy tienen DOS piladoras cobrando distinto en la misma
+     presentación: ahí es donde el margen se parte y conviene mirar. */
+  const conCostoDispar = React.useMemo(() => {
+    let n = 0;
+    Object.values((ofertas||[]).reduce((acc,o) => {
+      const k = o.prodId + "·" + o.presCod;
+      (acc[k] = acc[k] || []).push(o.costo); return acc;
+    }, {})).forEach(cs => { if (new Set(cs).size > 1) n++; });
+    return n;
+  }, [ofertas]);
+
+  const piladorasVivas = React.useMemo(() =>
+    new Set((ofertas||[]).map(o => o.provCod)).size, [ofertas]);
 
   return (
     <div style={{ padding:12 }}>
       <div style={{ marginBottom:10 }}>
-        <div style={{ fontSize:18, fontWeight:700, color:"#1b4553" }}>Propuestas de precio</div>
+        <div style={{ fontSize:18, fontWeight:700, color:"#1b4553" }}>Precios vigentes</div>
         <div style={{ fontSize:12, color:"#3d6675", marginTop:2 }}>
-          {props.length} pendiente(s) · sobre {filas.length} producto(s) con precio vigente
-          {" "}<span style={{ display:"inline-block", padding:"2px 9px", borderRadius:20, fontSize:10.5, fontWeight:700, verticalAlign:"middle",
-            background:(filas.length&&!error?"#1c7a44":"#8a8a95")+"22", color:filas.length&&!error?"#1c7a44":"#8a8a95" }}>
-            {filas.length&&!error ? "🟢 Datos vivos · Supabase" : "⚪ Sin datos · el RLS exige sesión"}</span>
+          {(ofertas||[]).length} oferta(s) vigentes · {piladorasVivas} piladora(s)
+          {" "}<span style={{ display:"inline-block", padding:"2px 9px", borderRadius:20, fontSize:10.5,
+            fontWeight:700, verticalAlign:"middle",
+            background:((ofertas||[]).length?"#1c7a44":"#8a8a95")+"22",
+            color:(ofertas||[]).length?"#1c7a44":"#8a8a95" }}>
+            {(ofertas||[]).length ? "🟢 Datos vivos · Supabase" : "⚪ Sin datos"}</span>
         </div>
       </div>
+
+      {/* EN CRIOLLO · lo primero que tiene que entender quien abre esta pantalla */}
+      <div style={{ background:"#eef4f7", border:"1px solid #cfdde4", borderRadius:11,
+                    padding:"12px 14px", marginBottom:12, fontSize:12.5, color:"#2c5568", lineHeight:1.55 }}>
+        <b>El precio ya no se escribe aquí: vive en la oferta de cada piladora.</b><br/>
+        Cada piladora tiene su propio costo y su propio precio para cada presentación.
+        Esto es exactamente lo que el vendedor ve en el celular cuando cotiza.
+        Para cambiar un precio suelto: <b>Productos → abre el producto → Editar precios</b>.
+        Para subir el costo de toda una línea de una piladora, usa el botón de abajo.
+      </div>
+
+      <button onClick={()=>setSubir(true)}
+        style={{ width:"100%", padding:"13px", borderRadius:11, border:"none",
+          background:"#1b4553", color:"#fff", fontSize:14, fontWeight:800,
+          fontFamily:"inherit", cursor:"pointer", marginBottom:12 }}>
+        📈 Subir el costo de una piladora</button>
 
       {error && (
         <div style={{ background:"#fdecea", border:"1px solid #f5b7b1", borderRadius:8,
@@ -8142,101 +8167,98 @@ function PropuestasPrecio({ usuario }) {
         </div>
       )}
 
-      {avisoProp && (
-        <div onClick={() => setAvisoProp("")}
-          style={{ background:"#eef7f1", border:"1px solid #bfe3cd", borderRadius:8, padding:10,
-                   marginBottom:10, fontSize:12.5, color:"#1e6641", cursor:"pointer" }}>
-          {avisoProp} <span style={{ opacity:.6 }}>· toca para cerrar</span>
+      {conCostoDispar > 0 && (
+        <div style={{ background:"#fdf9ee", border:"1px solid #d9c58a", borderRadius:9,
+                      padding:"10px 12px", marginBottom:12, fontSize:12.5, color:"#8a7a45", lineHeight:1.5 }}>
+          En <b>{conCostoDispar}</b> caso(s) dos piladoras te cobran distinto por lo mismo.
+          No es un error: cada una pone su precio. Ahí es donde más se gana o se pierde.
         </div>
       )}
 
-      {props.length === 0 ? (
+      <input value={busca} onChange={e=>setBusca(e.target.value)}
+        placeholder="Busca por producto, línea o piladora…"
+        style={{ width:"100%", boxSizing:"border-box", padding:"11px 13px", borderRadius:9,
+          border:"1px solid #cfd8dc", fontSize:13.5, fontFamily:"inherit", outline:"none", marginBottom:12 }} />
+
+      {ofertas === null ? (
+        <div style={{ padding:16, textAlign:"center", color:"#3d6675", fontSize:13 }}>Cargando ofertas…</div>
+      ) : grupos.length === 0 ? (
         <div style={{ padding:"34px 18px", textAlign:"center", color:"#6b8794", fontSize:13.5,
                       border:"1px dashed #cfd8dc", borderRadius:12 }}>
-          Ninguna piladora movió su costo.<br/>
-          <span style={{ fontSize:12, opacity:.85 }}>Cuando alguna lo mueva, la propuesta aparece aquí sola.</span>
+          {busca ? "Nada coincide con lo que escribiste." : "No hay ofertas vigentes."}
         </div>
-      ) : (
-        <div style={{ border:"1px solid #d9c58a", background:"#fdf9ee", borderRadius:10,
-                      padding:"12px 13px", marginBottom:12 }}>
-          <div style={{ fontSize:11.5, color:"#8a7a45", marginBottom:10, lineHeight:1.4 }}>
-            La piladora movió su costo. Tú decides: <b>trasladar</b> (la base se mueve, tu margen
-            queda igual) o <b>mantener</b> (la base no se toca y el margen de la familia absorbe la diferencia).
-          </div>
-          {props.map(p => {
-            const abierto = decidir && decidir.prodId === p.prodId;
-            const sube = p.delta > 0;
+      ) : grupos.map(g => (
+        <div key={g.prodId} style={{ border:"1px solid #dfe6ea", borderRadius:11,
+                                     padding:"11px 13px", marginBottom:10, background:"#fff" }}>
+          <div style={{ fontSize:14, fontWeight:800, color:"#1b4553" }}>{g.nombre}</div>
+          <div style={{ fontSize:11.5, color:"#6b8794", marginTop:2 }}>
+            <span className="num">{g.prodId}</span>{g.linea ? " · " + g.linea : ""}</div>
+          {g.pres.map(p => {
+            const dispar = new Set(p.filas.map(f=>f.costo)).size > 1;
             return (
-              <div key={p.prodId} style={{ background:"#fff", border:"1px solid #ecdfb8",
-                                           borderRadius:9, padding:"10px 12px", marginBottom:8 }}>
-                <div style={{ fontSize:13.5, fontWeight:700, color:"#1b4553" }}>{p.producto}</div>
-                <div style={{ fontSize:11.5, color:"#6b8794", marginTop:2 }}>
-                  <span className="num">{p.prodId}</span> · piladora <b>{p.prov}</b>
-                </div>
-                <div style={{ fontSize:12.5, color:"#3d6675", marginTop:7, lineHeight:1.5 }}>
-                  Costo <span className="num">{preMoney(p.costoActual)}</span> →{" "}
-                  <span className="num" style={{ fontWeight:700, color: sube?"#b9770e":"#1e8449" }}>
-                    {preMoney(p.costoNuevo)}</span>{" "}
-                  <span style={{ color: sube?"#b9770e":"#1e8449", fontWeight:700 }}>
-                    ({sube?"+":""}{preMoney(p.delta)})</span>
-                </div>
-                <div style={{ fontSize:11.5, color:"#6b8794", marginTop:4 }}>
-                  Margen hoy <span className="num">{p.margenAhora.toFixed(1)}%</span> · si mantienes la base{" "}
-                  <span className="num" style={{ fontWeight:700,
-                    color: p.margenSiMantiene < preMargenObjetivo() ? "#b9770e" : "#1e8449" }}>
-                    {p.margenSiMantiene.toFixed(1)}%</span>
-                </div>
-
-                {!abierto ? (
-                  <button onClick={() => { setDecidir({ prodId:p.prodId }); setMotivoProp(""); }}
-                    style={{ marginTop:9, padding:"8px 14px", borderRadius:9, border:"1px solid #1b4553",
-                             background:"#fff", color:"#1b4553", fontSize:13, fontWeight:700,
-                             fontFamily:"inherit", cursor:"pointer" }}>
-                    Decidir</button>
-                ) : (
-                  <div style={{ marginTop:10, borderTop:"1px solid #f0e6cc", paddingTop:10 }}>
-                    <input value={motivoProp} onChange={e=>setMotivoProp(e.target.value)}
-                      placeholder="Motivo (opcional)"
-                      style={{ width:"100%", padding:"9px 11px", borderRadius:8, border:"1px solid #cfd8dc",
-                               fontSize:13, fontFamily:"inherit", outline:"none", marginBottom:9 }} />
-                    <div style={{ display:"flex", gap:8 }}>
-                      <button disabled={guardandoProp} onClick={() => confirmarPropuesta(p, "trasladar")}
-                        style={{ flex:1, padding:"11px", borderRadius:9, border:"none", background:"#1b4553",
-                                 color:"#fff", fontSize:13, fontWeight:700, fontFamily:"inherit",
-                                 cursor:"pointer", opacity:guardandoProp?.6:1 }}>
-                        Trasladar</button>
-                      <button disabled={guardandoProp} onClick={() => confirmarPropuesta(p, "mantener")}
-                        style={{ flex:1, padding:"11px", borderRadius:9, border:"1px solid #cfd8dc",
-                                 background:"#fff", color:"#3d6675", fontSize:13, fontWeight:700,
-                                 fontFamily:"inherit", cursor:"pointer", opacity:guardandoProp?.6:1 }}>
-                        Mantener</button>
-                    </div>
-                    <button onClick={() => { setDecidir(null); setMotivoProp(""); }}
-                      style={{ marginTop:7, width:"100%", padding:"7px", borderRadius:8, border:"none",
-                               background:"transparent", color:"#8a8a95", fontSize:12,
-                               fontFamily:"inherit", cursor:"pointer" }}>
-                      Cancelar</button>
-                  </div>
-                )}
+            <div key={p.presCod} style={{ marginTop:9 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"#3d6675" }}>
+                {p.presentacion} <span className="num" style={{ fontWeight:500, color:"#6b8794" }}>({p.equivQq} qq)</span>
+                {dispar ? <span style={{ marginLeft:7, fontSize:10.5, fontWeight:700, padding:"1px 8px",
+                  borderRadius:20, background:"#f6edd3", color:"#8a7a45" }}>costos distintos</span> : null}
               </div>
+              {p.filas.map(f => (
+                <div key={f.ofertaId} style={{ borderTop:"1px solid #eef2f4", padding:"7px 0 2px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12.5, color:"#1b4553", fontWeight:600 }}>
+                      {nomProv[f.provCod] || f.provCod}</span>
+                    <span style={{ fontSize:12.5, color:"#1b4553" }}>
+                      contado <span className="num" style={{ fontWeight:800 }}>{preMoney(f.contado)}</span>
+                      {" · crédito "}<span className="num" style={{ fontWeight:700 }}>{preMoney(f.credito)}</span>
+                    </span>
+                  </div>
+                  <div style={{ fontSize:11, color:"#6b8794", marginTop:2, lineHeight:1.5 }}>
+                    Costo <span className="num">{preMoney(f.costoContado)}</span> contado ·{" "}
+                    <span className="num">{preMoney(f.costo)}</span> crédito · ganas{" "}
+                    <span className="num" style={{ fontWeight:700,
+                      color: f.utilidadContado <= 0 ? "#c0392b" : "#1e8449" }}>
+                      {preMoney(f.utilidadContado)}</span> por unidad
+                    {" · margen "}<span className="num" style={{ fontWeight:700,
+                      color: f.margen < f.margenMin ? "#b9770e" : "#1e8449" }}>{f.margen.toFixed(1)}%</span>
+                  </div>
+                  <div style={{ fontSize:10.5, color:"#8a9aa3", marginTop:2 }}>
+                    Rige desde <span className="num">{f.desde || "—"}</span>
+                    {f.hasta ? <> hasta <span className="num">{f.hasta}</span></> : " · sin fecha de fin"}
+                  </div>
+                </div>
+              ))}
+            </div>
             );
           })}
         </div>
-      )}
+      ))}
 
       <div style={{ marginTop:14, padding:10, background:"#f4f7f8", borderRadius:8,
                     fontSize:11.5, color:"#6b8794", lineHeight:1.5 }}>
-        El precio de cada producto se ve y se ajusta en <b>Catálogo</b> → ficha del producto.
-        Aquí solo se deciden los movimientos de costo que llegan de las piladoras.
+        Esta pantalla ya no escribe en la tabla vieja de precios. Lo que se guarda aquí
+        se guarda en la oferta de la piladora, que es lo que el vendedor lee.
+        El historial de precios de antes de agosto de 2026 sigue guardado y se ve en
+        <b> Productos → abre el producto → Ver historial</b>.
       </div>
+
+      {subir && (
+        <ModalCostoBloque usuario={usuario}
+          onCerrar={()=>setSubir(false)}
+          onAplicado={()=>{ cargar(); }} />
+      )}
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   MODAL · Historial de precios de un producto
-   Todas las filas de `precios` del producto, de la más nueva a la más vieja.
-   La que tiene vigente_hasta null es la de hoy; las demás son la cadena atrás.
+   MODAL · Historial ANTERIOR de precios · b63
+   ÚNICO sitio del sistema que todavía toca `precios`, y sólo para LEER.
+   Esa tabla quedó congelada el 24/07/2026: guarda la cadena de precios de
+   antes de que el precio se mudara a la oferta de cada piladora. Se conserva
+   porque es lo único valioso que quedó ahí, y se rotula como historia vieja
+   para que nadie crea que ese número es el que se está vendiendo hoy.
+   Mostrar además el historial de ofertas obligaría a versionar la lectura de
+   `ofertas_piladora`; queda pendiente y está dicho en la propia pantalla.
    ══════════════════════════════════════════════════════════════════════════ */
 function ModalHistorialPrecio({ prodId, producto, onCerrar }) {
   const [filas, setFilas] = useState(null);   // null = cargando
@@ -8263,7 +8285,7 @@ function ModalHistorialPrecio({ prodId, producto, onCerrar }) {
         <div style={{ padding:"18px 22px", borderBottom:`1px solid ${COLOR.border}`,
                       display:"flex", alignItems:"flex-start", gap:12 }}>
           <div style={{ flex:1 }}>
-            <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>Historial de precios</h3>
+            <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>Historial anterior de precios</h3>
             <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>{producto}</p>
           </div>
           <button onClick={onCerrar}
@@ -8271,12 +8293,21 @@ function ModalHistorialPrecio({ prodId, producto, onCerrar }) {
         </div>
 
         <div style={{ padding:"16px 22px 22px" }}>
+          {/* b63 · el aviso va SIEMPRE, aunque no haya filas: quien abre esto tiene
+              que saber que está mirando el pasado, no lo que se vende hoy. */}
+          <div style={{ background:"#fdf9ee", border:"1px solid #d9c58a", borderRadius:9,
+                        padding:"10px 12px", marginBottom:13, fontSize:12, color:"#8a7a45", lineHeight:1.5 }}>
+            <b>Esto es historia vieja.</b> Son los precios que se guardaban hasta julio de 2026,
+            cuando había un solo precio por producto. Hoy el precio vive en la oferta de cada
+            piladora: el que se vende ahora se ve más arriba, en <b>Precio base</b> y en
+            <b> Presentaciones y ofertas</b>.
+          </div>
           {filas === null ? (
             <div style={{ padding:20, textAlign:"center", color:COLOR.muted, fontSize:13 }}>Cargando…</div>
           ) : filas.length === 0 ? (
             <div style={{ padding:"26px 14px", textAlign:"center", color:COLOR.muted, fontSize:13,
                           border:`1px dashed ${COLOR.border}`, borderRadius:11 }}>
-              Este producto todavía no tiene precios registrados.
+              Este producto no tiene historia guardada de esa época.
             </div>
           ) : filas.map((h,i) => {
             const vigente = !h.vigente_hasta;
@@ -8289,8 +8320,8 @@ function ModalHistorialPrecio({ prodId, producto, onCerrar }) {
                   <span className="num" style={{ fontSize:14.5, fontWeight:800, color:COLOR.text }}>
                     {preMoney(cont)}</span>
                   <span style={{ fontSize:10.5, fontWeight:700, padding:"2px 9px", borderRadius:20,
-                    background: vigente?COLOR.teal:"#8a8a9522", color: vigente?"#fff":COLOR.muted }}>
-                    {vigente ? "Vigente hoy" : "Anterior"}</span>
+                    background:"#8a8a9522", color:COLOR.muted }}>
+                    {vigente ? "El último que se guardó aquí" : "Anterior"}</span>
                 </div>
                 <div style={{ fontSize:11.5, color:COLOR.muted, marginTop:4, lineHeight:1.5 }}>
                   Crédito <span className="num">{preMoney(h.base_credito)}</span> ·
@@ -8318,100 +8349,246 @@ function ModalHistorialPrecio({ prodId, producto, onCerrar }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   MODAL · Ajustar el precio de UN producto
-   Reescrito contra el modelo actual: lee la fila vigente de `precios` y mueve
-   la base. El costo NO se toca aquí (ese llega por Propuestas de precio).
+   AQUÍ ESTABA · ModalAjustePrecio · BORRADO el 6 ago 2026 (b63)
+   Ajustaba el precio de UN producto escribiendo en `precios`. Estaba
+   declarado y NADIE lo abría: el estado `ajustar` de la ficha nunca se
+   encendía. Aun así sostenía un camino de escritura a una tabla muerta, así
+   que se fue entero. El precio de un producto suelto se cambia en
+   Productos → ficha → «Editar precios», que escribe en `ofertas_piladora`.
    ══════════════════════════════════════════════════════════════════════════ */
-function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
-  const [fila, setFila] = useState(null);      // null = cargando; false = sin precio
-  const [modo, setModo] = useState("delta");   // delta = ±$ · manual = escribir la base
-  const [ajuste, setAjuste] = useState("");
-  const [manualC, setManualC] = useState("");
-  const [manualCr, setManualCr] = useState("");
-  const [manualCosto, setManualCosto] = useState("");   // costo del proveedor editable
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MODAL · Subir el COSTO de una piladora · b63
+   Reemplaza a `ModalLotePrecios`, que movía la base en `precios` (tabla
+   muerta desde el 24/07/2026) y por tanto no cambiaba nada de lo que el
+   vendedor cotiza. Ahora se trabaja donde vive el precio de verdad:
+   `ofertas_piladora`.
+
+   Las tres reglas que manda el dueño del producto:
+     1. Al subir el costo, el precio de venta sube solo y la ganancia por
+        quintal queda igual. El precio nuevo SE MUESTRA antes de guardar,
+        y se puede corregir renglón por renglón.
+     2. El aumento va a UNA piladora a la vez: cada una cobra distinto y
+        sube cuando quiere.
+     3. Sirve en bloque (toda una línea de grano) o producto por producto
+        (se destildan los renglones que no se quieren mover).
+
+   Se guarda VERSIONADO, igual que la pantalla de precios de la ficha: la
+   oferta de hoy se cierra con la fecha de hoy y nace una nueva. Así queda la
+   fecha del cambio y no se pierde lo anterior.
+   ══════════════════════════════════════════════════════════════════════════ */
+function ModalCostoBloque({ ids, usuario, onCerrar, onAplicado }) {
+  const [ofertas, setOfertas] = useState(null);   // null = cargando
+  const [nomProd, setNomProd] = useState({});
+  const [lineaDe, setLineaDe] = useState({});
+  const [nomProv, setNomProv] = useState({});
+  const [prov, setProv]   = useState("");
+  const [linea, setLinea] = useState("");         // "" = todas las líneas
+  const [modo, setModo]   = useState("pct");      // pct = porcentaje · qq = dólares por quintal
+  const [pct, setPct]     = useState("");
+  const [porQq, setPorQq] = useState("");
+  const [edit, setEdit]   = useState({});         // { ofertaId: "precio contado corregido a mano" }
+  const [fuera, setFuera] = useState({});         // { ofertaId: true } = este renglón no se toca
   const [motivo, setMotivo] = useState("");
+  const [paso, setPaso] = useState(1);            // 1 piladora · 2 cuánto sube · 3 revisar
   const [guardando, setGuardando] = useState(false);
+  const [hechos, setHechos] = useState(0);
   const [aviso, setAviso] = useState("");
 
   React.useEffect(() => {
+    if (!window.supa) { setOfertas([]); return; }
     (async () => {
       try {
-        const r = await preLeerVigentes([prod.id]);
-        if (r.length) { setFila(r[0]); setManualC(String(r[0].contado)); setManualCr(String(r[0].credito)); setManualCosto(String(r[0].costo)); }
-        else setFila(false);
-      } catch (e) { setFila(false); }
+        const [ofs, rProds, rProvs] = await Promise.all([
+          preLeerOfertas(ids),
+          window.supa.from("productos").select("prod_id,nombre,linea").eq("estado","activo"),
+          window.supa.from("proveedores").select("prov_cod,nombre"),
+        ]);
+        const np = {}, ld = {}, nv = {};
+        ((rProds && rProds.data)||[]).forEach(p => { np[p.prod_id] = p.nombre || p.prod_id; ld[p.prod_id] = p.linea || ""; });
+        ((rProvs && rProvs.data)||[]).forEach(p => { nv[p.prov_cod] = p.nombre || p.prov_cod; });
+        setNomProd(np); setLineaDe(ld); setNomProv(nv); setOfertas(ofs);
+      } catch (e) { setOfertas([]); }
     })();
-  }, [prod.id]);
+  }, []);
 
-  const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`,
-                fontSize:14, fontFamily:"inherit", outline:"none" };
+  const inp = { width:"100%", boxSizing:"border-box", padding:"11px 13px", borderRadius:9,
+                border:`1px solid ${COLOR.border}`, fontSize:14, fontFamily:"inherit", outline:"none" };
   const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
 
-  const aj = parseFloat(ajuste)||0;
-  const contadoNuevo = fila ? (modo==="delta" ? preR2(fila.contado + aj) : preR2(parseFloat(manualC)||0)) : 0;
-  const creditoNuevo = fila ? (modo==="delta" ? preR2(fila.credito + aj) : preR2(parseFloat(manualCr)||0)) : 0;
-  const costoNuevo   = fila ? preR2(parseFloat(manualCosto)||0) : 0;
-  const margenNuevo  = fila ? preMargen(contadoNuevo, costoNuevo) : 0;
-  const bajoCosto    = fila ? contadoNuevo < costoNuevo : false;
-  const margenBajo   = margenNuevo < preMargenObjetivo();
-  const sinCambio    = fila ? (contadoNuevo === fila.contado && creditoNuevo === fila.credito && costoNuevo === fila.costo) : true;
+  /* Sólo se tocan productos activos del catálogo: lo que ya no se vende no se
+     re-precia. Lo que se salta se dice, no se esconde. */
+  const vivas = (ofertas||[]).filter(o => nomProd[o.prodId]);
+  const saltadas = (ofertas||[]).length - vivas.length;
 
-  const guardar = async () => {
-    if (guardando || !fila || sinCambio) return;
-    setGuardando(true); setAviso("");
-    try {
-      const r = await preCambiarPrecio({
-        fila, contadoNuevo, creditoNuevo, costoNuevo, origen: "Ajuste manual",
-        motivo: motivo.trim() || `Costo ${preMoney(fila.costo)}→${preMoney(costoNuevo)} · base ${preMoney(fila.contado)}→${preMoney(contadoNuevo)}`,
-        usuario });
-      setAviso("Precio actualizado · " + r.au);
-      if (onGuardado) onGuardado(prod.id, { contado: r.contado, credito: r.credito, costo: r.costo });
-      setTimeout(onCerrar, 900);
-    } catch (e) {
-      setAviso("No se guardó nada: la escritura requiere sesión autenticada (Fase 4 · RLS). " + (e && e.message ? e.message : ""));
+  const piladoras = React.useMemo(() => {
+    const c = {};
+    vivas.forEach(o => { c[o.provCod] = (c[o.provCod]||0) + 1; });
+    return Object.keys(c).sort().map(k => ({ cod:k, nombre: nomProv[k] || k, n: c[k] }));
+  }, [ofertas, nomProv, nomProd]);
+
+  const deLaPiladora = vivas.filter(o => o.provCod === prov);
+  const lineas = React.useMemo(() => {
+    const c = {};
+    deLaPiladora.forEach(o => { const l = lineaDe[o.prodId] || "Sin línea"; c[l] = (c[l]||0) + 1; });
+    return Object.keys(c).sort().map(k => ({ nombre:k, n:c[k] }));
+  }, [ofertas, prov, lineaDe, nomProd]);
+
+  const elegidas = deLaPiladora.filter(o => !linea || (lineaDe[o.prodId] || "Sin línea") === linea);
+
+  const subida = modo === "pct" ? { pct } : { porQq };
+  const hayNumero = modo === "pct" ? (parseFloat(pct)||0) !== 0 : (parseFloat(porQq)||0) !== 0;
+
+  /* El cálculo completo, renglón por renglón, ANTES de guardar nada. */
+  const calc = React.useMemo(() => elegidas.map(o => {
+    const r = preSubirCosto(o, subida);
+    const brechaPrecio = preR2(o.credito - o.contado);      // el recargo por crédito de ESA fila
+    const tecleado = edit[o.ofertaId];
+    const aMano = tecleado != null && tecleado !== "";
+    const contadoFinal = aMano ? preR2(parseFloat(tecleado)||0) : r.contadoNuevo;
+    const creditoFinal = preR2(contadoFinal + brechaPrecio);
+    return { ...o, ...r, aMano, contadoFinal, creditoFinal,
+      utilidadNueva: preR2(contadoFinal - r.costoContadoNuevo),
+      margenNuevo: preMargen(contadoFinal, r.costoNuevo),
+      bajoCosto: contadoFinal < r.costoContadoNuevo,
+    };
+  }), [ofertas, prov, linea, modo, pct, porQq, edit, nomProd]);
+
+  const activas   = calc.filter(c => !fuera[c.ofertaId]);
+  const bajoCosto = activas.filter(c => c.bajoCosto).length;
+  const bajoMin   = activas.filter(c => !c.bajoCosto && c.margenNuevo < c.margenMin).length;
+  const pierdenUtil = activas.filter(c => c.utilidadNueva < c.utilidadContado - 0.005).length;
+
+  const aplicar = async () => {
+    if (guardando || !activas.length) return;
+    setGuardando(true); setAviso(""); setHechos(0);
+    const hoy = preHoy();
+    const au = preAu();
+    const mot = motivo.trim() || (modo==="pct"
+      ? `Costo de ${nomProv[prov]||prov} +${pct}%`
+      : `Costo de ${nomProv[prov]||prov} ${(parseFloat(porQq)||0)>0?"+":""}${preMoney(parseFloat(porQq)||0)} por quintal`);
+    let ok = 0, ultimoError = "";
+    for (let i = 0; i < activas.length; i++) {
+      const c = activas[i];
+      try {
+        const c1 = await window.supa.from("ofertas_piladora")
+          .update({ vigente_hasta: hoy }).eq("oferta_id", c.ofertaId);
+        if (c1.error) throw new Error(c1.error.message);
+        const nid = c.prodId + "-" + c.presCod + "-" + c.provCod + "-" + Date.now() + "-" + i;
+        const c2 = await window.supa.from("ofertas_piladora").insert({
+          oferta_id: nid, prod_id: c.prodId, pres_cod: c.presCod,
+          presentacion: c.presentacion, equiv_qq: c.equivQq, prov_cod: c.provCod,
+          costo: c.costoNuevo, costo_contado: c.costoContadoNuevo,
+          precio_contado: c.contadoFinal, precio_credito: c.creditoFinal,
+          margen_min: c.margenMin, activo: true, vigente_desde: hoy, es_demo: false });
+        if (c2.error) throw new Error(c2.error.message);
+        ok++; setHechos(ok);
+        try {
+          await window.supa.from("auditoria").insert({
+            org_id: "ORG-001", codigo: au,
+            usuario: usuario && usuario.nombre ? usuario.nombre : "",
+            tabla: "ofertas_piladora", operacion: "Alza de costo por piladora",
+            registro_id: c.ofertaId, fecha: new Date().toISOString(),
+            valor_anterior: JSON.stringify({ costo:c.costo, costoContado:c.costoContado, contado:c.contado, credito:c.credito }),
+            valor_nuevo:    JSON.stringify({ costo:c.costoNuevo, costoContado:c.costoContadoNuevo, contado:c.contadoFinal, credito:c.creditoFinal, motivo:mot }),
+          });
+        } catch (x) { /* la auditoría no puede tumbar el cambio ya guardado */ }
+      } catch (e) { ultimoError = (e && e.message) || ""; }
+    }
+    if (ok === 0) {
+      setAviso("No se guardó nada. " + (ultimoError || "La escritura requiere sesión con permiso."));
+    } else {
+      setAviso(`${ok} de ${activas.length} oferta(s) actualizadas · ${au}` +
+        (ok < activas.length ? " · el resto falló y quedó como estaba." : ""));
+      if (onAplicado) onAplicado(ok);
+      if (ok === activas.length) setTimeout(onCerrar, 1200);
     }
     setGuardando(false);
   };
+
+  const Encabezado = () => (
+    <div style={{ padding:"18px 22px", borderBottom:`1px solid ${COLOR.border}`,
+                  display:"flex", alignItems:"flex-start", gap:12 }}>
+      <div style={{ flex:1 }}>
+        <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>
+          {paso===1 ? "¿A qué piladora le subió el costo?"
+           : paso===2 ? "¿Cuánto le subió?"
+           : "Revisa antes de guardar"}</h3>
+        <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>
+          {paso===1 ? "Una piladora a la vez. Cada una cobra distinto."
+           : paso===2 ? (nomProv[prov]||prov) + (linea ? " · " + linea : "")
+           : "Nada se guarda hasta que toques «Sí, guardar»."}</p>
+      </div>
+      <button onClick={onCerrar} disabled={guardando}
+        style={{ border:"none", background:"none", fontSize:24, color:COLOR.muted, cursor:"pointer" }}>×</button>
+    </div>
+  );
 
   return (
     <div onClick={()=>!guardando && onCerrar()}
       style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", zIndex:1100,
                display:"flex", alignItems:"center", justifyContent:"center", padding:18 }}>
       <div onClick={e=>e.stopPropagation()}
-        style={{ background:"#fff", borderRadius:16, width:"min(480px,94vw)",
-                 maxHeight:"88vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
-        <div style={{ padding:"18px 22px", borderBottom:`1px solid ${COLOR.border}`,
-                      display:"flex", alignItems:"flex-start", gap:12 }}>
-          <div style={{ flex:1 }}>
-            <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>Ajustar precio y costo</h3>
-            <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>{prod.nombre}</p>
-          </div>
-          <button onClick={onCerrar}
-            style={{ border:"none", background:"none", fontSize:24, color:COLOR.muted, cursor:"pointer" }}>×</button>
-        </div>
-
+        style={{ background:"#fff", borderRadius:16, width:"min(560px,96vw)",
+                 maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+        <Encabezado />
         <div style={{ padding:"18px 22px 22px" }}>
-          {fila === null ? (
-            <div style={{ padding:20, textAlign:"center", color:COLOR.muted, fontSize:13 }}>Cargando precio…</div>
-          ) : fila === false ? (
+
+          {ofertas === null ? (
+            <div style={{ padding:20, textAlign:"center", color:COLOR.muted, fontSize:13 }}>Cargando ofertas…</div>
+          ) : vivas.length === 0 ? (
             <div style={{ padding:"26px 14px", textAlign:"center", color:COLOR.muted, fontSize:13,
                           border:`1px dashed ${COLOR.border}`, borderRadius:11 }}>
-              Este producto no tiene una fila vigente en <b>precios</b>.<br/>
-              <span style={{ fontSize:12 }}>Primero hay que sembrarle el precio base.</span>
+              No hay ofertas vigentes que subir.<br/>
+              <span style={{ fontSize:12 }}>El precio vive en la oferta de cada piladora; si no hay oferta, no hay qué mover.</span>
             </div>
-          ) : (<>
-            <div style={{ background:COLOR.tealLight, borderRadius:11, padding:"12px 14px", marginBottom:16 }}>
-              <div style={{ fontSize:11.5, color:COLOR.tealDark, fontWeight:700, marginBottom:5 }}>PRECIO DE HOY</div>
-              <div style={{ fontSize:12.5, color:COLOR.text, lineHeight:1.6 }}>
-                Contado <span className="num" style={{ fontWeight:800 }}>{preMoney(fila.contado)}</span> ·
-                crédito <span className="num" style={{ fontWeight:800 }}>{preMoney(fila.credito)}</span><br/>
-                Costo <span className="num">{preMoney(fila.costo)}</span> ·
-                margen <span className="num" style={{ fontWeight:700 }}>{fila.margen.toFixed(1)}%</span>
-              </div>
+          ) :
+          /* ── PASO 1 · la piladora ── */
+          paso === 1 ? (<>
+            <p style={{ fontSize:12.5, color:COLOR.muted, lineHeight:1.5, marginBottom:14 }}>
+              El costo es lo que <b style={{color:COLOR.text}}>te cobra la piladora</b>. Al subirlo,
+              el precio de venta sube solo y tú sigues ganando lo mismo por quintal.
+            </p>
+            {piladoras.map(p => (
+              <button key={p.cod} onClick={()=>{ setProv(p.cod); setLinea(""); setPaso(2); }}
+                style={{ width:"100%", textAlign:"left", padding:"12px 14px", marginBottom:9,
+                  borderRadius:11, border:`1px solid ${COLOR.border}`, background:"#fff",
+                  fontFamily:"inherit", cursor:"pointer" }}>
+                <div style={{ fontSize:14, fontWeight:700, color:COLOR.text }}>{p.nombre}</div>
+                <div style={{ fontSize:11.5, color:COLOR.muted, marginTop:2 }}>
+                  <span className="num">{p.cod}</span> · {p.n} oferta{p.n!==1?"s":""} vigente{p.n!==1?"s":""}</div>
+              </button>
+            ))}
+            {saltadas > 0 && (
+              <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>
+                {saltadas} oferta(s) se dejan fuera: su producto no está activo en el catálogo.</p>
+            )}
+          </>) :
+          /* ── PASO 2 · la línea y cuánto sube ── */
+          paso === 2 ? (<>
+            <label style={lbl}>Línea de grano</label>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+              <button onClick={()=>setLinea("")}
+                style={{ padding:"9px 13px", borderRadius:9, fontSize:12.5, fontWeight:700,
+                  fontFamily:"inherit", cursor:"pointer",
+                  border:`1px solid ${linea===""?COLOR.teal:COLOR.border}`,
+                  background: linea===""?COLOR.tealLight:"#fff",
+                  color: linea===""?COLOR.tealDark:COLOR.text }}>
+                Todas ({deLaPiladora.length})</button>
+              {lineas.map(l => (
+                <button key={l.nombre} onClick={()=>setLinea(l.nombre)}
+                  style={{ padding:"9px 13px", borderRadius:9, fontSize:12.5, fontWeight:700,
+                    fontFamily:"inherit", cursor:"pointer",
+                    border:`1px solid ${linea===l.nombre?COLOR.teal:COLOR.border}`,
+                    background: linea===l.nombre?COLOR.tealLight:"#fff",
+                    color: linea===l.nombre?COLOR.tealDark:COLOR.text }}>
+                  {l.nombre} ({l.n})</button>
+              ))}
             </div>
 
-            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-              {[["delta","Subir o bajar"],["manual","Escribir la base"]].map(([v,t]) => (
+            <label style={lbl}>Cómo subió el costo</label>
+            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+              {[["pct","En porcentaje"],["qq","En dólares por quintal"]].map(([v,t]) => (
                 <button key={v} onClick={()=>setModo(v)}
                   style={{ flex:1, padding:"10px 6px", borderRadius:9, fontSize:12.5, fontWeight:700,
                     fontFamily:"inherit", cursor:"pointer",
@@ -8421,264 +8598,147 @@ function ModalAjustePrecio({ prod, usuario, onCerrar, onGuardado }) {
               ))}
             </div>
 
-            {modo === "delta" ? (
+            {modo === "pct" ? (
               <div style={{ marginBottom:16 }}>
-                <label style={lbl}>Cuánto se mueve (+ sube · − baja)</label>
-                <input type="number" step="0.01" value={ajuste} onChange={e=>setAjuste(e.target.value)}
-                  placeholder="0.00" style={inp} />
-                <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>
-                  Se aplica igual a contado y a crédito.</p>
+                <label style={lbl}>Porcentaje de alza (%)</label>
+                <input type="number" step="0.1" value={pct} onChange={e=>setPct(e.target.value)}
+                  placeholder="5" style={inp} />
+                <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6, lineHeight:1.5 }}>
+                  Se aplica al costo de contado de cada oferta de esta piladora. La arroba y la
+                  funda suben en la misma proporción que el quintal.</p>
               </div>
             ) : (
-              <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-                <div style={{ flex:1 }}>
-                  <label style={lbl}>Contado</label>
-                  <input type="number" step="0.01" value={manualC}
-                    onChange={e=>setManualC(e.target.value)} style={inp} />
-                </div>
-                <div style={{ flex:1 }}>
-                  <label style={lbl}>Crédito</label>
-                  <input type="number" step="0.01" value={manualCr}
-                    onChange={e=>setManualCr(e.target.value)} style={inp} />
-                </div>
-              </div>
-            )}
-
-            <div style={{ marginBottom:16 }}>
-              <label style={lbl}>Costo del proveedor (por qq)</label>
-              <input type="number" step="0.01" value={manualCosto} onChange={e=>setManualCosto(e.target.value)}
-                placeholder="0.00" style={{ ...inp, borderColor: costoNuevo!==fila.costo ? COLOR.teal : COLOR.border }} />
-              <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>
-                Costo de compra a la piladora. Al cambiarlo se recalcula el margen; queda guardado y auditado en la base.</p>
-            </div>
-
-            <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:11,
-                          padding:"12px 14px", marginBottom:14 }}>
-              <div style={{ fontSize:11.5, color:COLOR.muted, fontWeight:700, marginBottom:5 }}>QUEDA EN</div>
-              <div style={{ fontSize:12.5, color:COLOR.text, lineHeight:1.6 }}>
-                Contado <span className="num" style={{ fontWeight:800 }}>{preMoney(contadoNuevo)}</span> ·
-                crédito <span className="num" style={{ fontWeight:800 }}>{preMoney(creditoNuevo)}</span><br/>
-                Costo <span className="num" style={{ fontWeight:700 }}>{preMoney(costoNuevo)}</span> ·
-                margen <span className="num" style={{ fontWeight:800,
-                  color: bajoCosto ? "#c0392b" : (margenBajo ? "#b9770e" : "#1e8449") }}>
-                  {margenNuevo.toFixed(1)}%</span>
-              </div>
-            </div>
-
-            {bajoCosto && (
-              <div style={{ background:"#fdecea", border:"1px solid #f5b7b1", borderRadius:9,
-                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#922b21" }}>
-                La base queda <b>por debajo del costo</b>. Se vendería con pérdida.
-              </div>
-            )}
-            {!bajoCosto && margenBajo && (
-              <div style={{ background:"#fdf6e6", border:"1px solid #e6cf94", borderRadius:9,
-                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#8a6d1e" }}>
-                El margen queda bajo el mínimo de <b>{preMargenObjetivo()}%</b>.
+              <div style={{ marginBottom:16 }}>
+                <label style={lbl}>Dólares por quintal (+ sube · − baja)</label>
+                <input type="number" step="0.01" value={porQq} onChange={e=>setPorQq(e.target.value)}
+                  placeholder="1.00" style={inp} />
+                <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6, lineHeight:1.5 }}>
+                  El monto se reparte por presentación: la arroba sube la cuarta parte y la funda
+                  de 10 libras, la décima parte.</p>
               </div>
             )}
 
             <label style={lbl}>Motivo</label>
             <input value={motivo} onChange={e=>setMotivo(e.target.value)}
-              placeholder="Por qué se mueve (opcional)" style={{ ...inp, marginBottom:16 }} />
-
-            {aviso && (
-              <div style={{ background:"#eef7f1", border:"1px solid #bfe3cd", borderRadius:9,
-                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#1e6641" }}>
-                {aviso}
-              </div>
-            )}
+              placeholder="Por qué subió (opcional)" style={{ ...inp, marginBottom:16 }} />
 
             <div style={{ display:"flex", gap:10 }}>
-              <button onClick={onCerrar} disabled={guardando}
-                style={{ flex:1, padding:"12px", borderRadius:10, border:`1px solid ${COLOR.border}`,
-                  background:"#fff", color:COLOR.muted, cursor:"pointer", fontSize:14,
-                  fontWeight:700, fontFamily:"inherit" }}>Cancelar</button>
-              <button onClick={guardar} disabled={guardando || sinCambio}
-                style={{ flex:1, padding:"12px", borderRadius:10, border:"none",
-                  background: sinCambio?"#b8c4cc":COLOR.teal, color:"#fff",
-                  cursor: sinCambio?"default":"pointer", fontSize:14, fontWeight:700,
-                  fontFamily:"inherit", opacity:guardando?.6:1 }}>
-                {guardando ? "Guardando…" : "Guardar precio"}</button>
-            </div>
-          </>)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   MODAL · Ajustar precios EN LOTE
-   Reescrito contra el modelo actual. Recibe los prod_id marcados en Catálogo,
-   lee sus filas vigentes y mueve la base de todos por el mismo monto.
-   Vista previa OBLIGATORIA antes de escribir: esto toca producción y no se
-   deshace. Los productos sin fila vigente se saltan y se avisan.
-   ══════════════════════════════════════════════════════════════════════════ */
-function ModalLotePrecios({ ids, usuario, onCerrar, onAplicado }) {
-  const [filas, setFilas] = useState(null);   // null = cargando
-  const [ajuste, setAjuste] = useState("");
-  const [motivo, setMotivo] = useState("");
-  const [previa, setPrevia] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  const [aviso, setAviso] = useState("");
-  const [hechos, setHechos] = useState(0);
-
-  React.useEffect(() => {
-    (async () => {
-      try { setFilas(await preLeerVigentes(ids)); }
-      catch (e) { setFilas([]); }
-    })();
-  }, []);
-
-  const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`,
-                fontSize:14, fontFamily:"inherit", outline:"none" };
-  const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
-
-  const aj = parseFloat(ajuste)||0;
-  const sinPrecio = filas ? ids.length - filas.length : 0;
-  const calc = React.useMemo(() => (filas||[]).map(f => {
-    const contado = preR2(f.contado + aj), credito = preR2(f.credito + aj);
-    return { ...f, contadoNuevo: contado, creditoNuevo: credito,
-      margenNuevo: preMargen(contado, f.costo), bajoCosto: contado < f.costo };
-  }), [filas, aj]);
-  const conProblema = calc.filter(c => c.bajoCosto).length;
-  const bajoMinimo  = calc.filter(c => !c.bajoCosto && c.margenNuevo < preMargenObjetivo()).length;
-
-  const aplicar = async () => {
-    if (guardando || !calc.length || aj === 0) return;
-    setGuardando(true); setAviso(""); setHechos(0);
-    const mot = motivo.trim() || `Ajuste en lote de ${aj>0?"+":""}${preMoney(aj)}`;
-    let ok = 0; let ultimoError = "";
-    for (const c of calc) {
-      try {
-        await preCambiarPrecio({
-          fila: c, contadoNuevo: c.contadoNuevo, creditoNuevo: c.creditoNuevo,
-          origen: "Ajuste en lote", motivo: mot, usuario });
-        ok++; setHechos(ok);
-      } catch (e) { ultimoError = e && e.message ? e.message : ""; }
-    }
-    if (ok === 0) {
-      setAviso("No se guardó nada: la escritura requiere sesión autenticada (Fase 4 · RLS). " + ultimoError);
-    } else {
-      setAviso(`${ok} de ${calc.length} producto(s) actualizados.` + (ok < calc.length ? " El resto falló." : ""));
-      if (onAplicado) onAplicado(ok);
-      if (ok === calc.length) setTimeout(onCerrar, 1100);
-    }
-    setGuardando(false);
-  };
-
-  return (
-    <div onClick={()=>!guardando && onCerrar()}
-      style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", zIndex:1100,
-               display:"flex", alignItems:"center", justifyContent:"center", padding:18 }}>
-      <div onClick={e=>e.stopPropagation()}
-        style={{ background:"#fff", borderRadius:16, width:"min(500px,94vw)",
-                 maxHeight:"88vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
-        <div style={{ padding:"18px 22px", borderBottom:`1px solid ${COLOR.border}`,
-                      display:"flex", alignItems:"flex-start", gap:12 }}>
-          <div style={{ flex:1 }}>
-            <h3 style={{ fontSize:16.5, fontWeight:800, color:COLOR.text }}>
-              {previa ? "Confirma el ajuste" : "Ajustar precios en lote"}</h3>
-            <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>
-              {ids.length} producto{ids.length!==1?"s":""} marcado{ids.length!==1?"s":""}</p>
-          </div>
-          <button onClick={onCerrar} disabled={guardando}
-            style={{ border:"none", background:"none", fontSize:24, color:COLOR.muted, cursor:"pointer" }}>×</button>
-        </div>
-
-        <div style={{ padding:"18px 22px 22px" }}>
-          {filas === null ? (
-            <div style={{ padding:20, textAlign:"center", color:COLOR.muted, fontSize:13 }}>Cargando precios…</div>
-          ) : filas.length === 0 ? (
-            <div style={{ padding:"26px 14px", textAlign:"center", color:COLOR.muted, fontSize:13,
-                          border:`1px dashed ${COLOR.border}`, borderRadius:11 }}>
-              Ninguno de los productos marcados tiene precio vigente en <b>precios</b>.
-            </div>
-          ) : !previa ? (<>
-            <div style={{ marginBottom:16 }}>
-              <label style={lbl}>Cuánto se mueven (+ suben · − bajan)</label>
-              <input type="number" step="0.01" value={ajuste} onChange={e=>setAjuste(e.target.value)}
-                placeholder="0.00" style={inp} />
-              <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6, lineHeight:1.5 }}>
-                El mismo monto se suma a contado y a crédito de los {filas.length} productos.
-                {sinPrecio > 0 ? ` ${sinPrecio} marcado(s) se saltan: no tienen precio vigente.` : ""}
-              </p>
-            </div>
-
-            <label style={lbl}>Motivo</label>
-            <input value={motivo} onChange={e=>setMotivo(e.target.value)}
-              placeholder="Por qué se mueven (opcional)" style={{ ...inp, marginBottom:16 }} />
-
-            {aj !== 0 && conProblema > 0 && (
-              <div style={{ background:"#fdecea", border:"1px solid #f5b7b1", borderRadius:9,
-                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#922b21" }}>
-                <b>{conProblema}</b> producto(s) quedarían <b>bajo el costo</b>.
-              </div>
-            )}
-            {aj !== 0 && bajoMinimo > 0 && (
-              <div style={{ background:"#fdf6e6", border:"1px solid #e6cf94", borderRadius:9,
-                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#8a6d1e" }}>
-                <b>{bajoMinimo}</b> producto(s) quedarían bajo el margen mínimo de {preMargenObjetivo()}%.
-              </div>
-            )}
-
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={onCerrar}
-                style={{ flex:1, padding:"12px", borderRadius:10, border:`1px solid ${COLOR.border}`,
-                  background:"#fff", color:COLOR.muted, cursor:"pointer", fontSize:14,
-                  fontWeight:700, fontFamily:"inherit" }}>Cancelar</button>
-              <button onClick={()=>setPrevia(true)} disabled={aj === 0}
-                style={{ flex:1, padding:"12px", borderRadius:10, border:"none",
-                  background: aj===0?"#b8c4cc":COLOR.teal, color:"#fff",
-                  cursor: aj===0?"default":"pointer", fontSize:14, fontWeight:700,
-                  fontFamily:"inherit" }}>Ver qué cambia</button>
-            </div>
-          </>) : (<>
-            <p style={{ fontSize:13.5, color:COLOR.muted, lineHeight:1.5, marginBottom:14 }}>
-              Vas a mover <b style={{color:COLOR.text}}>{calc.length} producto{calc.length!==1?"s":""}</b> en{" "}
-              <b style={{color:COLOR.text}}>{aj>0?"+":""}{preMoney(aj)}</b>.
-              Esto se guarda de inmediato y no se puede deshacer.
-            </p>
-
-            <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:11,
-              maxHeight:240, overflowY:"auto", marginBottom:16 }}>
-              {calc.map((c,i) => (
-                <div key={c.prodId} style={{ padding:"9px 12px", fontSize:12.5,
-                  borderTop: i>0?`1px solid ${COLOR.border}`:"none" }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", gap:10 }}>
-                    <span style={{ color:COLOR.text, minWidth:0, overflow:"hidden",
-                      textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.producto}</span>
-                    <span className="num" style={{ flexShrink:0, fontWeight:700,
-                      color: c.bajoCosto ? "#c0392b" : COLOR.text }}>
-                      {preMoney(c.contado)} → {preMoney(c.contadoNuevo)}</span>
-                  </div>
-                  <div style={{ fontSize:11, color: c.bajoCosto ? "#c0392b" :
-                    (c.margenNuevo < preMargenObjetivo() ? "#b9770e" : COLOR.muted), marginTop:2 }}>
-                    margen <span className="num">{c.margenNuevo.toFixed(1)}%</span>
-                    {c.bajoCosto ? " · ⚠ bajo el costo" : ""}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {aviso && (
-              <div style={{ background:"#eef7f1", border:"1px solid #bfe3cd", borderRadius:9,
-                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#1e6641" }}>
-                {aviso}
-              </div>
-            )}
-
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>setPrevia(false)} disabled={guardando}
+              <button onClick={()=>setPaso(1)}
                 style={{ flex:1, padding:"12px", borderRadius:10, border:`1px solid ${COLOR.border}`,
                   background:"#fff", color:COLOR.muted, cursor:"pointer", fontSize:14,
                   fontWeight:700, fontFamily:"inherit" }}>Atrás</button>
-              <button onClick={aplicar} disabled={guardando}
+              <button onClick={()=>{ setEdit({}); setFuera({}); setPaso(3); }}
+                disabled={!hayNumero || !elegidas.length}
                 style={{ flex:1, padding:"12px", borderRadius:10, border:"none",
-                  background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14,
-                  fontWeight:700, fontFamily:"inherit", opacity:guardando?.6:1 }}>
-                {guardando ? `Guardando ${hechos}/${calc.length}…` : "Sí, aplicar"}</button>
+                  background: (!hayNumero||!elegidas.length)?"#b8c4cc":COLOR.teal, color:"#fff",
+                  cursor: (!hayNumero||!elegidas.length)?"default":"pointer", fontSize:14,
+                  fontWeight:700, fontFamily:"inherit" }}>Ver el precio nuevo</button>
+            </div>
+          </>) :
+          /* ── PASO 3 · la vista previa, editable, antes de guardar ── */
+          (<>
+            <div style={{ background:COLOR.tealLight, borderRadius:11, padding:"12px 14px", marginBottom:14 }}>
+              <div style={{ fontSize:12.5, color:COLOR.tealDark, lineHeight:1.55 }}>
+                Piladora <b>{nomProv[prov]||prov}</b>{linea ? <> · línea <b>{linea}</b></> : null}.
+                El costo sube <b>{modo==="pct" ? (pct||0)+"%" : preMoney(parseFloat(porQq)||0)+" por quintal"}</b> y
+                el precio de venta sube lo mismo, para que sigas ganando igual por quintal.
+                <br/>Puedes corregir cualquier precio a mano, o destildar el renglón que no quieras mover.
+              </div>
+            </div>
+
+            {(bajoCosto > 0 || bajoMin > 0 || pierdenUtil > 0) && (
+              <div style={{ background: bajoCosto?"#fdecea":"#fdf6e6",
+                border:`1px solid ${bajoCosto?"#f5b7b1":"#e6cf94"}`, borderRadius:9,
+                padding:"10px 12px", marginBottom:14, fontSize:12.5,
+                color: bajoCosto?"#922b21":"#8a6d1e", lineHeight:1.5 }}>
+                {bajoCosto > 0 && <div><b>{bajoCosto}</b> renglón(es) quedarían vendiendo <b>bajo el costo</b>.</div>}
+                {pierdenUtil > 0 && <div><b>{pierdenUtil}</b> renglón(es) ganarían <b>menos</b> por quintal que hoy, porque corregiste el precio a mano.</div>}
+                {bajoMin > 0 && <div><b>{bajoMin}</b> renglón(es) quedarían bajo el margen mínimo de la oferta.</div>}
+              </div>
+            )}
+
+            <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:11,
+                          maxHeight:300, overflowY:"auto", marginBottom:14 }}>
+              {calc.map((c,i) => {
+                const off = !!fuera[c.ofertaId];
+                return (
+                <div key={c.ofertaId} style={{ padding:"10px 12px",
+                  borderTop: i>0?`1px solid ${COLOR.border}`:"none", opacity: off?.45:1 }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:9 }}>
+                    <input type="checkbox" checked={!off} onChange={()=>setFuera(p=>({ ...p, [c.ofertaId]: !off }))}
+                      style={{ marginTop:3, width:17, height:17, flexShrink:0, cursor:"pointer" }} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:COLOR.text }}>
+                        {nomProd[c.prodId] || c.prodId}</div>
+                      <div style={{ fontSize:11.5, color:COLOR.muted, marginTop:1 }}>
+                        {c.presentacion} <span className="num">({c.equivQq} qq)</span></div>
+                      <div style={{ fontSize:12, color:COLOR.muted, marginTop:5, lineHeight:1.5 }}>
+                        Costo contado <span className="num">{preMoney(c.costoContado)}</span> →{" "}
+                        <span className="num" style={{ fontWeight:700, color:COLOR.text }}>
+                          {preMoney(c.costoContadoNuevo)}</span>
+                        <br/>
+                        Venta contado <span className="num">{preMoney(c.contado)}</span> →{" "}
+                        <span className="num" style={{ fontWeight:800,
+                          color: c.bajoCosto ? "#c0392b" : COLOR.tealDark }}>
+                          {preMoney(c.contadoFinal)}</span>
+                        {" · crédito "}<span className="num">{preMoney(c.creditoFinal)}</span>
+                        <br/>
+                        Ganas <span className="num">{preMoney(c.utilidadContado)}</span> →{" "}
+                        <span className="num" style={{ fontWeight:700,
+                          color: c.utilidadNueva < c.utilidadContado - 0.005 ? "#b9770e"
+                               : (c.bajoCosto ? "#c0392b" : "#1e8449") }}>
+                          {preMoney(c.utilidadNueva)}</span> por unidad
+                        {" · margen "}<span className="num">{c.margenNuevo.toFixed(1)}%</span>
+                        {c.bajoCosto ? " · ⚠ bajo el costo" : ""}
+                      </div>
+                      {!off && (
+                        <div style={{ marginTop:7, display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ fontSize:11, color:COLOR.muted, whiteSpace:"nowrap" }}>Corregir venta contado</span>
+                          <input type="number" step="0.01"
+                            value={edit[c.ofertaId] != null ? edit[c.ofertaId] : ""}
+                            placeholder={String(c.contadoNuevo)}
+                            onChange={e=>setEdit(p=>({ ...p, [c.ofertaId]: e.target.value }))}
+                            style={{ width:110, boxSizing:"border-box", padding:"7px 9px", borderRadius:8,
+                              border:`1px solid ${c.aMano?COLOR.teal:COLOR.border}`, fontSize:12.5,
+                              textAlign:"right", fontFamily:"inherit", outline:"none" }} />
+                          {c.aMano && (
+                            <button onClick={()=>setEdit(p=>{ const q={...p}; delete q[c.ofertaId]; return q; })}
+                              style={{ border:"none", background:"none", color:COLOR.muted,
+                                fontSize:11.5, cursor:"pointer", fontFamily:"inherit" }}>deshacer</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+
+            <p style={{ fontSize:12.5, color:COLOR.muted, lineHeight:1.5, marginBottom:14 }}>
+              Se van a guardar <b style={{color:COLOR.text}}>{activas.length} de {calc.length}</b> renglón(es).
+              La oferta de hoy se cierra con la fecha de hoy y nace la nueva: queda registrado
+              qué cambió y cuándo, pero no se puede deshacer con un botón.
+            </p>
+
+            {aviso && (
+              <div style={{ background:"#eef7f1", border:"1px solid #bfe3cd", borderRadius:9,
+                            padding:"10px 12px", marginBottom:14, fontSize:12.5, color:"#1e6641" }}>
+                {aviso}
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setPaso(2)} disabled={guardando}
+                style={{ flex:1, padding:"12px", borderRadius:10, border:`1px solid ${COLOR.border}`,
+                  background:"#fff", color:COLOR.muted, cursor:"pointer", fontSize:14,
+                  fontWeight:700, fontFamily:"inherit" }}>Atrás</button>
+              <button onClick={aplicar} disabled={guardando || !activas.length}
+                style={{ flex:1, padding:"12px", borderRadius:10, border:"none",
+                  background: activas.length?COLOR.teal:"#b8c4cc", color:"#fff",
+                  cursor: activas.length?"pointer":"default", fontSize:14, fontWeight:700,
+                  fontFamily:"inherit", opacity:guardando?.6:1 }}>
+                {guardando ? `Guardando ${hechos}/${activas.length}…` : "Sí, guardar"}</button>
             </div>
           </>)}
         </div>
@@ -18850,7 +18910,7 @@ function App() {
       case "ofertas":     /* Las ofertas por piladora viven en la ficha del producto y */
       case "preciosvig":  /* el precio se ajusta ahí mismo. Aquí solo quedan las decisiones. */
       case "propuestas":
-        return <PropuestasPrecio usuario={sesion} />;
+        return <PreciosWeb usuario={sesion} />;
       case "documentos":
         return <CustodiaWeb usuario={sesion} />;
       case "auditoria":

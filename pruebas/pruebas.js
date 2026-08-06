@@ -74,6 +74,12 @@ const PLAN = [
      CARGAR escribiendo SQL. Esta mide la pantalla de oficina que las carga
      (sistema-web.html, que sí vive en este repo: no necesita nada del privado). */
   { arnes:"test_promos_carga.js",    que:"cargar una promoción sin escribir SQL", apps:[null] },
+  /* La pantalla de Precios escribía en `precios`, congelada desde el 24 jul: decía
+     «guardado» y el vendedor seguía cotizando lo de antes. Esta prueba vigila que
+     no quede NINGÚN camino que escriba ahí, y que la subida de costo en bloque
+     muestre el precio nuevo antes de guardar, mantenga la ganancia por quintal y
+     toque sólo la piladora elegida. */
+  { arnes:"test_precios_ofertas.js", que:"el precio vive en la oferta de la piladora", apps:[null] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */
