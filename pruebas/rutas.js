@@ -10,8 +10,18 @@ const app  = (nombre) => path.join(RAIZ, nombre.endsWith(".html") ? nombre : nom
 const umd = (paquete, archivo) =>
   fs.readFileSync(path.join(path.dirname(require.resolve(paquete + "/package.json")), "umd", archivo), "utf-8");
 
+/* Las migraciones NO viven aquí: viven en el otro repositorio, el archivo del
+   sistema (intesgo/Freelance-Sistema), que se clona al lado de este. Se
+   resuelve desde este archivo por la misma razón que todo lo demás: para que
+   ningún arnés lleve una ruta escrita a mano. Quien lo tenga en otro sitio lo
+   dice con FREELANCE_MIGRACIONES y no toca ni una prueba. */
+const MIGRACIONES = process.env.FREELANCE_MIGRACIONES ||
+  path.join(RAIZ, "..", "Freelance-Sistema", "migraciones");
+const migracion = (nombre) =>
+  path.join(MIGRACIONES, nombre.endsWith(".sql") ? nombre : nombre + ".sql");
+
 module.exports = {
-  RAIZ, app,
+  RAIZ, app, MIGRACIONES, migracion,
   Babel: require("@babel/standalone"),
   react:      () => umd("react", "react.production.min.js"),
   reactDom:   () => umd("react-dom", "react-dom.production.min.js"),

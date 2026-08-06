@@ -62,6 +62,12 @@ const PLAN = [
     salvo:{ "freelance-completo": "su módulo de pedido no arma un total en quintales del carrito: no hay qué medir" } },
   { arnes:"test_gratis_desglose.js", que:"el desglose de las gratis sale de la oferta y del producto, no del texto ni de la marca",
     apps:["Comisionista","socio-comercial","freelance-completo"] },
+  { arnes:"test_regalo_promo.js",    que:"el regalo no pasa de lo que concede la promoción",
+    apps:["Comisionista","socio-comercial","freelance-completo"] },
+  /* la regla del regalo vive en la BASE (migración PROMO-03), no en JavaScript: esta
+     levanta un PostgreSQL de juguete y la corre tal cual. Si la máquina no tiene
+     PostgreSQL, lo dice y no falla. */
+  { arnes:"test_regalo_sql.js",      que:"la regla del regalo, corrida contra PostgreSQL", apps:[null] },
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */

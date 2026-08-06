@@ -2866,6 +2866,74 @@ async function cargarCatalogoReal(){
    falla por PK se avisa). Si fallan los items, se deshace el pedido (borrado manual).
    El trigger fn_auditar audita pedidos solo: NO auditar a mano. */
 const CLI_ID_DE = {};
+/* ═══ PROMO-03 · EL TOPE DEL REGALO LO DICE LA BASE, NO LA APP ═══════════════
+   Decisión del Product Owner (06/08/2026): si el vendedor pone más regalo del
+   que concede la promoción, el pedido NO se guarda y se le muestra el número
+   exacto que sí concede. Es mercadería regalada: mejor frenar antes que
+   reclamar después.
+
+   El número NO se calcula aquí. Se le PREGUNTA a la base, a la función
+   `gratis_que_concede`, que es la misma que usa el cerrojo de `pedido_items`
+   y la misma que usa `facturar_pedido` al confirmar el despacho. Si la app
+   tuviera su propia fórmula, el día que una de las dos se corrija sin la otra
+   saldría grano regalado que nadie autorizó: dos fuentes para un mismo hecho
+   siempre terminan contradiciéndose.
+
+   Todo viaja EN QUINTALES, que es como lo guarda `pedido_items`: la cantidad
+   y el regalo se multiplican por el `equiv` de la OFERTA, nunca por lo que
+   parezca decir el nombre de la presentación. Una arroba son 0,25 qq y «10
+   libras» son 0,1 qq: adivinarlo por el texto es regalar diez veces más grano
+   del que la piladora despacha (el mismo golpe de `descomponerGratis`).
+
+   Devuelve: número = quintales que concede · null = no hay promoción vigente
+   · undefined = no se pudo preguntar (sin señal), y entonces manda el cerrojo
+   de la base, que igual no deja pasar la línea. */
+async function topeRegaloQq({prodId, presCod, provId, cantidadQq}){
+  if(!window.SB || !window.SB.rpc) return undefined;
+  try{
+    const { data, error } = await window.SB.rpc("gratis_que_concede", {
+      p_prod_id: prodId || null, p_pres_cod: presCod || null,
+      p_prov_cod: provId || null, p_cantidad_qq: Number(cantidadQq)||0,
+      p_es_demo: false });
+    if(error) return undefined;
+    return (data===null || data===undefined) ? null : Number(data);
+  }catch(e){ return undefined; }
+}
+
+/* Revisa el pedido línea por línea. Devuelve null si todo está en orden, o el
+   aviso —en criollo, para leerlo en el celular— de la PRIMERA línea que se
+   pasa. Mientras haya aviso, el pedido no se guarda ni en el teléfono.
+
+   P3 queda fuera a propósito: ese regalo lo arma el vendedor y sale de SU
+   comisión, no de ninguna promoción. Bloquearlo contra una promoción que no
+   existe sería matar una función que hoy trabaja. */
+async function revisarRegaloDePromo(items, provId){
+  const r2 = x => Math.round(x*100)/100;
+  for(const it of (items||[])){
+    if(!it || !it.prod) continue;
+    if(it.tipo === "P3") continue;
+    if(!it.prod.prodId) continue;              /* producto de demostración: no llega a la base */
+    const eq = Number(it.prod.equiv)>0 ? Number(it.prod.equiv) : 1;
+    const regaloQq = r2((Number(it.gratis)||0)*eq);
+    if(!(regaloQq > 0)) continue;
+    const cantQq = r2((Number(it.cant)||0)*eq);
+    const tope = await topeRegaloQq({ prodId:it.prod.prodId, presCod:it.prod.presCod,
+      provId: provId, cantidadQq: cantQq });
+    if(tope === undefined) continue;
+    const nom = it.prodNombre || it.prod.nombre || "ese producto";
+    if(tope === null)
+      return "🚫 No se puede regalar en " + nom + "\n\n" +
+             "Ese producto no tiene promoción vigente ahora mismo.\n\n" +
+             "Quita el regalo, o usa «Promo vendedor», que sale de tu comisión.";
+    if(regaloQq > tope + 0.005)
+      return "🚫 Te pasaste con el regalo en " + nom + "\n\n" +
+             "Pusiste " + r2(regaloQq) + " qq de regalo y por " + r2(cantQq) +
+             " qq la promoción concede " + r2(tope) + " qq.\n\n" +
+             "Baja el regalo a " + r2(tope) + " qq o sube la cantidad, y vuelve a guardar.";
+  }
+  return null;
+}
+
 async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
@@ -2875,6 +2943,10 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
     if(!cliId) return { ok:false, motivo:"cliente_demo" };
     const items = (carrito||[]).filter(it=>it && it.prod);
     if(!items.length || items.some(it=>!it.prod.prodId || !it.prod.equiv)) return { ok:false, motivo:"producto_demo" };
+    /* PROMO-03 · antes de tocar la base: el regalo no puede pasar de lo que
+       concede la promoción. Si se pasa, no nace ni la cabecera del pedido. */
+    const avisoRegalo = await revisarRegaloDePromo(items, (prov && prov.id)||null);
+    if(avisoRegalo) return { ok:false, motivo:avisoRegalo, regalo:true };
     const { data:ult } = await window.SB.from("pedidos").select("ped_id")
       .like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
     const n = ult && ult[0] ? (parseInt(String(ult[0].ped_id).replace(/\D/g,""),10)||0) : 0;
@@ -24064,7 +24136,13 @@ function App({usuario, onSalir}){
   const tareasActivas=TAREAS_NOTIF.filter(t=>prefsNotif[t.tipo] && t.n>0);
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
 
-  const guardarPedido=({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada})=>{
+  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada})=>{
+    /* PROMO-03 · el regalo de más se frena ANTES de guardar nada, ni siquiera
+       en el teléfono. El vendedor ve cuánto concede la promoción y el pedido
+       se queda tal como está para que lo corrija. Devuelve false: quien llama
+       NO pasa a la lista de pedidos y el vendedor se queda donde puede arreglarlo. */
+    const avisoRegalo = await revisarRegaloDePromo(carrito, (prov && prov.id)||null);
+    if(avisoRegalo){ alert(avisoRegalo); return false; }
     const ahora=new Date();
     const dd=String(ahora.getDate()).padStart(2,"0");
     const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
@@ -24109,6 +24187,7 @@ function App({usuario, onSalir}){
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo local: "+r.motivo);
     }).catch(()=>{});
+    return true;
   };
 
   return (
@@ -24141,7 +24220,7 @@ function App({usuario, onSalir}){
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           go={navegar}
-          onGuardarPedido={(data)=>{ guardarPedido(data); navegar("pedidos"); }}/>}
+          onGuardarPedido={(data)=>{ guardarPedido(data).then(ok=>{ if(ok) navegar("pedidos"); }).catch(()=>{}); }}/>}
         {tab==="pedidos" && <Pedidos pedidos={pedidos} vivo={pedidosVivos} toast={show} onRecargar={recargarPedidos}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="midia" && <MiDia toast={show} usuario={usuario}/>}
