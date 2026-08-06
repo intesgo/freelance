@@ -321,7 +321,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"134", fecha:"6 ago 2026", desc:"PROMO-05: nueva pantalla «Promociones». Hasta hoy solo se podían cargar por SQL. Se listan, se crean con producto + presentación + piladora + escalones, se ven en criollo antes de guardar («Por cada 100 Quintal, 2 gratis» y su equivalente en quintales), se activan y se dan de baja. Fechas con la hora de Ecuador." };
+const VERSION = { n:"135", fecha:"6 ago 2026", desc:"Seguridad de sesión: botón «Cerrar sesión» (⏻) siempre visible en la barra de arriba, a un toque desde cualquier pantalla (compu o celular), y auto-cierre tras 30 minutos sin actividad. Cubre el caso de entrar desde una computadora ajena y olvidar salir." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -18839,6 +18839,26 @@ function App() {
     try { if (window.supa && window.supa.auth) window.supa.auth.signOut(); } catch(e) {}
     setSesion(null); setSeccion("dashboard"); setTabs(["dashboard"]);
   };
+  /* ══ AUTO-CIERRE POR INACTIVIDAD (06 ago 2026) ══
+     Tras 30 min sin tocar nada, la sesión se cierra sola. Cubre el caso de entrar
+     desde una computadora ajena y olvidar salir. Cualquier toque, tecla o
+     desplazamiento reinicia la cuenta. Reutiliza salir() → también hace signOut. */
+  useEffect(() => {
+    if (!sesion) return;
+    const MIN_INACTIVO = 30;
+    let temporizador;
+    const reiniciar = () => {
+      clearTimeout(temporizador);
+      temporizador = setTimeout(() => {
+        try { alert("Tu sesión se cerró sola por seguridad: 30 minutos sin actividad."); } catch(e) {}
+        salir();
+      }, MIN_INACTIVO * 60 * 1000);
+    };
+    const eventos = ["mousemove","mousedown","keydown","touchstart","scroll","click"];
+    eventos.forEach(ev => window.addEventListener(ev, reiniciar, { passive:true }));
+    reiniciar();
+    return () => { clearTimeout(temporizador); eventos.forEach(ev => window.removeEventListener(ev, reiniciar)); };
+  }, [sesion]);
   const [verCambioClave, setVerCambioClave] = useState(false);   /* Fase 4: solo cuentas reales */
   const [pedidoPreCli, setPedidoPreCli] = useState(null);        /* cliente a precargar al abrir Pedidos desde la ficha */
 
@@ -19000,6 +19020,12 @@ function App() {
           <button onClick={()=>setAvisosAbierto(true)} title="Avisos" style={{ marginLeft:"auto", marginBottom:6, display:"flex", alignItems:"center", justifyContent:"center", width:38, height:38, borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:18, position:"relative", flexShrink:0 }}>
             🔔
             <span style={{ position:"absolute", top:6, right:6, width:8, height:8, borderRadius:"50%", background:COLOR.red, border:"1.5px solid #fff" }}/>
+          </button>
+          {/* Botón salir · siempre visible (06 ago 2026): cerrar sesión a un toque desde cualquier pantalla, en compu o celular */}
+          <button onClick={()=>{ if(window.confirm("¿Cerrar sesión?")) salir(); }} title="Cerrar sesión" style={{ marginLeft:8, marginBottom:6, display:"flex", alignItems:"center", justifyContent:"center", width:38, height:38, borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:18, flexShrink:0 }}
+            onMouseEnter={e=>{ e.currentTarget.style.background="#fdecec"; e.currentTarget.style.borderColor=COLOR.red; }}
+            onMouseLeave={e=>{ e.currentTarget.style.background="#fff"; e.currentTarget.style.borderColor=COLOR.border; }}>
+            ⏻
           </button>
         </div>
         <Header titulo={actualOk.label} sub={actualOk.sub} ayuda={AYUDA_SECCION[seccionOk]} />
