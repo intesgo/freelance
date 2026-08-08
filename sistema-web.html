@@ -321,7 +321,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"138", fecha:"8 ago 2026", desc:"Clientes: en la ficha, el botón «Nuevo pedido» ahora sale arriba de las tarjetitas (antes estaba abajo, entre las acciones rápidas), para tomar el pedido de un vistazo. Incluye lo de b137: en el celular las tarjetitas salen de dos en fila y los valores largos como el RUC no se parten." };
+const VERSION = { n:"138", fecha:"8 ago 2026", desc:"Pedidos: cada pedido sale a nombre de SU cliente. Antes la columna Cliente salía de la posición de la fila (un enredo que hasta pisaba los pedidos reales con el primer cliente de la lista); ahora sale del pedido, cruzando por su cli_id. Incluye lo de la ficha de Clientes: el botón «Nuevo pedido» arriba de las tarjetitas, y en el celular las tarjetitas de dos en fila con el RUC sin partir." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -4710,8 +4710,14 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             usado: c.usado||0, bloqueado: !!c.bloqueado, canal: c.canal || "", estadoCliente: c.estado_cliente || "",
           }));
           setClientesReales(reales);
-          // Actualizar los pedidos demo con nombres de clientes reales (los primeros 3)
-          setPedidos(prev => prev.map((ped, i) => reales[i] ? { ...ped, cli: reales[i].nombre, razon: reales[i].razonSocial || ped.razon } : ped));
+          // AQUÍ VIVIÓ UN DEFECTO (b138): un setPedidos que recorría los pedidos
+          // con su índice y les pegaba el nombre de `reales[i]` — nació para
+          // adornar los pedidos de demostración con los primeros clientes del
+          // maestro, pero pisaba también los reales. Como el maestro llega en su
+          // propia carga (y puede ganar la carrera), PD-0011 aparecía a nombre del
+          // primer cliente alfabético en vez del suyo. NO se adorna: el nombre
+          // correcto ya lo trae la carga en vivo cruzando por `cli_id`, y los
+          // pedidos demo traen el suyo con su sello DEMO.
         } else { setClientesReales([]); }
       } catch (e) { setClientesReales([]); }
     })();

@@ -82,6 +82,11 @@ const PLAN = [
      maqueta del PO en ago/2026: sin sello de fuente ni conteos, veredicto binario
      con el motivo real, rejilla de tarjetitas con datos reales y los 4 botones. */
   { arnes:"test_ficha_cliente.js",   que:"la ficha del cliente seleccionado (maqueta del PO)", apps:[null] },
+  /* La lista de Pedidos sacaba el nombre del cliente de la POSICIÓN de la fila
+     (un setPedidos por índice que pisaba también los reales), no del pedido.
+     Esta vigila que cada fila salga a nombre de SU cliente, con el maestro de
+     clientes llegando a propósito DESPUÉS de los pedidos. */
+  { arnes:"test_pedidos_cliente.js", que:"cada pedido, a nombre de su cliente", apps:[null] },
   /* La pantalla de Precios escribía en `precios`, congelada desde el 24 jul: decía
      «guardado» y el vendedor seguía cotizando lo de antes. Esta prueba vigila que
      no quede NINGÚN camino que escriba ahí, y que la subida de costo en bloque

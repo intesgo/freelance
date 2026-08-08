@@ -23,8 +23,9 @@
      ciudad, condición, cupo, última compra, frecuencia, ranking, cartera,
      quién lo atendió). Si un dato no existe se dice con palabras («Sin
      historial», «—»), nunca con un número inventado.
-   · Abajo, los cuatro botones: Nuevo pedido · Ver historial · Ver cartera ·
-     Ver datos, con sus subtítulos.
+   · «Nuevo pedido» es el botón principal, arriba de las tarjetitas (b138);
+     abajo quedan las tres acciones (Ver historial · Ver cartera · Ver datos),
+     cada una con su subtítulo.
 
    NO SE ESCRIBE EN LA BASE DE VERDAD: el `supa` de aquí es un doble que
    devuelve datos con la forma de producción y anota lo que se le mande.
@@ -309,8 +310,11 @@ async function bateria(js, ruidoso) {
   comprobar("los cuatro botones: Nuevo pedido · Ver historial · Ver cartera · Ver datos",
     txtPedro.indexOf("Nuevo pedido") >= 0 && txtPedro.indexOf("Ver historial") >= 0 &&
     txtPedro.indexOf("Ver cartera") >= 0 && txtPedro.indexOf("Ver datos") >= 0);
-  comprobar("con sus subtítulos, para que se sepa a qué va cada uno",
-    txtPedro.indexOf("Tomar el pedido de este cliente") >= 0 && txtPedro.indexOf("Indicadores y compras") >= 0 &&
+  // «Nuevo pedido» dejó de ser una tarjeta con subtítulo y pasó a ser el botón
+  // principal, arriba de las tarjetitas (b138): ya no lleva subtítulo. Las otras
+  // tres acciones siguen abajo, cada una con el suyo.
+  comprobar("las tres acciones de abajo con sus subtítulos, para que se sepa a qué va cada una",
+    txtPedro.indexOf("Indicadores y compras") >= 0 &&
     txtPedro.indexOf("Facturas y cobros") >= 0 && txtPedro.indexOf("Ficha completa y ubicaciones") >= 0);
 
   /* ── C) VOLVER: el buscador recupera su sello y sus conteos ── */
