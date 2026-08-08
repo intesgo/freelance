@@ -15,6 +15,10 @@
      el motivo real: «Bloqueado», «Con vencidos» o «Sin cupo disponible».
      No inventa reglas: usa el bloqueo del maestro, los vencidos de cartera
      y el cupo disponible que la pantalla ya calculaba.
+   · En el CELULAR las tarjetitas van de DOS en fila (lo pidió el PO el
+     08/08/2026: con ancho mínimo de 150 px un teléfono de 360 px ponía una
+     sola por fila y la ficha quedaba larguísima). En pantalla ancha siguen
+     acomodándose las que quepan.
    · La rejilla de tarjetitas muestra los datos REALES (código, tipo, RUC,
      ciudad, condición, cupo, última compra, frecuencia, ranking, cartera,
      quién lo atendió). Si un dato no existe se dice con palabras («Sin
@@ -44,8 +48,8 @@ const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1
 
 /* ── Cuántas comprobaciones se esperan. Se declara ANTES de correr para que
       una que se borre sin querer no pase inadvertida. ── */
-const ESPERADAS = 39;
-const MUTANTES_ESPERADOS = 8;
+const ESPERADAS = 41;
+const MUTANTES_ESPERADOS = 10;
 
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 60));
 
@@ -111,10 +115,13 @@ function datosDe(t) {
 
 /* ══ El doble de Supabase: entrega los datos de arriba y ANOTA lo que se
       intente escribir (aquí no debe escribirse nada: la ficha solo lee) ══ */
-function montar(js) {
+function montar(js, ancho) {
   const dom = new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`,
     { url:"https://intesgo.app/home/", runScripts:"outside-only", pretendToBeVisual:true });
   const w = dom.window;
+  /* el ancho de la ventana decide si la ficha va de dos columnas: 380 px es
+     un celular corriente; sin pasar nada, jsdom da 1024 (pantalla ancha) */
+  if (ancho) Object.defineProperty(w, "innerWidth", { value: ancho, configurable:true });
   w.matchMedia = q => ({ matches:false, media:q, addListener(){}, removeListener(){}, addEventListener(){}, removeEventListener(){} });
   w.scrollTo = () => {}; w.open = () => null; w.alert = () => {}; w.print = () => {};
   w.Notification = function(){}; w.Notification.permission = "denied";
@@ -182,6 +189,19 @@ function montar(js) {
       e.dispatchEvent(new window.MouseEvent("click", { bubbles:true }));
       return true;
     };
+    /* la rejilla de las tarjetitas: se reconoce porque es la cuadrícula que
+       contiene la tarjeta del CÓDIGO. Devuelve el valor tal cual lo puso
+       React, para poder contar sus columnas. */
+    window.__rejillaDatos = function(){
+      var cuadros = window.__c.querySelectorAll("div");
+      for (var i=0;i<cuadros.length;i++){
+        var e = cuadros[i];
+        if (e.style && e.style.display === "grid" &&
+            (e.textContent||"").indexOf("CLI-") >= 0 &&
+            (e.textContent||"").indexOf("Ranking") >= 0) return e.style.gridTemplateColumns || "";
+      }
+      return "";
+    };
     window.__caja = function(ph){
       var cajas = window.__c.querySelectorAll("input");
       for (var i=0;i<cajas.length;i++)
@@ -218,7 +238,7 @@ async function bateria(js, ruidoso) {
     if (c) { ok++; if (ruidoso) console.log("  ✓ " + t); }
     else   { mal++; fallos.push(t); if (ruidoso) console.log("  ✗ " + t); }
   };
-  const m = montar(js);
+  const m = montar(js);   /* pantalla ancha (1024) */
   const J = JSON.stringify;
   /* el veredicto es una función de nivel superior: si no existe (código
      viejo o mutante que la rompe), eso también es un fallo, no un reventón */
@@ -335,6 +355,31 @@ async function bateria(js, ruidoso) {
   comprobar("LO ATENDIÓ: Freelance (directo), asignado en la ficha",
     txtNuevo.indexOf("Freelance (directo)") >= 0 && txtNuevo.indexOf("asignado en la ficha") >= 0);
 
+  /* ── G bis) LAS TARJETITAS DE A DOS EN EL CELULAR (PO, 08/08/2026) ──
+     En pantalla ancha se acomodan las que quepan; en un teléfono deben ser
+     exactamente DOS columnas, no una. Se mide sobre la rejilla de verdad,
+     con la ficha de Pedro abierta, en dos montajes con anchos distintos. */
+  await abrir("castillo", "Pedro Castillo");
+  const rejillaAncha = corre(m, `window.__rejillaDatos()`);
+  comprobar("en pantalla ancha la rejilla sigue acomodando las que quepan (auto-fill)",
+    /auto-fill/.test(rejillaAncha));
+  await volver();
+
+  {
+    const cel = montar(js, 380);   /* un celular corriente */
+    corre(cel, `window.__pintar()`);
+    await esperar(150);
+    corre(cel, `ReactDOM.flushSync(function(){})`);
+    corre(cel, `window.__escribir("Escribe nombre, razón social o RUC…", "castillo")`);
+    await esperar(40);
+    corre(cel, `window.__tocar("div", "Pedro Castillo")`);
+    await esperar(60);
+    corre(cel, `ReactDOM.flushSync(function(){})`);
+    const rejillaCel = corre(cel, `window.__rejillaDatos()`);
+    comprobar("EN EL CELULAR (380 px) las tarjetitas salen de A DOS por fila · rejilla: «" + rejillaCel + "»",
+      /repeat\(\s*2\s*,/.test(rejillaCel));
+  }
+
   /* ── H) EL VEREDICTO, PELADO (la función de nivel superior) ── */
   const rBien = { cargando:false, nVenc:0, cupo:30000, disponible:30000 };
   const v1 = veredicto({ bloqueado:true }, rBien);
@@ -391,6 +436,12 @@ const MUTANTES = [
   ["la cartera dice «Al día» aunque deba",
    `R.cargando ? "—" : R.pend>0 ? "Debe "+money(R.pend) : "Al día",`,
    `R.cargando ? "—" : false ? "Debe "+money(R.pend) : "Al día",`],
+  ["TONTA · en el celular pone 3 columnas en vez de 2",
+   `angosto ? "repeat(2, minmax(0, 1fr))"`,
+   `angosto ? "repeat(3, minmax(0, 1fr))"`],
+  ["el celular vuelve a la columna única de antes",
+   `  const angosto = useEsMovil(560);`,
+   `  const angosto = false;`],
   ["el cupo disponible deja de restar lo usado",
    `    const disponible = Math.max(0, Math.round((cupo-usado)*100)/100);`,
    `    const disponible = cupo;`],

@@ -17386,6 +17386,11 @@ function veredictoCliente(c, R) {
 
 function ClientesWeb({ usuario, navegar }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  /* Pantalla angosta (celular): las tarjetitas de la ficha van de DOS en fila.
+     Con `auto-fill minmax(150px,1fr)` un teléfono de 360 px solo alcanzaba a
+     poner una por fila y la ficha se volvía larguísima. Aquí se fija el número
+     de columnas en vez de dejarlo al ancho mínimo. */
+  const angosto = useEsMovil(560);
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const [clientes, setClientes] = useState(CLIENTES_WEB);
   const [cargando, setCargando] = useState(true);
@@ -17785,10 +17790,14 @@ function ClientesWeb({ usuario, navegar }) {
             {(()=>{ const R = resumenDe(c);
               const V = veredictoCliente(c, R);
               const dato = (ic, t, v, sub, col) => (
-                <div key={t} style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"10px 12px" }}>
+                <div key={t} style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12,
+                                      padding:"10px 12px", minWidth:0, overflowWrap:"anywhere" }}>
                   <p style={{ fontSize:10.5, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.4 }}>
                     <span style={{ marginRight:5 }}>{ic}</span>{t}</p>
-                  <p style={{ fontSize:14, fontWeight:700, color: col || COLOR.text, marginTop:3 }}>{v}</p>
+                  {/* un RUC de 13 dígitos no entra a 14 px en media pantalla y se
+                     partía en dos líneas: los valores largos bajan de tamaño */}
+                  <p style={{ fontSize: String(v).length > 12 ? 12 : 14, fontWeight:700,
+                              color: col || COLOR.text, marginTop:3 }}>{v}</p>
                   {sub && <p style={{ fontSize:11, color:COLOR.muted, marginTop:1 }}>{sub}</p>}
                 </div>
               );
@@ -17807,8 +17816,11 @@ function ClientesWeb({ usuario, navegar }) {
                   </div>
                 )}
 
-                {/* rejilla de datos: en celular caben 2 columnas, en pantalla ancha 4 */}
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:10, marginBottom:20 }}>
+                {/* rejilla de datos: en celular SIEMPRE 2 columnas, en pantalla ancha las que quepan */}
+                <div style={{ display:"grid",
+                              gridTemplateColumns: angosto ? "repeat(2, minmax(0, 1fr))"
+                                                           : "repeat(auto-fill, minmax(150px, 1fr))",
+                              gap:10, marginBottom:20 }}>
                   {dato("🔖", "Código", c.id)}
                   {dato("👤", "Tipo", c.tipo || "—")}
                   {dato("🪪", "RUC / Cédula", c.ruc || "—")}
