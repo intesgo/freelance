@@ -17368,6 +17368,22 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
 
 
 // ── Clientes (web): maestro + ficha con tabla vendedor×producto (núcleo de la regla de cliente compartido) ──
+/* ── El veredicto de venta de la ficha del cliente (maqueta del PO, ago/2026) ──
+   Binario y con el motivo real: verde «Se le puede vender» o rojo con lo que
+   estorba. No inventa reglas nuevas: usa el bloqueo del maestro, los vencidos
+   de cartera y el cupo disponible que la pantalla ya calcula.
+   · Bloqueado gana a todo y no espera a que cargue la cartera.
+   · Mientras la cartera no llega (R.cargando) no hay veredicto: null.
+   · «Sin cupo» solo aplica a quien tiene cupo asignado (cupo > 0): al de
+     contado no se le inventa un bloqueo que el negocio no tiene. */
+function veredictoCliente(c, R) {
+  if (c.bloqueado) return { ok:false, motivo: "Bloqueado" + (c.motivoBloqueo ? ": " + c.motivoBloqueo : "") };
+  if (!R || R.cargando) return null;
+  if (R.nVenc > 0) return { ok:false, motivo:"Con vencidos" };
+  if (R.cupo > 0 && R.disponible <= 0) return { ok:false, motivo:"Sin cupo disponible" };
+  return { ok:true };
+}
+
 function ClientesWeb({ usuario, navegar }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
@@ -17670,32 +17686,27 @@ function ClientesWeb({ usuario, navegar }) {
     const pagado = {};
     A.cobs.filter(x => !x.anulado && x.cli_id===c.id)
       .forEach(x => { const k=x.factura; pagado[k]=(pagado[k]||0)+(Number(x.monto)||0); });
-    let pend = 0, venc = 0, nVenc = 0;
+    let pend = 0, venc = 0, nVenc = 0, nPend = 0;
     A.cart.filter(x => x.cli_id===c.id && !x.es_demo).forEach(x => {
       const saldo = (Number(x.monto)||0) - (pagado[x.doc]||0);
-      if (saldo > 0.004) { pend += saldo; if ((x.vence||"") < hoyISO_) { venc += saldo; nVenc++; } }
+      if (saldo > 0.004) { pend += saldo; nPend++; if ((x.vence||"") < hoyISO_) { venc += saldo; nVenc++; } }
     });
     pend = Math.round(pend*100)/100; venc = Math.round(venc*100)/100;
 
     const nombreDe = id => (A.usrs.find(u => u.usr_id===id)||{}).nombre || id || null;
     const vendedor = ultima && ultima.sub ? nombreDe(ultima.sub) : (c.subId ? nombreDe(c.subId) : null);
 
-    /* Semáforo: se arma con hechos, no con opinión, y la pantalla dice por qué.
-       Rojo = no debería venderle sin resolver algo. Ámbar = ojo. Verde = adelante. */
-    let luz = "verde", porque = "Sin bloqueos, sin vencidos y con cupo";
-    if (c.bloqueado)      { luz="rojo";  porque = "Cliente bloqueado" + (c.motivoBloqueo ? ": "+c.motivoBloqueo : ""); }
-    else if (nVenc > 0)   { luz="rojo";  porque = nVenc + " documento(s) vencido(s)"; }
-    else if (cupo > 0 && disponible <= cupo*0.2) { luz="ambar"; porque = "Le queda menos del 20% del cupo"; }
-    else if (pend > 0)    { luz="ambar"; porque = "Tiene saldo pendiente, todavía no vencido"; }
-
-    return { cargando:false, ultima, diasDesde, cadaCuanto, pend, venc, nVenc,
-             disponible, cupo, vendedor, ranking, luz, porque };
+    return { cargando:false, ultima, diasDesde, cadaCuanto, nCompras: mios.length,
+             pend, venc, nVenc, nPend, disponible, cupo, vendedor, ranking };
   };
 
 
   return (
     <div style={{ padding:"22px 28px 40px", maxWidth:920, margin:"0 auto" }}>
 
+      {/* La ficha manda sola en la segunda pantalla: el sello de fuente y los
+          conteos solo acompañan al buscador (pedido del PO, ago/2026). */}
+      {!seleccionado && (<>
       {/* Sello de fuente (b38 · estándar de los módulos conectados) */}
       <div style={{ marginBottom:12 }}>
         <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
@@ -17718,6 +17729,7 @@ function ClientesWeb({ usuario, navegar }) {
           <p className="num" style={{ fontSize:22, fontWeight:800, color:COLOR.red }}>{bloqueados}</p>
         </div>
       </div>
+      </>)}
 
       {!seleccionado ? (
         <>
@@ -17769,61 +17781,67 @@ function ClientesWeb({ usuario, navegar }) {
                 : <span style={{ fontSize:11, fontWeight:700, padding:"5px 12px", borderRadius:999, color:"#1c7a44", background:"#E9F8EF" }}>● Activo</span>}
             </div>
 
-            {/* ══ SPRINT 3 · Tarjeta resumen: todo lo que decide una venta, junto ══ */}
+            {/* ══ La ficha de la maqueta del PO: veredicto binario + rejilla de tarjetitas ══ */}
             {(()=>{ const R = resumenDe(c);
-              const LUZ = { verde:["#1c7a44","#E9F8EF","●"], ambar:["#8a6d1d","#FDF6E3","●"], rojo:["#c0392b","#FDECEA","●"] };
-              const [colLuz, bgLuz] = LUZ[R.luz] || ["#6b7280","#f1f3f5"];
-              const dato = (t, v, sub, col) => (
-                <div key={t} style={{ minWidth:150, flex:"1 1 150px" }}>
-                  <p style={{ fontSize:11, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>{t}</p>
-                  <p style={{ fontSize:14, fontWeight:700, color: col || COLOR.text, marginTop:2 }}>{v}</p>
+              const V = veredictoCliente(c, R);
+              const dato = (ic, t, v, sub, col) => (
+                <div key={t} style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"10px 12px" }}>
+                  <p style={{ fontSize:10.5, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.4 }}>
+                    <span style={{ marginRight:5 }}>{ic}</span>{t}</p>
+                  <p style={{ fontSize:14, fontWeight:700, color: col || COLOR.text, marginTop:3 }}>{v}</p>
                   {sub && <p style={{ fontSize:11, color:COLOR.muted, marginTop:1 }}>{sub}</p>}
                 </div>
               );
               return (<>
-                {/* semáforo, con el motivo escrito: nunca un color sin explicación */}
-                {!R.cargando && (
-                  <div style={{ display:"flex", alignItems:"center", gap:9, background:bgLuz, borderRadius:10,
-                    padding:"9px 13px", marginBottom:16 }}>
-                    <span style={{ color:colLuz, fontSize:15 }}>●</span>
+                {/* franja del veredicto: verde adelante, rojo con el motivo real */}
+                {V && (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, background: V.ok ? "#E9F8EF" : "#FDECEA",
+                    borderRadius:10, padding:"10px 14px", marginBottom:16 }}>
+                    <span style={{ fontSize:16, fontWeight:800, color: V.ok ? "#1c7a44" : "#c0392b" }}>{V.ok ? "✓" : "✕"}</span>
                     <div>
-                      <p style={{ fontSize:13, fontWeight:800, color:colLuz, margin:0 }}>
-                        {R.luz==="verde" ? "Se le puede vender" : R.luz==="ambar" ? "Véndele con cuidado" : "Revisar antes de vender"}</p>
-                      <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{R.porque}</p>
+                      <p style={{ fontSize:13.5, fontWeight:800, color: V.ok ? "#1c7a44" : "#c0392b", margin:0 }}>
+                        {V.ok ? "Se le puede vender" : "No se le puede vender"}</p>
+                      <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>
+                        {V.ok ? "Sin bloqueos, sin vencidos y con cupo" : V.motivo}</p>
                     </div>
                   </div>
                 )}
 
-                <div style={{ display:"flex", gap:20, flexWrap:"wrap", marginBottom:20, paddingBottom:18, borderBottom:`1px solid ${COLOR.border}` }}>
-                  {dato("Código", c.id)}
-                  {dato("Tipo", c.tipo || "—")}
-                  {dato("RUC / Cédula", c.ruc || "—")}
-                  {dato("Ciudad", ciudadDe(c))}
-                  {dato("Condición", c.condicionPago || c.estadoCredito || "—")}
-                  {dato("Cupo disponible", money(R.disponible),
+                {/* rejilla de datos: en celular caben 2 columnas, en pantalla ancha 4 */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:10, marginBottom:20 }}>
+                  {dato("🔖", "Código", c.id)}
+                  {dato("👤", "Tipo", c.tipo || "—")}
+                  {dato("🪪", "RUC / Cédula", c.ruc || "—")}
+                  {dato("📍", "Ciudad", ciudadDe(c))}
+                  {dato("💳", "Condición", c.condicionPago || c.estadoCredito || "—")}
+                  {dato("💵", "Cupo disponible", money(R.disponible),
                         R.cupo>0 ? "de "+money(R.cupo) : "sin cupo asignado",
                         R.cupo>0 && R.disponible<=R.cupo*0.2 ? "#8a6d1d" : COLOR.text)}
-                  {dato("Última compra",
-                        R.cargando ? "…" : R.ultima ? R.ultima.f : "Sin compras registradas",
+                  {dato("🗓️", "Última compra",
+                        R.cargando ? "—" : R.ultima ? R.ultima.f : "Sin compras registradas",
                         R.ultima ? "hace "+R.diasDesde+" día(s)" : null)}
-                  {dato("Cada cuánto compra",
-                        R.cargando ? "…" : R.cadaCuanto!=null ? "≈ "+R.cadaCuanto+" días" : "Aún no se puede calcular",
-                        R.cadaCuanto!=null ? "promedio entre pedidos" : "hacen falta 2 compras")}
-                  {dato("Ranking",
+                  {dato("⏱️", "Cada cuánto compra",
+                        R.cargando ? "—" : R.cadaCuanto!=null ? "≈ "+R.cadaCuanto+" días" : "Aún no se puede calcular",
+                        R.cargando ? null : R.cadaCuanto!=null ? "promedio entre pedidos"
+                          : "hacen falta "+Math.max(1, 2-(R.nCompras||0))+" compra(s)")}
+                  {dato("🏆", "Ranking",
                         R.ranking ? "#"+R.ranking.pos : "Sin historial",
-                        R.ranking ? "de "+R.ranking.de+" con compras" : "por compras acumuladas")}
-                  {dato("Cartera",
-                        R.cargando ? "…" : R.pend>0 ? money(R.pend) : "Al día",
-                        R.venc>0 ? R.nVenc+" vencido(s) · "+money(R.venc) : (R.pend>0 ? "nada vencido" : "sin saldo pendiente"),
+                        "por compras acumuladas")}
+                  {dato("📄", "Cartera",
+                        R.cargando ? "—" : R.pend>0 ? "Debe "+money(R.pend) : "Al día",
+                        R.cargando ? null : R.pend>0
+                          ? R.nPend+" factura(s)"+(R.nVenc>0 ? " · "+R.nVenc+" vencida(s)" : "")
+                          : "sin saldo pendiente",
                         R.venc>0 ? "#c0392b" : COLOR.text)}
-                  {dato("Lo atendió",
-                        R.cargando ? "…" : (R.vendedor || (c.dueno==="freelance" ? "Freelance (directo)" : c.dueno || "Sin asignar")),
-                        R.ultima ? "en su último pedido" : "asignado en la ficha")}
+                  {dato("🤝", "Lo atendió",
+                        R.cargando ? "—" : (R.vendedor || (c.dueno==="freelance" ? "Freelance (directo)" : c.dueno || "Sin asignar")),
+                        R.cargando ? null : R.ultima ? "en su último pedido" : "asignado en la ficha")}
                 </div>
               </>);
             })()}
 
-            {/* Acciones rápidas: las cuatro llevan a pantallas que YA existen */}
+            {/* Acciones rápidas: las cuatro llevan a pantallas que YA existen.
+               «Nuevo pedido» abre Pedidos con este cliente ya elegido (preCliId). */}
             <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
               {[
                 { ic:"🛒", t:"Nuevo pedido",  s:"Tomar el pedido de este cliente", go:()=>(navegar||(()=>{}))("pedidos", c.id) },
@@ -17837,8 +17855,9 @@ function ClientesWeb({ usuario, navegar }) {
                   onMouseEnter={e=>e.currentTarget.style.borderColor=COLOR.teal}
                   onMouseLeave={e=>e.currentTarget.style.borderColor=COLOR.border}>
                   <span style={{ fontSize:23 }}>{a.ic}</span>
-                  <div><p style={{ fontSize:14.5, fontWeight:800, color:COLOR.text, margin:0 }}>{a.t}</p>
+                  <div style={{ flex:1 }}><p style={{ fontSize:14.5, fontWeight:800, color:COLOR.text, margin:0 }}>{a.t}</p>
                        <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{a.s}</p></div>
+                  <span style={{ color:COLOR.muted, fontWeight:800, fontSize:15 }}>»</span>
                 </button>
               ))}
             </div>
