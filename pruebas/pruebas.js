@@ -128,7 +128,42 @@ const fallos = [];
 
    Carriles por omisión: 4. Se puede cambiar con PRUEBAS_CARRILES=1 para volver
    al comportamiento de antes (útil para depurar una falla rara). */
-const CARRILES = Math.max(1, Number(process.env.PRUEBAS_CARRILES || 4));
+const CARRILES = Math.max(1, Number(process.env.PRUEBAS_CARRILES || 6));
+
+/* ══ LAS PESADAS PRIMERO ══════════════════════════════════════════════════
+   Con carriles, el reloj lo manda la prueba más lenta que quede sin arrancar.
+   Si las tres de casi dos minutos caen al final, un carril se queda solo
+   trabajando mientras los otros ya terminaron. Arrancando por las pesadas,
+   el reparto se empareja.
+
+   Los segundos son medidos (8 ago 2026, corrida completa cronometrada una por
+   una). No hace falta que estén al día ni que estén todas: es solo el orden de
+   arranque. Lo que no aparezca se trata como prueba mediana y va después de
+   las conocidas pesadas. Si el veredicto cambiara según el orden, el problema
+   sería la prueba, no esta lista. */
+const PESADAS = {
+  "test_cotiza_ofertas · freelance-completo": 114,
+  "test_promos_catalogo · freelance-completo": 114,
+  "test_promos_carga": 98,
+  "test_cotiza_ofertas · Comisionista": 74,
+  "test_promos_catalogo · Comisionista": 70,
+  "test_ficha_cliente": 68,
+  "test_catalogo_productos · freelance-completo": 62,
+  "test_cotiza_ofertas · socio-comercial": 60,
+  "test_promos_catalogo · socio-comercial": 59,
+  "test_pedido_ofertas · Comisionista": 58,
+  "test_regalo_promo · freelance-completo": 43,
+  "test_gratis_desglose · freelance-completo": 38,
+  "test_nota_credito": 24,
+  "test_despacho_parcial": 23,
+  "test_regalo_promo · Comisionista": 22,
+  "test_qq_carrito · Comisionista": 20,
+  "test_gratis_desglose · Comisionista": 18,
+  "test_regalo_promo · socio-comercial": 15,
+  "test_arranque · freelance-completo": 15,
+  "test_detalle_pedido · Comisionista": 14,
+};
+const pesoDe = (t) => PESADAS[t.etiqueta] || 10;
 
 function preparar(arnes, app, visor) {
   const ruta = path.join(AQUI, arnes);
@@ -184,7 +219,10 @@ async function principal() {
 
   /* ── 2) Correr: en carriles lo normal, en fila las del visor ── */
   const todas = grupos.flatMap(g => g.tareas.map(t => ({ t, visor:g.visor })));
-  await enCarriles(todas.filter(x => !x.visor).map(x => x.t), CARRILES);
+  /* Se arranca por las pesadas. El ORDEN DE IMPRESIÓN no cambia: más abajo se
+     recorre `grupos`, que sigue en el orden del plan. */
+  const enParalelo = todas.filter(x => !x.visor).map(x => x.t).sort((a,b) => pesoDe(b) - pesoDe(a));
+  await enCarriles(enParalelo, CARRILES);
   await enCarriles(todas.filter(x =>  x.visor).map(x => x.t), 1);
 
   /* ── 3) Contar e imprimir SIEMPRE en el orden del plan, corra como corra ── */
