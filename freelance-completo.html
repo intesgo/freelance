@@ -5849,7 +5849,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"417", fecha:"9 ago 2026", desc:"En Productos ya no se lista el detalle de piladoras, solo el conteo. La foto que subes a una presentación ahora aparece en la toma de pedidos." };
+const VERSION = { n:"418", fecha:"9 ago 2026", desc:"La búsqueda de Productos acepta palabras sueltas, ignora tildes y prioriza coincidencias del producto antes que las de la piladora." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16601,14 +16601,20 @@ function Productos({vender}){
       setSel(s => s ? actualiza(s) : s);
     }}/>;
 
-  const lista=CATALOGO.filter(m=>{
-    if(m.inhabilitada) return false; // inhabilitada por proveedor/freelance
-    if(m.presentaciones.every(p=>p.inhabilitada)) return false; // todas sus presentaciones inhabilitadas
-    /* El buscador mira también las PILADORAS que lo surten: la tarjeta dice
-       «2 piladoras» y sin esto el vendedor no podría buscar por la que tiene en la cabeza. */
+  const terminos=norm(q).trim().split(/\s+/).filter(Boolean);
+  const disponibles=CATALOGO.filter(m=>
+    !m.inhabilitada && !m.presentaciones.every(p=>p.inhabilitada));
+  /* Cada palabra puede aparecer en una parte distinta: «arroz agustin» encuentra
+     «Arroz San Agustín» aunque no sea una frase exacta y aunque falte la tilde.
+     Primero se busca en producto/marca/línea. Solo si allí no existe ninguna
+     coincidencia se amplía a proveedor/piladora; así «Agustin» no llena la pantalla
+     con todos los productos de Piladora San Agustín ocultando el producto homónimo. */
+  const coincide=(texto)=>terminos.every(t=>norm(texto).includes(t));
+  const directos=terminos.length ? disponibles.filter(m=>
+    coincide(`${m.marca||""} ${m.linea||""}`)) : disponibles;
+  const lista=directos.length || !terminos.length ? directos : disponibles.filter(m=>{
     const pilas=(m.piladoras||[]).map(x=>x.nombre).join(" ");
-    const campos=norm(`${m.marca||""} ${m.linea||""} ${m.provNombre||provName(m.provId)} ${pilas}`);
-    return campos.includes(norm(q));
+    return coincide(`${m.marca||""} ${m.linea||""} ${m.provNombre||provName(m.provId)} ${pilas}`);
   });
   const porLinea={};
   lista.forEach(m=>{ (porLinea[m.linea]=porLinea[m.linea]||[]).push(m); });
