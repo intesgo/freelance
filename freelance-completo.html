@@ -5849,7 +5849,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"416", fecha:"9 ago 2026", desc:"Costo y margen por piladora: ahora en tabla alineada (Costo · Venta · Margen), agrupada por piladora, con la de mejor margen destacada y plegada cuando hay varias." };
+const VERSION = { n:"417", fecha:"9 ago 2026", desc:"En Productos ya no se lista el detalle de piladoras, solo el conteo. La foto que subes a una presentación ahora aparece en la toma de pedidos." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6189,6 +6189,19 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [cli,setCli]=useState(null);
   const [prov,setProv]=useState(null);
   const [prod,setProd]=useState(null);
+  /* Foto real de la presentación en venta: carga PEREZOSA (solo la del producto
+     que se está vendiendo, no todo el catálogo) para no cargar la lista de pedido. */
+  const [fotoPed,setFotoPed]=useState(null);
+  React.useEffect(()=>{
+    setFotoPed(null);
+    if(!prod || !prod.prodId || !window.SB) return;
+    let vivo=true;
+    window.SB.from("presentaciones").select("foto")
+      .eq("prod_id",prod.prodId).eq("presentacion_cod",prod.presCod).eq("activo",true).limit(1)
+      .then(r=>{ if(vivo && r && r.data && r.data[0] && r.data[0].foto) setFotoPed(r.data[0].foto); })
+      .catch(()=>{});
+    return ()=>{ vivo=false; };
+  }, [prod && prod.id]);
   const [ubicPed,setUbicPed]=useState(null);       // local de entrega (domicilio)
   const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);  // true = retira en bodega del proveedor
   const [asumeFletePed,setAsumeFletePed]=useState("freelance");     // quién asume el flete en este pedido
@@ -7182,7 +7195,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       <div className={"pedido-split"+((tipo==="P3"||tipo==="P4"||esP6||(bajoBase&&!sinBasePromo))?" split-alto":"")}>
         <div className="ps-izq">
           <div className="ps-foto">
-            <img src={sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
+            <img src={fotoPed || sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
           </div>
         </div>
         <div className={"ps-controles"+((tipo==="P3"||tipo==="P4"||esP6)?" tiene-extra":"")+((bajoBase&&!sinBasePromo)?" tiene-aviso":"")}>
@@ -16629,7 +16642,6 @@ function Productos({vender}){
                 <div style={{flex:1,minWidth:0}}>
                   <div className="cli">{m.marca||m.id||"Sin marca"}</div>
                   <div className="meta">{variasPilas ? `🏭 ${pilas.length} piladoras` : (pilas[0]?pilas[0].nombre:provName(m.provId))} · {nPres} presentación(es)</div>
-                  {variasPilas && <div className="meta" style={{fontSize:11,marginTop:2,color:"var(--muted)"}}>{pilas.map(x=>x.nombre).join(" · ")}</div>}
                 </div>
                 <span className="meta" style={{fontSize:18,color:"var(--muted)",marginLeft:8}}>›</span>
               </div>
