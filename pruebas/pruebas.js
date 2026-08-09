@@ -13,7 +13,7 @@
    Sale con código 1 si algo falla, para que un robot de publicación pueda
    frenar antes de sacar una app rota a la calle.
    ═══════════════════════════════════════════════════════════════════════════ */
-const { execFileSync } = require("child_process");
+const { execFile } = require("child_process");
 const fs = require("fs"), path = require("path");
 
 const AQUI  = __dirname;
@@ -113,50 +113,105 @@ const verde = (t)=>"\x1b[32m"+t+"\x1b[0m", rojo=(t)=>"\x1b[31m"+t+"\x1b[0m", gri
 let bien = 0, mal = 0, saltadas = 0, exentos = 0;
 const fallos = [];
 
-function correr(arnes, app, visor) {
+/* ══ CARRILES · 8 ago 2026 ══════════════════════════════════════════════════
+   Antes cada prueba esperaba a que terminara la anterior (execFileSync). Medido
+   el 8 ago: 21 minutos de reloj, y el robot de publicación tardaba 15 por salida.
+   Pero las pruebas NO dependen unas de otras: cada una levanta su propio doble y
+   lee su propia copia de la app, sin tocar la base ni archivos compartidos. Así
+   que pueden correr a la vez.
+
+   NO se quita ni se afloja NINGUNA prueba: las mismas, el mismo veredicto y el
+   mismo código de salida. Lo único que cambia es cuánto se espera.
+
+   Las del visor van aparte, en fila: todas escriben las capturas en la misma
+   carpeta y sí se pisarían entre ellas.
+
+   Carriles por omisión: 4. Se puede cambiar con PRUEBAS_CARRILES=1 para volver
+   al comportamiento de antes (útil para depurar una falla rara). */
+const CARRILES = Math.max(1, Number(process.env.PRUEBAS_CARRILES || 4));
+
+function preparar(arnes, app, visor) {
   const ruta = path.join(AQUI, arnes);
-  if (!fs.existsSync(ruta)) { saltadas++; console.log(gris("  · " + arnes + ": no está en esta carpeta")); return; }
+  const etiqueta = arnes.replace(/\.js$/,"") + (app ? " · " + app : "");
+  if (!fs.existsSync(ruta)) return { etiqueta, arnes, estado:"falta" };
   const args = [ruta];
   const LOCAL = process.env.FREELANCE_LOCAL || "/tmp/local";   /* copias con el doble, solo para el visor */
   if (app) args.push(visor ? ("file://" + path.join(LOCAL, app + ".html")) : path.join(APPS, app + ".html"));
   if (visor) args.push("/tmp/capturas");
-  const etiqueta = arnes.replace(/\.js$/,"") + (app ? " · " + app : "");
-  try {
-    const salida = execFileSync("node", args, { encoding:"utf-8", stdio:["ignore","pipe","pipe"], timeout: 180000 });
-    const ultima = salida.trim().split("\n").filter(Boolean).pop() || "";
-    bien++; console.log(verde("  ✓ ") + etiqueta + gris("  " + ultima.slice(0,60)));
-  } catch (e) {
-    mal++;
-    const salida = String((e.stdout||"") + (e.stderr||"")).trim().split("\n");
-    const detalle = salida.filter(l=>/✗/.test(l)).slice(0,4).join("\n     ") || salida.slice(-2).join(" ");
-    fallos.push({ etiqueta, detalle });
-    console.log(rojo("  ✗ ") + etiqueta + "\n     " + detalle);
+  return { etiqueta, arnes, args, estado:"pendiente" };
+}
+
+function lanzar(t) {
+  return new Promise((listo) => {
+    if (t.estado !== "pendiente") return listo();
+    execFile("node", t.args, { encoding:"utf-8", timeout: 180000, maxBuffer: 64*1024*1024 },
+      (err, salidaOk, salidaErr) => {
+        if (!err) {
+          const ultima = String(salidaOk).trim().split("\n").filter(Boolean).pop() || "";
+          t.estado = "bien"; t.resumen = ultima.slice(0,60);
+        } else {
+          const lineas = String((salidaOk||"") + (salidaErr||"")).trim().split("\n");
+          t.estado = "mal";
+          t.detalle = lineas.filter(l=>/✗/.test(l)).slice(0,4).join("\n     ") || lineas.slice(-2).join(" ");
+        }
+        listo();
+      });
+  });
+}
+
+/* Reparte las tareas entre N obreros. Cada obrero toma la siguiente libre. */
+async function enCarriles(tareas, carriles) {
+  let siguiente = 0;
+  const obrero = async () => { while (siguiente < tareas.length) await lanzar(tareas[siguiente++]); };
+  await Promise.all(Array.from({ length: Math.min(carriles, tareas.length) }, obrero));
+}
+
+async function principal() {
+  console.log("\n═══ PRUEBAS DE FREELANCE" + (soloApp ? " · solo " + soloApp : "") + (rapido ? " · sin navegador" : "")
+    + gris(CARRILES > 1 ? "  · " + CARRILES + " carriles" : "  · en fila"));
+
+  /* ── 1) Armar el plan: qué se corre, qué se salta y por qué ── */
+  const grupos = [];
+  for (const p of PLAN) {
+    if (rapido && p.navegador) continue;
+    if (p.soloSi && !process.env[p.soloSi]) { grupos.push({ que:p.que, nota:"no corre aquí: falta " + p.soloSi + " (vive en el repo privado)", tareas:[], exentas:[] }); continue; }
+    let apps = soloApp ? p.apps.filter(a => a === soloApp) : p.apps;
+    const exentas = apps.filter(a => p.salvo && p.salvo[a]).map(a => ({ app:a, motivo:p.salvo[a] }));
+    apps = apps.filter(a => !(p.salvo && p.salvo[a]));
+    if (!apps.length && !exentas.length) continue;
+    grupos.push({ que:p.que, visor:!!p.visor, tareas: apps.map(a => preparar(p.arnes, a, p.visor)), exentas });
   }
+
+  /* ── 2) Correr: en carriles lo normal, en fila las del visor ── */
+  const todas = grupos.flatMap(g => g.tareas.map(t => ({ t, visor:g.visor })));
+  await enCarriles(todas.filter(x => !x.visor).map(x => x.t), CARRILES);
+  await enCarriles(todas.filter(x =>  x.visor).map(x => x.t), 1);
+
+  /* ── 3) Contar e imprimir SIEMPRE en el orden del plan, corra como corra ── */
+  for (const g of grupos) {
+    console.log("\n" + g.que);
+    if (g.nota) { console.log(gris("  (·) " + g.nota)); continue; }
+    for (const t of g.tareas) {
+      if (t.estado === "falta") { saltadas++; console.log(gris("  · " + t.arnes + ": no está en esta carpeta")); }
+      else if (t.estado === "bien") { bien++; console.log(verde("  ✓ ") + t.etiqueta + gris("  " + t.resumen)); }
+      else { mal++; fallos.push({ etiqueta:t.etiqueta, detalle:t.detalle }); console.log(rojo("  ✗ ") + t.etiqueta + "\n     " + t.detalle); }
+    }
+    /* Nunca en silencio: si una app queda fuera, se dice y se dice por qué. */
+    for (const e of g.exentas) { exentos++; console.log(gris("  (·) " + e.app + " queda fuera: " + e.motivo)); }
+  }
+
+  console.log("\n" + "─".repeat(58));
+  if (mal === 0) {
+    console.log(verde("TODO BIEN") + " · " + bien + " pruebas pasaron"
+      + (exentos ? gris(" · " + exentos + " exenta(s) con motivo") : "")
+      + (saltadas ? gris(" · " + saltadas + " no estaban") : ""));
+    console.log("Se puede publicar.\n");
+  } else {
+    console.log(rojo("NO PUBLIQUES") + " · " + mal + " prueba(s) fallaron de " + (bien + mal));
+    fallos.forEach(f => console.log("  ✗ " + f.etiqueta));
+    console.log("");
+  }
+  process.exit(mal ? 1 : 0);
 }
 
-console.log("\n═══ PRUEBAS DE FREELANCE" + (soloApp ? " · solo " + soloApp : "") + (rapido ? " · sin navegador" : ""));
-for (const p of PLAN) {
-  if (rapido && p.navegador) continue;
-  if (p.soloSi && !process.env[p.soloSi]) { console.log(gris("\n" + p.que + "\n  (·) no corre aquí: falta " + p.soloSi + " (vive en el repo privado)")); continue; }
-  let apps = soloApp ? p.apps.filter(a => a === soloApp) : p.apps;
-  const exentas = apps.filter(a => p.salvo && p.salvo[a]);
-  apps = apps.filter(a => !(p.salvo && p.salvo[a]));
-  if (!apps.length && !exentas.length) continue;
-  console.log("\n" + p.que);
-  for (const a of apps) correr(p.arnes, a, p.visor);
-  /* Nunca en silencio: si una app queda fuera, se dice y se dice por qué. */
-  for (const a of exentas) { exentos++; console.log(gris("  (·) " + a + " queda fuera: " + p.salvo[a])); }
-}
-
-console.log("\n" + "─".repeat(58));
-if (mal === 0) {
-  console.log(verde("TODO BIEN") + " · " + bien + " pruebas pasaron"
-    + (exentos ? gris(" · " + exentos + " exenta(s) con motivo") : "")
-    + (saltadas ? gris(" · " + saltadas + " no estaban") : ""));
-  console.log("Se puede publicar.\n");
-} else {
-  console.log(rojo("NO PUBLIQUES") + " · " + mal + " prueba(s) fallaron de " + (bien + mal));
-  fallos.forEach(f => console.log("  ✗ " + f.etiqueta));
-  console.log("");
-}
-process.exit(mal ? 1 : 0);
+principal();
