@@ -5849,7 +5849,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"415", fecha:"4 ago 2026", desc:"Equipo → Comisionistas: la lista ahora es real (nombre, estado y N.º de clientes de la base); los recién creados aparecen al instante; bloquear/reactivar se guarda en el servidor. Se ocultan ventas/meta por comisionista (aún no calculadas)." };
+const VERSION = { n:"416", fecha:"9 ago 2026", desc:"Costo y margen por piladora: ahora en tabla alineada (Costo · Venta · Margen), agrupada por piladora, con la de mejor margen destacada y plegada cuando hay varias." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16817,22 +16817,57 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
           </div>
         </div>
         {real && (
-          <div style={{marginTop:10, border:"1px solid var(--line)", borderRadius:12, padding:"9px 11px", background:"var(--paper)"}}>
-            <div style={{fontSize:11.5, fontWeight:800, color:"var(--text)", marginBottom:6}}>💰 Costo y margen por piladora <span style={{fontWeight:600, color:"var(--muted)"}}>· solo tú (dueño)</span></div>
-            {(!pr.costos || pr.costos.length===0) ? (
-              <div className="meta">Sin ofertas de piladora para esta presentación.</div>
-            ) : pr.costos.map((c,ci)=>{
-              const mC=Math.round((pr.baseContado-c.costoContado)*100)/100;
-              const mK=Math.round((pr.baseCredito-c.costoCredito)*100)/100;
-              return (
-                <div key={ci} style={{padding:"6px 0", borderTop: ci ? "1px dashed var(--line)" : "none"}}>
-                  <div style={{fontSize:12.5, fontWeight:700, color:"var(--text)", marginBottom:3}}>🏭 {c.piladora}</div>
-                  <div style={{fontSize:11.5, color:"var(--muted)", lineHeight:1.7}}>Contado: costo <b className="num">{money(c.costoContado)}</b> · venta <b className="num">{money(pr.baseContado)}</b> · margen <b className="num" style={{color: mC>=0?"#1c7a44":"#B3261E"}}>{money(mC)}</b></div>
-                  <div style={{fontSize:11.5, color:"var(--muted)", lineHeight:1.7}}>Crédito: costo <b className="num">{money(c.costoCredito)}</b> · venta <b className="num">{money(pr.baseCredito)}</b> · margen <b className="num" style={{color: mK>=0?"#1c7a44":"#B3261E"}}>{money(mK)}</b></div>
-                </div>
-              );
-            })}
-          </div>
+          <details open={!pr.costos || pr.costos.length<=1}
+            style={{marginTop:10, border:"1px solid var(--line)", borderRadius:12, background:"var(--paper)", overflow:"hidden"}}>
+            <summary style={{cursor:"pointer", display:"flex", alignItems:"center", gap:8, padding:"9px 11px", fontSize:11.5, fontWeight:800, color:"var(--text)"}}>
+              <span>💰</span>
+              <span style={{flex:1, minWidth:0}}>Costo y margen <span style={{fontWeight:600, color:"var(--muted)"}}>· solo tú (dueño){pr.costos && pr.costos.length>1 ? " · "+pr.costos.length+" piladoras" : ""}</span></span>
+              {pr.costos && pr.costos.length>1 ? (()=>{
+                const ms = pr.costos.map(c=>Math.round((pr.baseContado-c.costoContado)*100)/100);
+                const lo=Math.min.apply(null,ms), hi=Math.max.apply(null,ms);
+                return <span style={{fontSize:11.5, fontWeight:800, color:"#127a3e", whiteSpace:"nowrap"}}>{"margen "+money(lo)+(lo!==hi?" a "+money(hi):"")}</span>;
+              })() : null}
+            </summary>
+            <div style={{padding:"2px 11px 10px"}}>
+              {(!pr.costos || pr.costos.length===0) ? (
+                <div className="meta">Sin ofertas de piladora para esta presentación.</div>
+              ) : (()=>{
+                const filas = pr.costos.map(c=>{
+                  const mC=Math.round((pr.baseContado-c.costoContado)*100)/100;
+                  const mK=Math.round((pr.baseCredito-c.costoCredito)*100)/100;
+                  return Object.assign({}, c, {mC:mC, mK:mK});
+                }).sort((a,b)=> b.mC - a.mC);
+                const thN={textAlign:"right", fontSize:10.5, color:"var(--muted)", fontWeight:700, letterSpacing:".02em", padding:"5px 3px", borderBottom:"1px solid var(--line)"};
+                const tdK={color:"var(--muted)", fontWeight:600, fontSize:12.5, padding:"5px 3px", textAlign:"left"};
+                const tdN={textAlign:"right", fontWeight:700, fontSize:13, padding:"5px 3px"};
+                return (
+                  <table style={{width:"100%", borderCollapse:"collapse", fontVariantNumeric:"tabular-nums"}}>
+                    <thead><tr>
+                      <th style={{textAlign:"left", padding:"5px 3px", borderBottom:"1px solid var(--line)"}}></th>
+                      <th style={thN}>Costo</th><th style={thN}>Venta</th><th style={thN}>Margen</th>
+                    </tr></thead>
+                    {filas.map((c,ci)=>(
+                      <tbody key={ci} style={{borderTop: ci ? "1px solid var(--line)" : "none"}}>
+                        <tr><td colSpan={4} style={{padding:"8px 3px 1px", fontSize:12.5, fontWeight:800, color:"var(--text)"}}>🏭 {c.piladora}{ci===0 && filas.length>1 ? <span style={{marginLeft:7, fontSize:10, fontWeight:800, color:"#fff", background:"#127a3e", borderRadius:999, padding:"1px 7px", verticalAlign:"1px"}}>mejor margen</span> : null}</td></tr>
+                        <tr>
+                          <td style={tdK}>Contado</td>
+                          <td style={tdN}>{money(c.costoContado)}</td>
+                          <td style={tdN}>{money(pr.baseContado)}</td>
+                          <td style={{textAlign:"right", fontWeight:800, fontSize:13, padding:"5px 3px", color: c.mC>=0?"#1c7a44":"#B3261E"}}>{money(c.mC)}</td>
+                        </tr>
+                        <tr>
+                          <td style={tdK}>Crédito</td>
+                          <td style={tdN}>{money(c.costoCredito)}</td>
+                          <td style={tdN}>{money(pr.baseCredito)}</td>
+                          <td style={{textAlign:"right", fontWeight:800, fontSize:13, padding:"5px 3px", color: c.mK>=0?"#1c7a44":"#B3261E"}}>{money(c.mK)}</td>
+                        </tr>
+                      </tbody>
+                    ))}
+                  </table>
+                );
+              })()}
+            </div>
+          </details>
         )}
         {pr.promosFreelance.length>0 ? (
           <div className="prod-promos">
