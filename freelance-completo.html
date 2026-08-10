@@ -490,6 +490,13 @@
   /* aparición suave de tarjetas */
   @keyframes subir{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   .fade-in{animation:subir .28s ease both}
+  /* b422 · portada viva, breve y accesible */
+  @keyframes inicioPulso{0%,100%{box-shadow:0 0 0 0 rgba(194,96,58,0)}50%{box-shadow:0 0 0 7px rgba(194,96,58,.10)}}
+  .inicio-saludo{margin:0 0 10px;padding:0 2px}.inicio-saludo strong{display:block;font-size:17px;color:var(--field);line-height:1.25}.inicio-saludo span{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+  .inicio-buscador .box{padding:11px 13px}.inicio-finanzas{animation:subir .32s ease both}.inicio-anillo{transition:stroke-dashoffset .7s ease}.inicio-urgente{animation:inicioPulso 2.4s ease-in-out infinite}
+  .inicio-resumen{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}.inicio-resumen div{min-width:0;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 3px}.inicio-resumen b{display:block;font-size:13.5px;color:var(--field);line-height:1.15;overflow:hidden;text-overflow:ellipsis}.inicio-resumen span{display:block;font-size:8.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
+  .inicio-modulo.principal{border-color:#E5C65A!important;box-shadow:0 4px 16px rgba(201,162,39,.16)!important}
+  @media (prefers-reduced-motion:reduce){.fade-in,.inicio-finanzas,.inicio-urgente{animation:none!important}.inicio-anillo{transition:none!important}}
   .row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
   .cli{font-size:15px;font-weight:600}
   .meta{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5}
@@ -990,6 +997,8 @@
   .filtrar-btn{flex:0 0 auto;white-space:nowrap}
   .ss .pop{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--line);
     border-radius:12px;box-shadow:0 12px 28px rgba(21,57,43,.14);z-index:20;max-height:230px;overflow-y:auto}
+  .productos-scroll .ss .pop{position:relative;top:auto;margin-top:6px;max-height:min(42dvh,330px);overflow-y:auto;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:calc(82px + env(safe-area-inset-bottom,0px))}
   .ss .opt{padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer}
   .ss .opt:last-child{border-bottom:none}
   .ss .opt:active{background:var(--paper)}
@@ -4628,11 +4637,19 @@ function Inicio({go, irCliente, irProducto, irFactura}){
   })();
   const porVisitar=clientesPorVisitar();
   const nRojo=porVisitar.filter(x=>x.nivel==="rojo").length;
-  const pct=82;                                                   // cumplimiento de meta
+  const metaMes=850;
   const R=27, C=2*Math.PI*R;
   const comisionPropia=64.00;                                     // venta directa, liberada
   const margenEquipo=EQUIPO_INI.reduce((a,s)=>a+s.margenMes,0);   // margen del equipo
   const totalRecibir=comisionPropia+margenEquipo;
+  const pct=Math.min(100,Math.round(totalRecibir/metaMes*100));
+  const [valorAnimado,setValorAnimado]=useState(0);
+  const [pctAnimado,setPctAnimado]=useState(0);
+  React.useEffect(()=>{
+    if(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches){setValorAnimado(totalRecibir);setPctAnimado(pct);return;}
+    let raf,ini=performance.now(); const paso=(ahora)=>{const t=Math.min(1,(ahora-ini)/650),e=1-Math.pow(1-t,3);setValorAnimado(totalRecibir*e);setPctAnimado(Math.round(pct*e));if(t<1)raf=requestAnimationFrame(paso);};
+    raf=requestAnimationFrame(paso);return()=>cancelAnimationFrame(raf);
+  },[totalRecibir,pct]);
   /* Tablero de trabajo: 6 accesos. El detalle financiero vive en Comisiones (sin duplicar). */
   const accesos=[
     {k:"pedido",   ico:"pedido",     col:"#C9A227", bg:"#FBF0D8", t:"Tomar pedido", s:"Nuevo o recompra"},
@@ -4643,13 +4660,10 @@ function Inicio({go, irCliente, irProducto, irFactura}){
     {k:"cuenta",   ico:"comisiones", col:"#7C5CBF", bg:"#F3ECF9", t:"Comisiones", s:"Tuyas y del equipo"},
   ];
   return (<>
-    {/* Sello de versión: siempre visible al entrar, para saber qué copia se prueba */}
-    <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted,#8B9490)",
-      margin:"0 0 10px",letterSpacing:".02em"}}>
-      v{VERSION.n} · {VERSION.fecha}</div>
     <BandaFallosAbiertos/>
+    <div className="inicio-saludo"><strong>Buenos días, Richard</strong><span>Hoy tienes {porVisitar.length} visitas y 2 cobros pendientes.</span></div>
     {/* ── Buscador universal ── */}
-    <div className="ss" style={{marginBottom:qGlobal?10:14}}>
+    <div className="ss inicio-buscador" style={{marginBottom:qGlobal?10:12}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={qGlobal} placeholder="Buscar cliente, producto, factura…"
           onChange={e=>setQGlobal(e.target.value)}/>
@@ -4731,26 +4745,26 @@ function Inicio({go, irCliente, irProducto, irFactura}){
 
     {!resultados && (<>
     {/* banda financiera compacta: el dato como contexto, no como protagonista */}
-    <div className="hero"
+    <div className="hero inicio-finanzas"
       style={{display:"flex",alignItems:"center",gap:14,padding:"15px 17px",width:"100%"}}>
       <div style={{flex:1,minWidth:0}}>
         <div className="lbl">Total a recibir · junio</div>
-        <div className="num" style={{fontSize:31,fontWeight:800,color:"var(--field-soft-txt)",lineHeight:1.1,margin:"2px 0 4px"}}>{money(totalRecibir)}</div>
-        <div className="hero-corte" style={{margin:0}}><span>🎯</span> Meta {money(850)} · corte 31 may</div>
+        <div className="num" style={{fontSize:31,fontWeight:800,color:"var(--field-soft-txt)",lineHeight:1.1,margin:"2px 0 4px"}}>{money(valorAnimado)}</div>
+        <div className="hero-corte" style={{margin:0}}><span>🎯</span> Meta {money(metaMes)} · corte 31 may</div>
       </div>
       <div style={{position:"relative",width:66,height:66,flexShrink:0}}>
         <svg width="66" height="66" viewBox="0 0 66 66">
           <circle cx="33" cy="33" r={R} fill="none" stroke="var(--field-soft-line)" strokeWidth="7"/>
-          <circle cx="33" cy="33" r={R} fill="none" stroke="#1F4E6B" strokeWidth="7" strokeLinecap="round"
-            strokeDasharray={C} strokeDashoffset={C*(1-pct/100)} transform="rotate(-90 33 33)"/>
+          <circle className="inicio-anillo" cx="33" cy="33" r={R} fill="none" stroke="#1F4E6B" strokeWidth="7" strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={C*(1-pctAnimado/100)} transform="rotate(-90 33 33)"/>
         </svg>
         <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
-          fontFamily:"'Space Grotesk',sans-serif",fontWeight:800,fontSize:15,color:"#1F4E6B"}}>{pct}%</div>
+          fontFamily:"'Space Grotesk',sans-serif",fontWeight:800,fontSize:15,color:"#1F4E6B"}}>{pctAnimado}%</div>
       </div>
     </div>
 
     {porVisitar.length>0 && (
-      <button className="alerta-visita" style={{padding:"11px 14px",marginTop:10}} onClick={()=>setVerVisitas(true)}>
+      <button className={"alerta-visita"+(nRojo>0?" inicio-urgente":"")} style={{padding:"11px 14px",marginTop:10}} onClick={()=>setVerVisitas(true)}>
         <span className="av-ic"><Ico n="ruta" c="#C2603A" s={19}/></span>
         <div style={{flex:1,textAlign:"left",minWidth:0}}>
           <div className="av-t" style={{fontSize:13.5}}>Por visitar · {porVisitar.length} próximos a pedir</div>
@@ -4760,10 +4774,12 @@ function Inicio({go, irCliente, irProducto, irFactura}){
       </button>
     )}
 
+    <div className="inicio-resumen"><div><b>1</b><span>Pedidos</span></div><div><b>2</b><span>Cobros</span></div><div><b>{porVisitar.length}</b><span>Visitas</span></div><div><b>{money(totalRecibir)}</b><span>Comisión</span></div></div>
+
     {/* tablero de trabajo 3×2: todo a un toque, sin scroll */}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:12}}>
       {accesos.map((a,i)=>(
-        <button key={a.k} onClick={()=>go(a.k)} className="fade-in"
+        <button key={a.k} onClick={()=>go(a.k)} className={"fade-in inicio-modulo"+(a.k==="pedido"?" principal":"")}
           style={{background:"var(--card)",border:"1px solid rgba(0,0,0,.05)",borderRadius:16,
           padding:"14px 8px 12px",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",
           alignItems:"center",gap:7,animationDelay:(i*35)+"ms",
@@ -5867,7 +5883,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"421", fecha:"10 ago 2026", desc:"Se restaura la distribución compacta del pedido y se conserva la carga de fotografías completas sin recorte." };
+const VERSION = { n:"422", fecha:"10 ago 2026", desc:"Portada renovada, búsqueda de productos desplazable y mejoras visuales del bloque de pedidos." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6586,7 +6602,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         text:p=>p.nombre,
         option:p=>(<div className="o1">{p.nombre}</div>),
         picked:p=>(<div className="p1">{p.nombre}</div>)
-      }}/>{!prov && <div className="proveedor-ayuda"><span>ⓘ</span> Puedes escribir palabras sueltas</div>}</div>}
+      }}/></div>}
 
     {/* Favoritos del cliente: lo que suele comprar de esta piladora, a un toque (siempre visible) */}
     {prov && !bloqueado && !verFact && !prod && (
@@ -6619,7 +6635,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </div>
     )}
 
-    {prov && !bloqueado && !verFact && !prod && <div className="busc-grande"><SearchSelect label="Producto" cat="productos" items={productosDelProv} sinLabel value={prod} maxItems={5} fuzzy
+    {prov && !bloqueado && !verFact && !prod && <div className="busc-grande productos-scroll"><SearchSelect label="Producto" cat="productos" items={productosDelProv} sinLabel value={prod} maxItems={5} fuzzy
       placeholder="Producto"
       onPick={p=>{setProd(p);reset();}} onClear={()=>{setProd(null);reset();}}
       render={{
@@ -24394,6 +24410,10 @@ function App({usuario, onSalir}){
         <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
           <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.55)",padding:"5px 9px",
             background:"rgba(255,255,255,.10)",borderRadius:20,letterSpacing:".02em"}}>v{VERSION.n}</span>
+          <button onClick={()=>setVerNotifs(true)} aria-label="Notificaciones"
+            style={{position:"relative",width:34,height:34,borderRadius:17,background:"rgba(255,255,255,.10)",border:"1px solid rgba(255,255,255,.14)",color:"#fff",fontSize:15,cursor:"pointer"}}>🔔
+            {totalNotifs>0&&<span style={{position:"absolute",right:-3,top:-4,minWidth:16,height:16,borderRadius:8,background:"#D9534F",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{totalNotifs}</span>}
+          </button>
           <Net n={pendientes.length} online={online} sincronizando={sincronizando} onClick={()=>setVerSync(true)}/>
         </div>
       </div>
@@ -24425,11 +24445,6 @@ function App({usuario, onSalir}){
         {tab==="potenciales" && <Potenciales toast={show}/>}
         {tab==="proveedores" && <Proveedores toast={show} usuario={usuario}/>}
         {tab==="documentos" && <Documentos toast={show} usuario={usuario}/>}
-        {/* ═══ Campana de notificaciones (flotante, visible en toda la app) ═══ */}
-        <button onClick={()=>setVerNotifs(true)} aria-label="Notificaciones"
-          style={{position:"fixed", top:"calc(env(safe-area-inset-top, 0px) + 58px)", right:12, zIndex:1200, width:42, height:42, borderRadius:21, background:"var(--card)", border:"1px solid #E2E8E2", boxShadow:"0 4px 14px rgba(0,0,0,.18)", fontSize:17, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center"}}>
-          🔔{totalNotifs>0 && <span style={{position:"absolute", top:-4, right:-4, minWidth:18, height:18, borderRadius:9, background:"#C0392B", color:"#fff", fontSize:10.5, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px"}}>{totalNotifs}</span>}
-        </button>
         {verNotifs && (
           <div onClick={()=>setVerNotifs(false)} style={{position:"fixed", inset:0, background:"rgba(10,20,15,.45)", zIndex:1300, display:"flex", alignItems:"flex-start", justifyContent:"flex-end", padding:"calc(env(safe-area-inset-top,0px) + 104px) 12px 0"}}>
             <div onClick={e=>e.stopPropagation()} style={{width:"min(340px,92vw)", maxHeight:"70vh", overflowY:"auto", background:"var(--card)", borderRadius:16, boxShadow:"0 18px 50px rgba(0,0,0,.3)"}}>
@@ -24768,7 +24783,7 @@ function App({usuario, onSalir}){
         </div>
       )}
       {/* Asistente de consultas por voz: burbuja movible en todas las pantallas */}
-      {!asistAbierto && tab!=="mensajes" && (
+      {!asistAbierto && tab!=="mensajes" && tab!=="inicio" && (
         <BurbujaAsistente escuchando={asistVozBurbuja}
           onAbrir={()=>{ MotorVoz.apagar(); setAsistEscucha(false); setAsistVozBurbuja(false); setAsistAbierto(true); }}
           onEscuchar={()=>{ setAsistAbierto(false); setAsistEscucha(false); MotorVoz.alternar(); }} />

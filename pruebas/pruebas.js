@@ -96,6 +96,7 @@ const PLAN = [
   { arnes:"test_padron_fc.js",       que:"sin ficha en el padrón no se entra",   apps:[null] },
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   { arnes:"test_cambios_419.js",      que:"fotos completas, proveedor por palabras y menú plegado", apps:[null] },
+  { arnes:"test_cambios_422.js",      que:"portada, pedido web y scroll de productos", apps:[null] },
   /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null], soloSi:"SISTEMA_WEB" },
   { arnes:"test_menu_web.js",        que:"el menú del sistema web",              apps:[null], soloSi:"SISTEMA_WEB" },
