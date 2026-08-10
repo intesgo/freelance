@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"143", fecha:"10 ago 2026", desc:"Pantalla de pedido: cliente y proveedor arriba, el producto con foto grande y tres botones (Entrega, Tipo de precio, Historial) que abren un modal con pestañas, y el resumen con scroll y totales fijos. Logística: la ruta se arma con los pedidos apenas se crean (etiqueta «sin factura» y candado para que el camión no salga sin facturar)." };
+const VERSION = { n:"144", fecha:"10 ago 2026", desc:"Logística: los pedidos reales muestran sus quintales verdaderos (tomados de la base, ya en quintales) en vez de «0 qq». Antes se recalculaba el peso por el nombre de la presentación y las descripciones reales no encajaban." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1948,7 +1948,10 @@ const LOG_RUTAS_INI = [
 // Helpers de peso y quintales
 function logPesoLinea(it){ return (LOG_PESO_PRES[(it.p.split("·")[1]||"").trim()]||0) * it.q; }
 function logPesoPedido(p){ return p.items.reduce((a,it)=>a+logPesoLinea(it),0); }
-function logQQ(p){ return logPesoPedido(p)/LOG_QQ_KG; }
+/* Los pedidos reales traen `qqReal` (quintales tomados directo de la base, ya en
+   quintales). Solo los pedidos de demostración, que no lo traen, se calculan por
+   presentación con LOG_PESO_PRES. */
+function logQQ(p){ return (p && p.qqReal != null) ? p.qqReal : logPesoPedido(p)/LOG_QQ_KG; }
 function logOrdenNS(ciudad){ const i=LOG_ORDEN_NS.indexOf(ciudad); return i<0?999:i; }
 // Sugerir el camión más pequeño que alcance los qq dados
 function logSugerirVehiculo(qq){
@@ -2393,8 +2396,16 @@ function TrazabilidadWeb({ usuario }) {
       const vivos = (data||[]).map(p => {
         const ubs = (p.clientes && p.clientes.ubicaciones_cliente) || [];
         const u = (p.ubicacion_id && ubs.find(x=>x.ubic_id===p.ubicacion_id)) || ubs.find(x=>x.principal) || ubs[0] || {};
+        /* Los quintales REALES ya vienen en quintales en la base (`cantidad_qq`,
+           `despachado_qq`): se suman directo. NO se recalcula por presentación
+           —LOG_PESO_PRES es solo para el demo— porque las descripciones reales
+           no encajan en esa tabla y el pedido salía en "0 qq". Se usa lo
+           despachado cuando existe, y solo si no, lo pedido. */
+        const qqReal = (p.pedido_items||[]).reduce((a,i)=>
+          a + (Number(i.despachado_qq != null ? i.despachado_qq : i.cantidad_qq) || 0), 0);
         return {
           id: p.ped_id,
+          qqReal,
           retiroBodega: !!p.retiro_bodega,
           cliId: p.cli_id,          /* lo necesita la guía del viaje */
           cli: (p.clientes && p.clientes.nombre) || p.cli_id,
