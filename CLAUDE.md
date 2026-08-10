@@ -147,7 +147,32 @@ versión que tocaste y ajústalo.
 
 ---
 
-## 6. Seguridad (base de datos, claves, respaldos)
+## 6. Autonomía en cambios de código (flujo completo, sin pedir fusión)
+
+Para **cambios de código** (apps `.html`, `sw.js`, `scripts/`, `pruebas/`, y la documentación
+del repo como este `CLAUDE.md`), Claude hace **todo el flujo de punta a punta, sin pedir
+permiso para fusionar ni publicar**:
+
+1. **Crea** la rama y el cambio (sincronizado con `main` primero, §2).
+2. **Prueba:** `node scripts/compilar.js` y `node pruebas/pruebas.js rapido` en verde (§3);
+   sube `VERSION` y `CACHE` y ajusta los arneses atados a versión/diseño cuando aplique (§4).
+3. **Abre el Pull Request** y lo **fusiona a `main`** cuando esté verde. En este repo las
+   pruebas de publicación corren **al hacer push a `main`** (`publicar.yml`), no sobre el PR:
+   por eso "verde" = las pruebas locales pasan (el mismo `pruebas.js rapido` que corre el
+   robot) y el PR está limpio/mergeable. Si el robot falla tras el merge, **no publica** y
+   hay que arreglarlo enseguida.
+4. **Confirma el deploy:** vigila la corrida de `publicar.yml` sobre `main` hasta que termine
+   en verde y avisa que salió (o reporta el fallo con la salida real). No dar por hecho el
+   deploy sin verlo (§5).
+
+**La ÚNICA excepción es la base de datos.** Si el cambio **toca la base (Supabase)** —insert,
+update, delete, migración, carga masiva, o cualquier escritura— **primero se pide la aprobación
+expresa del dueño** con un resumen de qué se va a escribir y por qué (§6-seguridad). Recién con
+el "sí" se ejecuta. El resto del flujo (crear, probar, fusionar, publicar) no necesita permiso.
+
+---
+
+## 7. Seguridad (base de datos, claves, respaldos)
 
 - **Ninguna escritura en la base (Supabase)** —insert, update, delete, migración, carga
   masiva— sin un **resumen previo y la aprobación expresa del dueño**. Primero explicas
@@ -157,7 +182,7 @@ versión que tocaste y ajústalo.
 
 ---
 
-## 7. Roles, permisos y negocio
+## 8. Roles, permisos y negocio
 
 - **Respeta los roles y permisos de cada app.** No cambies la lógica de permisos: toca
   solo lo que se pida.
@@ -172,6 +197,8 @@ versión que tocaste y ajústalo.
 3. Sincroniza con `main` antes de empezar. 4. Grande/ambiguo → pregunta; pequeño/claro →
 hazlo. 5. Tras cada cambio: `node scripts/compilar.js` y `node pruebas/pruebas.js rapido`.
 6. Al publicar: sube `VERSION` (HTML) y `CACHE` (`sw.js`), y **actualiza los arneses de
-versión/diseño en el mismo cambio**. 7. Base solo con aprobación; claves nunca por chat;
-nunca restaurar sobre producción. 8. No toques permisos ni reglas de negocio salvo lo
+versión/diseño en el mismo cambio**. 7. Cambios de código: **flujo completo sin pedir fusión**
+(crear → probar → fusionar → publicar → confirmar el deploy); la ÚNICA excepción es tocar la
+base, que necesita aprobación previa. 8. Base solo con aprobación; claves nunca por chat;
+nunca restaurar sobre producción. 9. No toques permisos ni reglas de negocio salvo lo
 pedido.
