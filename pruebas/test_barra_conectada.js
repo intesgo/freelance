@@ -1,6 +1,6 @@
 /* Prueba de que los 4 módulos de la barra inferior leen del sistema (b365).
-   Corre contra el bundle real de fc en jsdom. Los datos del fixture son filas
-   REALES copiadas de la base, para que el mapeo se pruebe con lo que hay. */
+   Corre contra el bundle real de fc en jsdom con fixtures completamente
+   sintéticos y marcados como demostración. */
 const fs=require("fs"), vm=require("vm");
 const { JSDOM } = require("jsdom");
 const Babel=require("./rutas").Babel;
@@ -17,43 +17,43 @@ const comprobar=(t,c)=>{ if(c){ok++;console.log("  ✓ "+t);} else {mal++;consol
 
 const AYER=new Date(Date.now()-86400000).toISOString().slice(0,10);
 const FIX={
-  usuarios:[{usr_id:"FRL-RR",nombre:"Richard Ramírez",rol:"freelance"},
-            {usr_id:"SC-D1",nombre:"Luis Paredes",rol:"comisionista"},
-            {usr_id:"FRL-01",nombre:"Daniel Ríos",rol:"freelance"}],
+  usuarios:[{usr_id:"USR-DEMO-01",nombre:"Usuario Demo Principal",rol:"freelance"},
+            {usr_id:"USR-DEMO-02",nombre:"Usuario Demo Dos",rol:"comisionista"},
+            {usr_id:"USR-DEMO-03",nombre:"Usuario Demo Tres",rol:"freelance"}],
   pedidos:[
-    {ped_id:"PD-0010",cli_id:"CLI-D01",prov_cod:"PROV-A",ciudad:"Riobamba",estado:"enviado_proveedor",
+    {ped_id:"PED-DEMO-01",cli_id:"CLI-DEMO-01",prov_cod:"PROV-DEMO-01",ciudad:"Ciudad Demo",estado:"enviado_proveedor",
      factura:null,condicion:"credito",creado:"2026-07-10T06:38:39.654043+00:00",es_demo:true},
-    {ped_id:"PED-D1",cli_id:"CLI-D1",prov_cod:"AGU",ciudad:"Riobamba",estado:"facturado",
-     factura:"F-DEMO-001",condicion:"credito",creado:"2026-07-24T19:04:30.885486+00:00",es_demo:true},
-    {ped_id:"PD-0004",cli_id:"CLI-D01",prov_cod:"PROV-A",ciudad:"Riobamba",estado:"despachado",
-     factura:"001-001-0004521",condicion:"credito",creado:"2026-07-10T06:38:39.654043+00:00",es_demo:true}],
+    {ped_id:"PED-DEMO-02",cli_id:"CLI-DEMO-02",prov_cod:"PROV-DEMO-02",ciudad:"Ciudad Demo",estado:"facturado",
+     factura:"FAC-DEMO-01",condicion:"credito",creado:"2026-07-24T19:04:30.885486+00:00",es_demo:true},
+    {ped_id:"PED-DEMO-03",cli_id:"CLI-DEMO-01",prov_cod:"PROV-DEMO-01",ciudad:"Ciudad Demo",estado:"despachado",
+     factura:"FAC-DEMO-02",condicion:"credito",creado:"2026-07-10T06:38:39.654043+00:00",es_demo:true}],
   pedido_items:[
-    {ped_id:"PED-D1",descripcion:"Arroz Super Capirona · Quintal",cantidad_qq:10.00,precio_usd:40.00},
-    {ped_id:"PED-D1",descripcion:"Arroz Chifa Economico · Quintal",cantidad_qq:5.00,precio_usd:22.50}],
-  clientes:[{cli_id:"CLI-D01",nombre:"Comercial Nilo"},{cli_id:"CLI-D1",nombre:"Tienda Demo El Ensayo"},
-            {cli_id:"CLI-D02",nombre:"Almacenes Fernando"}],
-  proveedores:[{prov_cod:"PROV-A",nombre:"Agrícola del Valle"},{prov_cod:"AGU",nombre:"Piladora San Agustín"}],
-  comisiones:[{ped_id:"PED-D1",monto:22.50,estado:"Generada"},{ped_id:"PD-0004",monto:88.00,estado:"Pagada"}],
+    {ped_id:"PED-DEMO-02",descripcion:"Producto Demo A · Unidad",cantidad_qq:10.00,precio_usd:40.00},
+    {ped_id:"PED-DEMO-02",descripcion:"Producto Demo B · Unidad",cantidad_qq:5.00,precio_usd:22.50}],
+  clientes:[{cli_id:"CLI-DEMO-01",nombre:"Cliente Demo Norte"},{cli_id:"CLI-DEMO-02",nombre:"Cliente Demo Central"},
+            {cli_id:"CLI-DEMO-03",nombre:"Cliente Demo Sur"}],
+  proveedores:[{prov_cod:"PROV-DEMO-01",nombre:"Proveedor Demo Uno"},{prov_cod:"PROV-DEMO-02",nombre:"Proveedor Demo Dos"}],
+  comisiones:[{ped_id:"PED-DEMO-02",monto:20.00,estado:"Generada"},{ped_id:"PED-DEMO-03",monto:80.00,estado:"Pagada"}],
   solicitudes:[
-    {sol_id:"SOL-D1",tipo:"cupo",origen_id:"SC-D1",destino:"freelance",prov_cod:null,cli_id:"CLI-D1",
-     detalle:"Subir cupo de la tienda demo a 800 · demo",estado:"pendiente",motivo_resp:null,
+    {sol_id:"SOL-DEMO-01",tipo:"cupo",origen_id:"USR-DEMO-02",destino:"freelance",prov_cod:null,cli_id:"CLI-DEMO-02",
+     detalle:"Solicitud sintética de cupo",estado:"pendiente",motivo_resp:null,
      creado:"2026-07-24T19:04:30.885486+00:00",resuelto_en:null,es_demo:true},
-    {sol_id:"SL-0001",tipo:"devolucion",origen_id:"FRL-RR",destino:"proveedor",prov_cod:"PROV-A",cli_id:null,
-     detalle:"Devolución de 5 qq por humedad alta",estado:"rechazada",
-     motivo_resp:"El lote salió aprobado en calidad",creado:"2026-07-10T06:38:39+00:00",
+    {sol_id:"SOL-DEMO-02",tipo:"devolucion",origen_id:"USR-DEMO-01",destino:"proveedor",prov_cod:"PROV-DEMO-01",cli_id:null,
+     detalle:"Devolución sintética",estado:"rechazada",
+     motivo_resp:"Respuesta sintética",creado:"2026-07-10T06:38:39+00:00",
      resuelto_en:"2026-07-10T06:38:39+00:00",es_demo:true}],
   novedades:[
-    {nov_id:"NV-0001",cli_id:"CLI-D01",tipo:"descuento",detalle:"NC por descuento $0.50/qq",
-     estado:"aprobada",origen:"comercial",monto:50,factura:"001-001-0004521",
-     creado:"2026-07-20T10:00:00+00:00",es_demo:false},
-    {nov_id:"NV-0002",cli_id:"CLI-D02",tipo:"producto",detalle:"3 sacos mojados en la descarga",
-     estado:"abierta",origen:"entrega",creado:"2026-07-22T15:00:00+00:00",es_demo:false}],
+    {nov_id:"NOV-DEMO-01",cli_id:"CLI-DEMO-01",tipo:"descuento",detalle:"NC demo por descuento",
+     estado:"aprobada",origen:"comercial",monto:50,factura:"FAC-DEMO-02",
+     creado:"2026-07-20T10:00:00+00:00",es_demo:true},
+    {nov_id:"NOV-DEMO-02",cli_id:"CLI-DEMO-03",tipo:"producto",detalle:"Novedad demo de entrega",
+     estado:"abierta",origen:"entrega",creado:"2026-07-22T15:00:00+00:00",es_demo:true}],
   agenda_actividades:[
-    {act_id:"AG-1",usr_id:"FRL-RR",cli_id:"CLI-D01",cliente:"Comercial Nilo",fecha:new Date().toISOString().slice(0,10),
-     hora:"09:00",tipo:"Visita",objetivo:"Tomar pedido de arroz",ubic:"Riobamba, Centro",dur:30,
+    {act_id:"ACT-DEMO-01",usr_id:"USR-DEMO-01",cli_id:"CLI-DEMO-01",cliente:"Cliente Demo Norte",fecha:new Date().toISOString().slice(0,10),
+     hora:"09:00",tipo:"Visita",objetivo:"Tomar pedido demo",ubic:"Ciudad Demo",dur:30,
      recordatorio:15,estado:"pendiente"}],
-  cartera_cliente:[{mov_id:"MOV-D6",cli_id:"CLI-D02",doc:"F-4489",vence:AYER,monto:1000.00,estado:"pendiente"}],
-  ubicaciones_cliente:[{cli_id:"CLI-D02",ciudad:"Riobamba",barrio:"La Merced",principal:true}],
+  cartera_cliente:[{mov_id:"MOV-DEMO-01",cli_id:"CLI-DEMO-03",doc:"FAC-DEMO-03",vence:AYER,monto:1000.00,estado:"pendiente"}],
+  ubicaciones_cliente:[{cli_id:"CLI-DEMO-03",ciudad:"Ciudad Demo",barrio:"Sector Demo",principal:true}],
 };
 
 function montar(conDatos){
@@ -78,9 +78,9 @@ function montar(conDatos){
     p.delete=()=>{ const q=Promise.resolve({data:null,error:null}); q.eq=()=>q; return q; };
     return p;
   };
-  w.SB={ auth:{ getSession:async()=>(conDatos?{data:{session:{user:{id:"auth-rr",email:"intesgo@gmail.com"}}}}:{data:{session:null}}),
+  w.SB={ auth:{ getSession:async()=>(conDatos?{data:{session:{user:{id:"auth-demo",email:"usuario@example.invalid"}}}}:{data:{session:null}}),
       onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}) },
-    from:(n)=>tabla(n), rpc:async()=>({data:null}),
+    from:(n)=>tabla(n), rpc:async(nombre)=>nombre==="mi_org_activa"?{data:"ORG-001",error:null}:{data:null,error:null},
     channel:()=>({ on(){return this;}, subscribe(){return this;} }), removeChannel:()=>{},
     functions:{ invoke:async()=>({data:{enviados:0},error:null}) },
     storage:{ from:()=>({ upload:async()=>({}), createSignedUrl:async()=>({data:null}) }) } };
@@ -93,7 +93,7 @@ const guion=(tab)=>`(async()=>{
   var cont=document.createElement("div"); document.body.appendChild(cont);
   var raiz=ReactDOM.createRoot(cont);
   ReactDOM.flushSync(function(){
-    raiz.render(React.createElement(App,{ usuario:{nombre:"Richard Ramírez",codigo:"FRL-RR",rol:"freelance",real:true},
+    raiz.render(React.createElement(App,{ usuario:{nombre:"Usuario Demo Principal",codigo:"USR-DEMO-01",rol:"freelance",real:true},
       onSalir:function(){}, toast:function(){} }));
   });
   var esperar=function(ms){ return new Promise(function(r){ setTimeout(r,ms||60); }); };
@@ -114,32 +114,31 @@ const guion=(tab)=>`(async()=>{
     const m=montar(true);
     const pedidos=await vm.runInContext(guion("Pedidos"), m.ctx);
     comprobar("Pedidos muestra el sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(pedidos));
-    comprobar("Pedidos trae clientes de verdad (Comercial Nilo)", pedidos.indexOf("Comercial Nilo")>=0);
-    comprobar("Pedidos ya no muestra el ejemplo (Comercial Mendoza)", pedidos.indexOf("Comercial Mendoza")<0);
+    comprobar("Pedidos trae el cliente sintético", pedidos.indexOf("Cliente Demo Norte")>=0);
     comprobar("el estado guardado se traduce al del negocio", pedidos.indexOf("Enviado al proveedor")>=0);
-    comprobar("el proveedor sale por su nombre", pedidos.indexOf("Agrícola del Valle")>=0);
+    comprobar("el proveedor sale por su nombre sintético", pedidos.indexOf("Proveedor Demo Uno")>=0);
   }
   {
     const m=montar(true);
     const t=await vm.runInContext(guion("Solicitudes"), m.ctx);
     comprobar("Solicitudes muestra el sello de datos vivos", /Solicitudes\s*🟢 Datos vivos/.test(t));
-    comprobar("la solicitud recibida viene de la base", t.indexOf("SOL-D1")>=0 && t.indexOf("Tienda Demo El Ensayo")>=0);
-    comprobar("se ve quién la pidió (del padrón de usuarios)", t.indexOf("Luis Paredes")>=0);
+    comprobar("la solicitud recibida viene del fixture", t.indexOf("SOL-DEMO-01")>=0 && t.indexOf("Cliente Demo Central")>=0);
+    comprobar("se ve quién la pidió (del padrón sintético)", t.indexOf("Usuario Demo Dos")>=0);
   }
   {
     const m=montar(true);
     const t=await vm.runInContext(guion("Novedades"), m.ctx);
     comprobar("Novedades muestra el sello de datos vivos", /Novedades\s*🟢 Datos vivos/.test(t));
-    comprobar("el reclamo comercial guardado aparece", t.indexOf("NC por descuento")>=0);
-    comprobar("la novedad de entrega también (una sola tabla)", t.indexOf("mojados en la descarga")>=0);
+    comprobar("el reclamo comercial guardado aparece", t.indexOf("NC demo por descuento")>=0);
+    comprobar("la novedad de entrega también (una sola tabla)", t.indexOf("Novedad demo de entrega")>=0);
   }
   {
     const m=montar(true);
     const t=await vm.runInContext(guion("Agenda"), m.ctx);
     comprobar("Agenda muestra el sello de datos vivos", /Agenda\s*🟢 Datos vivos/.test(t));
-    comprobar("la actividad programada aparece", t.indexOf("Tomar pedido de arroz")>=0);
-    comprobar("sugiere el cobro de la factura vencida", t.indexOf("Sugerido · cobrar F-4489")>=0);
-    comprobar("la sugerencia sale con el cliente correcto", t.indexOf("Almacenes Fernando")>=0);
+    comprobar("la actividad programada aparece", t.indexOf("Tomar pedido demo")>=0);
+    comprobar("sugiere el cobro de la factura vencida", t.indexOf("Sugerido · cobrar FAC-DEMO-03")>=0);
+    comprobar("la sugerencia sale con el cliente correcto", t.indexOf("Cliente Demo Sur")>=0);
   }
   {
     /* los globos de la barra cuentan lo que hay de verdad */
@@ -147,7 +146,7 @@ const guion=(tab)=>`(async()=>{
     const t=await vm.runInContext(`(async()=>{
       var cont=document.createElement("div"); document.body.appendChild(cont);
       ReactDOM.flushSync(function(){ ReactDOM.createRoot(cont).render(React.createElement(App,{
-        usuario:{nombre:"Richard Ramírez",codigo:"FRL-RR",rol:"freelance",real:true}, onSalir:function(){}, toast:function(){} })); });
+        usuario:{nombre:"Usuario Demo Principal",codigo:"USR-DEMO-01",rol:"freelance",real:true}, onSalir:function(){}, toast:function(){} })); });
       await new Promise(function(r){ setTimeout(r,150); });
       var out={};
       var bs=cont.querySelectorAll(".nav button");
@@ -165,12 +164,12 @@ const guion=(tab)=>`(async()=>{
   {
     const m=montar(true);
     const r=await vm.runInContext(`(async()=>{
-      var a=await responderSolicitud("SOL-D1","aprobada","Aprobado por volumen");
-      var b=await guardarActividad({act_id:"SG-MOV-D6", cli:"Almacenes Fernando", cli_id:"CLI-D02",
-        fecha:"2026-07-26", hora:"", tipo:"Cobro", objetivo:"Sugerido · cobrar F-4489",
-        ubic:"Riobamba", dur:20, recordatorio:15, estado:"completada", resultado:"Cobrado"});
-      var c=await guardarNovedad({cli:"Comercial Nilo", prov:"Agrícola del Valle",
-        tipo:"descuento", detalle:"NC por descuento de prueba", monto:12.5});
+      var a=await responderSolicitud("SOL-DEMO-01","aprobada","Respuesta de prueba");
+      var b=await guardarActividad({act_id:"SG-MOV-DEMO-01", cli:"Cliente Demo Sur", cli_id:"CLI-DEMO-03",
+        fecha:"2026-07-26", hora:"", tipo:"Cobro", objetivo:"Sugerido · cobrar FAC-DEMO-03",
+        ubic:"Ciudad Demo", dur:20, recordatorio:15, estado:"completada", resultado:"Resultado demo"});
+      var c=await guardarNovedad({cli:"Cliente Demo Norte", prov:"Proveedor Demo Uno",
+        tipo:"descuento", detalle:"Novedad sintética", monto:12.5});
       return JSON.stringify({a:a,b:b,c:c});
     })()`, m.ctx);
     const res=JSON.parse(r);
@@ -179,22 +178,22 @@ const guion=(tab)=>`(async()=>{
     const ups=e.find(x=>x.t==="agenda_actividades"&&x.op==="upsert");
     const ins=e.find(x=>x.t==="novedades"&&x.op==="insert");
     comprobar("aprobar una solicitud la guarda en la base", !!upd && upd.f.estado==="aprobada" && !!upd.f.resuelto_en);
-    comprobar("la respuesta escrita queda con la solicitud", !!upd && upd.f.motivo_resp==="Aprobado por volumen");
-    comprobar("completar una sugerencia la vuelve actividad guardada", !!ups && ups.f.act_id==="SG-MOV-D6" && ups.f.estado==="completada");
-    comprobar("la actividad se guarda a nombre de quien la hace", !!ups && ups.f.usr_id==="FRL-RR");
+    comprobar("la respuesta escrita queda con la solicitud", !!upd && upd.f.motivo_resp==="Respuesta de prueba");
+    comprobar("completar una sugerencia la vuelve actividad guardada", !!ups && ups.f.act_id==="SG-MOV-DEMO-01" && ups.f.estado==="completada");
+    comprobar("la actividad se guarda a nombre de quien la hace", !!ups && ups.f.usr_id==="USR-DEMO-01");
     comprobar("un reclamo nuevo se inserta en novedades", !!ins && ins.f.origen==="comercial" && ins.f.estado==="enviada");
-    comprobar("el reclamo queda amarrado al cliente por su código", !!ins && ins.f.cli_id==="CLI-D01");
-    comprobar("y a la piladora por su código", !!ins && ins.f.prov_cod==="PROV-A");
-    comprobar("el reclamo lleva quién lo reportó (padrón, no texto libre)", !!ins && ins.f.reporto==="FRL-RR");
+    comprobar("el reclamo queda amarrado al cliente por su código", !!ins && ins.f.cli_id==="CLI-DEMO-01");
+    comprobar("y al proveedor por su código", !!ins && ins.f.prov_cod==="PROV-DEMO-01");
+    comprobar("el reclamo lleva quién lo reportó (padrón, no texto libre)", !!ins && ins.f.reporto==="USR-DEMO-01");
     comprobar("las tres escrituras responden que sí", res.a===true && res.b===true && !!res.c);
   }
   console.log("═══ SIN sesión (la app no puede quedarse en blanco)");
   {
     const m=montar(false);
     const t=await vm.runInContext(guion("Pedidos"), m.ctx);
-    comprobar("sin datos, Pedidos sigue con la demostración", /Pedidos\s*⚪ Demostración/.test(t) && t.indexOf("Comercial Mendoza")>=0);
+    comprobar("sin datos, Pedidos no inventa una demostración", !/Pedidos\s*⚪ Demostración/.test(t));
     const t2=await vm.runInContext(guion("Agenda"), m.ctx);
-    comprobar("sin datos, la Agenda conserva su ejemplo", /Agenda\s*⚪ Demostración/.test(t2));
+    comprobar("sin datos, la Agenda no filtra el fixture sintético", t2.indexOf("Tomar pedido demo")<0 && t2.indexOf("FAC-DEMO-03")<0);
   }
   console.log("Resultado: "+ok+" ✓ · "+mal+" ✗");
   process.exit(mal?1:0);

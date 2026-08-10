@@ -60,8 +60,8 @@ const HOY = dia(0), AYER = dia(-1), MANANA = dia(1), ANTEAYER = dia(-2), EN30 = 
 
 /* ══ La base de prueba, con la forma exacta de producción ══ */
 const PRODUCTOS_BD = [
-  { prod_id:"P-00197", nombre:"Arroz Crecedor", estado:"activo", proveedor:"Piladora San Agustín", proveedor_cod:"AGU" },
-  { prod_id:"P-00012", nombre:"Arroz Conejo",   estado:"activo", proveedor:"Piladora San Agustín", proveedor_cod:"AGU" },
+  { prod_id:"P-00197", nombre:"Producto Demo A", estado:"activo", proveedor:"Proveedor Demo A", proveedor_cod:"AGU" },
+  { prod_id:"P-00012", nombre:"Producto Demo B", estado:"activo", proveedor:"Proveedor Demo A", proveedor_cod:"AGU" },
 ];
 /* Las tres presentaciones que engañan: 1 qq · 0,25 qq · 0,1 qq. La de 10
    libras es la que hace diez veces de diferencia si se lee del texto en vez
@@ -73,8 +73,8 @@ const PRESENTACIONES_BD = [
   { prod_id:"P-00012", presentacion_cod:"QQ",  presentacion:"Quintal",         equiv_qq:1 },
 ];
 const PROVEEDORES_BD = [
-  { prov_cod:"AGU", nombre:"Piladora San Agustín", activo:true },
-  { prov_cod:"COR", nombre:"Piladora Cordero",     activo:true },
+  { prov_cod:"AGU", nombre:"Proveedor Demo A", activo:true },
+  { prov_cod:"COR", nombre:"Proveedor Demo B", activo:true },
 ];
 /* Lo que ya está cargado en la base cuando la operadora abre la pantalla */
 const PROMOS_BD = [
@@ -147,11 +147,11 @@ function montar(js) {
     return enc;
   }
   w.supa = {
-    auth: { getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"intesgo@gmail.com" } } } }),
+    auth: { getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"qa@example.invalid" } } } }),
             onAuthStateChange: () => ({ data:{ subscription:{ unsubscribe(){} } } }),
             getUser: async () => ({ data:{ user:{ id:"u1" } } }), signOut: async () => ({}) },
     from: (t) => consulta(t, []),
-    rpc: async () => ({ data:null }),
+    rpc: async (nombre) => nombre==="mi_org_activa" ? { data:"ORG-001", error:null } : { data:null, error:null },
     functions: { invoke: async () => ({ data:{}, error:null }) },
     storage: { from: () => ({ upload:async()=>({}), createSignedUrl:async()=>({data:null}) }) },
   };
@@ -234,7 +234,7 @@ function montar(js) {
       document.body.appendChild(window.__c);
       ReactDOM.flushSync(function(){
         ReactDOM.createRoot(window.__c).render(React.createElement(PromocionesWeb, {
-          usuario: { usuario:"richard", nombre:"Richard Ramírez", cargo:"freelance",
+          usuario: { usuario:"qa", nombre:"Usuario QA", cargo:"freelance",
                      rol:"Freelance", empresaId:"EMP-001", secciones:[] } }));
       });
     };
@@ -313,7 +313,7 @@ async function bateria(js, ruidoso) {
 
   /* ── C) LO QUE VIAJA A LA BASE ── */
   const filas = llamar("promoFilas", Object.assign({}, base, {
-    escalones:[{ desde:"200", gratis:"6" }, { desde:"100", gratis:"2" }] }), "PM-260806-abc123");
+    escalones:[{ desde:"200", gratis:"6" }, { desde:"100", gratis:"2" }] }), "PM-260806-abc123", "ORG-001");
   comprobar("la cabecera NACE PENDIENTE: activar sin escalones lo prohíbe el guardia de la base",
     filas.cabecera.estado === "pendiente");
   comprobar("lleva el producto y la presentación elegidos, no los adivina",
@@ -329,9 +329,9 @@ async function bateria(js, ruidoso) {
   comprobar("el resumen de la cabecera sale del escalón de ARRANQUE, no del más alto",
     filas.cabecera.detalle === "Por cada 100 Quintal, 2 gratis");
   comprobar("«Todas las presentaciones» viaja como NULL, que es lo que la base entiende por «en quintales»",
-    llamar("promoFilas", Object.assign({}, base, { presCod:"*" }), "PM-X").cabecera.pres_cod === null);
+    llamar("promoFilas", Object.assign({}, base, { presCod:"*" }), "PM-X", "ORG-001").cabecera.pres_cod === null);
   comprobar("sin fecha de fin viaja NULL, y nada se marca como demostración",
-    llamar("promoFilas", Object.assign({}, base, { hasta:"" }), "PM-X").cabecera.vigente_hasta === null &&
+    llamar("promoFilas", Object.assign({}, base, { hasta:"" }), "PM-X", "ORG-001").cabecera.vigente_hasta === null &&
     filas.cabecera.es_demo === false && filas.cabecera.org_id === "ORG-001");
 
   /* ── D) LA HORA DE ECUADOR, NO LA DE GREENWICH ──
@@ -364,9 +364,9 @@ async function bateria(js, ruidoso) {
   /* Llenarlo como lo llenaría una operadora: nombre, producto, presentación,
      y los dos números del trato. */
   corre(m, `window.__escribir("Ej: Combo de agosto · Arroz Crecedor", "Combo de agosto")`);
-  corre(m, `window.__escribir("Escribe el nombre del producto…", "Crecedor")`);
+  corre(m, `window.__escribir("Escribe el nombre del producto…", "Producto Demo A")`);
   await esperar(30);
-  const eligio = corre(m, `window.__mousedown("div", "Arroz Crecedor")`);
+  const eligio = corre(m, `window.__mousedown("div", "Producto Demo A")`);
   await esperar(30);
   corre(m, `window.__elegirEnLista(0, "QQ")`);
   await esperar(30);
@@ -445,9 +445,9 @@ async function bateria(js, ruidoso) {
   corre(m2, `window.__tocar("button", "+ Nueva promoción")`);
   await esperar(30);
   corre(m2, `window.__escribir("Ej: Combo de agosto · Arroz Crecedor", "Combo tranquilo")`);
-  corre(m2, `window.__escribir("Escribe el nombre del producto…", "Crecedor")`);
+  corre(m2, `window.__escribir("Escribe el nombre del producto…", "Producto Demo A")`);
   await esperar(30);
-  corre(m2, `window.__mousedown("div", "Arroz Crecedor")`);
+  corre(m2, `window.__mousedown("div", "Producto Demo A")`);
   await esperar(30);
   corre(m2, `window.__elegirEnLista(0, "QQ")`);
   await esperar(30);

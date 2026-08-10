@@ -375,6 +375,22 @@ button[aria-label="Notificaciones"]::after{
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
 const {useState,useEffect,useMemo} = React;
+let ORG_ACTIVA_PROV={uid:null,org:null};
+async function orgActivaProveedor(){
+  if(!window.SB||!window.SB.auth) throw new Error("Sin conexión con la organización activa.");
+  const {data:s}=await window.SB.auth.getSession();
+  const uid=s&&s.session&&s.session.user&&s.session.user.id;
+  if(!uid) throw new Error("No hay una sesión activa.");
+  if(ORG_ACTIVA_PROV.uid===uid&&ORG_ACTIVA_PROV.org) return ORG_ACTIVA_PROV.org;
+  const {data,error}=await window.SB.rpc("mi_org_activa");
+  if(error||!data) throw new Error((error&&error.message)||"El usuario no tiene organización activa.");
+  ORG_ACTIVA_PROV={uid,org:String(data)}; return ORG_ACTIVA_PROV.org;
+}
+function hoyECProveedor(){
+  const p={};new Intl.DateTimeFormat("en-CA",{timeZone:"America/Guayaquil",year:"numeric",month:"2-digit",day:"2-digit"})
+    .formatToParts(new Date()).forEach(x=>{if(x.type!=="literal")p[x.type]=x.value;});
+  return p.year+"-"+p.month+"-"+p.day;
+}
 
 /* ===== LOGIN UNIFICADO (usuarios del proveedor) ===== */
 const SERIF   = "'Playfair Display', Georgia, serif";  // títulos / marca
@@ -1256,7 +1272,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"66", fecha:"27 jul 2026", desc:"Saldo a favor visible por cliente, y facturas de prueba con cobro para poder probarlo" };
+const VERSION = { n:"67", fecha:"10 ago 2026", desc:"Cambio transaccional de presentación y ajustes internos separados de las notas fiscales." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1501,14 +1517,26 @@ async function vivoDecidir(){
   try{
     const yo=await yoUsuario(); if(!yo) return null;
     const mio = yo.prov_cod || null;   /* si el usuario es de una piladora, solo lo suyo */
-    const [rp, ri, rc, rs] = await Promise.all([
+    const [rp, ri, rc, rs, ro, rprod] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
-      window.SB.from("pedido_items").select("item_id,ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq,gratis_qq,gratis_despachado_qq,tipo_precio,prod_id,es_demo").limit(2000),
+      window.SB.from("pedido_items").select("item_id,ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq,gratis_qq,gratis_despachado_qq,tipo_precio,prod_id,pres_cod,promo_id,condicion,comision_usd,es_demo").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
+      window.SB.from("ofertas_piladora").select("oferta_id,prod_id,prov_cod,pres_cod,presentacion,equiv_qq,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta,es_demo").limit(3000),
+      window.SB.from("productos").select("prod_id,nombre,estado").limit(1000),
     ]);
     const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
     const items=(ri&&ri.data)||[];
+    const nomProd={}; ((rprod&&rprod.data)||[]).forEach(p=>{ if(p.estado==="activo") nomProd[p.prod_id]=p.nombre||p.prod_id; });
+    const hoy=hoyECProveedor();
+    const alternativas=((ro&&ro.data)||[]).filter(o=>o.activo!==false&&!o.es_demo&&nomProd[o.prod_id]
+      &&(!mio||o.prov_cod===mio)
+      &&(!o.vigente_desde||soloDia(o.vigente_desde)<=hoy)
+      &&(!o.vigente_hasta||soloDia(o.vigente_hasta)>hoy))
+      .map(o=>({ofertaId:o.oferta_id,prodId:o.prod_id,presCod:o.pres_cod,provCod:o.prov_cod,
+        nombre:nomProd[o.prod_id],presentacion:o.presentacion||o.pres_cod,equiv:Number(o.equiv_qq)||1,
+        precioContado:Number(o.precio_contado)||0,precioCredito:Number(o.precio_credito)||Number(o.precio_contado)||0}))
+      .sort((a,b)=>(a.nombre+" "+a.presentacion).localeCompare(b.nombre+" "+b.presentacion));
     /* se incluye "anulado" a proposito: si no, la factura que acabas de anular
        desaparece de la lista al recargar y no queda constancia en pantalla de
        lo que hiciste. */
@@ -1526,7 +1554,7 @@ async function vivoDecidir(){
         estado: p.estado==="facturado" ? "facturado" : p.estado==="anulado" ? "anulado" : "pendiente",
         factura:p.factura||null, demo:!!p.es_demo,
         /* la piladora del pedido: con ella se le pregunta a la base el tope del regalo */
-        provCod:p.prov_cod||null,
+        provCod:p.prov_cod||null, alternativas:alternativas.filter(a=>a.provCod===p.prov_cod),
         /* las líneas, para poder confirmar cuánto salió de cada producto.
            El regalo viaja completo: cuánto se prometió (gratis_qq), cuánto ya
            consta como entregado (gratis_despachado_qq: null = nadie se ha
@@ -1537,7 +1565,9 @@ async function vivoDecidir(){
           despachado: i.despachado_qq==null ? null : Number(i.despachado_qq),
           gratis:Number(i.gratis_qq||0),
           gratisDespachado: i.gratis_despachado_qq==null ? null : Number(i.gratis_despachado_qq),
-          tipo:i.tipo_precio||null, prodId:i.prod_id||null, demo:!!i.es_demo })) };
+          tipo:i.tipo_precio||null, prodId:i.prod_id||null,presCod:i.pres_cod||null,
+          promoId:i.promo_id||null,condicion:i.condicion||p.condicion||null,
+          comision:Number(i.comision_usd)||0,demo:!!i.es_demo })) };
     });
     let sols=((rs&&rs.data)||[]).filter(s=>s.destino==="proveedor");
     if(mio) sols=sols.filter(s=>!s.prov_cod || s.prov_cod===mio);
@@ -1570,6 +1600,32 @@ async function guardarNC({itemId, qq, valor, motivo, origen, numero}){
     const r=(data&&data[0])||{};
     return { ok:true, aviso:r.aviso||"Nota de crédito registrada", estado:r.estado };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* AJU-001-R2 · la piladora ve el recálculo ANTES de cambiar la línea. */
+async function previsualizarCambioLinea({itemId,prodId,presCod,promoId}){
+  try{
+    const {data,error}=await window.SB.rpc("previsualizar_ajuste_linea",{
+      p_item:itemId,p_nuevo_prod:prodId,p_nueva_pres:presCod,p_promo_id:promoId||null});
+    if(error) return {ok:false,motivo:error.message||"No se pudo calcular"};
+    return {ok:true,...((data&&data[0])||{})};
+  }catch(e){ return {ok:false,motivo:String((e&&e.message)||e)}; }
+}
+async function guardarCambioLinea({itemId,prodId,presCod,promoId,opId}){
+  try{
+    const {data,error}=await window.SB.rpc("ajustar_linea_pedido",{
+      p_item:itemId,p_nuevo_prod:prodId,p_nueva_pres:presCod,p_op_id:opId,p_promo_id:promoId||null});
+    if(error) return {ok:false,motivo:error.message||"No se pudo cambiar la línea"};
+    return {ok:true,...((data&&data[0])||{})};
+  }catch(e){ return {ok:false,motivo:String((e&&e.message)||e)}; }
+}
+async function guardarAjusteInterno({itemId,qq,motivo,origen,opId}){
+  try{
+    const {data,error}=await window.SB.rpc("registrar_ajuste_interno",{
+      p_item:itemId,p_qq:Number(qq),p_motivo:motivo,p_origen:origen,p_op_id:opId});
+    if(error) return {ok:false,motivo:error.message||"No se pudo registrar el ajuste"};
+    return {ok:true,...((data&&data[0])||{})};
+  }catch(e){ return {ok:false,motivo:String((e&&e.message)||e)}; }
 }
 
 /* ── LA CADENA DE LA DEVOLUCIÓN ────────────────────────────────────────
@@ -1727,6 +1783,12 @@ function Decisiones({ctx, datos}){
   const [ncQq,setNcQq]=useState(""); const [ncVal,setNcVal]=useState("");
   const [ncMot,setNcMot]=useState(""); const [ncOri,setNcOri]=useState("");
   const [ncNum,setNcNum]=useState(""); const [ncGuardando,setNcGuardando]=useState(false);
+  const [cambio,setCambio]=useState(null);       // {p,l,clave}
+  const [cambioPrev,setCambioPrev]=useState(null);
+  const [cambioGuardando,setCambioGuardando]=useState(false);
+  const [ajInt,setAjInt]=useState(null);         // {p,l}
+  const [ajQq,setAjQq]=useState(""); const [ajMot,setAjMot]=useState(""); const [ajOri,setAjOri]=useState("");
+  const [ajGuardando,setAjGuardando]=useState(false);
   const [rechazo,setRechazo]=useState(null);      // {id, motivo}
   const [respondiendo,setRespondiendo]=useState(null);  // id de la devolución que se está guardando
   const [anulando,setAnulando]=useState(null);   // {id, factura, cliente, monto, motivo}
@@ -1835,6 +1897,48 @@ function Decisiones({ctx, datos}){
     setNcGuardando(false);
     if(!r.ok){ toca(r.motivo); return; }
     setNC(null); toca(r.aviso);
+  };
+  const abrirCambio=(p,l)=>{
+    setCambio({p,l,clave:""});setCambioPrev(null);
+  };
+  const calcularCambio=async()=>{
+    if(!cambio||!cambio.clave){ toca("Elige el nuevo producto y presentación."); return; }
+    const a=(cambio.p.alternativas||[]).find(x=>x.prodId+"|"+x.presCod===cambio.clave);
+    if(!a) return;
+    setCambioGuardando(true);
+    const r=await previsualizarCambioLinea({itemId:cambio.l.itemId,prodId:a.prodId,presCod:a.presCod,promoId:null});
+    setCambioGuardando(false);
+    if(!r.ok){setCambioPrev(null);toca(r.motivo);return;}
+    setCambioPrev({...r,alternativa:a});
+  };
+  const confirmarCambio=async()=>{
+    if(!cambioPrev||!cambio) return;
+    setCambioGuardando(true);
+    const a=cambioPrev.alternativa;
+    const r=await guardarCambioLinea({itemId:cambio.l.itemId,prodId:a.prodId,presCod:a.presCod,promoId:null,
+      opId:"AJL-"+cambio.l.itemId+"-"+Date.now().toString(36).toUpperCase()});
+    setCambioGuardando(false);
+    if(!r.ok){toca(r.motivo);return;}
+    setFacturar(fs=>fs.map(x=>{
+      if(x.id!==cambio.p.id) return x;
+      const lineas=(x.lineas||[]).map(l=>l.itemId===cambio.l.itemId?{...l,nombre:r.descripcion,
+        prodId:r.prod_id,presCod:r.pres_cod,precio:Number(r.precio_qq)||0,comision:Number(r.comision_total)||0}:l);
+      return {...x,lineas,monto:lineas.reduce((s,l)=>s+(Number(l.pedido)||0)*(Number(l.precio)||0),0)};
+    }));
+    setCambio(null);setCambioPrev(null);toca(r.aviso||"Producto y presentación actualizados.");
+  };
+  const abrirAjusteInterno=(p,l)=>{setAjInt({p,l});setAjQq("");setAjMot("");setAjOri("");};
+  const confirmarAjusteInterno=async()=>{
+    if(!ajInt) return;
+    if(!ajOri){toca("Falta indicar quién asume el ajuste.");return;}
+    if(!(Number(ajQq)>0)){toca("Escribe una cantidad mayor que cero.");return;}
+    if(ajMot.trim().length<5){toca("El motivo debe explicar qué se corrigió.");return;}
+    setAjGuardando(true);
+    const r=await guardarAjusteInterno({itemId:ajInt.l.itemId,qq:ajQq,motivo:ajMot.trim(),origen:ajOri,
+      opId:"AJI-"+ajInt.l.itemId+"-"+Date.now().toString(36).toUpperCase()});
+    setAjGuardando(false);
+    if(!r.ok){toca(r.motivo);return;}
+    setAjInt(null);toca(r.aviso||"Ajuste interno registrado.");
   };
 
   const confirmarPago=(p)=>{
@@ -1953,17 +2057,15 @@ function Decisiones({ctx, datos}){
           {p.estado==="facturado" && (p.lineas||[]).length>0 && datos && (
             <div style={{marginTop:10,borderTop:"1px solid var(--linea)",paddingTop:10}}>
               <div style={{fontSize:11.5,fontWeight:700,color:"#6B6455",marginBottom:6}}>
-                ¿Hubo devolución? Va una nota de crédito por producto</div>
+                Correcciones posteriores: separa lo fiscal de lo interno</div>
               {(p.lineas||[]).map(l=>(
-                <button key={l.itemId} onClick={()=>abrirNC(p,l)}
-                  style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",
-                    gap:10,minHeight:48,padding:"10px 12px",marginBottom:6,borderRadius:10,
-                    border:"1px solid var(--linea)",background:"#fff",fontFamily:"inherit",
-                    textAlign:"left",cursor:"pointer"}}>
-                  <span style={{flex:1,minWidth:0,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {l.nombre}</span>
-                  <span style={{flexShrink:0,fontSize:11.5,color:"#8A6A00",fontWeight:700}}>🧾 Nota de crédito</span>
-                </button>
+                <div key={l.itemId} style={{padding:"9px 10px",marginBottom:7,borderRadius:10,border:"1px solid var(--linea)",background:"#fff"}}>
+                  <div style={{fontSize:12.5,fontWeight:650,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:7}}>{l.nombre}</div>
+                  <div style={{display:"flex",gap:7}}>
+                    <button onClick={()=>abrirNC(p,l)} style={{...btn2,minHeight:42,padding:"8px 7px",fontSize:11.5,color:"#8A6A00"}}>🧾 NC del SRI</button>
+                    <button onClick={()=>abrirAjusteInterno(p,l)} style={{...btn2,minHeight:42,padding:"8px 7px",fontSize:11.5,color:"var(--ok)"}}>⚙ Ajuste interno</button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -2023,6 +2125,13 @@ function Decisiones({ctx, datos}){
                           borderRadius:10,fontSize:14,fontFamily:"inherit",outline:"none",
                           background: exceso?"#FDF3F0":corto?"#FCF9EF":"#fff"}}/>
                     </div>
+                    {datos && (p.alternativas||[]).length>0 && (
+                      <button onClick={()=>abrirCambio(p,l)}
+                        style={{border:"none",background:"transparent",color:"var(--ok)",fontSize:11.5,
+                          fontWeight:750,fontFamily:"inherit",padding:"2px 0 7px",cursor:"pointer"}}>
+                        ↻ Cambiar producto o presentación antes de facturar
+                      </button>
+                    )}
                     {/* ── EL REGALO DE LA PROMOCIÓN, JUNTO A LO VENDIDO ──
                          Sale de tu bodega igual que lo vendido, pero se factura
                          a valor cero y el costo lo absorbe quien dice el tipo
@@ -2084,6 +2193,84 @@ function Decisiones({ctx, datos}){
           </>)}
         </div>
       ))}
+
+      {/* ══ AJU-001-R2 · CAMBIO PREVIO A LA FACTURA ══ */}
+      {cambio && (
+        <div onClick={()=>!cambioGuardando&&setCambio(null)}
+          style={{position:"fixed",inset:0,background:"rgba(13,32,24,.5)",zIndex:72,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--papel,#FAF7F0)",width:"100%",maxWidth:480,
+            borderRadius:"20px 20px 0 0",padding:"20px 18px 28px",maxHeight:"92vh",overflowY:"auto"}}>
+            <div style={{fontWeight:800,fontSize:17}}>Cambiar producto o presentación</div>
+            <div style={{fontSize:12.5,color:"#6B6455",margin:"3px 0 14px",lineHeight:1.45}}>
+              {cambio.l.nombre} · {cambio.p.cliente}<br/>
+              Solo antes de facturar. El servidor recalcula precio y comisión; no se digitan.</div>
+            <label style={{display:"block",fontSize:12,fontWeight:700,color:"#6B6455"}}>Nueva opción
+              <select value={cambio.clave} onChange={e=>{setCambio(x=>({...x,clave:e.target.value}));setCambioPrev(null);}}
+                style={{width:"100%",boxSizing:"border-box",minHeight:50,padding:"10px 12px",marginTop:5,
+                  border:"1px solid var(--linea)",borderRadius:10,fontSize:13.5,fontFamily:"inherit",background:"#fff"}}>
+                <option value="">Elige producto y presentación…</option>
+                {(cambio.p.alternativas||[]).map((a,i)=><option key={a.ofertaId||i} value={a.prodId+"|"+a.presCod}>
+                  {a.nombre} · {a.presentacion}</option>)}
+              </select>
+            </label>
+            <button onClick={calcularCambio} disabled={cambioGuardando||!cambio.clave}
+              style={{...btn2,width:"100%",marginTop:10,opacity:(cambioGuardando||!cambio.clave)?.5:1}}>
+              {cambioGuardando?"Calculando…":"Ver nuevo precio y comisión"}</button>
+            {cambioPrev && (
+              <div style={{marginTop:12,padding:"13px",border:"2px solid var(--ok)",borderRadius:12,background:"#EAF3EC"}}>
+                <div style={{fontWeight:750,fontSize:13.5}}>{cambioPrev.descripcion}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+                  <div><div style={{fontSize:10.5,color:"#6B6455"}}>NUEVO PRECIO</div><b className="num">{money(cambioPrev.precio_qq)} / qq</b></div>
+                  <div><div style={{fontSize:10.5,color:"#6B6455"}}>NUEVA COMISIÓN</div><b className="num">{money(cambioPrev.comision_total)}</b></div>
+                </div>
+                <div style={{fontSize:11,color:"#6B6455",marginTop:8}}>Fuente: {cambioPrev.fuente_comision}</div>
+              </div>
+            )}
+            <button onClick={confirmarCambio} disabled={!cambioPrev||cambioGuardando}
+              style={{...btnOk,opacity:(!cambioPrev||cambioGuardando)?.5:1}}>
+              {cambioGuardando?"Guardando…":"Confirmar el cambio"}</button>
+            <button onClick={()=>setCambio(null)} disabled={cambioGuardando}
+              style={{...btn2,width:"100%",marginTop:8}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ AJU-001-R2 · AJUSTE INTERNO POST-FACTURA ══ */}
+      {ajInt && (
+        <div onClick={()=>!ajGuardando&&setAjInt(null)}
+          style={{position:"fixed",inset:0,background:"rgba(13,32,24,.5)",zIndex:73,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--papel,#FAF7F0)",width:"100%",maxWidth:480,
+            borderRadius:"20px 20px 0 0",padding:"20px 18px 28px",maxHeight:"92vh",overflowY:"auto"}}>
+            <div style={{fontWeight:800,fontSize:17}}>Ajuste interno</div>
+            <div style={{fontSize:12.5,color:"#6B6455",margin:"3px 0 14px",lineHeight:1.5}}>
+              {ajInt.l.nombre} · {ajInt.p.cliente}<br/>
+              No es nota del SRI, su valor fiscal es $0 y no baja la cartera. Solo corrige la comisión.</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#6B6455",marginBottom:6}}>¿Quién asume?</div>
+            {[
+              {v:"vendedor",t:"Vendedor",d:"Baja su comisión"},{v:"socio",t:"Socio comercial",d:"Baja la comisión involucrada"},
+              {v:"freelance",t:"Freelance",d:"Baja la comisión involucrada"},{v:"proveedor",t:"La piladora",d:"La comisión no cambia"},
+            ].map(o=><button key={o.v} onClick={()=>setAjOri(o.v)} style={{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:7,
+              borderRadius:10,fontFamily:"inherit",background:ajOri===o.v?"#EAF3EC":"#fff",
+              border:ajOri===o.v?"2px solid var(--ok)":"1px solid var(--linea)"}}>
+              <b style={{fontSize:13}}>{ajOri===o.v?"✓ ":""}{o.t}</b><span style={{display:"block",fontSize:11.5,color:"#6B6455"}}>{o.d}</span>
+            </button>)}
+            <label style={{display:"block",fontSize:12,fontWeight:700,color:"#6B6455",marginTop:10}}>Quintales del ajuste
+              <input className="num" type="number" min="0" step="0.01" inputMode="decimal" value={ajQq}
+                max={ajInt.l.despachado!=null?ajInt.l.despachado:ajInt.l.pedido} onChange={e=>setAjQq(e.target.value)}
+                style={{width:"100%",boxSizing:"border-box",minHeight:48,padding:"10px 12px",marginTop:4,
+                  border:"1px solid var(--linea)",borderRadius:10,fontSize:14,fontFamily:"inherit"}}/>
+            </label>
+            <label style={{display:"block",fontSize:12,fontWeight:700,color:"#6B6455",marginTop:10}}>Motivo obligatorio
+              <textarea value={ajMot} onChange={e=>setAjMot(e.target.value)} rows={3} placeholder="Qué se corrige y por qué"
+                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",marginTop:4,border:"1px solid var(--linea)",
+                  borderRadius:10,fontSize:14,fontFamily:"inherit",resize:"vertical"}}/>
+            </label>
+            <button onClick={confirmarAjusteInterno} disabled={ajGuardando}
+              style={{...btnOk,opacity:ajGuardando?.5:1}}>{ajGuardando?"Guardando…":"Registrar ajuste interno"}</button>
+            <button onClick={()=>setAjInt(null)} disabled={ajGuardando} style={{...btn2,width:"100%",marginTop:8}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* ══ LA HOJA DE LA NOTA DE CRÉDITO ══ */}
       {nc && (
@@ -6523,7 +6710,7 @@ function ChatEquipo({ usuario, toast }){
     if(enviando) return false;
     setEnviando(true);
     const fila={ msg_id:"CH-"+new Date().getTime()+"-"+Math.floor(Math.random()*1000),
-      org_id:"ORG-001", de_usr:miUsr, para_usr:sel, tipo,
+      org_id:await orgActivaProveedor(), de_usr:miUsr, para_usr:sel, tipo,
       texto:(extra&&extra.texto)||null, adjunto:(extra&&extra.adjunto)||null, es_demo:false };
     const { error } = await window.SB.from("chat_mensajes").insert(fila);
     setEnviando(false);
@@ -6787,7 +6974,7 @@ function PerfilNegocioProv({decir}){
           window.SB.from("proveedor_fichas").select("*").eq("prov_cod",cod),
           window.SB.from("proveedor_contactos").select("*").eq("prov_cod",cod).eq("activo",true).order("orden"),
           window.SB.from("proveedor_documentos").select("*").eq("prov_cod",cod).eq("activo",true).order("creado",{ascending:false}),
-          window.SB.from("organizaciones").select("nombre,ruc,tel,correo").eq("org_id","ORG-001").maybeSingle(),
+          window.SB.from("organizaciones").select("nombre,ruc,tel,correo").eq("org_id",await orgActivaProveedor()).maybeSingle(),
           window.SB.from("config_sistema").select("valor").eq("clave","colaboradores").maybeSingle(),
           /* b44 · crédito vigente con el freelance: pedidos a crédito sin cerrar ni anular */
           window.SB.from("pedidos").select("estado,pedido_items(cantidad_qq,precio_usd)")
@@ -6809,7 +6996,7 @@ function PerfilNegocioProv({decir}){
   const audit=async(tabla,op,regId,valor)=>{
     try{
       const { data:cod } = await window.SB.rpc("au_codigo");
-      if(cod){ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+      if(cod){ await window.SB.from("auditoria").insert({ org_id:await orgActivaProveedor(), codigo:cod,
         usuario:(ses&&ses.user&&ses.user.email)||"proveedor-app", tabla, operacion:op,
         registro_id:regId, valor_nuevo:valor }); }
       return cod||null;

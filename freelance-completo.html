@@ -492,9 +492,7 @@
   .fade-in{animation:subir .28s ease both}
   /* b422 · portada viva, breve y accesible */
   @keyframes inicioPulso{0%,100%{box-shadow:0 0 0 0 rgba(194,96,58,0)}50%{box-shadow:0 0 0 7px rgba(194,96,58,.10)}}
-  .inicio-saludo{margin:0 0 10px;padding:0 2px}.inicio-saludo strong{display:block;font-size:17px;color:var(--field);line-height:1.25}.inicio-saludo span{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
   .inicio-buscador .box{padding:11px 13px}.inicio-finanzas{animation:subir .32s ease both}.inicio-anillo{transition:stroke-dashoffset .7s ease}.inicio-urgente{animation:inicioPulso 2.4s ease-in-out infinite}
-  .inicio-resumen{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}.inicio-resumen div{min-width:0;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 3px}.inicio-resumen b{display:block;font-size:13.5px;color:var(--field);line-height:1.15;overflow:hidden;text-overflow:ellipsis}.inicio-resumen span{display:block;font-size:8.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
   .inicio-modulo.principal{border-color:#E5C65A!important;box-shadow:0 4px 16px rgba(201,162,39,.16)!important}
   @media (prefers-reduced-motion:reduce){.fade-in,.inicio-finanzas,.inicio-urgente{animation:none!important}.inicio-anillo{transition:none!important}}
   .row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
@@ -1764,6 +1762,49 @@ var uFuzzy=function(){"use strict";const e=(e,t)=>e>t?1:t>e?-1:0,t=1/0,l=e=>e.re
 </script>
 <script type="text/babel">
 const {useState} = React;
+
+/* ══ RUNTIME OPERATIVO · fecha Ecuador, errores visibles y cola durable ══ */
+const ZONA_HORARIA_EC="America/Guayaquil";
+function partesFechaEC(fecha=new Date()){
+  const p={};
+  new Intl.DateTimeFormat("en-CA",{timeZone:ZONA_HORARIA_EC,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"})
+    .formatToParts(fecha).forEach(x=>{ if(x.type!=="literal") p[x.type]=x.value; });
+  return p;
+}
+function hoyEC(){ const p=partesFechaEC(); return `${p.year}-${p.month}-${p.day}`; }
+function ahoraEC(){ const p=partesFechaEC(); return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}-05:00`; }
+let ORG_ACTIVA_MEM={uid:null,org:null};
+async function orgActivaActual(){
+  if(!window.SB||!window.SB.auth) throw new Error("Sin conexión con la organización activa.");
+  const {data:s}=await window.SB.auth.getSession();
+  const uid=s&&s.session&&s.session.user&&s.session.user.id;
+  if(!uid) throw new Error("No hay una sesión activa.");
+  if(ORG_ACTIVA_MEM.uid===uid&&ORG_ACTIVA_MEM.org) return ORG_ACTIVA_MEM.org;
+  const {data,error}=await window.SB.rpc("mi_org_activa");
+  if(error||!data) throw new Error((error&&error.message)||"El usuario no tiene organización activa.");
+  ORG_ACTIVA_MEM={uid,org:String(data)}; return ORG_ACTIVA_MEM.org;
+}
+const ERRORES_LOCAL_KEY="freelance_errores_locales_v1";
+function registrarError(contexto,error,opciones={}){
+  const mensaje=(error&&error.message)||String(error||"Error desconocido");
+  const fila={fecha:ahoraEC(),contexto,mensaje,online:navigator.onLine!==false};
+  try{ const a=JSON.parse(localStorage.getItem(ERRORES_LOCAL_KEY)||"[]"); a.unshift(fila); localStorage.setItem(ERRORES_LOCAL_KEY,JSON.stringify(a.slice(0,80))); }
+  catch(storageError){ console.error("No se pudo guardar el error local",storageError); }
+  console.error(`[${contexto}]`,error);
+  if(opciones.toast) opciones.toast("No se pudo completar la operación. Intenta nuevamente.");
+  return fila;
+}
+
+const COLA_DB="freelance_operaciones_offline_v1", COLA_STORE="operaciones";
+const MODO_DEMO_ACTIVO=typeof location!=="undefined" && new URLSearchParams(location.search).get("demo")==="1";
+function abrirColaOffline(){
+  return new Promise((resolve,reject)=>{ if(!window.indexedDB){ reject(new Error("IndexedDB no disponible")); return; }
+    const q=indexedDB.open(COLA_DB,1); q.onupgradeneeded=()=>{ if(!q.result.objectStoreNames.contains(COLA_STORE)) q.result.createObjectStore(COLA_STORE,{keyPath:"id"}); };
+    q.onsuccess=()=>resolve(q.result); q.onerror=()=>reject(q.error||new Error("No se pudo abrir la cola offline")); });
+}
+async function colaOfflineListar(){ const db=await abrirColaOffline(); return new Promise((resolve,reject)=>{ const tx=db.transaction(COLA_STORE,"readonly"),q=tx.objectStore(COLA_STORE).getAll(); q.onsuccess=()=>resolve(q.result||[]); q.onerror=()=>reject(q.error); tx.oncomplete=()=>db.close(); }); }
+async function colaOfflineGuardar(op){ const db=await abrirColaOffline(); return new Promise((resolve,reject)=>{ const tx=db.transaction(COLA_STORE,"readwrite"); tx.objectStore(COLA_STORE).put(op); tx.oncomplete=()=>{db.close();resolve(op);}; tx.onerror=()=>{db.close();reject(tx.error);}; }); }
+async function colaOfflineBorrar(id){ const db=await abrirColaOffline(); return new Promise((resolve,reject)=>{ const tx=db.transaction(COLA_STORE,"readwrite"); tx.objectStore(COLA_STORE).delete(id); tx.oncomplete=()=>{db.close();resolve(true);}; tx.onerror=()=>{db.close();reject(tx.error);}; }); }
 const money = n => "$" + n.toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
 /* ══ COMPROBANTE EN IMAGEN (PNG, tamaño A6) ══
@@ -2984,14 +3025,10 @@ async function cargarCatalogoReal(){
   return _cargandoCat;
 }
 
-/* ── FASE 4 · Etapa 4: el pedido nace en la base ──
-   CLI_ID_DE: mapa global nombre→cli_id de clientes REALES (lo llena el módulo Pedido
-   al cargar con sesión). guardarPedidoEnBase: inserta pedidos + pedido_items SOLO si
-   hay sesión, el cliente es real y TODOS los productos son reales; si algo es demo,
-   devuelve el motivo y el flujo local sigue igual que siempre. ped_id = PD-#### tras
-   el mayor existente (patrón AB-#### de Cobranza: colisión improbable; si el insert
-   falla por PK se avisa). Si fallan los items, se deshace el pedido (borrado manual).
-   El trigger fn_auditar audita pedidos solo: NO auditar a mano. */
+/* ── AJU-001-R2 · el pedido nace completo o no nace ─────────────────────
+   La organización, el usuario, el precio y la comisión los resuelve la base.
+   Cabecera + líneas + auditoría + llave idempotente viven en UNA transacción;
+   el teléfono ya no intenta compensar un fallo borrando la cabecera. */
 const CLI_ID_DE = {};
 /* ═══ PROMO-03 · EL TOPE DEL REGALO LO DICE LA BASE, NO LA APP ═══════════════
    Decisión del Product Owner (06/08/2026): si el vendedor pone más regalo del
@@ -3061,7 +3098,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, idempotencia}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -3074,42 +3111,44 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
        concede la promoción. Si se pasa, no nace ni la cabecera del pedido. */
     const avisoRegalo = await revisarRegaloDePromo(items, (prov && prov.id)||null);
     if(avisoRegalo) return { ok:false, motivo:avisoRegalo, regalo:true };
-    const { data:ult } = await window.SB.from("pedidos").select("ped_id")
-      .like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
-    const n = ult && ult[0] ? (parseInt(String(ult[0].ped_id).replace(/\D/g,""),10)||0) : 0;
-    const pedId = "PD-"+String(n+1).padStart(4,"0");
-    const r2=x=>Math.round(x*100)/100;
-    let subId=null;
-    try{
-      const { data:yo } = await window.SB.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1);
-      if(yo && yo[0]) subId=yo[0].usr_id;
-    }catch(e0){}
-    const { error:e1 } = await window.SB.from("pedidos").insert({
-      ped_id:pedId, cli_id:cliId, sub_id:subId, prov_cod:(prov && prov.id)||null,
-      ubicacion_id: retiro ? null : ((ubic && ubic.ubic_id) || null),
-      retiro_bodega: !!retiro,
-      asume_flete: retiro ? null : (asumeFlete||"freelance"),
-      asume_estibada: retiro ? null : (asumeEstibada||"freelance"),
-      estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
-    if(e1) return { ok:false, motivo:e1.message||"error_pedido" };
-    const filas = items.map((it,i)=>({
-      item_id: pedId+"-I"+(i+1), ped_id:pedId, prod_id:it.prod.prodId,
-      descripcion: it.prodNombre,
-      cantidad_qq: r2(it.cant*it.prod.equiv),
-      precio_usd: r2(it.precio/it.prod.equiv),
-      tipo_precio: it.tipo, gratis_qq: r2((Number(it.gratis)||0)*it.prod.equiv),
-      /* La comisión del vendedor SE GUARDA, no se recalcula: es la que su app
-         ya le mostró, con la base y la promoción de ESE día. Después esa base
-         cambia y la promoción se acaba, así que reconstruirla sería adivinar. */
-      comision_usd: r2(Number(it.comisionTotal)||0),
-      es_demo:false }));
-    const { error:e2 } = await window.SB.from("pedido_items").insert(filas);
-    if(e2){
-      try{ await window.SB.from("pedidos").delete().eq("ped_id",pedId); }catch(e3){}
-      return { ok:false, motivo:e2.message||"error_items" };
-    }
-    return { ok:true, pedId };
-  }catch(e){ return { ok:false, motivo:"error" }; }
+    const condicion=items.some(it=>it.credito)?"credito":"contado";
+    const opId=idempotencia||("PED-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,9).toUpperCase());
+    const payload={
+      cliente_id:cliId, proveedor_id:(prov&&prov.id)||null, condicion,
+      ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null), retiro_bodega:!!retiro,
+      asume_flete:retiro?null:(asumeFlete||"freelance"),
+      asume_estibada:retiro?null:(asumeEstibada||"freelance"),
+      items:items.map(it=>({
+        prod_id:it.prod.prodId, pres_cod:it.prod.presCod,
+        cantidad_presentacion:Number(it.cant), gratis_presentacion:Number(it.gratis)||0,
+        precio_presentacion:Number(it.precio), tipo_precio:it.tipo,
+        condicion:it.credito?"credito":"contado", promo_id:it.promoId||null,
+        comision_propuesta:it.tipo==="P5"?(Number(it.comisionTotal)||0):null,
+      })),
+    };
+    const {data,error}=await window.SB.rpc("registrar_pedido_atomico",{p_payload:payload,p_op_id:opId});
+    if(error) return {ok:false,motivo:error.message||"error_pedido",error};
+    const r=(data&&data[0])||data||{};
+    return {ok:true,pedId:r.ped_id||opId,repetido:!!r.repetido,resumen:r.resumen||null};
+  }catch(e){ registrarError("pedido.guardar",e); return { ok:false, motivo:navigator.onLine===false?"sin_conexion":"error", error:e }; }
+}
+
+async function encolarPedidoOffline(payload){
+  const id=payload.idempotencia||("PD-O"+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase());
+  const op={id,tipo:"pedido",creado:ahoraEC(),intentos:0,payload:{...payload,idempotencia:id}};
+  await colaOfflineGuardar(op); return op;
+}
+async function procesarColaPedidos(onCambio){
+  if(navigator.onLine===false) return {enviados:0,pendientes:(await colaOfflineListar()).length};
+  const cola=(await colaOfflineListar()).filter(x=>x.tipo==="pedido").sort((a,b)=>String(a.creado).localeCompare(String(b.creado)));
+  let enviados=0;
+  for(const op of cola){
+    const r=await guardarPedidoEnBase(op.payload);
+    if(r.ok){ await colaOfflineBorrar(op.id); enviados++; if(onCambio) onCambio(op,r); continue; }
+    op.intentos=(op.intentos||0)+1; op.ultimoError=String(r.motivo||"error"); op.ultimoIntento=ahoraEC(); await colaOfflineGuardar(op);
+    if(["sin_conexion","sin_sesion","error"].includes(r.motivo)) break;
+  }
+  return {enviados,pendientes:(await colaOfflineListar()).filter(x=>x.tipo==="pedido").length};
 }
 
 function sacoSVG(linea, pres){
@@ -4156,7 +4195,7 @@ async function auReal(tabla, operacion, regId, valor){
     if(!data || !data.session) return null;
     const { data:cod } = await window.SB.rpc("au_codigo");
     if(!cod) return null;
-    await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+    await window.SB.from("auditoria").insert({ org_id:await orgActivaActual(), codigo:cod,
       usuario:data.session.user.email, tabla, operacion, registro_id:regId, valor_nuevo:valor });
     return cod;
   }catch(e){ return null; }
@@ -4385,7 +4424,7 @@ function ChatEquipo({ usuario, toast }){
     if(enviando) return false;
     setEnviando(true);
     const fila={ msg_id:"CH-"+new Date().getTime()+"-"+Math.floor(Math.random()*1000),
-      org_id:"ORG-001", de_usr:miUsr, para_usr:sel, tipo,
+      org_id:await orgActivaActual(), de_usr:miUsr, para_usr:sel, tipo,
       texto:(extra&&extra.texto)||null, adjunto:(extra&&extra.adjunto)||null, es_demo:false };
     const { error } = await window.SB.from("chat_mensajes").insert(fila);
     setEnviando(false);
@@ -4393,7 +4432,7 @@ function ChatEquipo({ usuario, toast }){
     setMsgs(prev => prev.some(x=>x.id===fila.msg_id) ? prev : [...prev,
       { id:fila.msg_id, con:sel, mio:true, aviso:false, tipo, texto:fila.texto||"",
         adjunto:fila.adjunto, hora:new Date().toTimeString().slice(0,5),
-        fecha:new Date().toISOString().slice(0,10), leido:false }]);
+        fecha:hoyEC(), leido:false }]);
     return true;
   };
   const enviarTexto=async()=>{
@@ -4443,7 +4482,7 @@ function ChatEquipo({ usuario, toast }){
     boxShadow:"0 1px 3px rgba(20,40,30,.05)" };
   /* separadores por día, como en cualquier mensajería */
   const etiquetaDia=(f)=>{
-    const hoy=new Date().toISOString().slice(0,10);
+    const hoy=hoyEC();
     const ayer=new Date(new Date().getTime()-86400000).toISOString().slice(0,10);
     if(f===hoy) return "Hoy";
     if(f===ayer) return "Ayer";
@@ -4661,7 +4700,6 @@ function Inicio({go, irCliente, irProducto, irFactura}){
   ];
   return (<>
     <BandaFallosAbiertos/>
-    <div className="inicio-saludo"><strong>Buenos días, Richard</strong><span>Hoy tienes {porVisitar.length} visitas y 2 cobros pendientes.</span></div>
     {/* ── Buscador universal ── */}
     <div className="ss inicio-buscador" style={{marginBottom:qGlobal?10:12}}>
       <div className="box"><span className="mag">⌕</span>
@@ -4773,8 +4811,6 @@ function Inicio({go, irCliente, irProducto, irFactura}){
         <span className="av-arrow">›</span>
       </button>
     )}
-
-    <div className="inicio-resumen"><div><b>1</b><span>Pedidos</span></div><div><b>2</b><span>Cobros</span></div><div><b>{porVisitar.length}</b><span>Visitas</span></div><div><b>{money(totalRecibir)}</b><span>Comisión</span></div></div>
 
     {/* tablero de trabajo 3×2: todo a un toque, sin scroll */}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:12}}>
@@ -5883,7 +5919,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"422", fecha:"10 ago 2026", desc:"Portada renovada, búsqueda de productos desplazable y mejoras visuales del bloque de pedidos." };
+const VERSION = { n:"425", fecha:"10 ago 2026", desc:"Interfaz compacta, operación offline segura y pedidos transaccionales con organización dinámica." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6442,6 +6478,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     tipo, tipoNombre:tInfo.nombre, cant:cantN,
     precio:precioNum, gratis:gratisNum, credito:esCredito,
     comisionTotal, requiere:requiereAutorizacion,
+    promoId: tipo==="P4"&&promoF ? promoF.id : tipo==="P6"&&promoP ? promoP.id : null,
     motivoAuth: excedeCupo ? "Excede cupo de crédito" : (esP5 ? "Precio especial" : null)
   });
   const histo = (cli && prod) ? HISTORIAL[cli+"|"+prod.id] : null;
@@ -8054,8 +8091,8 @@ function Boveda({toast, yo}){
     return false;
   });
 
-  const hoy = new Date("2026-07-19");
-  const HOY = "2026-07-19";
+  const HOY = hoyEC();
+  const hoy = new Date(HOY+"T00:00:00-05:00");
   const dias = (f)=>{ const d=new Date(String(f).slice(0,10)); return Math.round((hoy-d)/86400000); };
   const ultimoMov = (c)=> (c.traza && c.traza.length) ? c.traza[c.traza.length-1].f : null;
   const diasQuieto = (c)=>{ const f=ultimoMov(c); return f?dias(f):0; };
@@ -8084,7 +8121,7 @@ function Boveda({toast, yo}){
   /* despachados por mí que aún nadie confirma: siguen bajo mi responsabilidad */
   const enCamino = TRASPASOS_PEND.filter(t=>t.de===yo);
   const horasDesde = f=>{ const d=new Date(String(f).replace(" ","T"));
-    return isNaN(d)?0:Math.max(0,Math.round((new Date("2026-07-19T12:00")-d)/3600000)); };
+    return isNaN(d)?0:Math.max(0,Math.round((new Date(ahoraEC())-d)/3600000)); };
   const esperaTxt = f=>{ const h=horasDesde(f);
     return h<24 ? `${h} h esperando` : `${Math.floor(h/24)} d esperando`; };
 
@@ -9337,7 +9374,7 @@ function TarjetaCierreDiario({usuario, toast}){
                lo pone la base según quién eres. */
             { onConflict:"org_id,clave" });
           if(!error){
-            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
+            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:await orgActivaActual(), codigo:au,
               usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
               registro_id:"cierre_diario", valor_nuevo:valor }); }catch(e3){} }
             CONFIG_CIERRE.au=au;
@@ -10710,7 +10747,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   /* este componente ES un modal: al montarse se registra para que el botón atrás lo cierre */
   useModal(true, React.useCallback(()=>{ onCancel && onCancel(); },[onCancel]));
   const esCheque = modalidad==="Cheque";
-  const HOY_ISO = new Date().toISOString().slice(0,10);   /* depósito y transferencia: el pago YA ocurrió → sin fechas futuras */
+  const HOY_ISO = hoyEC();   /* depósito y transferencia: el pago YA ocurrió → sin fechas futuras */
   const esEfectivo = modalidad==="Efectivo";
   const [monto,setMonto]=useState(restante>0 ? String(Math.round(restante*100)/100) : "");
   const [numero,setNumero]=useState("");
@@ -15536,7 +15573,7 @@ function FichaCliente({nombre, sec, setSec, volver, toast, nuevoPedido, verCarte
     };
 
     /* ── Vista previa con tablas reales (líneas), refleja el PDF ── */
-    const HOY_EC="2026-06-12";
+    const HOY_EC=hoyEC();
     const MES3=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     const dmy=x=>{ if(!x) return "—"; const d=new Date(x+"T00:00:00"); return isNaN(d)?x:`${d.getDate()} ${MES3[d.getMonth()]} ${d.getFullYear()}`; };
     const dm2=x=>{ if(!x) return "—"; const d=new Date(x+"T00:00:00"); return isNaN(d)?x:`${d.getDate()} ${MES3[d.getMonth()]}`; };
@@ -16954,9 +16991,9 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
 }
 
 function Agenda({toast, verCliente, datos}){
-  /* b365 · con datos del sistema, "hoy" es hoy de verdad; en la demostración
-     se queda en el día del guion para que el ejemplo siga cuadrando */
-  const HOY = datos ? new Date().toISOString().slice(0,10) : "2026-06-13";
+  /* La agenda operativa siempre usa el día de Ecuador. Los ejemplos históricos
+     conservan su fecha, pero jamás se presentan como si fueran tareas de hoy. */
+  const HOY = hoyEC();
   /* ── datos demo enriquecidos ── */
   const inicial=[
     {id:1, fecha:"2026-06-11", hora:"15:00", cli:"Bodega El Agricultor", tipo:"Cobro",
@@ -16975,7 +17012,7 @@ function Agenda({toast, verCliente, datos}){
     {id:7, fecha:"2026-06-17", hora:"11:00", cli:"Comisariato La Y", tipo:"Visita",
      objetivo:"Negociar espacio en góndola", ubic:"Guayaquil, Norte", estado:"pendiente", dur:60, recordatorio:30},
   ];
-  const [tareas,setTareas]=useState(inicial);
+  const [tareas,setTareas]=useState(()=>MODO_DEMO_ACTIVO?inicial:[]);
   /* b365 · lo agendado en el sistema (y lo que la app te sugiere) manda */
   React.useEffect(()=>{ if(datos) setTareas(datos); },[datos]);
   const [nueva,setNueva]=useState(false);
@@ -16991,7 +17028,7 @@ function Agenda({toast, verCliente, datos}){
   const [fZona,setFZona]=useState("Todas");
   /* formulario de nueva actividad: arranca con hoy y una hora redonda,
      para que los campos nunca se vean vacíos ni rotos */
-  const [fecha,setFecha]=useState(()=>new Date().toISOString().slice(0,10));
+  const [fecha,setFecha]=useState(()=>hoyEC());
   const [hora,setHora]=useState(()=>{
     const d=new Date(); d.setMinutes(0,0,0); d.setHours(d.getHours()+1);
     return String(d.getHours()).padStart(2,"0")+":00";
@@ -17129,7 +17166,7 @@ function Agenda({toast, verCliente, datos}){
     setNueva(false);
     setCli(null); setObjetivo(""); setUbicF(""); setDetalleTipo("");
     /* vuelve a los valores por defecto, no a vacío */
-    setFecha(new Date().toISOString().slice(0,10));
+    setFecha(hoyEC());
     (()=>{ const d=new Date(); d.setMinutes(0,0,0); d.setHours(d.getHours()+1);
       setHora(String(d.getHours()).padStart(2,"0")+":00"); })();
     setDur(30); setRecor(15);
@@ -18062,7 +18099,7 @@ function selloCorto(iso){
   return p(d.getDate())+" "+MES3_P[d.getMonth()]+" · "+p(d.getHours())+":"+p(d.getMinutes());
 }
 const soloDia = (iso)=> String(iso||"").slice(0,10);
-const hoyISO  = ()=> new Date().toISOString().slice(0,10);
+const hoyISO  = ()=> hoyEC();
 
 /* ── MIS PEDIDOS ───────────────────────────────────────────────────────
    Se arma con pedidos + sus ítems + el nombre del cliente y del proveedor
@@ -18094,7 +18131,7 @@ async function vivoPedidos(){
       window.SB.from("proveedores").select("prov_cod,nombre,pago_habitual").limit(200),
       window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
     ]);
-    const peds=rp&&rp.data; if(!peds || !peds.length) return null;
+    const peds=rp&&rp.data; if(!Array.isArray(peds)) return null; if(!peds.length) return [];
     const nCli={}, nProv={}, com={}, habProv={};
     ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; habProv[p.prov_cod]=p.pago_habitual||""; });
@@ -18222,7 +18259,7 @@ async function vivoNotasCredito(){
     await cargarArranque();
     const [rn, rp, rc, ri] = await Promise.all([
       desdeArranque(window.SB.from("notas_credito").select("*"), "creado")
-        .order("creado",{ascending:false}).limit(300),
+        .eq("tipo","fiscal").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedidos").select("ped_id,cli_id,prov_cod,factura").limit(2000),
       window.SB.from("clientes").select("cli_id,nombre").limit(2000),
       window.SB.from("pedido_items").select("item_id,descripcion").limit(3000),
@@ -18409,7 +18446,7 @@ async function guardarNovedad(nv){
       const { data:v } = await window.SB.from("proveedores").select("prov_cod").eq("nombre",nv.prov).limit(1);
       if(v && v[0]) provCod=v[0].prov_cod;
     }
-    const fila={ nov_id:id, org_id:"ORG-001", cli_id:cliId, tipo:nv.tipo||"producto",
+    const fila={ nov_id:id, org_id:await orgActivaActual(), cli_id:cliId, tipo:nv.tipo||"producto",
       detalle:nv.detalle||"", estado:"enviada", origen:"comercial", prov_cod:provCod,
       factura:nv.factura||null, monto:(nv.monto||nv.monto===0)?nv.monto:null, reporto:yo.usr_id };
     const { error } = await window.SB.from("novedades").insert(fila);
@@ -18465,7 +18502,7 @@ async function vivoAgenda(){
 async function guardarActividad(t){
   try{
     const yo=await yoUsuario(); if(!yo || !t) return false;
-    const fila={ act_id:t.act_id||("AG-"+Date.now()), org_id:"ORG-001", usr_id:yo.usr_id,
+    const fila={ act_id:t.act_id||("AG-"+Date.now()), org_id:await orgActivaActual(), usr_id:yo.usr_id,
       cli_id:t.cli_id||null, cliente:t.cli||null, fecha:t.fecha, hora:t.hora||null,
       tipo:t.tipo||"Otro", objetivo:t.objetivo||null, ubic:t.ubic||null,
       dur:Number(t.dur)||30, recordatorio:Number(t.recordatorio)||15,
@@ -18494,10 +18531,10 @@ function Novedades({toast, go, datos}){
   const [prov,setProv]=useState(null);
   const [tipo,setTipo]=useState(null);       // cambio-mismo | cambio-otro | producto | descuento
   const [paso,setPaso]=useState("menu");      // menu | form
-  const [lista,setLista]=useState(NOVEDADES_INI);
+  const [lista,setLista]=useState(()=>MODO_DEMO_ACTIVO?NOVEDADES_INI:[]);
   /* b365 · si el sistema tiene novedades guardadas, mandan esas */
   React.useEffect(()=>{ if(datos) setLista(datos); },[datos]);
-  const [cheques,setCheques]=useState(CHEQUES_DEVUELTOS);
+  const [cheques,setCheques]=useState(()=>MODO_DEMO_ACTIVO?CHEQUES_DEVUELTOS:[]);
   const [pestana,setPestana]=useState("recibidas"); // recibidas | enviadas
 
   const [prodSel,setProdSel]=useState(null);
@@ -18967,7 +19004,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
     try{ const g=JSON.parse(localStorage.getItem("freelance_perfil_negocio")||"null"); if(g&&g.nombre) return g; }catch(e){}
     return PERFIL_DEMO;
   });
-  const [orgIdPerfil,setOrgIdPerfil]=useState("ORG-001");
+  const [orgIdPerfil,setOrgIdPerfil]=useState(null);
   const [sesionBase,setSesionBase]=useState(false);   /* b337: para mostrar DÓNDE se guarda */
   React.useEffect(()=>{
     if(!window.SB || !window.SB.auth) return;
@@ -18977,10 +19014,11 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
         const { data:s } = await window.SB.auth.getSession();
         if(!activo || !s || !s.session) return;
         setSesionBase(true);
-        const { data } = await window.SB.from("organizaciones").select("org_id,nombre,ruc,tel,correo").limit(1);
+        const orgId=await orgActivaActual();
+        const { data } = await window.SB.from("organizaciones").select("org_id,nombre,ruc,tel,correo").eq("org_id",orgId).limit(1);
         if(!activo || !data || !data[0]) return;
         const o=data[0];
-        setOrgIdPerfil(o.org_id||"ORG-001");
+        setOrgIdPerfil(o.org_id||orgId);
         const p={ nombre:o.nombre||PERFIL_DEMO.nombre, ruc:o.ruc||"", tel:o.tel||"", correo:o.correo||"" };
         setPerfil(p);
         try{ localStorage.setItem("freelance_perfil_negocio", JSON.stringify(p)); }catch(e2){}
@@ -18995,9 +19033,10 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
       if(window.SB && window.SB.auth){
         const { data:s } = await window.SB.auth.getSession();
         if(s && s.session){
+          const orgId=orgIdPerfil||await orgActivaActual();
           const { error } = await window.SB.from("organizaciones")
             .update({ nombre:perfil.nombre, ruc:perfil.ruc, tel:perfil.tel, correo:perfil.correo })
-            .eq("org_id", orgIdPerfil);
+            .eq("org_id", orgId);
           if(!error){ toast("✓ Datos del negocio guardados en la base"); return; }
           toast("Guardado en este teléfono · la base rechazó el cambio"); return;
         }
@@ -19051,7 +19090,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
         let au=null;
         try{
           const {data:cod}=await window.SB.rpc("au_codigo");
-          if(cod){ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+          if(cod){ await window.SB.from("auditoria").insert({ org_id:await orgActivaActual(), codigo:cod,
             usuario:correo, tabla:"auth", operacion:"CAMBIO_CLAVE", registro_id:correo,
             valor_nuevo:{nota:"Clave cambiada por el usuario desde la app"} }); au=cod; }
         }catch(e){}
@@ -19212,7 +19251,7 @@ function Ajustes({usuario, onSalir, tema, setTema, oscuro, setOscuro, fontGrande
             descripcion:"Colaboradores de la empresa freelance (reciben copia de los recibos de cobro)" },
             { onConflict:"org_id,clave" });
           if(!error){
-            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:au,
+            if(au){ try{ await window.SB.from("auditoria").insert({ org_id:await orgActivaActual(), codigo:au,
               usuario:(usuario&&usuario.nombre)||"freelance", tabla:"config_sistema", operacion:"UPDATE",
               registro_id:"colaboradores", valor_nuevo:valor }); }catch(e3){} }
             setUltColab({donde:"base", au});
@@ -19672,7 +19711,7 @@ function Ruta({toast}){
     toast(tipo==="foto"?"Foto adjuntada":"Audio adjuntado");
   };
   /* rutas de demostración: una en curso (hoy) y otra ya terminada */
-  const hoyRuta=new Date().toISOString().slice(0,10);
+  const hoyRuta=hoyEC();
   const ayerRuta=new Date(Date.now()-86400000).toISOString().slice(0,10);
   const RUTAS_DEMO=[
     {id:1, nombre:"Ruta Tungurahua", fecha:hoyRuta, provs:["Tungurahua"],
@@ -19806,7 +19845,7 @@ function Ruta({toast}){
 
       {/* indicadores de entrada */}
       {(()=>{
-        const hoyISO=new Date().toISOString().slice(0,10);
+        const hoyISO=hoyEC();
         const pend=rutas.filter(r=>r.clientes.filter(c=>r.hechas[c.cli]).length < r.clientes.length);
         const deHoy=rutas.filter(r=>r.fecha===hoyISO).length;
         const paradas=rutas.reduce((s,r)=>s+r.clientes.length,0);
@@ -20210,13 +20249,13 @@ function GraficoDona({cobrado, porCobrar}){
 }
 
 function Solicitudes({toast, verCliente, datos}){
-  const [sols,setSols]=useState(SOLICITUDES_INI);
-  const [mias,setMias]=useState(MIS_SOLICITUDES_INI);
+  const [sols,setSols]=useState(()=>MODO_DEMO_ACTIVO?SOLICITUDES_INI:[]);
+  const [mias,setMias]=useState(()=>MODO_DEMO_ACTIVO?MIS_SOLICITUDES_INI:[]);
   /* b365 · lo que llega del sistema reemplaza a la demostración */
   React.useEffect(()=>{
     if(!datos) return;
-    if(datos.recibidas && datos.recibidas.length) setSols(datos.recibidas);
-    if(datos.mias && datos.mias.length) setMias(datos.mias);
+    if(Array.isArray(datos.recibidas)) setSols(datos.recibidas);
+    if(Array.isArray(datos.mias)) setMias(datos.mias);
   },[datos]);
   const [pestana,setPestana]=useState("aprobar");   // aprobar | mias
   const [sel,setSel]=useState(null);                // solicitud abierta (detalle)
@@ -22392,7 +22431,7 @@ function PiladorasReales({toast, usuario}){
   },[]);
   const audit=async(tabla, op, regId, valor)=>{
     try{ const { data:cod } = await window.SB.rpc("au_codigo");
-      if(cod){ await window.SB.from("auditoria").insert({ org_id:"ORG-001", codigo:cod,
+      if(cod){ await window.SB.from("auditoria").insert({ org_id:await orgActivaActual(), codigo:cod,
         usuario:(usuario&&usuario.nombre)||"freelance", tabla, operacion:op, registro_id:regId, valor_nuevo:valor }); }
       return cod||null;
     }catch(e){ return null; }
@@ -24068,7 +24107,7 @@ function App({usuario, onSalir}){
   const [tema,setTema]=useState(()=>{ try{ return localStorage.getItem("fl_tema")||"campo"; }catch(e){ return "campo"; } });
   const [oscuro,setOscuro]=useState(false);
   const [fontGrande,setFontGrande]=useState(false);
-  const [pedidos,setPedidos]=useState(PEDIDOS_INI); // lista viva de pedidos (Mis pedidos)
+  const [pedidos,setPedidos]=useState(()=>MODO_DEMO_ACTIVO?PEDIDOS_INI:[]); // nunca mezclar ejemplos con operación real
   /* ── b365 · LOS MÓDULOS DE LA BARRA LEEN DEL SISTEMA ──
      Una sola carga al abrir la app alimenta las cuatro pantallas y sus globos,
      para que el número de la barra y lo que ves adentro sean lo mismo.
@@ -24082,7 +24121,7 @@ function App({usuario, onSalir}){
     (async()=>{
       const [pd,nv,so,ag]=await Promise.all([vivoPedidos(),vivoNovedades(),vivoSolicitudes(),vivoAgenda()]);
       if(!vivo) return;
-      if(pd && pd.length){ setPedidos(pd); setPedidosVivos(true); }
+      if(Array.isArray(pd)){ setPedidos(pd); setPedidosVivos(true); }
       if(nv) setNovedadesApp(nv);
       if(so) setSolicitudesApp(so);
       if(ag) setAgendaApp(ag);
@@ -24093,9 +24132,9 @@ function App({usuario, onSalir}){
      se vuelve a leer solo los pedidos, sin recargar la app entera. */
   const recargarPedidos = React.useCallback(async()=>{
     const pd = await vivoPedidos();
-    if(pd && pd.length){ setPedidos(pd); setPedidosVivos(true); }
+    if(Array.isArray(pd)){ setPedidos(pd); setPedidosVivos(true); }
   },[]);
-  const badgeSolicitudes=(((solicitudesApp&&solicitudesApp.recibidas)||SOLICITUDES_INI)
+  const badgeSolicitudes=(((solicitudesApp&&solicitudesApp.recibidas)||(MODO_DEMO_ACTIVO?SOLICITUDES_INI:[]))
     .filter(s=>s.estado==="pendiente")).length; // pendientes por aprobar (del sistema si lo hay)
   const [toast,setToast]=useState(null);
   const [prodInicial,setProdInicial]=useState(null); // presentación precargada desde Productos
@@ -24104,22 +24143,33 @@ function App({usuario, onSalir}){
   const [carteraCliente,setCarteraCliente]=useState(null);
   const [cliFicha,setCliFicha]=useState(null); // abrir ficha de cliente desde el buscador global // cliente para filtrar Cartera desde su ficha
   const [secFicha,setSecFicha]=useState(null); // sección inicial de la ficha (ej. "cartera" desde el asistente)
-  const [pendientes,setPendientes]=useState(PENDIENTES_SYNC);
+  const [pendientes,setPendientes]=useState([]);
   const [verSync,setVerSync]=useState(false);
   useModal(verSync, React.useCallback(()=>setVerSync(false),[]));
   const [verAyuda,setVerAyuda]=useState(false);   // sección "Cómo funciona" de la campanilla
   const [online,setOnline]=useState(typeof navigator!=="undefined" ? navigator.onLine!==false : true);
   const [sincronizando,setSincronizando]=useState(false);
   const show=m=>{setToast(m);setTimeout(()=>setToast(null),2600);};
-  const sincronizar=(auto)=>{
+  const refrescarPendientesOffline=React.useCallback(async()=>{
+    if(!window.indexedDB) return 0;
+    try{
+      const cola=(await colaOfflineListar()).filter(x=>x.tipo==="pedido");
+      setPendientes(cola.map(x=>({id:x.id,tipo:"Pedido",ic:"📋",cli:(x.payload.cli&&x.payload.cli.nombre)||x.payload.cli||"—",detalle:"Guardado en el dispositivo",cuando:x.creado})));
+      return cola.length;
+    }catch(e){ registrarError("offline.listar",e); return 0; }
+  },[]);
+  React.useEffect(()=>{ refrescarPendientesOffline(); },[refrescarPendientesOffline]);
+  const sincronizar=async(auto)=>{
     if(pendientes.length===0){ if(!auto) show("No hay nada pendiente. Estás al día."); return; }
-    const n=pendientes.length;
     setSincronizando(true);
-    setTimeout(()=>{
-      setPendientes([]); setSincronizando(false); setVerSync(false);
-      show(auto ? `Conexión recuperada: ${n} registro${n!==1?"s":""} sincronizado${n!==1?"s":""} ✓`
-                : "Todo sincronizado con el sistema.");
-    },1400);
+    try{
+      const r=await procesarColaPedidos((op,res)=>setPedidos(prev=>prev.map(p=>p.offlineId===op.id?{...p,sync:"ok",id:res.pedId}:p)));
+      await refrescarPendientesOffline();
+      setVerSync(false);
+      if(r.enviados) show(`Conexión recuperada: ${r.enviados} pedido${r.enviados!==1?"s":""} sincronizado${r.enviados!==1?"s":""} ✓`);
+      else if(r.pendientes) show("No se pudo sincronizar todavía. El pedido sigue seguro en el dispositivo.");
+    }catch(e){ registrarError("offline.sincronizar",e,{toast:show}); }
+    finally{ setSincronizando(false); }
   };
   /* Arrastrar hacia abajo = refrescar la app SIN recargar la página (no saca al usuario del sistema) */
   const [ptr,setPtr]=useState(0);            // desplazamiento del gesto (px)
@@ -24295,7 +24345,6 @@ function App({usuario, onSalir}){
   const subPantallas={cobros:"Cobros",stock:"Registrar stock",cartera:"Cartera",clientes:"Clientes",productos:"Productos",boveda:"Cheques",verificacion:"Verificación"};
   const enSub = tab in subPantallas;
 
-  const HOY="2026-06-13";
   const badgeNovedades = (novedadesApp||NOVEDADES_INI)
     .filter(n=>n.estado==="aprobada"||n.estado==="rechazada").length;   // respuestas del proveedor
   /* con datos del sistema no existe el "pendiente de enviar": lo que pide tu
@@ -24313,10 +24362,10 @@ function App({usuario, onSalir}){
     navegar(t);
   };
   const badgeAgenda = agendaApp
-    ? agendaApp.filter(t=>t.fecha===new Date().toISOString().slice(0,10)
+    ? agendaApp.filter(t=>t.fecha===hoyEC()
         && t.estado!=="completada" && t.estado!=="norealizada").length
-    : 2;   // sin sistema, el ejemplo del prototipo
-  const badgeComision = 1; // comisiones recién liberadas (ejemplo del prototipo)
+    : 0;
+  const badgeComision = 0;
   /* si el total de cosas por ver SUBE, la barra vuelve aunque estés leyendo */
   const totalAvisos = (badgeNovedades||0)+(badgePedidosTotal||0)+(badgeAgenda||0)+(badgeSolicitudes||0)+(sinLeerChat||0);
   React.useEffect(()=>{
@@ -24352,10 +24401,11 @@ function App({usuario, onSalir}){
     const fechaCorta=`${dd} ${meses[ahora.getMonth()]} · ${String(ahora.getHours()).padStart(2,"0")}:${String(ahora.getMinutes()).padStart(2,"0")}`;
     const fechaISO=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,"0")}-${dd}`;
     const quien=usuario?.nombre || "Freelance";
+    const idempotencia="PD-O"+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase();
     const nuevos=carrito.map((it,i)=>{
       const credito = it.tipoNombre && /créd/i.test(it.tipoNombre);
       return {
-        id:Date.now()+i,
+        id:Date.now()+i, offlineId:idempotencia,
         cli:(cli && cli.nombre)||cli||"—", prov: prov?prov.nombre:"—", fecha:fechaISO,
         prod:it.prodNombre, cant:it.cant, precio:it.precio,
         cond: credito?"Crédito":"Contado",
@@ -24378,18 +24428,23 @@ function App({usuario, onSalir}){
       };
     });
     setPedidos(prev=>[...nuevos, ...prev]); // los nuevos arriba
-    setPendientes(prev=>[
-      ...nuevos.map(n=>({tipo:"Pedido", ic:"📋", cli:n.cli, detalle:`${n.cant} × ${n.prod}`, cuando:fechaCorta})),
-      ...prev
-    ]);
     /* FASE 4 · Etapa 4: si hay sesión y cliente/productos reales, el pedido TAMBIÉN nace
        en la base (pedidos + pedido_items; el trigger lo audita solo). Si algo es demo o
        no hay sesión, guardarPedidoEnBase lo detecta y el flujo local sigue como siempre. */
-    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}).then(r=>{
-      if(r.ok) show("✓ Pedido "+r.pedId+" guardado en la base");
-      else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
-        show("⚠ El pedido quedó solo local: "+r.motivo);
-    }).catch(()=>{});
+    const payload={cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, idempotencia};
+    const r=await guardarPedidoEnBase(payload);
+    if(r.ok){ setPedidos(prev=>prev.map(p=>p.offlineId===idempotencia?{...p,sync:"ok",id:r.pedId}:p)); show("✓ Pedido "+r.pedId+" guardado en la base"); }
+    else if(["sin_conexion","error"].includes(r.motivo)){
+      try{
+        await encolarPedidoOffline(payload); await refrescarPendientesOffline();
+        show("Sin conexión: el pedido quedó seguro en el dispositivo y se enviará automáticamente.");
+      }catch(e){ registrarError("offline.encolar_pedido",e,{toast:show}); return false; }
+    }else if(["sin_sesion","cliente_demo","producto_demo"].includes(r.motivo)){
+      show(MODO_DEMO_ACTIVO?"Pedido de demostración: no se envió a la base.":"No se guardó: la sesión o los datos del pedido no son válidos.");
+      if(!MODO_DEMO_ACTIVO) return false;
+    }else{
+      registrarError("pedido.respuesta",r.error||new Error(r.motivo),{toast:show}); return false;
+    }
     return true;
   };
 

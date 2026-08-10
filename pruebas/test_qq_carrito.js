@@ -51,30 +51,30 @@ const dia = (n) => { const d = new Date(Date.now() + n * 86400000);
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
 const HOY = dia(0), AYER = dia(-1);
 
-/* ══ La base de prueba, con la forma de producción ══ */
+/* ══ Fixture sintético con la forma del contrato de producción ══ */
 const PRODUCTOS_BD = [
-  { prod_id:"P-00197", nombre:"Arroz Crecedor", marca:null,
-    linea:"Arroz", proveedor:"Piladora San Agustín", proveedor_cod:"AGU", foto:null, estado:"activo" },
+  { prod_id:"PROD-DEMO-B", nombre:"Producto Demo B", marca:null,
+    linea:"Arroz", proveedor:"Proveedor Demo A", proveedor_cod:"PROV-DEMO-A", foto:null, estado:"activo" },
 ];
 
 const OFERTAS_BD = [
-  { prod_id:"P-00197", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"AGU", costo:34.00, costo_contado:33.00, precio_contado:37.00, precio_credito:38.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-B", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"PROV-DEMO-A", costo:34.00, costo_contado:33.00, precio_contado:37.00, precio_credito:38.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
   /* la que rompía la pantalla: el texto no dice ni «quintal» ni «kg» */
-  { prod_id:"P-00197", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"AGU", costo:8.50,  costo_contado:8.25,  precio_contado:9.25,  precio_credito:9.50,  activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-B", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"PROV-DEMO-A", costo:8.50,  costo_contado:8.25,  precio_contado:9.25,  precio_credito:9.50,  activo:true, vigente_desde:AYER, vigente_hasta:null },
   /* la trampa: el texto dice 45 kg (0,99 qq) pero la piladora lo factura como 1 qq */
-  { prod_id:"P-00197", pres_cod:"S45", presentacion:"Saco 45 kg", equiv_qq:1, prov_cod:"AGU", costo:34.00, costo_contado:33.00, precio_contado:37.00, precio_credito:38.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-B", pres_cod:"S45", presentacion:"Saco 45 kg", equiv_qq:1, prov_cod:"PROV-DEMO-A", costo:34.00, costo_contado:33.00, precio_contado:37.00, precio_credito:38.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
 ];
 
 const PROVEEDORES_BD = [
-  { prov_cod:"AGU", nombre:"Piladora San Agustín", es_demo:false },
+  { prov_cod:"PROV-DEMO-A", nombre:"Proveedor Demo A", es_demo:false },
 ];
 const CLIENTES_BD = [
-  { cli_id:"CLI-A", nombre:"ROCELUMA CIA LTDA", razon_social:"ROCELUMA CIA LTDA",
+  { cli_id:"CLI-DEMO", nombre:"Cliente Demo", razon_social:"Cliente Demo S.A.",
     es_demo:false, activo:true, bloqueado:false },
 ];
 const UBIC_BD = [
-  { ubic_id:"U-1", cli_id:"CLI-A", nombre:"Matriz", principal:true, tipo_entrega:"domicilio",
-    ciudad:"Cuenca", direccion:"Mariscal Lamar 2-59", activo:true },
+  { ubic_id:"UBI-DEMO", cli_id:"CLI-DEMO", nombre:"Local Demo", principal:true, tipo_entrega:"domicilio",
+    ciudad:"Ciudad Demo", direccion:"Dirección Demo", activo:true },
 ];
 
 function datosDe(t) {
@@ -84,8 +84,8 @@ function datosDe(t) {
   if (t === "clientes")            return CLIENTES_BD;
   if (t === "ubicaciones_cliente") return UBIC_BD;
   if (t === "precios")             return [];
-  if (t === "pedidos")             return [{ ped_id:"PD-0012" }];
-  if (t === "usuarios")            return [{ usr_id:"SC1", auth_uid:"u1", nombre:"Carlos Andrade", rol:"comisionista", activo:true }];
+  if (t === "pedidos")             return [{ ped_id:"PED-DEMO-12" }];
+  if (t === "usuarios")            return [{ usr_id:"USR-DEMO", auth_uid:"u1", nombre:"Usuario Demo", rol:"comisionista", activo:true }];
   return [];
 }
 
@@ -99,7 +99,7 @@ function montar(js) {
   w.Notification = function(){}; w.Notification.permission = "denied"; w.Notification.requestPermission = async()=>"denied";
 
   const pedidas = [];
-  const escrito = { pedidos:[], items:[], borrados:[] };
+  const escrito = { pedidos:[], items:[], borrados:[], rpc:[] };
   function consulta(tabla, filtros) {
     const resolver = () => {
       let filas = datosDe(tabla).slice();
@@ -132,12 +132,23 @@ function montar(js) {
   }
   w.SB = {
     auth: {
-      getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"carlos@ejemplo.com" }, expires_at: Math.floor(Date.now()/1000)+3600 } } }),
+      getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"usuario@example.invalid" }, expires_at: Math.floor(Date.now()/1000)+3600 } } }),
       refreshSession: async () => ({ data:{ session:null } }),
       signOut: async () => ({}), onAuthStateChange: () => ({ data:{ subscription:{ unsubscribe(){} } } }),
     },
     from: (t) => { pedidas.push(t); return consulta(t, []); },
-    rpc: async () => ({ data:null }),
+    rpc: async (nombre,args) => {
+      if(nombre==="mi_org_activa") return {data:"ORG-001",error:null};
+      if(nombre!=="registrar_pedido_atomico") return {data:null,error:null};
+      escrito.rpc.push({nombre,args});
+      const p=args.p_payload;
+      escrito.items.push((p.items||[]).map((it,idx)=>{
+        const of=OFERTAS_BD.find(o=>o.prod_id===it.prod_id&&o.pres_cod===it.pres_cod&&o.prov_cod===p.proveedor_id);
+        const eq=Number(of&&of.equiv_qq)||1;
+        return {item_id:"PED-DEMO-13-I"+(idx+1),ped_id:"PED-DEMO-13",cantidad_qq:Number(it.cantidad_presentacion)*eq};
+      }));
+      return {data:[{ped_id:"PED-DEMO-13",repetido:false}],error:null};
+    },
     channel: () => ({ on(){ return this; }, subscribe(){ return this; } }), removeChannel: () => {},
     functions: { invoke: async () => ({ data:{}, error:null }) },
     storage: { from: () => ({ upload: async()=>({}), createSignedUrl: async()=>({data:null}) }) },
@@ -290,10 +301,10 @@ async function bateria(js, ruidoso) {
   /* ── Lo que se GRABA: tiene que decir exactamente lo mismo ── */
   async function grabar(carrito) {
     const g = montar(js);
-    corre(g, `CLI_ID_DE["ROCELUMA CIA LTDA"] = "CLI-A";`);
+    corre(g, `CLI_ID_DE["Cliente Demo"] = "CLI-DEMO";`);
     try {
       const r = await corre(g, `guardarPedidoEnBase({
-        cli:{nombre:"ROCELUMA CIA LTDA"}, prov:{id:"AGU"}, retiro:true,
+        cli:{nombre:"Cliente Demo"}, prov:{id:"PROV-DEMO-A"}, retiro:true,
         carrito:${JSON.stringify(carrito)} })`);
       const items = (g.escrito.items[0]) || [];
       if (!r || !r.ok || !items.length) return null;
@@ -323,14 +334,14 @@ async function bateria(js, ruidoso) {
   if (esSocio) {
     pintar(m);
     await esperar(400);
-    let pasos = await elegir(m, "cliente", "ROCELUMA CIA LTDA");
-    if (!pasos) pasos = await elegir(m, "proveedor", "San Agustín", "San Agustín");
-    if (!pasos) pasos = await elegir(m, "producto", "crecedor", ["Arroz Crecedor","Quintal"]);
+    let pasos = await elegir(m, "cliente", "Cliente Demo");
+    if (!pasos) pasos = await elegir(m, "proveedor", "Proveedor Demo A", "Proveedor Demo A");
+    if (!pasos) pasos = await elegir(m, "producto", "producto demo b", ["Producto Demo B","Quintal"]);
     if (!pasos) pasos = corre(m, `window.__cantidad(50)`);
     await esperar(120);
     if (!pasos && !corre(m, `window.__tocar(".cta-carrito")`)) pasos = "no se pudo agregar el quintal";
     await esperar(150);
-    if (!pasos) pasos = await elegir(m, "producto", "crecedor", ["Arroz Crecedor","Arroba"]);
+    if (!pasos) pasos = await elegir(m, "producto", "producto demo b", ["Producto Demo B","Arroba"]);
     if (!pasos) pasos = corre(m, `window.__cantidad(8)`);
     await esperar(120);
     if (!pasos && !corre(m, `window.__tocar(".cta-carrito")`)) pasos = "no se pudo agregar la arroba";
@@ -378,9 +389,12 @@ const MUTANTES = [
     `    const eq = 0;`],
   ["se le olvida la cantidad de la línea (cuenta una unidad por línea)",
     `(Number(it.cant)||0));`, `1);`],
-  /* la otra punta: si la base dejara de convertir, las comparaciones lo dicen */
-  ["la base deja de convertir la línea a quintales al grabar",
-    `cantidad_qq: r2(it.cant*it.prod.equiv),`, `cantidad_qq: r2(it.cant),`],
+  /* la otra punta: la RPC recibe unidades de presentación y el servidor hace
+     la conversión. Si el navegador le manda quintales disfrazados de unidades,
+     la conversión se duplicaría y estas comparaciones tienen que detectarlo. */
+  ["el navegador manda quintales como si fueran unidades de presentación",
+    `cantidad_presentacion:Number(it.cant),gratis_presentacion`,
+    `cantidad_presentacion:Number(it.cant)/(Number(it.prod.equiv)||1),gratis_presentacion`],
 ];
 
 (async () => {

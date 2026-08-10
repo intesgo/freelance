@@ -84,6 +84,8 @@
 .pedido-web-ancho{grid-column:1/-1}.pedido-web-producto{grid-column:1}.pedido-web-entrega{grid-column:2}.pedido-web-producto-elegido{display:flex!important;flex-direction:column!important;align-items:center!important;text-align:center}.pedido-web-producto-elegido>div{width:100%}
 .pedido-web-costo{display:grid;grid-template-columns:minmax(120px,.72fr) minmax(300px,1.55fr);align-items:center;gap:16px;padding:12px 14px;border:1px solid #e1e7e3;border-radius:11px;background:#fff}.pedido-web-costo+.pedido-web-costo{margin-top:10px}.pedido-web-asume{display:grid;grid-template-columns:auto 1fr 1fr;align-items:center;gap:8px}.pedido-web-asume>span{font-size:12px;font-weight:800;color:#183f32;white-space:nowrap}.pedido-web-radio{padding:9px 10px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer}
 .pedido-web-dato{border-radius:12px;padding:12px 14px}.pedido-web-dato.cantidad{background:#eef8f2;border:1.5px solid #59a779}.pedido-web-dato.precio{background:#fff9e9;border:1.5px solid #d3aa2e}.pedido-web-dato input{font-size:18px!important;font-weight:800!important;background:#fff!important}
+.pedido-web-acciones{display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;padding:10px 12px;background:#fff;border:1px solid #e1e7e3;border-radius:12px}
+.pedido-web-plegable{background:#fff;border:1px solid #e1e7e3;border-radius:14px;overflow:hidden}.pedido-web-plegable>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;font-size:13.5px;font-weight:800;color:#183f32;user-select:none}.pedido-web-plegable>summary::-webkit-details-marker{display:none}.pedido-web-plegable>summary::after{content:"+";margin-left:auto;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#edf4ef;color:#225b47;font-size:17px}.pedido-web-plegable[open]>summary{border-bottom:1px solid #e1e7e3;background:#f8fbf9}.pedido-web-plegable[open]>summary::after{content:"−"}.pedido-web-contenido{padding:16px 18px}.pedido-web-estado{font-size:11.5px;font-weight:600;color:#75847d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pedido-web-plegable.resumen{margin-bottom:10px}.pedido-web-plegable.secundario{margin-top:10px}
 @media(max-width:1050px){.pedido-web-form{grid-template-columns:1fr!important}.pedido-web-producto,.pedido-web-entrega,.pedido-web-ancho{grid-column:1!important}.pedido-web-costo{grid-template-columns:1fr}.pedido-web-asume{grid-template-columns:auto 1fr 1fr}}
 </style>
 </head>
@@ -91,6 +93,32 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useRef, useEffect } = React;
+
+/* Fecha operativa única: Ecuador (evita que UTC adelante el día desde las 19:00). */
+const ZONA_HORARIA_EC="America/Guayaquil";
+const MODO_DEMO_WEB=typeof location!=="undefined" && new URLSearchParams(location.search).get("demo")==="1";
+function hoyECWeb(fecha=new Date()){
+  const p={}; new Intl.DateTimeFormat("en-CA",{timeZone:ZONA_HORARIA_EC,year:"numeric",month:"2-digit",day:"2-digit"})
+    .formatToParts(fecha).forEach(x=>{if(x.type!=="literal")p[x.type]=x.value;});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+let ORG_ACTIVA_WEB={uid:null,org:null};
+async function orgActivaWeb(){
+  if(!window.supa||!window.supa.auth) throw new Error("Sin conexión con la organización activa.");
+  const {data:s}=await window.supa.auth.getSession();
+  const uid=s&&s.session&&s.session.user&&s.session.user.id;
+  if(!uid) throw new Error("No hay una sesión activa.");
+  if(ORG_ACTIVA_WEB.uid===uid&&ORG_ACTIVA_WEB.org) return ORG_ACTIVA_WEB.org;
+  const {data,error}=await window.supa.rpc("mi_org_activa");
+  if(error||!data) throw new Error((error&&error.message)||"El usuario no tiene organización activa.");
+  ORG_ACTIVA_WEB={uid,org:String(data)}; return ORG_ACTIVA_WEB.org;
+}
+function registrarErrorWeb(contexto,error){
+  const fila={fecha:new Date().toISOString(),contexto,mensaje:(error&&error.message)||String(error||"Error desconocido")};
+  try{ const k="freelance_web_errores_v1",a=JSON.parse(localStorage.getItem(k)||"[]");a.unshift(fila);localStorage.setItem(k,JSON.stringify(a.slice(0,80))); }
+  catch(storageError){ console.error("No se pudo guardar el error local",storageError); }
+  console.error(`[${contexto}]`,error); return fila;
+}
 
 // ── Paleta (espejo del módulo de Clientes web) ──
 /* ═══════════════ CONEXIÓN A SUPABASE · Fase 1 de la ruta maestra ═══════════════
@@ -328,7 +356,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"139", fecha:"10 ago 2026", desc:"Subir pedido organiza Producto y entrega en dos paneles, alinea Flete y Estibada y resalta Cantidad y Precio de venta." };
+const VERSION = { n:"142", fecha:"10 ago 2026", desc:"Interfaz compacta, datos reales y pedidos atómicos con permisos validados por el servidor." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2918,7 +2946,7 @@ function TrazabilidadWeb({ usuario }) {
   const [dTrTxt, setDTrTxt] = useState("");
   const [dNuevoTr, setDNuevoTr] = useState(null);
   const [dPlaca, setDPlaca] = useState("");
-  const [dDia, setDDia] = useState(new Date().toISOString().slice(0,10));
+  const [dDia, setDDia] = useState(hoyECWeb());
   const [dHora, setDHora] = useState("08:00");
   const [anulaDesp, setAnulaDesp] = useState(null);
   const [novedades, setNovedades] = useState(()=>[...NOVEDADES_INI]);
@@ -2933,7 +2961,7 @@ function TrazabilidadWeb({ usuario }) {
   const nvChip = (c) => ({ display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11.5, fontWeight:700, background:c+"22", color:c });
   const NV_EST = { reportada:{ t:"Reportada", c:"#b45309" }, en_gestion:{ t:"En gestión", c:COLOR.blue }, resuelta:{ t:"Resuelta", c:COLOR.green }, anulada:{ t:"Anulada", c:COLOR.muted } };
   const nvViaje = (id) => EF_VIAJES_INI.find(v=>v.id===id);
-  const nvHist = (n, quien, accion) => ({ ...n, historial:[...n.historial, { fecha:new Date().toISOString().slice(0,10), quien, accion }] });
+  const nvHist = (n, quien, accion) => ({ ...n, historial:[...n.historial, { fecha:hoyECWeb(), quien, accion }] });
 
   const nvGestionar = (id) => {
     setNovedades(ns => ns.map(n => n.id===id ? nvHist({ ...n, estado:"en_gestion" }, usuario.nombre||usuario.rol, "Tomada en gestión") : n));
@@ -2941,7 +2969,7 @@ function TrazabilidadWeb({ usuario }) {
   };
   const nvConfirmarResolver = () => {
     if (!nvResolver.texto.trim()) { toast("Escribe qué se resolvió (reposición, nota de crédito, ajuste…)."); return; }
-    const f = new Date().toISOString().slice(0,10);
+    const f = hoyECWeb();
     setNovedades(ns => ns.map(n => n.id===nvResolver.id
       ? nvHist({ ...n, estado:"resuelta", resolucion:{ fecha:f, quien:usuario.nombre||usuario.rol, texto:nvResolver.texto.trim() } }, usuario.nombre||usuario.rol, "Resuelta: "+nvResolver.texto.trim())
       : n));
@@ -2970,7 +2998,7 @@ function TrazabilidadWeb({ usuario }) {
     if (n.tipo==="Cambio de cantidad" && (!n.cambios || n.cambios.every(c => parseFloat(c.entregado)===c.pedido))) {
       toast("Registra al menos una cantidad entregada distinta a la pedida."); return; }
     const v = nvViaje(n.viajeId); const g = v.guias.find(x=>x.guia===n.guia);
-    const f = new Date().toISOString().slice(0,10);
+    const f = hoyECWeb();
     const nId = "NV-" + String(Math.max(0, ...novedades.map(x=>parseInt(x.id.split("-")[1])||0)) + 1).padStart(4,"0");
     const regNv = {
       id:nId, viajeId:n.viajeId, guia:n.guia, cliente:g.cliente||"—", prov:g.prov,
@@ -3051,7 +3079,7 @@ function TrazabilidadWeb({ usuario }) {
     rutas.forEach(r => { const n = parseInt((r.viajeId||"").replace("VJ-",""))||0; if(n>max) max=n; });
     return "VJ-" + String(max+1).padStart(5,"0");
   };
-  const abrirDespacho = (r) => { setDTr(null); setDTrTxt(""); setDNuevoTr(null); setDPlaca(""); setDDia(new Date().toISOString().slice(0,10)); setDHora("08:00"); setDespachar(r); };
+  const abrirDespacho = (r) => { setDTr(null); setDTrTxt(""); setDNuevoTr(null); setDPlaca(""); setDDia(hoyECWeb()); setDHora("08:00"); setDespachar(r); };
   const crearTrDespacho = () => {
     if (!dNuevoTr || !dNuevoTr.nombre.trim() || !dNuevoTr.cedula.trim()) { toast("Nombre y cédula del transportista."); return; }
     if (trCat.some(t=>t.cedula===dNuevoTr.cedula.trim())) { toast("Ya existe un transportista con esa cédula."); return; }
@@ -3078,7 +3106,7 @@ function TrazabilidadWeb({ usuario }) {
     }
     const salida = new Date(dDia + "T" + (dHora||"08:00") + ":00").toISOString();
     const { error: e1 } = await window.supa.from("viajes").insert({
-      viaje_id: vj, org_id: "ORG-001", ruta_nombre: ruta.nombre,
+      viaje_id: vj, org_id: await orgActivaWeb(), ruta_nombre: ruta.nombre,
       transportista_id: chofer.id, placa: dPlaca.trim().toUpperCase(),
       /* `programado` no es un estado valido de viaje: la base solo acepta
          armando, despachado, en_ruta, entregado, cerrado y anulado. Un viaje
@@ -3737,7 +3765,7 @@ function Dashboard({ navegar }) {
   // --- Derivado de los módulos. FASE 4 (b34): con sesión, comisiones/cartera/cobros/
   //     solicitudes vienen de la base; fletes-estiba, pagos al equipo y novedades siguen
   //     en demo (sus tablas aún no tienen datos). Patrón igual al de "Resumen del día". ---
-  const hoyISO = new Date().toISOString().slice(0,10);
+  const hoyISO = hoyECWeb();
   const r2d = n => Math.round(n*100)/100;
   const mesAct = hoyISO.slice(0,7);
   /* CORREGIDO 31/07/2026 · restar un mes sin fijar antes el dia 1 es el error clasico de JavaScript: el 31 de julio pide el 31 de junio, que no existe, y el idioma lo empuja al 1 de julio. Los dias 29, 30 o 31 el "mes anterior" salia igual al mes actual. */ const mesAnt = (() => { const d = new Date(hoyISO+"T12:00:00"); d.setDate(1); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
@@ -3997,7 +4025,7 @@ const csvFila = (arr) => arr.map(csvEsc).join(";");
 function exportarCsv(nombre, cabeceras, filas, titulo) {
   /* v41: con la librería cargada sale un .xlsx con formato; sin ella, el CSV clásico. */
   if (window.XLSX) return exportarExcel(nombre, titulo || ("FREELANCE · " + nombre.toUpperCase()), "", [{ titulo:null, cabeceras:cabeceras, filas:filas }]);
-  const hoyTxt = new Date().toISOString().slice(0,10);
+  const hoyTxt = hoyECWeb();
   const cuerpo = [
     titulo ? csvFila([titulo, "Generado: " + hoyTxt]) : csvFila(["FREELANCE · " + nombre.toUpperCase(), "Generado: " + hoyTxt]),
     "",
@@ -4018,7 +4046,7 @@ function exportarCsv(nombre, cabeceras, filas, titulo) {
    secciones = [{ titulo, cabeceras, filas }]. Si el CDN de Excel no cargó,
    cae al CSV clásico: nadie se queda sin su reporte. */
 function exportarExcel(nombre, titulo, subtitulo, secciones){
-  const hoyTxt = new Date().toISOString().slice(0,10);
+  const hoyTxt = hoyECWeb();
   if (!window.XLSX) {
     const cuerpo = [ csvFila([titulo, subtitulo||"", "Generado: "+hoyTxt]) ];
     secciones.forEach(s => { cuerpo.push("");
@@ -4473,7 +4501,7 @@ function CambioClave({ sesion, onCerrar }) {
       try {
         const d = new Date(), p = n => String(n).padStart(2, "0");
         const au = "AU-" + String(d.getFullYear()).slice(2) + p(d.getMonth()+1) + p(d.getDate()) + "-" + Math.floor(1000 + Math.random()*9000);
-        await window.supa.from("auditoria").insert({ org_id: "ORG-001", codigo: au, usuario: sesion.nombre,
+        await window.supa.from("auditoria").insert({ org_id: await orgActivaWeb(), codigo: au, usuario: sesion.nombre,
           tabla: "auth", operacion: "Cambio de clave de acceso", registro_id: sesion.usuario, fecha: new Date().toISOString() });
       } catch (x) {}
       setGuardando(false); setHecho(true);
@@ -4530,14 +4558,14 @@ function LoginWeb({ onAcceder }) {
         if (e1) throw e1;
         const uid = data.user && data.user.id;
         const { data: pad, error: e2 } = await window.supa.from("usuarios")
-          .select("usr_id,nombre,rol,activo").eq("auth_uid", uid).limit(1);
+          .select("usr_id,nombre,rol,activo,org_id").eq("auth_uid", uid).limit(1);
         if (e2) throw e2;
         const per = (pad || [])[0];
         if (!per) { try{ await window.supa.auth.signOut(); }catch(x){} throw new Error("Tu cuenta no está vinculada en el padrón. Avisa al Freelance."); }
         if (!per.activo) { try{ await window.supa.auth.signOut(); }catch(x){} throw new Error("Cuenta desactivada."); }
         setCargando(false);
         onAcceder(resolverSesion({ usuario: id, clave: "", nombre: per.nombre,
-          cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: "EMP-001", real: true }));
+          cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
       } catch (e) {
         setCargando(false);
         setError(/invalid|credentials/i.test((e && e.message) || "")
@@ -4617,7 +4645,7 @@ function LoginWeb({ onAcceder }) {
 // ── Pedidos (web): lista + vista de armado a pantalla completa (formulario + resumen) ──
 function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const [pedidos, setPedidos] = useState(PEDIDOS_WEB_INI);
+  const [pedidos, setPedidos] = useState(()=>MODO_DEMO_WEB?PEDIDOS_WEB_INI:[]);
   /* v43 · BOMBA DORMIDA reparada: la lista usaba pagP/setPagP sin declararlos →
      ReferenceError al abrir la sección (pantalla de error). La halló el arnés
      nuevo que renderiza cada sección contra el archivo real. */
@@ -4654,9 +4682,10 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre,razon_social,tipo),proveedores(nombre)")
             .order("creado", { ascending: false }).limit(200),
           window.supa.from("pedido_items")
-            .select("item_id,ped_id,prod_id,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq").limit(1000),
+            .select("item_id,ped_id,prod_id,pres_cod,promo_id,condicion,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq,comision_usd").limit(1000),
         ]);
-        if (!p || !p.length || !it || !it.length) return;
+        if (!Array.isArray(p) || !Array.isArray(it)) return;
+        if (!p.length || !it.length) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); return; }
         const ESTADO_LINDO = { ingresado:"Ingresado", esperando_aprobacion:"Esperando aprobación",
           enviado_proveedor:"Enviado al proveedor", facturado:"Facturado", despachado:"Despachado",
           entregado:"Entregado", cliente_pago:"Cliente pagó", cerrado:"Cerrado", anulado:"Anulado" };
@@ -4686,12 +4715,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             demo: !!pd.es_demo, editable: editable(pd),
           }));
         });
-        if (!filas.length) return;
+        if (!filas.length) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); return; }
         setPedidos(filas);
         setItemsPorPed(porPed);
         setPedMeta(meta);
         setFuentePed("vivo");
-      } catch (e) {}
+      } catch (e) { registrarErrorWeb("pedidos.cargar",e); }
     }
   }, []);
   useEffect(() => { cargarPedidosVivos(); }, [cargarPedidosVivos]);
@@ -4744,7 +4773,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       try {
         const [{ data: prods }, { data: ofertas }, { data: provs }, { data: presFotos }] = await Promise.all([
           window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
-          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado").limit(4000),
+          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado, precio_contado, precio_credito").limit(4000),
           window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
           // Fotos reales por presentación (Quintal, Arroba…). Solo las que tienen foto, para no pesar.
           window.supa.from("presentaciones").select("prod_id, presentacion_cod, foto").not("foto", "is", null).limit(4000),
@@ -4761,12 +4790,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           const catalogo = [];
           ofertas.forEach(o => {
             if (!o.prod_id || !o.prov_cod || !nombreProd[o.prod_id]) return;   // sin producto activo: no se lista
-            const credito = Number(o.costo) || Number(o.costo_contado) || 0;
-            const contado = Number(o.costo_contado) || Number(o.costo) || 0;
+            const credito = Number(o.precio_credito) || Number(o.precio_contado) || Number(o.costo) || Number(o.costo_contado) || 0;
+            const contado = Number(o.precio_contado) || Number(o.costo_contado) || Number(o.costo) || 0;
             const pres = o.presentacion || o.pres_cod || "Unidad";
             catalogo.push({
               id: o.prod_id + "-" + (o.pres_cod || "U"),
-              prodId: o.prod_id,
+              prodId: o.prod_id, presCod:o.pres_cod,
               nombre: nombreProd[o.prod_id] + " · " + pres,
               linea: lineaProd[o.prod_id] || "Arroz",
               prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
@@ -4860,7 +4889,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     (async () => {
       try {
         const { data, error } = await window.supa.from("pedidos")
-          .select("ped_id, prov_cod, creado, pedido_items(prod_id, descripcion, cantidad_qq, precio_usd, tipo_precio)")
+          .select("ped_id, prov_cod, creado, pedido_items(prod_id, pres_cod, promo_id, condicion, descripcion, cantidad_qq, precio_usd, tipo_precio, comision_usd)")
           .eq("cli_id", cli.id).like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
         if (!activo) return;
         if (error || !data || !data.length || !data[0].pedido_items || !data[0].pedido_items.length) { setUltimoPedido(null); return; }
@@ -4970,14 +4999,17 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   };
   const flechaOrden = (campo) => ordCampo === campo ? (ordDir === "asc" ? " ▲" : " ▼") : "";
 
-  /* ── EDITAR PEDIDO (#6) · solo antes de facturar ─────────────────────────
-     Abre una copia de trabajo de los ítems del pedido. Se guardan los cambios
-     directo en pedido_items (actualizar / insertar / borrar por item_id). */
+  /* ── AJU-001-R2 · edición atómica antes de facturar ─────────────────────
+     La pantalla arma la propuesta; el servidor recalcula catálogo/comisión y
+     actualiza, agrega o quita todas las líneas dentro de una transacción. */
   const abrirEdicion = (pedId) => {
     const items = (itemsPorPed[pedId] || []).map(x => ({
+      ...(PRODS_PED.find(p=>(p.prodId||p.id)===x.prod_id && (!x.pres_cod||p.presCod===x.pres_cod))||{}),
       itemId: x.item_id, prodId: x.prod_id, descripcion: x.descripcion || x.prod_id,
       cantidad: Number(x.cantidad_qq)||0, precio: Number(x.precio_usd)||0,
-      tipoPrecio: x.tipo_precio || null, gratis: Number(x.gratis_qq)||0, borrar:false, nuevo:false,
+      presCod:x.pres_cod||null,promoId:x.promo_id||null,condicion:x.condicion||null,
+      tipoPrecio: x.tipo_precio || null, gratis: Number(x.gratis_qq)||0,
+      comision:Number(x.comision_usd)||0,borrar:false,nuevo:false,
     }));
     setEditPed(pedId); setEditItems(items); setEditTexto(""); setEditError("");
   };
@@ -4987,7 +5019,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const editAgregar = (prod) => {
     if (!prod) return;
     setEditItems(arr => [...arr, { itemId:null, prodId: prod.prodId||prod.id, descripcion: prod.nombre,
-      cantidad: 1, precio: Number(prod.baseContado)||Number(prod.baseCredito)||0, tipoPrecio:null, gratis:0, borrar:false, nuevo:true }]);
+      presCod:prod.presCod||null,promoId:null,condicion:"contado",equiv:Number(prod.equiv)||1,
+      cantidad: 1, precio: Number(prod.baseContado)||Number(prod.baseCredito)||0,
+      tipoPrecio:"P1",gratis:0,comision:0,borrar:false,nuevo:true }]);
     setEditTexto("");
   };
   const editTotal = editItems.filter(it=>!it.borrar).reduce((s,it)=> s + (Number(it.cantidad)||0)*(Number(it.precio)||0), 0);
@@ -5002,27 +5036,16 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     if (!window.supa) { setEditError("Sin conexión con el servidor."); return; }
     setEditGuardando(true);
     try {
-      const borrar = editItems.filter(it => it.borrar && it.itemId).map(it => it.itemId);
-      const nuevos = editItems.filter(it => !it.borrar && !it.itemId);
-      const editar = editItems.filter(it => !it.borrar && it.itemId);
-      for (const it of editar) {
-        const { error } = await window.supa.from("pedido_items")
-          .update({ cantidad_qq: Number(it.cantidad), precio_usd: Number(it.precio) })
-          .eq("item_id", it.itemId);
-        if (error) throw new Error(error.message);
-      }
-      if (borrar.length) {
-        const { error } = await window.supa.from("pedido_items").delete().in("item_id", borrar);
-        if (error) throw new Error(error.message);
-      }
-      for (const it of nuevos) {
-        const nid = editPed + "-I" + Date.now() + Math.floor(Math.random()*1000);
-        const { error } = await window.supa.from("pedido_items").insert({
-          item_id: nid, ped_id: editPed, prod_id: it.prodId, descripcion: it.descripcion,
-          cantidad_qq: Number(it.cantidad), precio_usd: Number(it.precio),
-          tipo_precio: it.tipoPrecio, gratis_qq: 0, es_demo: false });
-        if (error) throw new Error(error.message);
-      }
+      const payload=vivos.map(it=>{
+        const cat=PRODS_PED.find(p=>(p.prodId||p.id)===it.prodId && (!it.presCod||p.presCod===it.presCod))||it;
+        return {item_id:it.itemId||null,prod_id:it.prodId,pres_cod:it.presCod||cat.presCod,
+          cantidad_qq:Number(it.cantidad),precio_qq:Number(it.precio),gratis_qq:Number(it.gratis)||0,
+          tipo_precio:it.tipoPrecio||"P1",condicion:it.condicion||"contado",promo_id:it.promoId||null,
+          comision_propuesta:(it.tipoPrecio==="P5")?(Number(it.comision)||0):null};
+      });
+      const opId="EDI-"+editPed+"-"+Date.now().toString(36).toUpperCase();
+      const {error}=await window.supa.rpc("editar_pedido_atomico",{p_ped:editPed,p_items:payload,p_op_id:opId});
+      if(error) throw new Error(error.message);
       cerrarEdicion();
       setAviso("Pedido actualizado.");
       await cargarPedidosVivos();
@@ -5047,7 +5070,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       const precioN = Number(it.precio_usd)||0;
       const base = Number(cat.baseCredito)||0;
       const comision = Math.round((precioN-base)*cantN*100)/100;
-      nuevas.push({ id: Date.now()+i, prod: cat.nombre, prodId: cat.prodId||cat.id, prov: cat.prov, provCod: cat.provCod,
+      nuevas.push({ id: Date.now()+i, prod: cat.nombre, prodId: cat.prodId||cat.id, presCod:cat.presCod||it.pres_cod||null,
+        promoId:it.promo_id||null,prov: cat.prov, provCod: cat.provCod,
         ic: cat.ic, unidad: cat.unidad, equiv: Number(cat.equiv)||1, cant: cantN, precio: precioN, gratis:0,
         cond:"Crédito", credito:true, tipo:"P2", tipoNombre:"Crédito", comision, total: Math.round(precioN*cantN*100)/100, requiere:false });
     });
@@ -5060,12 +5084,14 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     if (!valido) { setAviso("Revisa los campos: precio bajo base, cupo excedido o faltan datos."); return; }
     const linea = {
       id: Date.now(),
-      prod: prod.nombre, prodId: prod.prodId || prod.id, prov: prod.prov, provCod: prod.provCod || "",
+      prod: prod.nombre, prodId: prod.prodId || prod.id, presCod:prod.presCod||null,
+      prov: prod.prov, provCod: prod.provCod || "",
       ic: prod.ic, unidad: prod.unidad, equiv: Number(prod.equiv)||1,
       cant: cantNum, precio: precioNum, gratis: (tipo==="P3" ? (parseInt(gratis)||0) : 0),
       cond: esCredito ? "Crédito" : "Contado", credito: esCredito,
       tipo, tipoNombre: TIPOS_PRECIO_WEB.find(t=>t.id===tipo).nombre,
       comision: comisionTotal, total: totalLinea, requiere: requiereAutorizacion,
+      promoId:tipo==="P4"&&promoF?promoF.id:tipo==="P6"&&promoP?promoP.id:null,
     };
     setCarrito(prev => [...prev, linea]);
     resetLinea();
@@ -5073,7 +5099,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   };
   const quitarLinea = (id) => setCarrito(prev => prev.filter(l => l.id !== id));
 
-  // Guarda el pedido en Supabase (pedidos + pedido_items), igual que el freelance.
+  // AJU-001-R2: una RPC guarda cabecera, líneas, auditoría e idempotencia.
   const guardarPedidoOficina = async () => {
     try {
       if (!window.supa || !window.supa.auth) return { ok:false, motivo:"sin_conexion" };
@@ -5083,29 +5109,22 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       const items = carrito.filter(it => it && it.prodId && it.provCod);
       if (!items.length) return { ok:false, motivo:"producto_demo" };
       const provCod = items[0].provCod;   // un pedido = un proveedor (se toma el del primer producto)
-      const { data:ult } = await window.supa.from("pedidos").select("ped_id").like("ped_id","PD-%").order("ped_id",{ascending:false}).limit(1);
-      const n = ult && ult[0] ? (parseInt(String(ult[0].ped_id).replace(/\D/g,""),10)||0) : 0;
-      const pedId = "PD-"+String(n+1).padStart(4,"0");
-      const r2 = x => Math.round(x*100)/100;
-      let subId = null;
-      try { const { data:yo } = await window.supa.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1); if (yo && yo[0]) subId = yo[0].usr_id; } catch(e0){}
-      const { error:e1 } = await window.supa.from("pedidos").insert({
-        ped_id:pedId, cli_id:cli.id, sub_id:subId, prov_cod:provCod,
-        ubicacion_id: retiroBodega ? null : ((ubicPed && ubicPed.ubic_id) || null),
-        retiro_bodega: !!retiroBodega,
-        asume_flete: retiroBodega ? null : asumeFlete,
-        asume_estibada: retiroBodega ? null : asumeEstibada,
-        estado:"ingresado", condicion: items.some(it=>it.credito)?"credito":"contado", es_demo:false });
-      if (e1) return { ok:false, motivo:e1.message||"error_pedido" };
-      const filas = items.map((it,i)=>({
-        item_id: pedId+"-I"+(i+1), ped_id:pedId, prod_id:it.prodId, descripcion: it.prod,
-        cantidad_qq: r2(it.cant*(it.equiv||1)), precio_usd: r2(it.precio/(it.equiv||1)),
-        tipo_precio: it.tipo, gratis_qq: r2((Number(it.gratis)||0)*(it.equiv||1)),
-        comision_usd: r2(Number(it.comision)||0), es_demo:false }));
-      const { error:e2 } = await window.supa.from("pedido_items").insert(filas);
-      if (e2) { try { await window.supa.from("pedidos").delete().eq("ped_id",pedId); } catch(e3){} return { ok:false, motivo:e2.message||"error_items" }; }
-      return { ok:true, pedId };
-    } catch (e) { return { ok:false, motivo:(e&&e.message)||"error" }; }
+      if(items.some(it=>it.provCod!==provCod)) return {ok:false,motivo:"Un pedido solo puede contener productos de una piladora."};
+      const condicion=items.some(it=>it.credito)?"credito":"contado";
+      const payload={cliente_id:cli.id,proveedor_id:provCod,condicion,
+        ubicacion_id:retiroBodega?null:((ubicPed&&ubicPed.ubic_id)||null),retiro_bodega:!!retiroBodega,
+        asume_flete:retiroBodega?null:asumeFlete,asume_estibada:retiroBodega?null:asumeEstibada,
+        items:items.map(it=>({prod_id:it.prodId,pres_cod:it.presCod,
+          cantidad_presentacion:Number(it.cant),gratis_presentacion:Number(it.gratis)||0,
+          precio_presentacion:Number(it.precio),tipo_precio:it.tipo,
+          condicion:it.credito?"credito":"contado",promo_id:it.promoId||null,
+          comision_propuesta:it.tipo==="P5"?(Number(it.comision)||0):null}))};
+      const opId="WEB-PED-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,8).toUpperCase();
+      const {data,error}=await window.supa.rpc("registrar_pedido_atomico",{p_payload:payload,p_op_id:opId});
+      if(error) return {ok:false,motivo:error.message||"error_pedido"};
+      const r=(data&&data[0])||data||{};
+      return {ok:true,pedId:r.ped_id||opId,repetido:!!r.repetido,resumen:r.resumen||null};
+    } catch (e) { registrarErrorWeb("pedido.guardar",e); return { ok:false, motivo:(e&&e.message)||"error" }; }
   };
 
   const subirPedido = async () => {
@@ -5114,7 +5133,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     setAviso("Guardando…");
     const res = await guardarPedidoOficina();
     // Si la base rechazó de verdad (no es demo/sin sesión), no seguimos.
-    if (res && !res.ok && (String(res.motivo||"").indexOf("error_")===0)) {
+    if (res && !res.ok && !["cliente_demo","producto_demo","sin_sesion","sin_conexion"].includes(String(res.motivo||""))) {
       setAviso("No se pudo guardar en la base: " + res.motivo + ". Revisa e intenta de nuevo.");
       return;
     }
@@ -5128,7 +5147,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     nuevos.filter(n => n.estado.startsWith("Por autorizar")).forEach(n => {
       const sId = "SL-" + String(Math.max(0, ...SOLIC_INI.map(x=>parseInt(x.id.split("-")[1])||0)) + 1).padStart(4,"0");
       SOLIC_INI.unshift({ id:sId, dir:"entrante", tipo:"precio", de:usuario.nombre||usuario.rol, para:null, cliente:n.cli,
-        detalle:"Pedido #"+n.id+" · "+n.prod+" a "+money(n.precio)+" (precio especial)", fecha:new Date().toISOString().slice(0,10), estado:"pendiente", resp:null });
+        detalle:"Pedido #"+n.id+" · "+n.prod+" a "+money(n.precio)+" (precio especial)", fecha:hoyECWeb(), estado:"pendiente", resp:null });
       auditar(usuario, "Solicitudes", "Solicitud nacida del pedido · 💲 Precio especial", sId, n.cli+" · pedido #"+n.id);
     });
     setPedidos(prev => [...nuevos, ...prev]);
@@ -5143,10 +5162,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     const cant = Number(it.cantidad_qq)||0, precio = Number(it.precio_usd)||0;
     return {
       id: it.item_id || ("N"+Date.now()+Math.floor(Math.random()*1000)), itemId: it.item_id || null,
-      prodId: it.prod_id, prod: it.descripcion || cat.nombre || it.prod_id,
+      prodId: it.prod_id, presCod:it.pres_cod||cat.presCod||null,promoId:it.promo_id||null,
+      prod: it.descripcion || cat.nombre || it.prod_id,
       prov: meta.prov, provCod: meta.provCod, ic: cat.ic || "📦",
       unidad: "qq", equiv: 1, cant, precio, gratis: Number(it.gratis_qq)||0,
-      cond: meta.cond, credito: meta.cond==="Crédito",
+      cond: it.condicion==="contado"?"Contado":it.condicion==="credito"?"Crédito":meta.cond,
+      credito: (it.condicion||"")==="credito" || (!it.condicion&&meta.cond==="Crédito"),
       tipo, tipoNombre: (TIPOS_PRECIO_WEB.find(t=>t.id===tipo)||{}).nombre || "",
       comision: Number(it.comision_usd)||0, total: cant*precio, requiere:false, existente:true,
     };
@@ -5173,29 +5194,13 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     if (!window.supa) { setAviso("Sin conexión con el servidor."); return; }
     setAviso("Guardando…");
     try {
-      const r2 = x => Math.round(x*100)/100;
-      const idsActuales = carrito.map(l => l.itemId).filter(Boolean);
-      const borrar = itemsOriginales.filter(id => !idsActuales.includes(id));
-      for (const l of carrito) {
-        if (Number(l.cant)<=0 || Number(l.precio)<=0) continue;
-        if (l.itemId) {
-          const { error } = await window.supa.from("pedido_items")
-            .update({ cantidad_qq: r2(Number(l.cant)), precio_usd: r2(Number(l.precio)), descripcion: l.prod, prod_id: l.prodId })
-            .eq("item_id", l.itemId);
-          if (error) throw new Error(error.message);
-        } else {
-          const nid = editandoPed + "-I" + Date.now() + Math.floor(Math.random()*1000);
-          const { error } = await window.supa.from("pedido_items").insert({
-            item_id: nid, ped_id: editandoPed, prod_id: l.prodId, descripcion: l.prod,
-            cantidad_qq: r2(Number(l.cant)), precio_usd: r2(Number(l.precio)),
-            tipo_precio: l.tipo||null, gratis_qq: 0, es_demo:false });
-          if (error) throw new Error(error.message);
-        }
-      }
-      if (borrar.length) {
-        const { error } = await window.supa.from("pedido_items").delete().in("item_id", borrar);
-        if (error) throw new Error(error.message);
-      }
+      const payload=vivos.map(l=>({item_id:l.itemId||null,prod_id:l.prodId,pres_cod:l.presCod,
+        cantidad_qq:Number(l.cant),precio_qq:Number(l.precio),gratis_qq:Number(l.gratis)||0,
+        tipo_precio:l.tipo||"P2",condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,
+        comision_propuesta:l.tipo==="P5"?(Number(l.comision)||0):null}));
+      const opId="WEB-EDI-"+editandoPed+"-"+Date.now().toString(36).toUpperCase();
+      const {error}=await window.supa.rpc("editar_pedido_atomico",{p_ped:editandoPed,p_items:payload,p_op_id:opId});
+      if(error) throw new Error(error.message);
       setAviso(""); setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null);
       setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
       setVista("lista");
@@ -5434,27 +5439,20 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
 
   // ════ VISTA ARMAR (pantalla completa, 2 columnas) ════
   return (
-    <div style={{ padding:"12px 28px 40px" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:14, marginBottom:16 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:13, minWidth:0 }}>
-          <div style={{ width:42, height:42, borderRadius:12, background:COLOR.tealLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:21, flexShrink:0 }}>🛒</div>
-          <div style={{ minWidth:0 }}>
-            <h2 style={{ fontSize:19, fontWeight:800, color:COLOR.text }}>Subir pedido</h2>
-            <p style={{ fontSize:12.5, color:COLOR.muted }}>Registra por {usuario.nombre} · tu comisión es la diferencia sobre la base</p>
-          </div>
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+    <div style={{ padding:"10px 28px 28px" }}>
+      <div className="pedido-web-acciones">
           <button onClick={volver} style={{ display:"flex", alignItems:"center", gap:6, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontSize:13, fontWeight:700, color:COLOR.text }}>Cancelar</button>
           <button onClick={()=>window.dispatchEvent(new CustomEvent("nav-inicio"))} style={{ display:"flex", alignItems:"center", gap:6, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:9, padding:"8px 14px", cursor:"pointer", fontSize:13, fontWeight:700, color:COLOR.text }}>⌂ Inicio</button>
-        </div>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 380px", gap:22, alignItems:"start" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 350px", gap:14, alignItems:"start" }}>
 
         {/* IZQUIERDA: formulario en 3 tarjetas */}
         <div className="pedido-web-form" style={{ minWidth:0 }}>
           {/* ── TARJETA 1 · Cliente · Proveedor · Producto (sombra verde) ── */}
-          <div className="pedido-web-ancho" style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(47,158,109,.14)" }}>
+          <details name="pedido-web-seccion" className="pedido-web-plegable pedido-web-ancho">
+          <summary><span>👤 Cliente y proveedor</span><span className="pedido-web-estado">{cli?nombreCortoCliente(cli):"Seleccionar cliente"}{provSel?" · "+provSel:""}</span></summary>
+          <div className="pedido-web-contenido">
           <label style={lbl}>Cliente</label>
           {!cli ? (
             <div style={{ marginBottom:8 }}>
@@ -5498,12 +5496,14 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             </div>
 
           </>)}
-          </div>
+          </div></details>
 
           {/* ── TARJETA PRODUCTO · foto grande + buscador + botón Favoritos (sombra ámbar) ── */}
           {/* Se muestra solo cuando ya hay proveedor elegido (antes solo estorbaba con "elige un proveedor…") */}
           {cli && !cli.bloqueado && provSel && (
-            <div className={prod?"pedido-web-producto":"pedido-web-ancho"} style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(245,166,35,.14)" }}>
+            <details name="pedido-web-seccion" className={"pedido-web-plegable "+(prod?"pedido-web-producto":"pedido-web-ancho")}>
+              <summary><span>🖼️ Producto</span><span className="pedido-web-estado">{prod?prod.nombre:"Seleccionar producto"}</span></summary>
+              <div className="pedido-web-contenido">
               <label style={{ ...lbl, color: provSel?COLOR.text:COLOR.muted, marginBottom:10 }}>Producto</label>
               <div className={prod?"pedido-web-producto-elegido":""} style={{ display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
                 {prod && <div style={{ width:"100%", height:260, borderRadius:14, overflow:"hidden", background:"#fff", border:`1px solid ${COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:58, flexShrink:0 }}>{prod.foto ? <img src={prod.foto} alt={prod.nombre} style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }} /> : prod.ic}</div>}
@@ -5562,13 +5562,16 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                   </>)}
                 </div>
               </div>
-            </div>
+              </div>
+            </details>
           )}
 
           {/* ── TARJETA 2 · ¿Dónde lo recibe? · ¿Quién asume? (sombra azul) ── */}
           {/* Se muestra solo cuando ya hay proveedor elegido */}
           {cli && !cli.bloqueado && provSel && (
-            <div className={prod?"pedido-web-entrega":"pedido-web-ancho"} style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(59,130,246,.13)" }}>
+            <details name="pedido-web-seccion" className={"pedido-web-plegable "+(prod?"pedido-web-entrega":"pedido-web-ancho")}>
+              <summary><span>📍 Entrega, flete y estibada</span><span className="pedido-web-estado">{retiroBodega?"Retiro en bodega":"Entrega a domicilio"}</span></summary>
+              <div className="pedido-web-contenido">
               <label style={lbl}>¿Dónde lo recibe?</label>
               <div style={{ display:"flex", gap:8, marginBottom: (retiroBodega || ubicsCli.length>1) ? 8 : 16 }}>
                 {[["domicilio","🚚 Entrega a domicilio"],["bodega","🏭 Retira en bodega del proveedor"]].map(([k,t])=>{
@@ -5603,12 +5606,15 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                   </div>
                 ))}
               </div>
-            </div>
+              </div>
+            </details>
           )}
 
           {/* ── TARJETA 3 · Tipo de precio y línea (sombra morada) ── */}
           {cli && !cli.bloqueado && prod && (
-            <div className="pedido-web-ancho" style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"20px 22px", boxShadow:"0 6px 20px rgba(139,92,246,.13)" }}>
+            <details name="pedido-web-seccion" className="pedido-web-plegable pedido-web-ancho">
+              <summary><span>💵 Precio, cantidad y comisión</span><span className="pedido-web-estado">{cant&&precio?cant+" "+prod.unidad+" · "+money(totalLinea):"Completar valores"}</span></summary>
+              <div className="pedido-web-contenido">
               <label style={lbl}>Tipo de precio</label>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:7, marginBottom:14 }}>
                 {TIPOS_PRECIO_WEB.map(t => (
@@ -5719,13 +5725,16 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               {excedeCupo && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, marginBottom:8 }}>⚠ Excede el cupo de crédito disponible del cliente.</p>}
 
               <button onClick={agregarLinea} disabled={!valido} style={{ width:"100%", padding:"12px", borderRadius:10, border:"none", cursor: valido?"pointer":"not-allowed", fontSize:14, fontWeight:700, color:"#fff", background: valido?COLOR.teal:"#bcc6cf" }}>+ Agregar al pedido</button>
-            </div>
+              </div>
+            </details>
           )}
         </div>
 
         {/* DERECHA: (superior) resumen · (medio) historial · (inferior) cupo */}
-        <div style={{ position:"sticky", top:20 }}>
-          <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
+        <div style={{ position:"sticky", top:12 }}>
+          <details name="pedido-web-seccion" className="pedido-web-plegable resumen">
+            <summary><span>🛒 Resumen del pedido</span><span className="pedido-web-estado">{carrito.length} producto(s) · {money(totalCarrito)}</span></summary>
+            <div>
             <div style={{ padding:"16px 18px", borderBottom:`1px solid ${COLOR.border}` }}>
               <h3 style={{ fontSize:15, fontWeight:800, color:COLOR.text }}>{editandoPed ? ("Editando pedido "+editandoPed) : "Resumen del pedido"}</h3>
               <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:2 }}>{cli ? cli.nombre : "Sin cliente"} · {carrito.length} producto(s)</p>
@@ -5774,7 +5783,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 <span className="num" style={{ color:COLOR.teal }}>{money(totalCarrito)}</span>
               </div>
             </div>
-          </div>
+            </div>
+          </details>
           {aviso && <p style={{ fontSize:12.5, color:COLOR.red, fontWeight:600, marginTop:12 }}>{aviso}</p>}
           {editandoPed
             ? <button onClick={guardarCambiosPedido} disabled={carrito.length===0} style={{ width:"100%", marginTop:14, padding:"14px", borderRadius:10, border:"none", background: carrito.length?COLOR.teal:"#bcc6cf", color:"#fff", fontSize:15, fontWeight:700, cursor: carrito.length?"pointer":"not-allowed" }}>Guardar cambios · {carrito.length} producto(s)</button>
@@ -5784,7 +5794,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           {/* Historial de compras del producto elegido (como el freelance) */}
           {cli && !cli.bloqueado && prod && (()=>{
             const h = histCompras;
-            const marco = (inner) => <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"14px 16px", marginTop:14 }}>{inner}</div>;
+            const marco = (inner) => <details name="pedido-web-seccion" className="pedido-web-plegable secundario"><summary><span>🕘 Historial de compras</span><span className="pedido-web-estado">{Array.isArray(h)?h.length+" compra(s)":"Consultar"}</span></summary><div className="pedido-web-contenido">{inner}</div></details>;
             if (h === "cargando") return marco(<p style={{ fontSize:12, color:COLOR.muted, margin:0 }}>🕘 Buscando historial…</p>);
             if (!Array.isArray(h) || h.length===0) return marco(<p style={{ fontSize:12, color:COLOR.muted, margin:0 }}>🕘 Primera compra de este producto para este cliente.</p>);
             const precios = h.map(x=>x.precio).filter(x=>x>0);
@@ -6807,7 +6817,7 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
     setGuardandoPrecios(true); setAvisoPrecios("");
     try {
       const r2 = x => Math.round(x*100)/100;
-      const hoy = new Date().toISOString().slice(0,10);
+      const hoy = hoyECWeb();
       let cambios = 0;
       for (const f of (ofertas||[])) {
         for (const pl of f.piladoras) {
@@ -7160,19 +7170,20 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
       const prodId = "P-"+String(n+1).padStart(5,"0");
       const presId = prodId+"-"+pres.cod;
       const ofertaId = prodId+"-"+pres.cod+"-"+provCod;
+      const orgId=await orgActivaWeb();
       const { error:e1 } = await window.supa.from("productos").insert({
         prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo",
-        org_id: "ORG-001", proveedor_cod: provCod, proveedor: provNom, foto: fotoData || null, es_demo: false });
+        org_id: orgId, proveedor_cod: provCod, proveedor: provNom, foto: fotoData || null, es_demo: false });
       if (e1) throw new Error("producto: "+e1.message);
       const { error:e2 } = await window.supa.from("presentaciones").insert({
-        pres_id: presId, prod_id: prodId, producto: nombre.trim(), presentacion_cod: pres.cod, presentacion: pres.nom,
+        pres_id: presId,org_id:orgId,prod_id: prodId, producto: nombre.trim(), presentacion_cod: pres.cod, presentacion: pres.nom,
         equiv_qq: pres.eq, precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), foto: fotoData || null, activo: true, es_demo: false });
       if (e2) throw new Error("presentación: "+e2.message);
       const { error:e3 } = await window.supa.from("ofertas_piladora").insert({
-        oferta_id: ofertaId, prod_id: prodId, pres_cod: pres.cod, presentacion: pres.nom, equiv_qq: pres.eq,
+        oferta_id: ofertaId,org_id:orgId,prod_id: prodId, pres_cod: pres.cod, presentacion: pres.nom, equiv_qq: pres.eq,
         prov_cod: provCod, costo: r2(ccr>0?ccr:cc), costo_contado: r2(cc>0?cc:ccr),
         precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), margen_min: 8,
-        activo: true, vigente_desde: new Date().toISOString().slice(0,10), es_demo: false });
+        activo: true, vigente_desde: hoyECWeb(), es_demo: false });
       if (e3) throw new Error("oferta: "+e3.message);
       setListo(true);
     } catch (e) { setAviso("No se pudo crear: " + (e.message||"error")); }
@@ -7458,20 +7469,20 @@ function promoAvisos(f, otras) {
 /* El formulario → las filas que van a la base. La cabecera SIEMPRE nace
    `pendiente`: activar sin escalones lo prohíbe `tg_promo_guardia`, y los
    escalones se escriben después de la cabecera. */
-function promoFilas(f, promoId) {
+function promoFilas(f, promoId, orgId) {
   const form = f || {};
   const tramos = (form.escalones||[]).map(x => promoTramoDeFila(form.modalidad, x))
     .filter(promoTramoValido).sort((a,b) => a.desde_cant - b.desde_cant);
   const primero = tramos[0] || null;
   const cabecera = {
-    promo_id: promoId, org_id:"ORG-001", nombre: String(form.nombre||"").trim(),
+    promo_id: promoId, org_id:orgId, nombre: String(form.nombre||"").trim(),
     modalidad: form.modalidad, origen: form.origen, prov_cod: form.provCod || null,
     prod_id: form.prodId, pres_cod: promoPresCod(form),
     detalle: primero ? promoCriollo(form.modalidad, primero, form.presNombre, form.equivQQ).linea : null,
     base: null, estado:"pendiente",
     vigente_desde: form.desde, vigente_hasta: form.hasta || null, es_demo:false,
   };
-  const filas = tramos.map(t => ({ promo_id:promoId, modalidad:form.modalidad,
+  const filas = tramos.map(t => ({ promo_id:promoId,org_id:orgId,modalidad:form.modalidad,
     desde_cant:t.desde_cant, gratis_cant:t.gratis_cant, precio_unit:t.precio_unit,
     desc_monto:t.desc_monto, desc_pct:t.desc_pct, es_demo:false }));
   return { cabecera:cabecera, tramos:filas };
@@ -7723,8 +7734,9 @@ function ModalPromocion({ usuario, promo, prods, pres, provs, tramos, otras, onC
     if (!window.supa) { setAvisos(["Sin conexión con el servidor: no se puede guardar."]); return; }
     setGuardando(true);
     const promoId = f.promoId || promoNuevoId();
-    const { cabecera, tramos:filas } = promoFilas(conDatos, promoId);
     try {
+      const orgId=await orgActivaWeb();
+      const { cabecera, tramos:filas } = promoFilas(conDatos, promoId,orgId);
       if (esNueva) {
         /* 1) la cabecera, SIEMPRE pendiente: `tg_promo_guardia` no deja poner
               en pie una promoción que todavía no tiene ni un escalón. */
@@ -7951,7 +7963,7 @@ function preMoney(n) {
   return "$" + Number(n||0).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function preR2(n) { return Math.round(Number(n||0)*100)/100; }
-function preHoy()  { return new Date().toISOString().slice(0,10); }
+function preHoy()  { return hoyECWeb(); }
 /* preAyer() se fue con preCambiarPrecio (b63): sólo servía para cerrar la
    vigencia en `precios`. Las ofertas se cierran con la fecha de HOY. */
 function preMargen(contado, costo) {
@@ -8490,7 +8502,7 @@ function ModalCostoBloque({ ids, usuario, onCerrar, onAplicado }) {
         ok++; setHechos(ok);
         try {
           await window.supa.from("auditoria").insert({
-            org_id: "ORG-001", codigo: au,
+            org_id: await orgActivaWeb(), codigo: au,
             usuario: usuario && usuario.nombre ? usuario.nombre : "",
             tabla: "ofertas_piladora", operacion: "Alza de costo por piladora",
             registro_id: c.ofertaId, fecha: new Date().toISOString(),
@@ -8795,7 +8807,7 @@ function CobranzaWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const esFreelance = usuario.rol === "Freelance";
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
   const r2 = n => Math.round(n*100)/100;
 
   const [items, setItems] = useState(()=>[...CART_REGISTRO]);
@@ -8847,10 +8859,10 @@ function CobranzaWeb({ usuario }) {
     return () => { activo = false; };
   }, []);
   /* el cobro y su anulación también viajan a la base cuando la fuente es viva */
-  const cobroEnBase = (it, ab) => {
+  const cobroEnBase = async (it, ab) => {
     if (fuenteCart !== "vivo") return;
     window.supa.from("cobros").insert({
-      cobro_id: ab.id, org_id: "ORG-001", factura: it.id, cli_id: it.cliId,
+      cobro_id: ab.id, org_id: await orgActivaWeb(), factura: it.id, cli_id: it.cliId,
       monto: ab.monto, via: FORMA_VIA[ab.forma] || "efectivo",
       cheque_numero: ab.forma === "Cheque" ? ab.ref : null,
       referencia: ab.forma !== "Cheque" ? (ab.ref || null) : null,
@@ -10015,7 +10027,7 @@ function EmpresasWeb({ usuario }) {
   /* BOMBA DORMIDA (hallada el 26 jul por el barrido de nombres): aquí se llamaba
      hoy(), que es un ayudante LOCAL de otros módulos y no existe en este. La
      pantalla de Empresas reventaba en cuanto una licencia traía fecha. */
-  const hoyEmp = () => new Date().toISOString().slice(0,10);
+  const hoyEmp = () => hoyECWeb();
   const vence=(f)=>{
     if(!f) return null;
     const dias = Math.round((new Date(f+"T12:00:00") - new Date(hoyEmp()+"T12:00:00"))/86400000);
@@ -10256,7 +10268,7 @@ function FallosWeb({ usuario }) {
 }
 
 function AuditoriaWeb({ usuario }) {
-  const hoyISO = new Date().toISOString().slice(0,10);
+  const hoyISO = hoyECWeb();
   /* ── Fase 1b · Auditoría contra la tabla real (el rastro inmutable de la base).
      Mapeo: audit_id/codigo→codigo, usuario→autor, tabla→modulo, operacion→accion,
      registro_id→objeto, valor_anterior→nuevo→detalle. Sin conexión: demo. ── */
@@ -10519,7 +10531,7 @@ const PRESENTACIONES = ["Quintal", "Arroba 25 lb", "Saco 50 kg", "Saco 25 kg", "
 
 function EmparejarWeb({ usuario }) {
   const soloLectura = usuario.rol === "Administrador de Plataforma";
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
 
   const [equivs, setEquivs] = useState(EQUIV_INI);
@@ -10808,7 +10820,7 @@ function CustodiaWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const esFreelance = usuario.rol === "Freelance";
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
 
   const [tipos, setTipos] = useState(DOC_TIPOS_INI);
   const [docs, setDocs] = useState([...DOCS_AUTO, ...DOCS_INI]);
@@ -11442,7 +11454,7 @@ function ConciliacionWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const esFreelance = usuario.rol === "Freelance";
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
 
   const [pagC2, setPagC2] = useState(0);
   const [movs, setMovs] = useState([...CONC_CARGOS_AUTO, ...CONC_MOVS_INI]);
@@ -11750,7 +11762,7 @@ function ConciliacionWeb({ usuario }) {
 // módulo (cero datos inventados). Solo consulta: por la regla de auditoría, no se audita. ──
 function ReportesWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
   const r2 = n => Math.round(n*100)/100;
   const [tab, setTab] = useState("fye");
   const [per, setPer] = useState("todo");
@@ -12267,7 +12279,7 @@ const SOLIC_INI = [
 function SolicitudesWeb({ usuario }) {
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const esFreelance = usuario.rol === "Freelance";
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
   const [solics, setSolics] = useState(()=>[...SOLIC_INI]);
   const [pagS, setPagS] = useState(0);
   const [tab, setTab] = useState("resolver");
@@ -12364,7 +12376,7 @@ function SolicitudesWeb({ usuario }) {
       rellenar(plantillaDe("PL-04").texto, { solicitud:rechazar.id, tipo:SOLIC_TIPOS[x.tipo], estado:"rechazada", motivo:rechazar.motivo.trim() }));
     setRechazar(null); toast("Solicitud rechazada con motivo. Queda en el historial.");
   };
-  const guardarNueva = () => {
+  const guardarNueva = async () => {
     if (!nueva.tipo) { toast("Elige el tipo de solicitud."); return; }
     if (!nueva.para) { toast("Elige el proveedor."); return; }
     if (!nueva.detalle.trim()) { toast("Describe la solicitud."); return; }
@@ -12376,7 +12388,7 @@ function SolicitudesWeb({ usuario }) {
     /* con datos vivos, la solicitud elevada TAMBIÉN nace en la base */
     if (fuenteSol === "vivo") {
       window.supa.from("solicitudes").insert({
-        sol_id: nId, org_id: "ORG-001", tipo: nueva.tipo, origen_id: miUsrS,
+        sol_id: nId, org_id: await orgActivaWeb(), tipo: nueva.tipo, origen_id: miUsrS,
         destino: "proveedor", prov_cod: provsMap[nueva.para] || null, cli_id: null,
         detalle: (nueva.cliente.trim() ? "[" + nueva.cliente.trim() + "] " : "") + nueva.detalle.trim(),
         estado: "pendiente", es_demo: false })
@@ -12519,7 +12531,7 @@ function SolicitudesWeb({ usuario }) {
 // los módulos. Cada línea navega a su módulo. Solo consulta: no se audita. ──
 function ResumenDiaWeb({ usuario, navegar }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const hoyISO = new Date().toISOString().slice(0,10);
+  const hoyISO = hoyECWeb();
   const r2 = n => Math.round(n*100)/100;
   const dias = f => Math.round((new Date(hoyISO+"T12:00:00") - new Date(f+"T12:00:00"))/86400000);
   const card = { background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12 };
@@ -12769,7 +12781,7 @@ const comunicar = (quien, evento, para, canal, texto, estado) => {
         MI_USR_ID = (u && u.usr_id) || null;
       }
       await window.supa.from("comunicaciones").insert({
-        msg_id:"MSG-"+d.getTime(), org_id:"ORG-001", canal,
+        msg_id:"MSG-"+d.getTime(), org_id:await orgActivaWeb(), canal,
         destinatario:para || null, contenido:texto || "",
         relacion:evento || null, enviado_por:MI_USR_ID, es_demo:false });
     }catch(e){}
@@ -12836,7 +12848,7 @@ function AdjuntoChat({ ruta, tipo, dur, mio }) {
 function ComunicacionWeb({ usuario }) {
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const esFreelance = usuario.rol === "Freelance";
-  const hoyISO = new Date().toISOString().slice(0,10);
+  const hoyISO = hoyECWeb();
   const [tab, setTab] = useState("mensajes");
   const [msgs, setMsgs] = useState(()=>[...COMUNICACIONES]);
   /* v44 · Bitácora REAL de comunicaciones. v45 · Chat interno REAL (abajo). */
@@ -12991,14 +13003,14 @@ function ComunicacionWeb({ usuario }) {
         /* v45 · con chat vivo se escribe en la base; sin sesión, demo local */
         const nuevoId = ()=>"CH-"+Date.now()+"-"+Math.floor(Math.random()*1000);
         const mandarReal = async (tipo, extra)=>{
-          const fila = { msg_id:nuevoId(), org_id:"ORG-001", de_usr:miUsr, para_usr:chatSel,
+          const fila = { msg_id:nuevoId(), org_id:await orgActivaWeb(), de_usr:miUsr, para_usr:chatSel,
             tipo, texto:(extra&&extra.texto)||null, adjunto:(extra&&extra.adjunto)||null, es_demo:false };
           const { error } = await window.supa.from("chat_mensajes").insert(fila);
           if(error){ toast("No se pudo enviar: "+(error.message||"error")); return false; }
           /* se ve al instante; si el eco de tiempo real llega, no se duplica */
           setChatMsgs(prev => prev.some(x=>x.id===fila.msg_id) ? prev : [...prev,
             { id:fila.msg_id, contacto:chatSel, de:"yo", tipo, texto:fila.texto||"",
-              adjunto:fila.adjunto, fecha:new Date().toISOString().slice(0,10),
+              adjunto:fila.adjunto, fecha:hoyECWeb(),
               hora:new Date().toTimeString().slice(0,5), leido:false }]);
           return true;
         };
@@ -13226,7 +13238,7 @@ function ComunicacionWeb({ usuario }) {
 function TableroPrincipal({ usuario, navegar }) {
   const ir = navegar || (() => {});
   const money = n => "$" + Number(n || 0).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const hoyISO = new Date().toISOString().slice(0, 10);
+  const hoyISO = hoyECWeb();
   const soloDia = v => (v == null ? "" : ("" + v).slice(0, 10));
 
   /* ── El reloj del encabezado. Se refresca cada 30 s: no hace falta al
@@ -14212,7 +14224,7 @@ function EstibadaFletesWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const esFreelance = usuario.rol === "Freelance";
-  const hoy = () => new Date().toISOString().slice(0,10);
+  const hoy = () => hoyECWeb();
 
   const [viajes, setViajes] = useState(()=>[...EF_VIAJES_INI]);
   const [transportistas, setTransportistas] = useState(EF_TRANSPORTISTAS_INI);
@@ -16147,7 +16159,7 @@ function CalidadWeb({ usuario }) {
       const { data:u } = await window.supa.from("usuarios").select("usr_id").eq("auth_uid", ses.user.id).maybeSingle();
       if(u) quienId=u.usr_id;
     }catch(e){}
-    const fila = { qc_id, org_id:"ORG-001", prov_cod:provCod, piladora:c.piladora, guia:c.guia,
+    const fila = { qc_id, org_id:await orgActivaWeb(), prov_cod:provCod, piladora:c.piladora, guia:c.guia,
       fecha:c.fecha, hora:c.hora, producto:"Arroz", resultado:c.resultado,
       calif_peso:c.califPeso, calif_calidad:c.califCalidad, calif_coccion:c.califCoccion,
       calif_sensorial:c.califSensorial, nota:c.obsFinales||null,
@@ -16236,7 +16248,7 @@ function CalidadWeb({ usuario }) {
 function ModalControlCalidad({ onCerrar, onGuardar }) {
   const [piladora, setPiladora] = useState("");
   const [guia, setGuia] = useState("");
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0,10));
+  const [fecha, setFecha] = useState(hoyECWeb());
   const [hora, setHora] = useState("");
   const [responsable, setResponsable] = useState("");
   const [respCalidad, setRespCalidad] = useState("");
@@ -17531,8 +17543,8 @@ function ClientesWeb({ usuario, navegar }) {
 
   // Guardar cliente desde la pantalla (crear o editar)
   // Convierte el cliente del front (camelCase) al formato de la base (snake_case)
-  const aFilaSupabase = (c) => ({
-    cli_id: c.id, org_id: c.orgId || "ORG-001", nombre: c.nombre, razon_social: c.razonSocial, representante_legal: c.representanteLegal || null, representante_ci: c.representanteCi || null, tipo: c.tipo, ruc: c.ruc,
+  const aFilaSupabase = async (c) => ({
+    cli_id: c.id, org_id: c.orgId || await orgActivaWeb(), nombre: c.nombre, razon_social: c.razonSocial, representante_legal: c.representanteLegal || null, representante_ci: c.representanteCi || null, tipo: c.tipo, ruc: c.ruc,
     tel: c.telefono, tel2: c.telefono2, email: c.email, canal: c.canal, lista_precio: c.listaPrecio,
     forma: c.forma, descuento: c.descuento, referencial: c.referencial, segmento: c.segmento,
     cupo: c.cupo, cupo2: parseFloat(c.cupo2)||0, meses_cupo2: parseInt(c.mesesCupo2)||3, nivel_cupo: c.nivelCupo||"Cupo 1",
@@ -17577,7 +17589,7 @@ function ClientesWeb({ usuario, navegar }) {
       const fallos = [];
       const chk = (r, que) => { if (r && r.error) fallos.push("· " + que + ": " + (r.error.message || "error")); return r; };
       try {
-        const fila = aFilaSupabase(datos);
+        const fila = await aFilaSupabase(datos);
         if (esEdicion) chk(await window.supa.from("clientes").update(fila).eq("cli_id", datos.id), "la ficha del cliente");
         else chk(await window.supa.from("clientes").insert(fila), "la ficha del cliente");
 
@@ -17659,7 +17671,7 @@ function ClientesWeb({ usuario, navegar }) {
      Cuando un dato no existe todavía se dice con palabras ("sin compras
      registradas") en vez de inventar una cifra: un número falso en la
      pantalla de decisión es peor que un espacio en blanco. */
-  const hoyISO_ = new Date().toISOString().slice(0,10);
+  const hoyISO_ = hoyECWeb();
   const dia_ = v => (v==null ? "" : (""+v).slice(0,10));
   const resumenDe = (c) => {
     const A = apoyo;
@@ -18840,11 +18852,11 @@ function App() {
         const usr = data && data.session && data.session.user;
         if (usr && usr.id) {
           const { data: pad } = await window.supa.from("usuarios")
-            .select("nombre,rol,activo").eq("auth_uid", usr.id).limit(1);
+            .select("nombre,rol,activo,org_id").eq("auth_uid", usr.id).limit(1);
           const per = (pad || [])[0];
           if (per && per.activo) {
             setSesion(resolverSesion({ usuario: usr.email, clave: "", nombre: per.nombre,
-              cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: "EMP-001", real: true }));
+              cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
           }
         }
       } catch (e) {}

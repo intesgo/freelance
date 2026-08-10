@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════
    EL PRECIO VIVE EN LA OFERTA DE LA PILADORA · sistema-web
 
-   Qué se rompía, medido contra producción (ztpwtddrblfvcnnhbevq, 06/08/2026):
+   Qué se rompía, reproducido con un fixture completamente sintético:
    la tabla `precios` quedó congelada el 24/07/2026 con 58 filas y ninguna
    nueva. `ofertas_piladora` tiene 153 filas vigentes y recibió datos el
    05/08. Ninguna app del celular lee ya `precios`. El único que todavía
@@ -69,31 +69,31 @@ const MUTANTES_ESPERADOS = 16;
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 60));
 const HOY = new Date().toISOString().slice(0,10);   /* la misma cuenta que hace preHoy() */
 
-/* ══ La base de prueba, con la forma exacta de producción ══
-   Los números salen de filas reales medidas el 06/08/2026: el costo de
+/* ══ La base de prueba, con la forma del contrato de producción ══
+   Los números son completamente sintéticos: el costo de
    crédito es el de contado más $1,00 por quintal, y el precio de crédito es
    el de contado más $1,00 por quintal. La utilidad al contado y a crédito
    son la MISMA en dólares. */
 const PRODUCTOS_BD = [
-  { prod_id:"P-00012", nombre:"Arroz Conejo",    linea:"Arroz", estado:"activo" },
-  { prod_id:"P-00195", nombre:"Arroz Gustadina", linea:"Arroz", estado:"activo" },
-  { prod_id:"P-00300", nombre:"Maíz Duro",       linea:"Maíz",  estado:"activo" },
+  { prod_id:"P-00012", nombre:"Producto Demo A", linea:"Arroz", estado:"activo" },
+  { prod_id:"P-00195", nombre:"Producto Demo B", linea:"Arroz", estado:"activo" },
+  { prod_id:"P-00300", nombre:"Producto Demo C", linea:"Maíz",  estado:"activo" },
   /* P-BAJA NO está: es un producto dado de baja que todavía tiene oferta viva */
 ];
 const PROVEEDORES_BD = [
-  { prov_cod:"AGU", nombre:"Piladora San Agustín" },
-  { prov_cod:"ROS", nombre:"Piladora Rosales" },
+  { prov_cod:"AGU", nombre:"Proveedor Demo A" },
+  { prov_cod:"ROS", nombre:"Proveedor Demo B" },
 ];
 /* El orden importa: la vista previa respeta el orden en que llegan. */
 const OFERTAS_BD = [
-  /* Arroz Conejo · San Agustín · las TRES presentaciones que engañan */
+  /* Producto Demo A · Proveedor Demo A · las TRES presentaciones que engañan */
   { oferta_id:"P-00012-QQ-AGU",  prod_id:"P-00012", pres_cod:"QQ",  presentacion:"Quintal",         equiv_qq:1,
     prov_cod:"AGU", costo:19,   costo_contado:18,   precio_contado:22,   precio_credito:23,   margen_min:8, vigente_desde:"2026-07-01", vigente_hasta:null },
   { oferta_id:"P-00012-ARR-AGU", prod_id:"P-00012", pres_cod:"ARR", presentacion:"Arroba",          equiv_qq:0.25,
     prov_cod:"AGU", costo:4.75, costo_contado:4.50, precio_contado:5.50, precio_credito:5.75, margen_min:8, vigente_desde:"2026-07-01", vigente_hasta:null },
   { oferta_id:"P-00012-L10-AGU", prod_id:"P-00012", pres_cod:"L10", presentacion:"Funda 10 libras", equiv_qq:0.1,
     prov_cod:"AGU", costo:1.90, costo_contado:1.80, precio_contado:2.20, precio_credito:2.30, margen_min:8, vigente_desde:"2026-07-01", vigente_hasta:null },
-  /* Arroz Gustadina · DOS piladoras cobrando distinto por lo mismo */
+  /* Producto Demo B · DOS proveedores con valores distintos por lo mismo */
   { oferta_id:"P-00195-QQ-AGU",  prod_id:"P-00195", pres_cod:"QQ",  presentacion:"Quintal",         equiv_qq:1,
     prov_cod:"AGU", costo:21,   costo_contado:20,   precio_contado:22.50, precio_credito:23.50, margen_min:8, vigente_desde:"2026-07-20", vigente_hasta:null },
   { oferta_id:"P-00195-QQ-ROS",  prod_id:"P-00195", pres_cod:"QQ",  presentacion:"Quintal",         equiv_qq:1,
@@ -107,7 +107,7 @@ const OFERTAS_BD = [
 ];
 /* La cadena vieja de `precios`, congelada en julio. Sólo la lee el historial. */
 const PRECIOS_BD = [
-  { prod_id:"P-00012", producto:"Arroz Conejo", base_contado:21, base_credito:22, costo_prov:18,
+  { prod_id:"P-00012", producto:"Producto Demo A", base_contado:21, base_credito:22, costo_prov:18,
     origen:"Ajuste manual", motivo:"", vigente_desde:"2026-07-24", vigente_hasta:null },
 ];
 
@@ -167,11 +167,11 @@ function montar(js) {
     return enc;
   }
   w.supa = {
-    auth: { getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"intesgo@gmail.com" } } } }),
+    auth: { getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"qa@example.invalid" } } } }),
             onAuthStateChange: () => ({ data:{ subscription:{ unsubscribe(){} } } }),
             getUser: async () => ({ data:{ user:{ id:"u1" } } }), signOut: async () => ({}) },
     from: (t) => consulta(t, []),
-    rpc: async () => ({ data:null }),
+    rpc: async (nombre) => nombre==="mi_org_activa" ? { data:"ORG-001", error:null } : { data:null, error:null },
     functions: { invoke: async () => ({ data:{}, error:null }) },
     storage: { from: () => ({ upload:async()=>({}), createSignedUrl:async()=>({data:null}) }) },
   };
@@ -231,7 +231,7 @@ function montar(js) {
       document.body.appendChild(window.__c);
       ReactDOM.flushSync(function(){
         ReactDOM.createRoot(window.__c).render(React.createElement(PreciosWeb, {
-          usuario: { usuario:"richard", nombre:"Richard Ramírez", cargo:"freelance",
+          usuario: { usuario:"qa", nombre:"Usuario QA", cargo:"freelance",
                      rol:"Freelance", empresaId:"ORG-001", secciones:[] } }));
       });
     };
@@ -292,11 +292,11 @@ async function bateria(js, fuente, ruidoso) {
   comprobar("la pantalla lee `v_ofertas_vigentes` y NO lee `precios`",
     m.lecturas.indexOf("v_ofertas_vigentes") >= 0 && m.lecturas.indexOf("precios") < 0);
   comprobar("en pantalla: se ve el producto por su nombre",
-    /Arroz Conejo/.test(t0) && /Arroz Gustadina/.test(t0));
+    /Producto Demo A/.test(t0) && /Producto Demo B/.test(t0));
   comprobar("en pantalla: se ve la presentación con su equivalencia en quintales",
     /Funda 10 libras/.test(t0) && /\(0\.1 qq\)/.test(t0) && /Arroba/.test(t0) && /\(0\.25 qq\)/.test(t0));
   comprobar("en pantalla: se ve la PILADORA por su nombre, no el código pelado",
-    /Piladora San Agustín/.test(t0) && /Piladora Rosales/.test(t0));
+    /Proveedor Demo A/.test(t0) && /Proveedor Demo B/.test(t0));
   comprobar("en pantalla: se ve el precio de CONTADO de la oferta",
     t0.indexOf("contado " + money(22)) >= 0);
   comprobar("en pantalla: se ve el precio de CRÉDITO de la oferta",
@@ -309,7 +309,7 @@ async function bateria(js, fuente, ruidoso) {
     /El precio ya no se escribe aquí: vive en la oferta de cada piladora/.test(t0));
 
   /* ══ C) LA CUENTA · mantener el margen es mantener el DÓLAR por quintal ══
-     Los tres renglones son los de Arroz Conejo: quintal, arroba y funda. */
+     Los tres renglones son los de Producto Demo A: quintal, arroba y funda. */
   const oQQ  = { costo:19,   costoContado:18,   contado:22,   credito:23,   equivQq:1 };
   const oARR = { costo:4.75, costoContado:4.50, contado:5.50, credito:5.75, equivQq:0.25 };
   const oL10 = { costo:1.90, costoContado:1.80, contado:2.20, credito:2.30, equivQq:0.1 };
@@ -356,11 +356,11 @@ async function bateria(js, fuente, ruidoso) {
   await esperar(220);
   const t1 = txt();
   comprobar("PASO 1 · ofrece las piladoras con cuántas ofertas tiene cada una",
-    /Piladora San Agustín/.test(t1) && /5 oferta/.test(t1) && /1 oferta/.test(t1));
+    /Proveedor Demo A/.test(t1) && /5 oferta/.test(t1) && /1 oferta/.test(t1));
   comprobar("PASO 1 · la oferta de un producto dado de baja se deja fuera Y SE DICE",
     /1 oferta\(s\) se dejan fuera/.test(t1));
 
-  corre(m, `window.__tocar("button","Piladora San Agustín")`);
+  corre(m, `window.__tocar("button","Proveedor Demo A")`);
   await esperar(200);
   const t2 = txt();
   comprobar("PASO 2 · elegida la piladora, se pide la línea de grano",
@@ -403,10 +403,10 @@ async function bateria(js, fuente, ruidoso) {
 
   comprobar("CERROJO EN VIVO · con la subida ya guardada, NI UNA escritura fue a `precios`",
     m.escrituras.filter(e => e.tabla === "precios").length === 0);
-  comprobar("GUARDA · sólo se tocaron ofertas de la piladora elegida (ninguna de Rosales)",
+  comprobar("GUARDA · sólo se tocaron ofertas del proveedor elegido (ninguna del proveedor B)",
     cierres.every(c => c.donde[1].indexOf("-ROS") < 0) &&
     inserts.every(f => f.prov_cod === "AGU"));
-  comprobar("GUARDA · la otra línea de grano de la MISMA piladora no se movió (Maíz Duro)",
+  comprobar("GUARDA · la otra línea de grano del MISMO proveedor no se movió (Producto Demo C)",
     !porId("P-00300-QQ-AGU") && cierres.every(c => c.donde[1] !== "P-00300-QQ-AGU"));
   comprobar("GUARDA · el renglón destildado NO se guardó (la funda de 10 libras)",
     !porId("P-00012-L10-AGU") && cierres.every(c => c.donde[1] !== "P-00012-L10-AGU"));
