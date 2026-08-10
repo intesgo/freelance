@@ -10,12 +10,12 @@ const probar = (ok, mensaje) => {
   else { mal++; console.error("✗ " + mensaje); }
 };
 
-probar(/const VERSION = \{ n:"421"/.test(app), "la aplicación debe anunciar v421");
-probar(/const CACHE = "freelance-v211"/.test(sw), "el service worker debe renovar la caché a v211");
+probar(/const VERSION = \{ n:"422"/.test(app), "la aplicación debe anunciar v422");
+probar(/const CACHE = "freelance-v212"/.test(sw), "el service worker debe renovar la caché a v212");
 
 probar(/className="busc-grande proveedor-destacado"/.test(app), "el buscador de proveedor debe estar resaltado");
 probar(/items=\{PROVS_PED\} sinLabel value=\{prov\} multiPalabra/.test(app), "el proveedor debe buscar por palabras sueltas");
-probar(/Puedes escribir palabras sueltas/.test(app), "el buscador debe explicar la búsqueda por palabras");
+probar(!/Puedes escribir palabras sueltas/.test(app), "el buscador no debe mostrar la ayuda de palabras sueltas");
 
 probar(/const \[secMenu,setSecMenu\]=useState\(""\)/.test(app), "los grupos deben iniciar plegados");
 probar(/const abrirMenu=React\.useCallback\(\(\)=>\{ setSecMenu\(""\); setMenuAbierto\(true\); \},\[\]\)/.test(app), "cada apertura debe plegar los grupos");
