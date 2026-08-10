@@ -31,12 +31,12 @@ const DEL_EQUIPO = ["Comisionista", "socio-comercial"];
 const PLAN = [
   { arnes:"ARNES_GLOBALES.js",       que:"nombres sueltos que revientan la app", apps:LAS_APPS },
   { arnes:"test_puerta.js",          que:"la puerta: sin sesión no se entra",    apps:LAS_APPS,
-    salvo:{ "freelance-completo": "por decisión de Richard conserva su propio ingreso con correo y clave real, como respaldo del portal" } },
+    salvo:{ "freelance-completo": "por decisión operativa conserva su propio ingreso con correo y clave, como respaldo del portal" } },
   { arnes:"test_no_se_cae.js",       que:"la app no se queda en blanco",         apps:LAS_APPS },
   { arnes:"test_barra_leer.js",      que:"la barra se esconde al leer",          apps:LAS_APPS,
     salvo:{ "transportista-app": "no tiene barra inferior: no hay nada que esconder" } },
   { arnes:"test_barra_conectada.js", que:"la barra lee del sistema",             apps:["freelance-completo"] },
-  { arnes:"test_barra_equipo.js",    que:"la barra del equipo con datos reales", apps:DEL_EQUIPO },
+  { arnes:"test_barra_equipo.js",    que:"la barra del equipo con fixtures sintéticos", apps:DEL_EQUIPO },
   { arnes:"test_barra_prov.js",      que:"la barra de la piladora",              apps:["proveedor-freelance"] },
   { arnes:"test_costo_piladora.js", que:"la piladora cambia su costo con fecha", apps:["proveedor-freelance"] },
   { arnes:"test_pedido_real.js",     que:"el pedido del vendedor llega a la base", apps:["Comisionista"] },
@@ -80,7 +80,7 @@ const PLAN = [
   { arnes:"test_promos_carga.js",    que:"cargar una promoción sin escribir SQL", apps:[null] },
   /* La segunda pantalla de Clientes (la ficha del seleccionado) se rediseñó a la
      maqueta del PO en ago/2026: sin sello de fuente ni conteos, veredicto binario
-     con el motivo real, rejilla de tarjetitas con datos reales y los 4 botones. */
+     con el motivo funcional, rejilla de tarjetas con dobles sintéticos y los 4 botones. */
   { arnes:"test_ficha_cliente.js",   que:"la ficha del cliente seleccionado (maqueta del PO)", apps:[null] },
   /* La lista de Pedidos sacaba el nombre del cliente de la POSICIÓN de la fila
      (un setPedidos por índice que pisaba también los reales), no del pedido.
@@ -97,11 +97,13 @@ const PLAN = [
   { arnes:"test_asistente_cartera.js", que:"el asistente no inventa números",    apps:[null] },
   { arnes:"test_cambios_419.js",      que:"fotos completas, proveedor por palabras y menú plegado", apps:[null] },
   { arnes:"test_cambios_422.js",      que:"portada, pedido web y scroll de productos", apps:[null] },
-  /* este mira el sistema web, que vive en el repo privado: solo corre si se le dice dónde */
-  { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null], soloSi:"SISTEMA_WEB" },
-  { arnes:"test_menu_web.js",        que:"el menú del sistema web",              apps:[null], soloSi:"SISTEMA_WEB" },
-  { arnes:"test_dashboard_cliente.js", que:"el historial del cliente no inventa", apps:[null], soloSi:"SISTEMA_WEB" },
-  { arnes:"test_dueno_vendedor.js",  que:"a quién pertenece un cliente",         apps:[null], soloSi:"SISTEMA_WEB" },
+  { arnes:"test_operacion_424.js",     que:"fechas EC, demo aislado, errores y pedidos offline", apps:[null] },
+  /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
+     la regresión normal y no deben quedar omitidos por falta de una variable. */
+  { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },
+  { arnes:"test_menu_web.js",        que:"el menú del sistema web",              apps:[null] },
+  { arnes:"test_dashboard_cliente.js", que:"el historial del cliente no inventa", apps:[null] },
+  { arnes:"test_dueno_vendedor.js",  que:"a quién pertenece un cliente",         apps:[null] },
   /* la función de avisos también vive en el repo privado */
   { arnes:"test_avisos_costo.js",    que:"el aviso cuando cambia un costo",      apps:[null], soloSi:"AVISOS_TS" },
   { arnes:"test_avisos_pedido_piladora.js", que:"la piladora se entera del pedido", apps:[null], soloSi:"AVISOS_TS" },

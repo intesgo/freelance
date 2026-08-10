@@ -7,11 +7,8 @@
    `precios`. El catálogo y la cotización ya migraron, pero el módulo PEDIDO
    seguía leyendo `precios`: el vendedor VEÍA el producto y hasta lo cotizaba,
    pero al llegar a «Tomar pedido» el producto no estaba y NO se podía pedir.
-   Medido contra producción el 05/08/2026 (ztpwtddrblfvcnnhbevq):
-   59 productos activos · 58 con fila vigente en `precios` · 59 con oferta
-   vigente · 153 ofertas vigentes · 0 de demostración. El que faltaba era
-   P-00197 «Arroz Crecedor»: activo, sin marca, 2 presentaciones, 2 ofertas
-   vivas de Piladora San Agustín ($37,00 contado / $38,00 crédito el quintal).
+   El fixture sintético incluye un producto activo, sin marca y sin filas en
+   `precios`, pero con dos presentaciones y ofertas vigentes.
 
    EL PELIGRO DE ESTE CAMBIO ES EL PRECIO, y por eso media prueba lo vigila:
    en la ficha de Productos el precio se muestra POR QUINTAL (precio ÷ equiv_qq);
@@ -61,54 +58,54 @@ const dia = (n) => { const d = new Date(Date.now() + n * 86400000);
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
 const HOY = dia(0), AYER = dia(-1), MANANA = dia(1);
 
-/* ══ La base de prueba, con la forma de producción ══ */
+/* ══ Fixture sintético con la forma del contrato de producción ══ */
 const PRODUCTOS_BD = [
-  { prod_id:"P-00001", nombre:"Arrocillo Envejecido", marca:"Arrocillo Envejecido",
+  { prod_id:"PROD-DEMO-A", nombre:"Producto Demo A", marca:"Marca Demo A",
     linea:"Arroz", proveedor:"POR ASIGNAR", proveedor_cod:null, foto:null, estado:"activo" },
-  /* el huérfano de verdad: sin marca y sin una sola fila en `precios` */
-  { prod_id:"P-00197", nombre:"Arroz Crecedor", marca:null,
-    linea:"Arroz", proveedor:"Piladora San Agustín", proveedor_cod:"AGU", foto:null, estado:"activo" },
+  /* producto sintético sin marca y sin una sola fila en `precios` */
+  { prod_id:"PROD-DEMO-B", nombre:"Producto Demo B", marca:null,
+    linea:"Arroz", proveedor:"Proveedor Demo A", proveedor_cod:"PROV-DEMO-A", foto:null, estado:"activo" },
   /* dado de baja: aunque tenga oferta viva, no se vende */
-  { prod_id:"P-BAJA", nombre:"Arroz Retirado", marca:"Retirado",
+  { prod_id:"PROD-DEMO-INACTIVO", nombre:"Producto Demo Inactivo", marca:"Marca Demo Inactiva",
     linea:"Arroz", proveedor:"POR ASIGNAR", proveedor_cod:null, foto:null, estado:"inactivo" },
 ];
 
 const OFERTAS_BD = [
   /* Arrocillo: dos presentaciones × dos piladoras. En el PEDIDO la piladora se
-     elige primero, así que cada una conserva SU precio: Cordero cobra más. */
-  { prod_id:"P-00001", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"AGU", costo:17.50, costo_contado:17.00, precio_contado:19.00, precio_credito:20.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
-  { prod_id:"P-00001", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"AGU", costo:4.40,  costo_contado:4.25,  precio_contado:4.75,  precio_credito:5.00,  activo:true, vigente_desde:AYER, vigente_hasta:null },
-  { prod_id:"P-00001", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"COR", costo:19.00, costo_contado:18.50, precio_contado:21.00, precio_credito:22.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+     elige primero, así que cada una conserva SU precio: el proveedor B cobra más. */
+  { prod_id:"PROD-DEMO-A", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"PROV-DEMO-A", costo:17.50, costo_contado:17.00, precio_contado:19.00, precio_credito:20.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-A", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"PROV-DEMO-A", costo:4.40,  costo_contado:4.25,  precio_contado:4.75,  precio_credito:5.00,  activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-A", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"PROV-DEMO-B", costo:19.00, costo_contado:18.50, precio_contado:21.00, precio_credito:22.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
   /* la MISMA piladora con dos ofertas vivas del mismo quintal: manda la barata */
-  { prod_id:"P-00001", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"COR", costo:19.00, costo_contado:18.50, precio_contado:25.00, precio_credito:26.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-A", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"PROV-DEMO-B", costo:19.00, costo_contado:18.50, precio_contado:25.00, precio_credito:26.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
   /* tres trampas baratas: si alguna entra, el precio se desploma y se nota */
-  { prod_id:"P-00001", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"AGU", costo:1, costo_contado:1, precio_contado:1.00, precio_credito:1.00, activo:true,  vigente_desde:"2026-01-01", vigente_hasta:AYER },
-  { prod_id:"P-00001", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"AGU", costo:2, costo_contado:2, precio_contado:2.00, precio_credito:2.00, activo:false, vigente_desde:AYER,         vigente_hasta:null },
-  { prod_id:"P-00001", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"AGU", costo:3, costo_contado:3, precio_contado:3.00, precio_credito:3.00, activo:true,  vigente_desde:MANANA,       vigente_hasta:null },
+  { prod_id:"PROD-DEMO-A", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"PROV-DEMO-A", costo:1, costo_contado:1, precio_contado:1.00, precio_credito:1.00, activo:true,  vigente_desde:"2026-01-01", vigente_hasta:AYER },
+  { prod_id:"PROD-DEMO-A", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"PROV-DEMO-A", costo:2, costo_contado:2, precio_contado:2.00, precio_credito:2.00, activo:false, vigente_desde:AYER,         vigente_hasta:null },
+  { prod_id:"PROD-DEMO-A", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"PROV-DEMO-A", costo:3, costo_contado:3, precio_contado:3.00, precio_credito:3.00, activo:true,  vigente_desde:MANANA,       vigente_hasta:null },
   /* sin equivalencia no se puede pasar a quintales: no se ofrece */
-  { prod_id:"P-00001", pres_cod:"SAC", presentacion:"Saco raro", equiv_qq:null, prov_cod:"AGU", costo:5, costo_contado:5, precio_contado:7.00, precio_credito:7.50, activo:true, vigente_desde:AYER, vigente_hasta:null },
-  /* Arroz Crecedor: una piladora, dos presentaciones. CERO filas en `precios`. */
-  { prod_id:"P-00197", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"AGU", costo:34.00, costo_contado:33.00, precio_contado:37.00, precio_credito:38.00, activo:true, vigente_desde:HOY, vigente_hasta:null },
-  { prod_id:"P-00197", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"AGU", costo:8.50,  costo_contado:8.25,  precio_contado:9.25,  precio_credito:9.50,  activo:true, vigente_desde:HOY, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-A", pres_cod:"SAC", presentacion:"Saco raro", equiv_qq:null, prov_cod:"PROV-DEMO-A", costo:5, costo_contado:5, precio_contado:7.00, precio_credito:7.50, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  /* Producto Demo B: un proveedor, dos presentaciones. CERO filas en `precios`. */
+  { prod_id:"PROD-DEMO-B", pres_cod:"QQ",  presentacion:"Quintal", equiv_qq:1,    prov_cod:"PROV-DEMO-A", costo:34.00, costo_contado:33.00, precio_contado:37.00, precio_credito:38.00, activo:true, vigente_desde:HOY, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-B", pres_cod:"ARR", presentacion:"Arroba",  equiv_qq:0.25, prov_cod:"PROV-DEMO-A", costo:8.50,  costo_contado:8.25,  precio_contado:9.25,  precio_credito:9.50,  activo:true, vigente_desde:HOY, vigente_hasta:null },
   /* el dado de baja sí tiene oferta viva: lo que lo saca es el producto */
-  { prod_id:"P-BAJA", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"AGU", costo:9, costo_contado:9, precio_contado:10.00, precio_credito:10.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
+  { prod_id:"PROD-DEMO-INACTIVO", pres_cod:"QQ", presentacion:"Quintal", equiv_qq:1, prov_cod:"PROV-DEMO-A", costo:9, costo_contado:9, precio_contado:10.00, precio_credito:10.00, activo:true, vigente_desde:AYER, vigente_hasta:null },
 ];
 
 const PROVEEDORES_BD = [
-  { prov_cod:"AGU", nombre:"Piladora San Agustín", es_demo:false },
-  { prov_cod:"COR", nombre:"Piladora Cordero",     es_demo:false },
+  { prov_cod:"PROV-DEMO-A", nombre:"Proveedor Demo A", es_demo:false },
+  { prov_cod:"PROV-DEMO-B", nombre:"Proveedor Demo B", es_demo:false },
 ];
 
 const CLIENTES_BD = [
-  { cli_id:"CLI-A", nombre:"ROCELUMA CIA LTDA", razon_social:"ROCELUMA CIA LTDA",
+  { cli_id:"CLI-DEMO", nombre:"Cliente Demo", razon_social:"Cliente Demo S.A.",
     es_demo:false, activo:true, bloqueado:false },
 ];
 const UBIC_BD = [
-  { ubic_id:"U-1", cli_id:"CLI-A", nombre:"Matriz", principal:true, tipo_entrega:"domicilio",
-    ciudad:"Cuenca", direccion:"Mariscal Lamar 2-59", activo:true },
+  { ubic_id:"UBI-DEMO", cli_id:"CLI-DEMO", nombre:"Local Demo", principal:true, tipo_entrega:"domicilio",
+    ciudad:"Ciudad Demo", direccion:"Dirección Demo", activo:true },
 ];
 
-/* `precios` VACÍA: es el estado real de un producto nuevo del sistema web.
+/* `precios` VACÍA: simula el estado de un producto nuevo del sistema web.
    Si el pedido volviera a depender de ella, aquí no habría nada que pedir. */
 const PRECIOS_BD = [];
 
@@ -121,8 +118,8 @@ function datosDe(t) {
   if (t === "ubicaciones_cliente")return UBIC_BD;
   if (t === "precios")            return PRECIOS_BD;
   if (t === "presentaciones")     return [];
-  if (t === "pedidos")            return [{ ped_id:"PD-0012" }];
-  if (t === "usuarios")           return [{ usr_id:"SC1", auth_uid:"u1", nombre:"Carlos Andrade", rol:"comisionista", activo:true }];
+  if (t === "pedidos")            return [{ ped_id:"PED-DEMO-12" }];
+  if (t === "usuarios")           return [{ usr_id:"USR-DEMO", auth_uid:"u1", nombre:"Usuario Demo", rol:"comisionista", activo:true }];
   return [];
 }
 
@@ -137,7 +134,7 @@ function montar(opciones) {
   w.Notification = function(){}; w.Notification.permission = "denied"; w.Notification.requestPermission = async()=>"denied";
 
   const pedidas = [];
-  const escrito = { pedidos:[], items:[], borrados:[] };
+  const escrito = { pedidos:[], items:[], borrados:[], rpc:[] };
   /* La consulta de mentira RESPETA los filtros: el pedido saca los productos de
      baja con `.eq("estado","activo")`, y si aquí se ignorara el filtro la prueba
      estaría midiendo otra cosa. */
@@ -175,12 +172,27 @@ function montar(opciones) {
   }
   w.SB = {
     auth: {
-      getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"carlos@ejemplo.com" }, expires_at: Math.floor(Date.now()/1000)+3600 } } }),
+      getSession: async () => ({ data:{ session:{ user:{ id:"u1", email:"usuario@example.invalid" }, expires_at: Math.floor(Date.now()/1000)+3600 } } }),
       refreshSession: async () => ({ data:{ session:null } }),
       signOut: async () => ({}), onAuthStateChange: () => ({ data:{ subscription:{ unsubscribe(){} } } }),
     },
     from: (t) => { pedidas.push(t); return consulta(t, []); },
-    rpc: async () => ({ data:null }),
+    rpc: async (nombre, args) => {
+      if (nombre === "mi_org_activa") return { data:"ORG-001", error:null };
+      if (nombre !== "registrar_pedido_atomico") return { data:null, error:null };
+      escrito.rpc.push({ nombre, args });
+      const p = args.p_payload;
+      escrito.pedidos.push({ ped_id:"PED-DEMO-13", cli_id:p.cliente_id, prov_cod:p.proveedor_id,
+        condicion:p.condicion, estado:"ingresado", es_demo:false });
+      escrito.items.push((p.items||[]).map((it,idx)=>{
+        const of=OFERTAS_BD.find(o=>o.prod_id===it.prod_id&&o.pres_cod===it.pres_cod&&o.prov_cod===p.proveedor_id);
+        const eq=Number(of&&of.equiv_qq)||1;
+        return { item_id:"PED-DEMO-13-I"+(idx+1), ped_id:"PED-DEMO-13", prod_id:it.prod_id,
+          cantidad_qq:Number(it.cantidad_presentacion)*eq,
+          precio_usd:Number(it.precio_presentacion)/eq, condicion:it.condicion };
+      }));
+      return { data:[{ ped_id:"PED-DEMO-13", repetido:false }], error:null };
+    },
     channel: () => ({ on(){ return this; }, subscribe(){ return this; } }), removeChannel: () => {},
     functions: { invoke: async () => ({ data:{}, error:null }) },
     storage: { from: () => ({ upload: async()=>({}), createSignedUrl: async()=>({data:null}) }) },
@@ -288,11 +300,11 @@ async function bateria(js, ruidoso) {
   const pres = (cat && cat.pres) ? Array.from(cat.pres) : [];
   const buscar = (prodId, cod, prov) => pres.find(p =>
     p.prodId === prodId && p.presCod === cod && (!prov || p.provId === prov)) || null;
-  const crecQQ  = buscar("P-00197", "QQ",  "AGU");
-  const crecARR = buscar("P-00197", "ARR", "AGU");
+  const crecQQ  = buscar("PROD-DEMO-B", "QQ",  "PROV-DEMO-A");
+  const crecARR = buscar("PROD-DEMO-B", "ARR", "PROV-DEMO-A");
 
-  comprobar("«Arroz Crecedor» se puede PEDIR aunque no tenga ni una fila en `precios`",
-    pres.some(p => p.prodId === "P-00197"));
+  comprobar("Producto Demo B se puede PEDIR aunque no tenga ni una fila en `precios`",
+    pres.some(p => p.prodId === "PROD-DEMO-B"));
   comprobar("se pueden pedir sus DOS presentaciones: quintal y arroba",
     !!crecQQ && !!crecARR);
   comprobar("el quintal de Crecedor se pide a $37,00 de contado (precio de ESA presentación)",
@@ -310,13 +322,13 @@ async function bateria(js, ruidoso) {
   comprobar("el quintal conserva su equivalencia (1 qq)",
     !!crecQQ && crecQQ.equiv === 1);
   comprobar("el producto SIN MARCA lleva su nombre en la línea, nunca en blanco",
-    !!crecQQ && crecQQ.nombre === "Arroz Crecedor · Quintal" && crecQQ.marca === "Arroz Crecedor");
+    !!crecQQ && crecQQ.nombre === "Producto Demo B · Quintal" && crecQQ.marca === "Producto Demo B");
   const claves = pres.map(p => p.id + "|" + p.provId);
   comprobar("no se duplica: una sola línea por piladora + producto + presentación",
     claves.length > 0 && new Set(claves).size === claves.length);
-  comprobar("cada piladora muestra SU precio: San Agustín $19,00 y Cordero $21,00 el mismo quintal",
-    (buscar("P-00001","QQ","AGU")||{}).baseContado === 19 &&
-    (buscar("P-00001","QQ","COR")||{}).baseContado === 21);
+  comprobar("cada proveedor muestra SU precio: A $19,00 y B $21,00 el mismo quintal",
+    (buscar("PROD-DEMO-A","QQ","PROV-DEMO-A")||{}).baseContado === 19 &&
+    (buscar("PROD-DEMO-A","QQ","PROV-DEMO-B")||{}).baseContado === 21);
   comprobar("dos ofertas vivas de la MISMA piladora: manda la más barata ($21,00, no $25,00)",
     pres.every(p => p.baseContado !== 25));
   comprobar("la oferta VENCIDA no se puede pedir (nadie queda en $1,00)",
@@ -326,7 +338,7 @@ async function bateria(js, ruidoso) {
   comprobar("la oferta que aún NO rige no se puede pedir (nadie queda en $3,00)",
     pres.every(p => p.baseContado !== 3));
   comprobar("el producto dado de baja no se puede pedir aunque tenga oferta viva",
-    !pres.some(p => p.prodId === "P-BAJA"));
+    !pres.some(p => p.prodId === "PROD-DEMO-INACTIVO"));
   comprobar("el costo de la piladora sigue viajando con la línea (de ahí sale el margen)",
     !!crecQQ && crecQQ.costo === 34);
   comprobar("la oferta sin equivalencia no se cuela (no se podría pasar a quintales)",
@@ -341,21 +353,21 @@ async function bateria(js, ruidoso) {
     m.pedidas.indexOf("precios") < 0);
 
   /* ── C) La pantalla, como la usa el vendedor ── */
-  let e = await elegir(m, "cliente", "ROCELUMA CIA LTDA");
-  const eProv = e ? "no se llegó a la piladora" : await elegir(m, "proveedor", "San Agustín", "San Agustín");
+  let e = await elegir(m, "cliente", "Cliente Demo");
+  const eProv = e ? "no se llegó al proveedor" : await elegir(m, "proveedor", "Proveedor Demo A", "Proveedor Demo A");
   comprobar("con la base viva se puede elegir cliente y piladora" + (e || eProv ? " → " + (e || eProv) : ""),
     !e && !eProv);
-  corre(m, `window.__escribir(window.__buscador("producto"), "crecedor")`);
+  corre(m, `window.__escribir(window.__buscador("producto"), "producto demo b")`);
   await esperar(120);
-  comprobar("elegida Piladora San Agustín, «Arroz Crecedor» aparece entre lo que se puede pedir",
-    corre(m, `window.__cuentaOpciones(["Arroz Crecedor"])`) > 0);
+  comprobar("elegido Proveedor Demo A, Producto Demo B aparece entre lo que se puede pedir",
+    corre(m, `window.__cuentaOpciones(["Producto Demo B"])`) > 0);
   comprobar("y aparecen SUS DOS presentaciones, una sola vez cada una",
-    corre(m, `window.__cuentaOpciones(["Arroz Crecedor","Quintal"])`) === 1 &&
-    corre(m, `window.__cuentaOpciones(["Arroz Crecedor","Arroba"])`) === 1);
+    corre(m, `window.__cuentaOpciones(["Producto Demo B","Quintal"])`) === 1 &&
+    corre(m, `window.__cuentaOpciones(["Producto Demo B","Arroba"])`) === 1);
 
-  const tomoQQ = corre(m, `window.__tocarOpcion(["Arroz Crecedor","Quintal"])`);
+  const tomoQQ = corre(m, `window.__tocarOpcion(["Producto Demo B","Quintal"])`);
   await esperar(150);
-  comprobar("se puede tomar el QUINTAL de Arroz Crecedor", !!tomoQQ);
+  comprobar("se puede tomar el QUINTAL de Producto Demo B", !!tomoQQ);
   comprobar("y la app propone $38,00 — el precio de esa presentación, no el del quintal calculado",
     corre(m, `window.__precio()`) === "38.00");
   comprobar("la tarjeta muestra la base de esa presentación: «Pb. 38.00»",
@@ -364,31 +376,31 @@ async function bateria(js, ruidoso) {
   const m2 = montar({ js });
   pintar(m2);
   await esperar(400);
-  await elegir(m2, "cliente", "ROCELUMA CIA LTDA");
-  await elegir(m2, "proveedor", "San Agustín", "San Agustín");
-  corre(m2, `window.__escribir(window.__buscador("producto"), "crecedor")`);
+  await elegir(m2, "cliente", "Cliente Demo");
+  await elegir(m2, "proveedor", "Proveedor Demo A", "Proveedor Demo A");
+  corre(m2, `window.__escribir(window.__buscador("producto"), "producto demo b")`);
   await esperar(120);
-  corre(m2, `window.__tocarOpcion(["Arroz Crecedor","Arroba"])`);
+  corre(m2, `window.__tocarOpcion(["Producto Demo B","Arroba"])`);
   await esperar(150);
   comprobar("tomada la ARROBA, la app propone $9,50 y no el precio del quintal",
     corre(m2, `window.__precio()`) === "9.50");
 
   /* ── D) Lo que se guarda: el pedido viaja al sistema en QUINTALES ── */
   const g = montar({ js });
-  vm.runInContext(`CLI_ID_DE["ROCELUMA CIA LTDA"] = "CLI-A";`, g.ctx);
+  vm.runInContext(`CLI_ID_DE["Cliente Demo"] = "CLI-DEMO";`, g.ctx);
   let guardado = null;
   try {
     guardado = await vm.runInContext(`guardarPedidoEnBase({
-      cli:{nombre:"ROCELUMA CIA LTDA"}, prov:{id:"AGU"}, retiro:true,
+      cli:{nombre:"Cliente Demo"}, prov:{id:"PROV-DEMO-A"}, retiro:true,
       carrito:[
-        { prod:${JSON.stringify(crecQQ)},  prodNombre:"Arroz Crecedor · Quintal",
+        { prod:${JSON.stringify(crecQQ)},  prodNombre:"Producto Demo B · Quintal",
           cant:50, precio:${crecQQ ? crecQQ.baseCredito : 0}, tipo:"P1", credito:true, gratis:0, comisionTotal:0 },
-        { prod:${JSON.stringify(crecARR)}, prodNombre:"Arroz Crecedor · Arroba",
+        { prod:${JSON.stringify(crecARR)}, prodNombre:"Producto Demo B · Arroba",
           cant:8,  precio:${crecARR ? crecARR.baseContado : 0}, tipo:"P2", credito:false, gratis:0, comisionTotal:0 }
       ] })`, g.ctx);
   } catch (er) { guardado = null; }
   const items = (g.escrito.items[0]) || [];
-  comprobar("el pedido de Arroz Crecedor llega a la base",
+  comprobar("el pedido de Producto Demo B llega al doble de base",
     !!guardado && guardado.ok === true && items.length === 2);
   comprobar("50 quintales se guardan como 50 qq a $38,00 el quintal",
     !!items[0] && items[0].cantidad_qq === 50 && items[0].precio_usd === 38);

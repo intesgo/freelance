@@ -1,6 +1,6 @@
 /* Prueba de que la barra inferior del equipo (Comisionista / Socio) lee del sistema.
    Uso: node test_barra_equipo.js <ruta.html>
-   Corre contra el bundle real en jsdom, con filas copiadas de la base. */
+   Corre contra el bundle real en jsdom con fixtures completamente sintéticos. */
 const fs=require("fs"), vm=require("vm");
 const { JSDOM } = require("jsdom");
 const Babel=require("./rutas").Babel;
@@ -19,26 +19,26 @@ const HOY=new Date().toISOString().slice(0,10);
 const AYER=new Date(Date.now()-86400000).toISOString().slice(0,10);
 
 const FIX=(rol)=>({
-  usuarios:[{usr_id:"SC-D1",nombre:"Luis Paredes",rol:rol},
-            {usr_id:"SC-D2",nombre:"María Espinoza",rol:"comisionista"}],
+  usuarios:[{usr_id:"USR-DEMO-01",nombre:"Usuario Demo Uno",rol:rol},
+            {usr_id:"USR-DEMO-02",nombre:"Usuario Demo Dos",rol:"comisionista"}],
   pedidos:[
-    {ped_id:"PD-0010",cli_id:"CLI-D01",sub_id:"SC-D1",prov_cod:"PROV-A",estado:"enviado_proveedor",
+    {ped_id:"PED-DEMO-01",cli_id:"CLI-DEMO-01",sub_id:"USR-DEMO-01",prov_cod:"PROV-DEMO",estado:"enviado_proveedor",
      factura:null,condicion:"credito",creado:"2026-07-10T06:38:39+00:00",es_demo:true},
-    {ped_id:"PD-0006",cli_id:"CLI-D04",sub_id:"SC-D2",prov_cod:"PROV-A",estado:"cliente_pago",
-     factura:"F-4590",condicion:"contado",creado:"2026-07-10T06:38:39+00:00",es_demo:true}],
-  pedido_items:[{ped_id:"PD-0010",descripcion:"Arroz Super Capirona · Quintal",cantidad_qq:10,precio_usd:40}],
-  clientes:[{cli_id:"CLI-D01",nombre:"Comercial Nilo"},{cli_id:"CLI-D04",nombre:"Bodega San Miguel"},
-            {cli_id:"CLI-D02",nombre:"Almacenes Fernando"}],
-  proveedores:[{prov_cod:"PROV-A",nombre:"Agrícola del Valle"}],
-  comisiones:[{com_id:"C1",ped_id:"PD-0010",sub_id:"SC-D1",monto:124.50,estado:"Generada"},
-              {com_id:"C2",ped_id:"PD-0004",sub_id:"SC-D1",monto:88.00,estado:"Pagada"},
-              {com_id:"C3",ped_id:"PD-0006",sub_id:"SC-D2",monto:66.15,estado:"Pagada"}],
-  novedades:[{nov_id:"NV-0001",cli_id:"CLI-D01",tipo:"descuento",detalle:"NC por descuento $0.50/qq",
-     estado:"aprobada",origen:"comercial",creado:"2026-07-20T10:00:00+00:00",es_demo:false}],
-  agenda_actividades:[{act_id:"AG-1",usr_id:"SC-D1",cli_id:"CLI-D01",cliente:"Comercial Nilo",
-     fecha:HOY,hora:"09:00",tipo:"Visita",objetivo:"Tomar pedido de arroz",ubic:"Riobamba",
+    {ped_id:"PED-DEMO-02",cli_id:"CLI-DEMO-02",sub_id:"USR-DEMO-02",prov_cod:"PROV-DEMO",estado:"cliente_pago",
+     factura:"FAC-DEMO-02",condicion:"contado",creado:"2026-07-10T06:38:39+00:00",es_demo:true}],
+  pedido_items:[{ped_id:"PED-DEMO-01",descripcion:"Producto Demo · Unidad",cantidad_qq:10,precio_usd:40}],
+  clientes:[{cli_id:"CLI-DEMO-01",nombre:"Cliente Demo Norte"},{cli_id:"CLI-DEMO-02",nombre:"Cliente Demo Sur"},
+            {cli_id:"CLI-DEMO-03",nombre:"Cliente Demo Centro"}],
+  proveedores:[{prov_cod:"PROV-DEMO",nombre:"Proveedor Demo"}],
+  comisiones:[{com_id:"COM-DEMO-01",ped_id:"PED-DEMO-01",sub_id:"USR-DEMO-01",monto:120.00,estado:"Generada"},
+              {com_id:"COM-DEMO-02",ped_id:"PED-DEMO-03",sub_id:"USR-DEMO-01",monto:80.00,estado:"Pagada"},
+              {com_id:"COM-DEMO-03",ped_id:"PED-DEMO-02",sub_id:"USR-DEMO-02",monto:60.00,estado:"Pagada"}],
+  novedades:[{nov_id:"NOV-DEMO-01",cli_id:"CLI-DEMO-01",tipo:"descuento",detalle:"NC demo por descuento",
+     estado:"aprobada",origen:"comercial",creado:"2026-07-20T10:00:00+00:00",es_demo:true}],
+  agenda_actividades:[{act_id:"ACT-DEMO-01",usr_id:"USR-DEMO-01",cli_id:"CLI-DEMO-01",cliente:"Cliente Demo Norte",
+     fecha:HOY,hora:"09:00",tipo:"Visita",objetivo:"Tomar pedido demo",ubic:"Ciudad Demo",
      dur:30,recordatorio:15,estado:"pendiente"}],
-  cartera_cliente:[{mov_id:"MOV-D6",cli_id:"CLI-D02",doc:"F-4489",vence:AYER,monto:1000.00,estado:"pendiente"}],
+  cartera_cliente:[{mov_id:"MOV-DEMO-01",cli_id:"CLI-DEMO-03",doc:"FAC-DEMO-01",vence:AYER,monto:1000.00,estado:"pendiente"}],
   ubicaciones_cliente:[],
 });
 
@@ -65,9 +65,9 @@ function montar(conDatos, rol){
     p.delete=()=>{ const q=Promise.resolve({data:null,error:null}); q.eq=()=>q; return q; };
     return p;
   };
-  w.SB={ auth:{ getSession:async()=>(conDatos?{data:{session:{user:{id:"auth-x",email:"luis@ejemplo.com"}}}}:{data:{session:null}}),
+  w.SB={ auth:{ getSession:async()=>(conDatos?{data:{session:{user:{id:"auth-demo",email:"usuario@example.invalid"}}}}:{data:{session:null}}),
       onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}) },
-    from:(n)=>tabla(n), rpc:async()=>({data:null}),
+    from:(n)=>tabla(n), rpc:async(nombre)=>nombre==="mi_org_activa"?{data:"ORG-001",error:null}:{data:null,error:null},
     channel:()=>({ on(){return this;}, subscribe(){return this;} }), removeChannel:()=>{},
     functions:{ invoke:async()=>({data:{enviados:0},error:null}) },
     storage:{ from:()=>({ upload:async()=>({}), createSignedUrl:async()=>({data:null}) }) } };
@@ -79,7 +79,7 @@ function montar(conDatos, rol){
 const guion=(tab)=>`(async()=>{
   var cont=document.createElement("div"); document.body.appendChild(cont);
   ReactDOM.flushSync(function(){ ReactDOM.createRoot(cont).render(React.createElement(App,{
-    usuario:{nombre:"Luis Paredes",codigo:"SC-D1",rol:"comisionista",real:true},
+    usuario:{nombre:"Usuario Demo Uno",codigo:"USR-DEMO-01",rol:"comisionista",real:true},
     onSalir:function(){}, toast:function(){} })); });
   var esperar=function(ms){ return new Promise(function(r){ setTimeout(r,ms||60); }); };
   await esperar(260);
@@ -95,37 +95,37 @@ const guion=(tab)=>`(async()=>{
     const m=montar(true);
     const t=await vm.runInContext(guion("Pedidos"), m.ctx);
     comprobar("Pedidos con sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(t));
-    comprobar("aparece su pedido de verdad (Comercial Nilo)", t.indexOf("Comercial Nilo")>=0);
-    comprobar("NO aparece el pedido de otro vendedor (Bodega San Miguel)", t.indexOf("Bodega San Miguel")<0);
+    comprobar("aparece su pedido demo (Cliente Demo Norte)", t.indexOf("Cliente Demo Norte")>=0);
+    comprobar("NO aparece el pedido del otro usuario (Cliente Demo Sur)", t.indexOf("Cliente Demo Sur")<0);
     comprobar("ya no se ve el ejemplo (Comercial Mendoza)", t.indexOf("Comercial Mendoza")<0);
   }
   {
     const m=montar(true);
     const t=await vm.runInContext(guion("Novedades"), m.ctx);
     comprobar("Novedades con sello de datos vivos", /Novedades\s*🟢 Datos vivos/.test(t));
-    comprobar("la respuesta del proveedor viene de la base", t.indexOf("NC por descuento")>=0);
+    comprobar("la respuesta del proveedor viene del fixture", t.indexOf("NC demo por descuento")>=0);
   }
   {
     const m=montar(true);
     const t=await vm.runInContext(guion("Agenda"), m.ctx);
     comprobar("Agenda con sello de datos vivos", /Agenda\s*🟢 Datos vivos/.test(t));
-    comprobar("su actividad programada aparece", t.indexOf("Tomar pedido de arroz")>=0);
-    comprobar("sugiere el cobro de la factura vencida", t.indexOf("Sugerido · cobrar F-4489")>=0);
+    comprobar("su actividad programada aparece", t.indexOf("Tomar pedido demo")>=0);
+    comprobar("sugiere el cobro de la factura vencida", t.indexOf("Sugerido · cobrar FAC-DEMO-01")>=0);
   }
   {
     const m=montar(true);
     const t=await vm.runInContext(guion("Comisiones"), m.ctx);
     comprobar("Comisiones con sello de datos vivos", /🟢 Datos vivos/.test(t));
-    comprobar("suma lo ya pagado ($88,00)", t.indexOf("88,00")>=0 || t.indexOf("88.00")>=0);
-    comprobar("y lo que falta liberar ($124,50)", t.indexOf("124,50")>=0 || t.indexOf("124.50")>=0);
-    comprobar("no mezcla la comisión de otro vendedor ($66,15)", t.indexOf("66,15")<0 && t.indexOf("66.15")<0);
+    comprobar("suma lo ya pagado ($80,00)", t.indexOf("80,00")>=0 || t.indexOf("80.00")>=0);
+    comprobar("y lo que falta liberar ($120,00)", t.indexOf("120,00")>=0 || t.indexOf("120.00")>=0);
+    comprobar("no mezcla la comisión de otro usuario ($60,00)", t.indexOf("60,00")<0 && t.indexOf("60.00")<0);
   }
   {
     const m=montar(true);
     const g=JSON.parse(await vm.runInContext(`(async()=>{
       var cont=document.createElement("div"); document.body.appendChild(cont);
       ReactDOM.flushSync(function(){ ReactDOM.createRoot(cont).render(React.createElement(App,{
-        usuario:{nombre:"Luis Paredes",codigo:"SC-D1",rol:"comisionista",real:true}, onSalir:function(){}, toast:function(){} })); });
+        usuario:{nombre:"Usuario Demo Uno",codigo:"USR-DEMO-01",rol:"comisionista",real:true}, onSalir:function(){}, toast:function(){} })); });
       await new Promise(function(r){ setTimeout(r,300); });
       var out={}; var bs=cont.querySelectorAll(".nav button");
       for(var i=0;i<bs.length;i++){ var b=bs[i]; var gl=b.querySelector(".badge");
@@ -142,7 +142,7 @@ const guion=(tab)=>`(async()=>{
   {
     const m=montar(true,"freelance");
     const t=await vm.runInContext(guion("Pedidos"), m.ctx);
-    comprobar("con rol freelance entran los pedidos de todo el equipo", /2\s*Pedidos/.test(t) || t.indexOf("Bodega San Miguel")>=0 || /2 pedido/.test(t));
+    comprobar("con rol freelance entran los pedidos de todo el equipo", /2\s*Pedidos/.test(t) || t.indexOf("Cliente Demo Sur")>=0 || /2 pedido/.test(t));
   }
   console.log("═══ sin sesión");
   {
@@ -154,14 +154,14 @@ const guion=(tab)=>`(async()=>{
   {
     const m=montar(true);
     const r=await vm.runInContext(`(async()=>{
-      var b=await guardarActividad({act_id:"SG-MOV-D6", cli:"Almacenes Fernando", cli_id:"CLI-D02",
-        fecha:"${HOY}", hora:"", tipo:"Cobro", nota:"Sugerido · cobrar F-4489", hecho:true});
+      var b=await guardarActividad({act_id:"SG-MOV-DEMO-01", cli:"Cliente Demo Centro", cli_id:"CLI-DEMO-03",
+        fecha:"${HOY}", hora:"", tipo:"Cobro", nota:"Sugerido · cobrar FAC-DEMO-01", hecho:true});
       return JSON.stringify({b:b});
     })()`, m.ctx);
     const ups=m.escrituras.find(x=>x.t==="agenda_actividades"&&x.op==="upsert");
-    comprobar("marcar hecha una sugerencia la guarda como actividad", !!ups && ups.f.act_id==="SG-MOV-D6" && ups.f.estado==="completada");
-    comprobar("queda a nombre de quien la hizo", !!ups && ups.f.usr_id==="SC-D1");
-    comprobar("con el objetivo escrito", !!ups && String(ups.f.objetivo).indexOf("F-4489")>=0);
+    comprobar("marcar hecha una sugerencia la guarda como actividad", !!ups && ups.f.act_id==="SG-MOV-DEMO-01" && ups.f.estado==="completada");
+    comprobar("queda a nombre de quien la hizo", !!ups && ups.f.usr_id==="USR-DEMO-01");
+    comprobar("con el objetivo escrito", !!ups && String(ups.f.objetivo).indexOf("FAC-DEMO-01")>=0);
     comprobar("y responde que sí", JSON.parse(r).b===true);
   }
   console.log("Resultado "+nombre+": "+ok+" ✓ · "+mal+" ✗");

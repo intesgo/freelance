@@ -465,6 +465,14 @@ button[aria-label="Notificaciones"]::after{
 <body>
 <div id="root"></div>
 <script type="text/babel">
+let ORG_ACTIVA_TRA={uid:null,org:null};
+async function orgActivaTransportista(){
+  const {data:s}=await window.SB.auth.getSession();const uid=s&&s.session&&s.session.user&&s.session.user.id;
+  if(!uid) throw new Error("No hay una sesión activa.");
+  if(ORG_ACTIVA_TRA.uid===uid&&ORG_ACTIVA_TRA.org)return ORG_ACTIVA_TRA.org;
+  const {data,error}=await window.SB.rpc("mi_org_activa");if(error||!data)throw new Error((error&&error.message)||"Sin organización activa.");
+  ORG_ACTIVA_TRA={uid,org:String(data)};return ORG_ACTIVA_TRA.org;
+}
 /* ══ CLAVE (modo demo) ══
    Regla sellada: la clave NUNCA se guarda en texto plano, solo su hash. Nadie puede
    verla. Historial anti-repeticion por hash. FNV-1a no es criptografico: sirve para
@@ -532,7 +540,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"33", fecha:"9 ago 2026", desc:"El directorio del chat ahora viene del padrón seguro (padron_chat)" };
+const VERSION = { n:"34", fecha:"10 ago 2026", desc:"Organización dinámica en sesión y mensajería." };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -1365,7 +1373,7 @@ function ChatEquipo({ usuario, toast }){
     if(enviando) return false;
     setEnviando(true);
     const fila={ msg_id:"CH-"+new Date().getTime()+"-"+Math.floor(Math.random()*1000),
-      org_id:"ORG-001", de_usr:miUsr, para_usr:sel, tipo,
+      org_id:await orgActivaTransportista(), de_usr:miUsr, para_usr:sel, tipo,
       texto:(extra&&extra.texto)||null, adjunto:(extra&&extra.adjunto)||null, es_demo:false };
     const { error } = await window.SB.from("chat_mensajes").insert(fila);
     setEnviando(false);

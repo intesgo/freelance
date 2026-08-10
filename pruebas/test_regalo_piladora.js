@@ -23,7 +23,7 @@
    2) Que el tope del regalo se le PREGUNTE a la base
       (`gratis_tope_al_despachar`), no se calcule en JavaScript: el mismo
       hecho calculado en dos lugares termina contradiciéndose. Caso medido en
-      la base real: 100 pedidos, salen 50, prometidos 2 → tope 1.00.
+      un doble sintético: 100 pedidos, salen 50, prometidos 2 → tope 1.00.
 
    3) Que sin señal NO se invente un tope ni se bloquee a ciegas: manda el
       cerrojo de la base.
@@ -72,24 +72,25 @@ function montar(js) {
 }
 const plano = x => JSON.parse(JSON.stringify(x));
 
-/* Los datos con los que vivoDecidir arma la pantalla. Un pedido con las TRES
+/* Fixture completamente sintético. Los datos con los que vivoDecidir arma la
+   pantalla incluyen un pedido con las TRES
    promociones y una línea sin regalo. Todo ya en quintales, como lo guarda
    `pedido_items` (0,25 qq = una arroba; 0,1 qq = «10 libras»). */
 const FILAS = {
-  usuarios: [{ usr_id:"PRV-AGU", nombre:"Piladora San Agustín", rol:"proveedor", prov_cod:"AGU" }],
-  pedidos: [{ ped_id:"PD-9001", cli_id:"CL-1", prov_cod:"AGU", estado:"enviado_proveedor",
+  usuarios: [{ usr_id:"USR-PROV-DEMO", nombre:"Proveedor Demo", rol:"proveedor", prov_cod:"PROV-DEMO" }],
+  pedidos: [{ ped_id:"PED-DEMO-01", cli_id:"CLI-DEMO", prov_cod:"PROV-DEMO", estado:"enviado_proveedor",
     condicion:"credito", creado:"2026-08-01T10:00:00+00:00", factura:null, es_demo:false }],
   pedido_items: [
-    { item_id:"PD-9001-I1", ped_id:"PD-9001", prod_id:"P-00197", descripcion:"Arroz Crecedor · Quintal",
+    { item_id:"ITEM-DEMO-01", ped_id:"PED-DEMO-01", prod_id:"PROD-DEMO-01", descripcion:"Producto Demo · Quintal",
       cantidad_qq:100, precio_usd:43, despachado_qq:null, gratis_qq:2,    gratis_despachado_qq:null, tipo_precio:"P6", es_demo:false },
-    { item_id:"PD-9001-I2", ped_id:"PD-9001", prod_id:"P-00056", descripcion:"Arroz Rosa Elvira · Arroba",
+    { item_id:"ITEM-DEMO-02", ped_id:"PED-DEMO-01", prod_id:"PROD-DEMO-02", descripcion:"Producto Demo · Arroba",
       cantidad_qq:25,  precio_usd:11, despachado_qq:null, gratis_qq:0.25, gratis_despachado_qq:null, tipo_precio:"P4", es_demo:false },
-    { item_id:"PD-9001-I3", ped_id:"PD-9001", prod_id:"P-00311", descripcion:"Arroz Gustadina · 10 libras",
+    { item_id:"ITEM-DEMO-03", ped_id:"PED-DEMO-01", prod_id:"PROD-DEMO-03", descripcion:"Producto Demo · 10 libras",
       cantidad_qq:20,  precio_usd:4.5, despachado_qq:null, gratis_qq:0.1, gratis_despachado_qq:null, tipo_precio:"P3", es_demo:false },
-    { item_id:"PD-9001-I4", ped_id:"PD-9001", prod_id:"P-00017", descripcion:"Arroz Dallis · Quintal",
+    { item_id:"ITEM-DEMO-04", ped_id:"PED-DEMO-01", prod_id:"PROD-DEMO-04", descripcion:"Producto Demo · Quintal",
       cantidad_qq:10,  precio_usd:40, despachado_qq:null, gratis_qq:0,    gratis_despachado_qq:null, tipo_precio:"P1", es_demo:false },
   ],
-  clientes: [{ cli_id:"CL-1", nombre:"Comercial Mendoza" }],
+  clientes: [{ cli_id:"CLI-DEMO", nombre:"Cliente Demo" }],
   solicitudes: [],
 };
 
@@ -114,27 +115,27 @@ async function bateria(fuenteJsx, ruidoso) {
       return { data:[{ aviso:"Facturado", parcial:false }], error:null };
     }};`);
   const LINEAS = [
-    { itemId:"PD-9001-I1", despachado:100, gratisDesp:1.5 },   /* regalo confirmado */
-    { itemId:"PD-9001-I2", despachado:10 },                    /* sin regalo: sin clave */
-    { itemId:"PD-9001-I3", despachado:20,  gratisDesp:0 },     /* confirmó CERO */
-    { itemId:"PD-9001-I4", despachado:5,   gratisDesp:null },  /* nadie se pronunció */
+    { itemId:"ITEM-DEMO-01", despachado:100, gratisDesp:1.5 },   /* regalo confirmado */
+    { itemId:"ITEM-DEMO-02", despachado:10 },                    /* sin regalo: sin clave */
+    { itemId:"ITEM-DEMO-03", despachado:20,  gratisDesp:0 },     /* confirmó CERO */
+    { itemId:"ITEM-DEMO-04", despachado:5,   gratisDesp:null },  /* nadie se pronunció */
   ];
-  try { await corre(`guardarFactura("PD-9001","001-001-000123", ${JSON.stringify(LINEAS)})`); }
+  try { await corre(`guardarFactura("PED-DEMO-01","001-001-000123", ${JSON.stringify(LINEAS)})`); }
   catch (e) {}
   const rpc = plano(corre("globalThis.__rpc"));
   const fac = rpc.find(x => x.fn === "facturar_pedido") || { args:{} };
   const jl = fac.args.p_lineas || [];
   const li = id => jl.find(l => l && l.item_id === id) || {};
   comprobar("la factura va en UNA llamada a `facturar_pedido` con el pedido y el número",
-    fac.args.p_ped === "PD-9001" && fac.args.p_factura === "001-001-000123" && jl.length === 4);
+    fac.args.p_ped === "PED-DEMO-01" && fac.args.p_factura === "001-001-000123" && jl.length === 4);
   comprobar("el regalo confirmado VIAJA en el jsonb: gratis_despachado_qq = 1.5, tal cual",
-    li("PD-9001-I1").gratis_despachado_qq === 1.5 && li("PD-9001-I1").despachado_qq === 100);
+    li("ITEM-DEMO-01").gratis_despachado_qq === 1.5 && li("ITEM-DEMO-01").despachado_qq === 100);
   comprobar("la línea sin regalo no lleva la clave: no se inventa un regalo que no existe",
-    !("gratis_despachado_qq" in li("PD-9001-I2")));
+    !("gratis_despachado_qq" in li("ITEM-DEMO-02")));
   comprobar("confirmar CERO viaja como 0: «no salió regalo» es pronunciarse, no callar",
-    ("gratis_despachado_qq" in li("PD-9001-I3")) && li("PD-9001-I3").gratis_despachado_qq === 0);
+    ("gratis_despachado_qq" in li("ITEM-DEMO-03")) && li("ITEM-DEMO-03").gratis_despachado_qq === 0);
   comprobar("si nadie se pronunció, la clave NO viaja: que la base deje su fallo urgente, no un cero falso",
-    !("gratis_despachado_qq" in li("PD-9001-I4")));
+    !("gratis_despachado_qq" in li("ITEM-DEMO-04")));
   comprobar("lo despachado viaja como número en todas las líneas",
     jl.every(l => typeof l.despachado_qq === "number"));
 
@@ -143,29 +144,29 @@ async function bateria(fuenteJsx, ruidoso) {
     globalThis.__rpc = [];
     window.SB = { rpc: async function(fn, args){
       globalThis.__rpc.push({ fn: fn, args: args });
-      return { data: 1.00, error:null };   /* lo que respondió la base real */
+      return { data: 1.00, error:null };   /* respuesta del doble sintético */
     }};`);
   let tope;
-  try { tope = await corre(`topeRegaloAlDespachar({ prodId:"P-00197", provCod:"AGU",
+  try { tope = await corre(`topeRegaloAlDespachar({ prodId:"PROD-DEMO-01", provCod:"PROV-DEMO",
     cantidadQq:100, despachadoQq:50, gratisQq:2, esDemo:false })`); }
   catch (e) { tope = "reventó: " + e.message; }
   const pregunta = plano(corre("globalThis.__rpc"))[0] || { args:{} };
   comprobar("el tope se le pregunta a `gratis_tope_al_despachar` con producto, piladora, pedido, salido y prometido",
-    pregunta.fn === "gratis_tope_al_despachar" && pregunta.args.p_prod_id === "P-00197" &&
-    pregunta.args.p_prov_cod === "AGU" && pregunta.args.p_cantidad_qq === 100 &&
+    pregunta.fn === "gratis_tope_al_despachar" && pregunta.args.p_prod_id === "PROD-DEMO-01" &&
+    pregunta.args.p_prov_cod === "PROV-DEMO" && pregunta.args.p_cantidad_qq === 100 &&
     pregunta.args.p_despachado_qq === 50 && pregunta.args.p_gratis_qq === 2);
   comprobar("y se obedece tal cual: pidieron 100, salen 50, prometidos 2 → tope 1.00 (el caso medido en la base)",
     tope === 1);
   corre(`window.SB = null;`);
   let sinSenal;
-  try { sinSenal = await corre(`topeRegaloAlDespachar({ prodId:"P-00197", provCod:"AGU",
+  try { sinSenal = await corre(`topeRegaloAlDespachar({ prodId:"PROD-DEMO-01", provCod:"PROV-DEMO",
     cantidadQq:100, despachadoQq:50, gratisQq:2, esDemo:false })`); }
   catch (e) { sinSenal = "reventó: " + e.message; }
   comprobar("sin señal: no se inventa un tope ni se bloquea a ciegas (manda el cerrojo de la base)",
     sinSenal === undefined);
   corre(`window.SB = { rpc: async function(){ return { data:null, error:{ message:"se cayó" } }; } };`);
   let conError;
-  try { conError = await corre(`topeRegaloAlDespachar({ prodId:"P-00197", provCod:"AGU",
+  try { conError = await corre(`topeRegaloAlDespachar({ prodId:"PROD-DEMO-01", provCod:"PROV-DEMO",
     cantidadQq:100, despachadoQq:50, gratisQq:2, esDemo:false })`); }
   catch (e) { conError = "reventó: " + e.message; }
   comprobar("si la base contesta con error, tampoco se inventa: el tope queda sin conocerse",
@@ -217,7 +218,7 @@ async function bateria(fuenteJsx, ruidoso) {
       return api;
     }
     window.SB = {
-      auth: { getSession: async function(){ return { data:{ session:{ user:{ id:"auth-p", email:"piladora@ejemplo.com" } } } }; } },
+      auth: { getSession: async function(){ return { data:{ session:{ user:{ id:"auth-demo", email:"proveedor@example.invalid" } } } }; } },
       from: tabla,
       rpc: async function(){ return { data:null, error:null }; },
     };`);
@@ -228,19 +229,19 @@ async function bateria(fuenteJsx, ruidoso) {
   const lns = fac1.lineas || [];
   const ln = id => lns.find(l => l && l.itemId === id) || {};
   comprobar("cada línea llega con su regalo prometido: la de P6 trae 2 qq",
-    ln("PD-9001-I1").gratis === 2);
+    ln("ITEM-DEMO-01").gratis === 2);
   comprobar("y con su tipo (P3/P4/P6): sin él no se sabe de quién es el costo",
-    ln("PD-9001-I1").tipo === "P6" && ln("PD-9001-I2").tipo === "P4" && ln("PD-9001-I3").tipo === "P3");
+    ln("ITEM-DEMO-01").tipo === "P6" && ln("ITEM-DEMO-02").tipo === "P4" && ln("ITEM-DEMO-03").tipo === "P3");
   comprobar("y con su producto, que es con lo que se le pregunta el tope a la base",
-    ln("PD-9001-I1").prodId === "P-00197");
+    ln("ITEM-DEMO-01").prodId === "PROD-DEMO-01");
   comprobar("el pedido trae la piladora (prov_cod): la otra mitad de la pregunta del tope",
-    fac1.provCod === "AGU");
+    fac1.provCod === "PROV-DEMO");
   comprobar("un regalo de 0,25 qq (la arroba) llega tal cual, sin redondear ni adivinar por el texto",
-    ln("PD-9001-I2").gratis === 0.25);
+    ln("ITEM-DEMO-02").gratis === 0.25);
   comprobar("un regalo de 0,1 qq («10 libras») también llega tal cual",
-    ln("PD-9001-I3").gratis === 0.1);
+    ln("ITEM-DEMO-03").gratis === 0.1);
   comprobar("el regalo SIN confirmar llega como null, que no es lo mismo que 0",
-    ln("PD-9001-I1").gratisDespachado === null);
+    ln("ITEM-DEMO-01").gratisDespachado === null);
 
   /* ── E · DÓNDE VIVE LA REGLA · se lee del fuente ── */
   comprobar("la pantalla pregunta el tope por RPC (`gratis_tope_al_despachar`), no lo recalcula en JavaScript",
@@ -273,8 +274,8 @@ const MUTANTES = [
    `  if(!window.SB || !window.SB.rpc) return 0;`],
   /* la pantalla se queda ciega de quién paga */
   ["vivoDecidir deja de pedir el tipo: ya no se sabe de quién es el costo",
-   `,tipo_precio,prod_id,es_demo`,
-   `,prod_id,es_demo`],
+   `,tipo_precio,prod_id,pres_cod,promo_id,condicion,comision_usd,es_demo`,
+   `,prod_id,pres_cod,promo_id,condicion,comision_usd,es_demo`],
   ["P3 pierde su letrero: el regalo del vendedor se muestra como si no constara quién lo paga",
    `if(tipo==="P3")`,
    `if(false)`],

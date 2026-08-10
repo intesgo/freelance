@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════
    LA NOTA DE CRÉDITO Y A QUIÉN LE DUELE · proveedor b63 · fc b380
 
-   Regla de Richard (26 jul): después de la factura, una devolución se
+   Regla funcional (26 jul): después de la factura, una devolución se
    corrige con una nota de crédito POR PRODUCTO. Y lo que decide si toca las
    comisiones **no es el motivo: es de quién nació**. Si la pidió el
    vendedor, el socio o el freelance, baja la comisión de los involucrados.
@@ -43,13 +43,13 @@ function ventana(dom) {
 
 /* ═══ LA PILADORA ═══════════════════════════════════════════════════════ */
 const FACTURADO = {
-  id: "PD-0031", cliente: "Comercial Nilo", detalle: "Arrox Extra Lira · 100 qq · crédito",
-  monto: 4800, fecha: "26 jul", estado: "facturado", factura: "001-001-000999", demo: false,
-  lineas: [{ itemId: "PD-0031-I1", nombre: "Arrox Extra Lira", pedido: 100, precio: 48, despachado: 100 }],
+  id: "PED-DEMO-01", cliente: "Cliente Demo Norte", detalle: "Producto Demo A · 100 qq · crédito",
+  monto: 4800, fecha: "26 jul", estado: "facturado", factura: "FAC-DEMO-01", demo: true,
+  lineas: [{ itemId: "PED-DEMO-01-I1", nombre: "Producto Demo A", pedido: 100, precio: 48, despachado: 100 }],
 };
 const SIN_FACTURAR = Object.assign({}, FACTURADO, {
-  id: "PD-0032", estado: "pendiente", factura: null,
-  lineas: [{ itemId: "PD-0032-I1", nombre: "Arrocillo Fino", pedido: 50, precio: 20, despachado: null }],
+  id: "PED-DEMO-02", estado: "pendiente", factura: null,
+  lineas: [{ itemId: "PED-DEMO-02-I1", nombre: "Producto Demo B", pedido: 50, precio: 20, despachado: null }],
 });
 
 function montarProv({ falla = false } = {}) {
@@ -66,13 +66,14 @@ function montarProv({ falla = false } = {}) {
     return p;
   };
   w.SB = {
-    auth: { getSession: async () => ({ data: { session: { user: { id: "u1", email: "agu@ejemplo.com" } } } }),
+    auth: { getSession: async () => ({ data: { session: { user: { id: "u1", email: "proveedor@example.invalid" } } } }),
       signOut: async () => ({}), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
     from: () => q(),
     rpc: async (nombre, args) => {
       rpc.push({ nombre, args });
+      if (nombre === "mi_org_activa") return { data:"ORG-001", error:null };
       if (nombre === "registrar_nc") {
-        if (falla) return { data: null, error: { message: "De Arrox Extra Lira salieron 100 qq y ya se devolvieron 95." } };
+        if (falla) return { data: null, error: { message: "De Producto Demo A salieron 100 qq y ya se devolvieron 95." } };
         const afecta = args.p_origen !== "proveedor";
         return { data: [{ nc_id: "NC-1", estado: afecta && args.p_origen !== "freelance" ? "pendiente" : "aprobada",
           afecta_comision: afecta,
@@ -141,13 +142,13 @@ const txtP = (m) => vm.runInContext("window.__txt()", m.ctx);
 
 /* ═══ EL FREELANCE ══════════════════════════════════════════════════════ */
 const NCS = [
-  { nc_id: "NC-1", ped_id: "PD-0031", item_id: "I1", numero: "001-001-000123", qq: 10, valor: 480,
+  { nc_id: "NC-DEMO-01", ped_id: "PED-DEMO-01", item_id: "I1", numero: "FAC-NC-DEMO-01", qq: 10, valor: 480,
     motivo: "Producto con humedad alta", origen: "vendedor", estado: "pendiente",
     afecta_comision: true, motivo_resp: null, creado: "2026-07-26T10:00:00Z", es_demo: false },
-  { nc_id: "NC-2", ped_id: "PD-0031", item_id: "I1", numero: "001-001-000124", qq: 20, valor: 960,
+  { nc_id: "NC-DEMO-02", ped_id: "PED-DEMO-01", item_id: "I1", numero: "FAC-NC-DEMO-02", qq: 20, valor: 960,
     motivo: "Nos equivocamos al pesar", origen: "proveedor", estado: "aprobada",
     afecta_comision: false, motivo_resp: null, creado: "2026-07-25T10:00:00Z", es_demo: false },
-  { nc_id: "NC-3", ped_id: "PD-0031", item_id: "I1", numero: null, qq: 5, valor: 240,
+  { nc_id: "NC-DEMO-03", ped_id: "PED-DEMO-01", item_id: "I1", numero: null, qq: 5, valor: 240,
     motivo: "El cliente no lo quiso", origen: "socio", estado: "rechazada",
     afecta_comision: true, motivo_resp: "El cliente ya lo había recibido conforme",
     creado: "2026-07-24T10:00:00Z", es_demo: false },
@@ -160,9 +161,9 @@ function montarFc({ hayNC = true } = {}) {
   const rpc = [];
   const q = (t) => {
     const datos = t === "notas_credito" ? (hayNC ? NCS : [])
-      : t === "pedidos" ? [{ ped_id: "PD-0031", cli_id: "CLI-01", prov_cod: "AGU", factura: "001-001-000999" }]
-      : t === "clientes" ? [{ cli_id: "CLI-01", nombre: "Comercial Nilo" }]
-      : t === "pedido_items" ? [{ item_id: "I1", descripcion: "Arrox Extra Lira" }] : [];
+      : t === "pedidos" ? [{ ped_id: "PED-DEMO-01", cli_id: "CLI-DEMO-01", prov_cod: "PROV-DEMO", factura: "FAC-DEMO-01" }]
+      : t === "clientes" ? [{ cli_id: "CLI-DEMO-01", nombre: "Cliente Demo Norte" }]
+      : t === "pedido_items" ? [{ item_id: "I1", descripcion: "Producto Demo A" }] : [];
     const p = Promise.resolve({ data: datos, error: null, count: 0 });
     ["select", "eq", "neq", "in", "order", "limit", "like", "not", "is", "gte", "lte", "or"].forEach((m) => { p[m] = () => q(t); });
     p.maybeSingle = () => Promise.resolve({ data: datos[0] || null, error: null }); p.single = p.maybeSingle;
@@ -171,11 +172,12 @@ function montarFc({ hayNC = true } = {}) {
     return p;
   };
   w.SB = {
-    auth: { getSession: async () => ({ data: { session: { user: { id: "u1", email: "intesgo@gmail.com" } } } }),
+    auth: { getSession: async () => ({ data: { session: { user: { id: "u1", email: "qa@example.invalid" } } } }),
       signOut: async () => ({}), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
     from: (t) => q(t),
     rpc: async (nombre, args) => {
       rpc.push({ nombre, args });
+      if (nombre === "mi_org_activa") return { data:"ORG-001", error:null };
       if (nombre === "resolver_nc") {
         return { data: [{ nc_id: args.p_nc, estado: args.p_aprobar ? "aprobada" : "rechazada",
           aviso: args.p_aprobar ? "Aprobada: baja la cartera del cliente y se reajustan las comisiones."
@@ -227,11 +229,13 @@ function montarFc({ hayNC = true } = {}) {
   vm.runInContext("window.__montar(true)", m.ctx);
   await esperar(280);
   let t = txtP(m);
-  comprobar("solo los pedidos YA facturados ofrecen nota de crédito",
-    vm.runInContext('window.__cuantos("🧾 Nota de crédito")', m.ctx) === 1);
-  comprobar("y lo dice con la pregunta que corresponde", /¿Hubo devolución\?/.test(t));
+  comprobar("solo los pedidos YA facturados ofrecen nota de crédito y ajuste interno",
+    vm.runInContext('window.__cuantos("🧾 NC del SRI")', m.ctx) === 1 &&
+    vm.runInContext('window.__cuantos("⚙ Ajuste interno")', m.ctx) === 1);
+  comprobar("y separa con claridad la corrección fiscal de la interna",
+    /Correcciones posteriores: separa lo fiscal de lo interno/.test(t));
 
-  vm.runInContext('window.__tocar("🧾 Nota de crédito")', m.ctx);
+  vm.runInContext('window.__tocar("🧾 NC del SRI")', m.ctx);
   await esperar(240);
   t = txtP(m);
   comprobar("la hoja pregunta primero de quién nació", /¿De quién nació\?/.test(t));
@@ -274,7 +278,7 @@ function montarFc({ hayNC = true } = {}) {
   await esperar(320);
   const l = m.rpc.filter((r) => r.nombre === "registrar_nc")[0] || {};
   comprobar("manda la línea, los quintales, el valor, el motivo y el origen",
-    l.args && l.args.p_item === "PD-0031-I1" && Number(l.args.p_qq) === 10 &&
+    l.args && l.args.p_item === "PED-DEMO-01-I1" && Number(l.args.p_qq) === 10 &&
     Number(l.args.p_valor) === 480 && l.args.p_origen === "vendedor" &&
     l.args.p_motivo === "Producto con humedad alta" && l.args.p_numero === "001-001-000123");
   comprobar("y avisa con las palabras que devuelve la base",
@@ -284,7 +288,7 @@ function montarFc({ hayNC = true } = {}) {
   const m2 = montarProv({ falla: true });
   vm.runInContext("window.__montar(true)", m2.ctx);
   await esperar(280);
-  vm.runInContext('window.__tocar("🧾 Nota de crédito")', m2.ctx);
+  vm.runInContext('window.__tocar("🧾 NC del SRI")', m2.ctx);
   await esperar(240);
   vm.runInContext('window.__tocar("La pidió el vendedor")', m2.ctx);
   vm.runInContext('window.__campo("Quintales devueltos", "95")', m2.ctx);
@@ -304,7 +308,7 @@ function montarFc({ hayNC = true } = {}) {
   comprobar("y por qué le importa: bajan comisiones", /bajan comisiones/.test(t));
   comprobar("dice quién la pidió, con nombre y no con un código", /La pidió el vendedor/.test(t));
   comprobar("muestra el producto, los quintales y lo que cuesta",
-    /Arrox Extra Lira/.test(t) && /10 qq devueltos/.test(t) && /\$480,00/.test(t));
+    /Producto Demo A/.test(t) && /10 qq devueltos/.test(t) && /\$480,00/.test(t));
   comprobar("y el motivo tal como lo escribieron", /Producto con humedad alta/.test(t));
   comprobar("explica qué pasa si la aprueba",
     /se reajusta la\s+comisión del vendedor y la tuya/.test(t) || /comisión del vendedor y la tuya/.test(t));
@@ -318,7 +322,7 @@ function montarFc({ hayNC = true } = {}) {
   await esperar(320);
   let lf = f.rpc.filter((r) => r.nombre === "resolver_nc")[0] || {};
   comprobar("al aprobar, manda la nota correcta y que sí",
-    lf.args && lf.args.p_nc === "NC-1" && lf.args.p_aprobar === true);
+    lf.args && lf.args.p_nc === "NC-DEMO-01" && lf.args.p_aprobar === true);
 
   const f2 = montarFc();
   await esperar(340);

@@ -13,7 +13,7 @@
      · los cuatro cargos ven un menú con contenido, sin grupos vacíos;
      · el menú se PINTA de verdad con cada cargo, sin reventar.
 
-   No vigila el orden ni la agrupación: eso es decisión de Richard y va a
+   No vigila el orden ni la agrupación: eso es una decisión de producto y va a
    cambiar. Vigila que al cambiarla no se pierda ni se duplique nada.
 
    Uso: SISTEMA_WEB=/ruta/sistema-web.html node test_menu_web.js
@@ -101,7 +101,7 @@ function pintar(cargo, permitidas) {
   const q = () => { const p = Promise.resolve({ data: [], error: null });
     ["select","eq","neq","in","order","limit","like","not","maybeSingle","single","insert","update","upsert","delete"]
       .forEach((m) => { p[m] = () => q(); }); return p; };
-  w.supa = { auth: { getSession: async () => ({ data: { session: { user: { id: "u1", email: "intesgo@gmail.com" } } } }),
+  w.supa = { auth: { getSession: async () => ({ data: { session: { user: { id: "u1", email: "qa@example.invalid" } } } }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }), getUser: async () => ({ data: { user: { id: "u1" } } }) },
     from: () => q(), rpc: async () => ({ data: null }),
     functions: { invoke: async () => ({ data: {}, error: null }) },
@@ -121,12 +121,15 @@ function pintar(cargo, permitidas) {
         onSalir: function(){}, onCambiarClave: null, usos: {} }));
     });
     window.__txt = function(){ return window.__c.textContent || ""; };
-    /* Los grupos nacen plegados salvo el fijo y el de la sección activa.
-       Se abren todos a golpe de clic —que además prueba el plegado— y
-       recién ahí se mira si están todos los módulos. */
-    window.__abrirTodos = function(){
-      var h = window.__c.querySelectorAll("nav > div > div");
-      for (var i = 0; i < h.length; i++) h[i].click();
+    /* Es un acordeón: abrir un grupo pliega el anterior. Por eso la prueba
+       abre uno por uno y acumula lo visible, igual que haría una persona. */
+    window.__abrirGrupo = function(titulo){
+      var ds=window.__c.querySelectorAll("nav div"),h=null;
+      for(var i=0;i<ds.length;i++) {
+        var t=(ds[i].textContent||"").replace("▶","").trim().toLowerCase();
+        if(t===String(titulo).toLowerCase()) h=ds[i];
+      }
+      if(!h) return false; h.click(); return true;
     };
   `, ctx);
   return ctx;
@@ -139,12 +142,19 @@ for (const [cargo, permitidas] of Object.entries(CARGOS)) {
   try { ctx = pintar(cargo, permitidas); } catch (e) { cayo = String((e && e.message) || e).split("\n")[0]; }
   comprobar("el menú de " + cargo + " se pinta sin reventar" + (cayo ? " → " + cayo : ""), !cayo);
   if (cayo) continue;
-  /* React 18 agrupa los cambios de estado: hay que darle un respiro entre
-     abrir los grupos y leer la pantalla, o se lee el menú todavía plegado. */
-  vm.runInContext("window.__abrirTodos()", ctx);
-  await esperar(80);
-  const texto = vm.runInContext("window.__txt()", ctx);
-  const faltan = permitidas.filter((k) => texto.indexOf(SEC[k].lab) < 0);
+  /* React 18 agrupa los cambios de estado: se abre y se lee cada grupo por
+     separado. El encabezado Principal representa Dashboard y no repite su
+     etiqueta como una segunda opción. */
+  let texto = vm.runInContext("window.__txt()", ctx);
+  const gruposCargo = GRUPOS.filter(g => g.t!=="Principal" && g.k.some(k=>permitidas.includes(k)));
+  for (const g of gruposCargo) {
+    vm.runInContext(`window.__abrirGrupo(${JSON.stringify(g.t)})`, ctx);
+    await esperar(40);
+    texto += " " + vm.runInContext("window.__txt()", ctx);
+  }
+  const faltan = permitidas.filter((k) => k==="dashboard"
+    ? texto.toUpperCase().indexOf("PRINCIPAL")<0
+    : texto.indexOf(SEC[k].lab) < 0);
   comprobar("y salen en pantalla los " + permitidas.length + " módulos de " + cargo
     + (faltan.length ? " → falta " + faltan.map((k) => SEC[k].lab).join(", ") : ""), faltan.length === 0);
   const titulosVisibles = GRUPOS.filter((g) => g.k.some((k) => permitidas.includes(k))).map((g) => g.t);
