@@ -15,7 +15,11 @@ const reactDom=require("./rutas").reactDom();
 let ok=0, mal=0;
 const comprobar=(t,c)=>{ if(c){ok++;console.log("  ✓ "+t);} else {mal++;console.log("  ✗ "+t);} };
 
-const AYER=new Date(Date.now()-86400000).toISOString().slice(0,10);
+/* «hoy» y «ayer» en Ecuador (America/Guayaquil), la misma cuenta que hoyEC() en la
+   app. Con UTC (toISOString) la madrugada 00:00–05:00 adelantaba un día, y la Agenda
+   —que filtra por el día de Ecuador— dejaba de contar el fixture de hoy. */
+const HOY_EC=new Date().toLocaleString("sv-SE",{timeZone:"America/Guayaquil"}).slice(0,10);
+const AYER=new Date(new Date(HOY_EC+"T12:00:00Z").getTime()-86400000).toISOString().slice(0,10);
 const FIX={
   usuarios:[{usr_id:"USR-DEMO-01",nombre:"Usuario Demo Principal",rol:"freelance"},
             {usr_id:"USR-DEMO-02",nombre:"Usuario Demo Dos",rol:"comisionista"},
@@ -49,7 +53,7 @@ const FIX={
     {nov_id:"NOV-DEMO-02",cli_id:"CLI-DEMO-03",tipo:"producto",detalle:"Novedad demo de entrega",
      estado:"abierta",origen:"entrega",creado:"2026-07-22T15:00:00+00:00",es_demo:true}],
   agenda_actividades:[
-    {act_id:"ACT-DEMO-01",usr_id:"USR-DEMO-01",cli_id:"CLI-DEMO-01",cliente:"Cliente Demo Norte",fecha:new Date().toISOString().slice(0,10),
+    {act_id:"ACT-DEMO-01",usr_id:"USR-DEMO-01",cli_id:"CLI-DEMO-01",cliente:"Cliente Demo Norte",fecha:HOY_EC,
      hora:"09:00",tipo:"Visita",objetivo:"Tomar pedido demo",ubic:"Ciudad Demo",dur:30,
      recordatorio:15,estado:"pendiente"}],
   cartera_cliente:[{mov_id:"MOV-DEMO-01",cli_id:"CLI-DEMO-03",doc:"FAC-DEMO-03",vence:AYER,monto:1000.00,estado:"pendiente"}],

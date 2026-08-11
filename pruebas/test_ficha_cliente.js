@@ -57,7 +57,10 @@ const esperar = (ms) => new Promise(r => setTimeout(r, ms || 60));
 /* fechas relativas a HOY: los cálculos de «hace N días» y «cada cuánto»
    se miden contra el mismo reloj que usa la pantalla */
 const dia = (n) => {
-  const hoy = new Date(new Date().toISOString().slice(0,10) + "T12:00:00Z");
+  /* hoy en Ecuador (America/Guayaquil), igual que hoyEC() en la app. Con UTC
+     (toISOString) la madrugada 00:00–05:00 adelantaba un día y «hace N días» salía
+     corrido, poniendo la prueba roja sin que la app cambiara. */
+  const hoy = new Date(new Date().toLocaleString("sv-SE", { timeZone:"America/Guayaquil" }).slice(0,10) + "T12:00:00Z");
   return new Date(hoy.getTime() + n * 86400000).toISOString().slice(0,10);
 };
 

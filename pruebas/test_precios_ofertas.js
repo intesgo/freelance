@@ -67,7 +67,10 @@ const ESPERADAS = 50;
 const MUTANTES_ESPERADOS = 16;
 
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 60));
-const HOY = new Date().toISOString().slice(0,10);   /* la misma cuenta que hace preHoy() */
+/* HOY en Ecuador (America/Guayaquil), la MISMA cuenta que preHoy()=hoyECWeb() en la
+   app. Antes se usaba toISOString() (UTC): entre las 00:00 y 05:00 UTC eso adelanta
+   un día y la prueba se ponía roja de madrugada aunque la app estuviera bien. */
+const HOY = new Date().toLocaleString("sv-SE", { timeZone:"America/Guayaquil" }).slice(0,10);
 
 /* ══ La base de prueba, con la forma del contrato de producción ══
    Los números son completamente sintéticos: el costo de
