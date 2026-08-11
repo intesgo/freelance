@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"182", fecha:"11 ago 2026", desc:"Al armar el pedido se pueden anotar la fecha de entrega y una nota para el chofer (ambas opcionales); viajan al sistema con el pedido." };
+const VERSION = { n:"183", fecha:"11 ago 2026", desc:"En el detalle de cada pedido ahora se ven la fecha de entrega y la nota para el chofer que se anotaron al crearlo." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -8971,6 +8971,16 @@ function DetallePedido({p, volver}){
       </div>
     </div>
 
+    {(p.fechaEntrega || p.notaChofer) && (()=>{
+      const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+      const fmtF=f=>{ const d=new Date(f+"T00:00:00"); return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]} ${d.getFullYear()}`; };
+      return (
+      <div style={{margin:"0 0 14px",padding:"10px 12px",borderRadius:10,background:"#F1F6FF",borderLeft:"4px solid #3B6FB0"}}>
+        {p.fechaEntrega && <div style={{fontSize:12.5,fontWeight:700,color:"#1E3A5F"}}>📅 Entrega prevista: {fmtF(p.fechaEntrega)}</div>}
+        {p.notaChofer && <div className="meta" style={{fontSize:11.5,marginTop:p.fechaEntrega?3:0,lineHeight:1.45}}>📝 Nota para el chofer: {p.notaChofer}</div>}
+      </div>);
+    })()}
+
     <div className="sec-h"><h2>Seguimiento del pedido</h2><div className="grain"></div></div>
     <LineaTiempoPedido pasos={p.linea} />
     <div className="lock"><span>ℹ️</span>
@@ -10530,6 +10540,8 @@ async function vivoPedidos(){
         estado:m.t, etapa:m.etapa, sync:"ok",
         comisionLiberada: p.estado==="cerrado" || (c && c.estado==="Pagada"),
         factura:p.factura||"", demo:!!p.es_demo,
+        /* lo que se anotó al armar el pedido: se muestra en el detalle */
+        fechaEntrega:p.fecha_entrega||"", notaChofer:p.nota_chofer||"",
         /* el estado CRUDO: `estado` de arriba ya viene traducido a español
            ("Facturado"), y comparar textos de pantalla para decidir si se puede
            pedir una devolución es frágil: cambia la etiqueta y se rompe. */

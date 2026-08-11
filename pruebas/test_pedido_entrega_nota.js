@@ -51,6 +51,17 @@ for (const app of APPS) {
     `${app}: el payload no incluye fecha_entrega: fechaEntrega||null`);
   prueba(/nota_chofer:\s*\(notaChofer\s*&&\s*notaChofer\.trim\(\)\)\s*\|\|\s*null/.test(src),
     `${app}: el payload no incluye nota_chofer: (notaChofer&&notaChofer.trim())||null`);
+
+  /* 5) VISTA · el detalle del pedido lee las dos columnas de la base y las muestra.
+        Así el vendedor VE en el módulo Pedidos lo que anotó al crear el pedido. */
+  prueba(/fechaEntrega:\s*p\.fecha_entrega/.test(src),
+    `${app}: la carga de pedidos vivos no trae fecha_entrega al detalle`);
+  prueba(/notaChofer:\s*p\.nota_chofer/.test(src),
+    `${app}: la carga de pedidos vivos no trae nota_chofer al detalle`);
+  prueba(/Entrega prevista/.test(src) && /p\.fechaEntrega/.test(src),
+    `${app}: el detalle no muestra la fecha de entrega`);
+  prueba(/Nota para el chofer/.test(src) && /p\.notaChofer/.test(src),
+    `${app}: el detalle no muestra la nota para el chofer`);
 }
 
 if (mal) { console.error(`Resultado ENTREGA+NOTA: ${bien} ✓ · ${mal} ✗`); process.exit(1); }
