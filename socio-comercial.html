@@ -1582,7 +1582,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"50", fecha:"10 ago 2026", desc:"Pedidos atómicos, organización dinámica y reintentos seguros." };
+const VERSION = { n:"51", fecha:"11 ago 2026", desc:"Al armar el pedido se pueden anotar la fecha de entrega y una nota para el chofer (ambas opcionales); viajan al sistema con el pedido." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -1891,7 +1891,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -1909,6 +1909,7 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
     const payload={cliente_id:cliId,proveedor_id:(prov&&prov.id)||null,condicion,
       ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null),retiro_bodega:!!retiro,
       asume_flete:retiro?null:(asumeFlete||"freelance"),asume_estibada:retiro?null:(asumeEstibada||"freelance"),
+      fecha_entrega: fechaEntrega||null, nota_chofer: (notaChofer&&notaChofer.trim())||null,
       items:items.map(it=>({prod_id:it.prod.prodId,pres_cod:it.prod.presCod,
         cantidad_presentacion:Number(it.cant),gratis_presentacion:Number(it.gratis)||0,
         precio_presentacion:Number(it.precio),tipo_precio:it.tipo,
@@ -3279,6 +3280,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);
   const [asumeFletePed,setAsumeFletePed]=useState("freelance");
   const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");
+  const [fechaEntregaPed,setFechaEntregaPed]=useState("");         // fecha de entrega (opcional) → payload registrar_pedido_atomico
+  const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
   const [ubicMap,setUbicMap]=useState({});
   const [vivoPed,setVivoPed]=useState(null);
 
@@ -3350,7 +3353,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   // agregar el producto actual al carrito y limpiar para el siguiente
   const resetProducto=()=>{setProd(null);setCant(0);reset();};
   // cerrar pedido completo: vuelve de cero
-  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();setPaso(1);};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setFechaEntregaPed("");setNotaChoferPed("");setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();setPaso(1);};
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   // Valor total de la factura del pedido (precio x cantidad de cada item)
   const totalFacturaCarrito = Math.round(carrito.reduce((s,it)=>s+(it.precio*it.cant),0)*100)/100;
@@ -3604,6 +3607,13 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             </button>);
           })}
         </div>
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Nota para el chofer <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <textarea value={notaChoferPed} onChange={e=>setNotaChoferPed(e.target.value)} rows={2}
+          placeholder="Ej: entregar en la mañana, preguntar por Don Pedro"
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}} />
       </div>
     )}
 
@@ -3944,7 +3954,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             /* PROMO-03 · el regalo de más se frena antes de guardar nada. */
             const avisoRegalo = await revisarRegaloDePromo(items, (prov && prov.id)||null);
             if(avisoRegalo){ alert(avisoRegalo); return; }
-            guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed}).then(r=>{
+            guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).then(r=>{
               if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
               else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
                 toast("⚠ El pedido quedó solo local: "+r.motivo);
@@ -4018,7 +4028,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
               cli:(cli && cli.nombre) || cli || "—",
               detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
               cuando:"recién" }));
-            guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed}).then(r=>{
+            guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).then(r=>{
               if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
               else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
                 toast("⚠ El pedido quedó solo local: "+r.motivo);

@@ -3098,7 +3098,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, idempotencia}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -3118,6 +3118,8 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
       ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null), retiro_bodega:!!retiro,
       asume_flete:retiro?null:(asumeFlete||"freelance"),
       asume_estibada:retiro?null:(asumeEstibada||"freelance"),
+      fecha_entrega: fechaEntrega||null,
+      nota_chofer: (notaChofer&&notaChofer.trim())||null,
       items:items.map(it=>({
         prod_id:it.prod.prodId, pres_cod:it.prod.presCod,
         cantidad_presentacion:Number(it.cant), gratis_presentacion:Number(it.gratis)||0,
@@ -5919,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"425", fecha:"10 ago 2026", desc:"Interfaz compacta, operación offline segura y pedidos transaccionales con organización dinámica." };
+const VERSION = { n:"426", fecha:"11 ago 2026", desc:"Al armar el pedido se pueden anotar la fecha de entrega y una nota para el chofer (ambas opcionales); viajan al sistema con el pedido." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6276,6 +6278,8 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);  // true = retira en bodega del proveedor
   const [asumeFletePed,setAsumeFletePed]=useState("freelance");     // quién asume el flete en este pedido
   const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");// quién asume la estibada en este pedido
+  const [fechaEntregaPed,setFechaEntregaPed]=useState("");         // fecha de entrega (opcional) → payload registrar_pedido_atomico
+  const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
   const [ubicMap,setUbicMap]=useState({});         // cli_id -> [ubicaciones]
   const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
@@ -6378,7 +6382,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setPromoP(null);setComProp("");setMotivo("");};
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
-  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);setProdPend(null);resetProducto();};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setFechaEntregaPed("");setNotaChoferPed("");setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);setProdPend(null);resetProducto();};
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
   const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
@@ -6629,6 +6633,13 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             </button>);
           })}
         </div>
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Nota para el chofer <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <textarea value={notaChoferPed} onChange={e=>setNotaChoferPed(e.target.value)} rows={2}
+          placeholder="Ej: entregar en la mañana, preguntar por Don Pedro"
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}} />
       </div>
     )}
 
@@ -7486,7 +7497,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
             const items = valido ? [...carrito, construirItem()] : carrito;
             if(items.length===0) return;
-            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed});
+            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
             const resumen = items.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
             setGuardadoOk({ cli, n:items.length, resumen });
             cerrarPedido();
@@ -7600,7 +7611,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado}
             onClick={()=>{
               if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
-              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed});
+              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
               const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
               setGuardadoOk({ cli, n:carrito.length, resumen });
               cerrarPedido();
@@ -24388,7 +24399,7 @@ function App({usuario, onSalir}){
   const tareasActivas=TAREAS_NOTIF.filter(t=>prefsNotif[t.tipo] && t.n>0);
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
 
-  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada})=>{
+  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer})=>{
     /* PROMO-03 · el regalo de más se frena ANTES de guardar nada, ni siquiera
        en el teléfono. El vendedor ve cuánto concede la promoción y el pedido
        se queda tal como está para que lo corrija. Devuelve false: quien llama
@@ -24431,7 +24442,7 @@ function App({usuario, onSalir}){
     /* FASE 4 · Etapa 4: si hay sesión y cliente/productos reales, el pedido TAMBIÉN nace
        en la base (pedidos + pedido_items; el trigger lo audita solo). Si algo es demo o
        no hay sesión, guardarPedidoEnBase lo detecta y el flujo local sigue como siempre. */
-    const payload={cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, idempotencia};
+    const payload={cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia};
     const r=await guardarPedidoEnBase(payload);
     if(r.ok){ setPedidos(prev=>prev.map(p=>p.offlineId===idempotencia?{...p,sync:"ok",id:r.pedId}:p)); show("✓ Pedido "+r.pedId+" guardado en la base"); }
     else if(["sin_conexion","error"].includes(r.motivo)){

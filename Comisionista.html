@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"181", fecha:"10 ago 2026", desc:"Pedidos atómicos, organización dinámica y reintentos seguros." };
+const VERSION = { n:"182", fecha:"11 ago 2026", desc:"Al armar el pedido se pueden anotar la fecha de entrega y una nota para el chofer (ambas opcionales); viajan al sistema con el pedido." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4818,7 +4818,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -4836,6 +4836,7 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
     const payload={cliente_id:cliId,proveedor_id:(prov&&prov.id)||null,condicion,
       ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null),retiro_bodega:!!retiro,
       asume_flete:retiro?null:(asumeFlete||"freelance"),asume_estibada:retiro?null:(asumeEstibada||"freelance"),
+      fecha_entrega: fechaEntrega||null, nota_chofer: (notaChofer&&notaChofer.trim())||null,
       items:items.map(it=>({prod_id:it.prod.prodId,pres_cod:it.prod.presCod,
         cantidad_presentacion:Number(it.cant),gratis_presentacion:Number(it.gratis)||0,
         precio_presentacion:Number(it.precio),tipo_precio:it.tipo,
@@ -5138,6 +5139,8 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const [retiroBodegaPed,setRetiroBodegaPed]=useState(false);
   const [asumeFletePed,setAsumeFletePed]=useState("freelance");
   const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");
+  const [fechaEntregaPed,setFechaEntregaPed]=useState("");         // fecha de entrega (opcional) → payload registrar_pedido_atomico
+  const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
   const [ubicMap,setUbicMap]=useState({});
   /* el botón atrás cierra lo abierto dentro del módulo antes de salir */
   // Origen del producto elegido: "favorito" (recompra) o "nuevo" (campo Producto nuevo → arranca limpio)
@@ -5228,7 +5231,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   // agregar el producto actual al carrito y limpiar para el siguiente
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
   // cerrar pedido completo: vuelve de cero
-  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setFechaEntregaPed("");setNotaChoferPed("");setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);resetProducto();};
   React.useEffect(()=>{
     setRetiroBodegaPed(false);
     const lista = ubicMap[CLI_ID_DE[cli]] || [];
@@ -5485,6 +5488,13 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             </button>);
           })}
         </div>
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
+        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Nota para el chofer <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <textarea value={notaChoferPed} onChange={e=>setNotaChoferPed(e.target.value)} rows={2}
+          placeholder="Ej: entregar en la mañana, preguntar por Don Pedro"
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}} />
       </div>
     )}
 
@@ -6114,7 +6124,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             cli:(cli && cli.nombre) || cli || "—",
             detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
             cuando:"recién" }));
-          if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed});
+          if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
           const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre||it.prod} · ${money(it.precio)}`).join("\n");
           setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
           cerrarPedido();
@@ -13294,7 +13304,7 @@ function App({usuario}){
     })();
     return ()=>{ vivo=false; };
   },[]);
-  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada})=>{
+  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer})=>{
     /* PROMO-03 · el regalo de más se frena ANTES de guardar nada, ni siquiera
        en el teléfono. El vendedor ve cuánto concede la promoción y el pedido
        se queda tal como está para que lo corrija. Devuelve false: quien llama
@@ -13337,7 +13347,7 @@ function App({usuario}){
     /* b170 · y además nace en la base, si hay sesión y todo es real. Si algo es
        de demostración o no hay señal, guardarPedidoEnBase lo detecta y la app
        sigue igual que siempre: el vendedor nunca se queda sin poder cerrar. */
-    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada}).then(r=>{
+    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}).then(r=>{
       if(r.ok) show("✓ Pedido "+r.pedId+" guardado en el sistema");
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo en el teléfono: "+r.motivo);
