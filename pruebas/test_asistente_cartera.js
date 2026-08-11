@@ -27,7 +27,10 @@ const reactDom = require("./rutas").reactDom();
 let ok = 0, mal = 0;
 const comprobar = (t, c) => { if (c) { ok++; console.log("  ✓ " + t); } else { mal++; console.log("  ✗ " + t); } };
 
-const dia = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); };
+/* «hoy» en Ecuador (America/Guayaquil), la misma cuenta que hoyEC() en la app. Con
+   UTC (toISOString) la madrugada 00:00–05:00 adelantaba un día: lo que «vence hoy»
+   pasaba a «vence mañana» y la prueba se ponía roja sin que la app cambiara. */
+const dia = (n) => { const base = new Date(new Date().toLocaleString("sv-SE", { timeZone:"America/Guayaquil" }).slice(0,10) + "T12:00:00Z"); return new Date(base.getTime() + n*86400000).toISOString().slice(0,10); };
 
 /* Cartera de verdad, a propósito distinta de la de demostración:
    nombres que NO están en la demo y montos que no se parecen. */
@@ -58,14 +61,14 @@ const PEDIDOS_BD = [
 const USUARIOS_BD = [{ usr_id:"SC1", nombre:"Carlos Andrade" }, { usr_id:"SC2", nombre:"María Quishpe" }];
 
 /* Comisiones: dos de este mes y una del mes pasado, en distintos estados */
-const mesAhora = new Date().toISOString().slice(0,7);
+const mesAhora = new Date().toLocaleString("sv-SE", { timeZone:"America/Guayaquil" }).slice(0,7);
 /* CORREGIDO 31/07/2026 · restar un mes SIN pasar antes por el dia 1 es el error
    clasico de JavaScript: el 31 de julio pedia "31 de junio", que no existe, y
    el idioma lo empuja al 1 de JULIO. Resultado: las comisiones de junio se
    etiquetaban como de julio y este arnes se ponia rojo los dias 29, 30 o 31
    segun el mes — acusando a la app de un fallo que era suyo. Un arnes que
    falla uno o dos dias al mes es peor que no tenerlo: ensena a ignorar el rojo. */
-const mesAntes = (()=>{ const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
+const mesAntes = (()=>{ const [y,m] = mesAhora.split("-").map(Number); const d = new Date(Date.UTC(y, m-1, 1)); d.setUTCMonth(d.getUTCMonth()-1); return d.toISOString().slice(0,7); })();
 const COMISIONES_BD = [
   /* generada este mes, el cliente todavía no paga */
   { com_id:"K1", sub_id:"SC1", monto:120.00, f_gen:mesAhora+"-03", f_cli_pago:null, f_conf:null, f_pago:null },
