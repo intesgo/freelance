@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"427", fecha:"11 ago 2026", desc:"En el detalle de cada pedido ahora se ven la fecha de entrega y la nota para el chofer que se anotaron al crearlo." };
+const VERSION = { n:"428", fecha:"11 ago 2026", desc:"Tomar pedido más simple: cliente, proveedor y producto en una pantalla; los detalles de entrega (cómo lo recibe, quién asume, fecha y nota) pasan a su propia pantalla con un resumen. Si no la abres, el pedido se guarda igual que antes." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6280,6 +6280,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");// quién asume la estibada en este pedido
   const [fechaEntregaPed,setFechaEntregaPed]=useState("");         // fecha de entrega (opcional) → payload registrar_pedido_atomico
   const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
+  const [verEntrega,setVerEntrega]=useState(false);               // segunda pantalla: "Detalles de entrega"
   const [ubicMap,setUbicMap]=useState({});         // cli_id -> [ubicaciones]
   const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
   const [tipo,setTipo]=useState("P1"); // crédito por defecto (90% de las ventas)
@@ -6382,7 +6383,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setPromoP(null);setComProp("");setMotivo("");};
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
-  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setFechaEntregaPed("");setNotaChoferPed("");setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);setProdPend(null);resetProducto();};
+  const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setFechaEntregaPed("");setNotaChoferPed("");setVerEntrega(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);setProdPend(null);resetProducto();};
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
   const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
@@ -6403,6 +6404,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   /* Botón atrás inteligente: retrocede paso a paso dentro del módulo antes de salir */
   useRetroceso(()=>{
       if(guardadoOk){ setGuardadoOk(null); return true; }   // cierra el aviso de "pedido guardado"
+      if(verEntrega){ setVerEntrega(false); return true; }   // cierra "Detalles de entrega"
       if(verHist){ setVerHist(false); return true; }
       if(verCarrito){ setVerCarrito(false); return true; }   // cierra el "Pedido en curso"
       if(verFact){ setVerFact(false); return true; }         // cierra el detalle de la última factura
@@ -6555,6 +6557,83 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     resumen={prom, deltaTend, totalQ, nCompras:histo3m.length};
   }
 
+  /* Resumen de una línea de los detalles de entrega, con los valores por
+     defecto de hoy (domicilio · flete y estibada freelance · sin fecha). */
+  const fmtEntrega = f => { if(!f) return ""; const d=new Date(f+"T00:00:00");
+    const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]}`; };
+  const resumenEntrega = (()=>{
+    const recibe = retiroBodegaPed ? "Retira en piladora" : "Domicilio";
+    let asume;
+    if(retiroBodegaPed){ asume = "flete y estibada no aplican"; }
+    else {
+      const ft = asumeFletePed==="cliente" ? "cliente" : "freelance";
+      const et = asumeEstibadaPed==="cliente" ? "cliente" : "freelance";
+      asume = ft===et ? `flete y estibada: ${ft}` : `flete: ${ft} · estibada: ${et}`;
+    }
+    const fecha = fechaEntregaPed ? fmtEntrega(fechaEntregaPed) : "sin fecha";
+    return `${recibe} · ${asume} · ${fecha}${notaChoferPed&&notaChoferPed.trim()?" · con nota":""}`;
+  })();
+
+  /* ── SEGUNDA PANTALLA · Detalles de entrega ──────────────────────────────
+     Se separó de la pantalla de armado para dejarla limpia (cliente →
+     proveedor → producto). Todo aquí es OPCIONAL: si el vendedor no entra, el
+     pedido se guarda igual que siempre (domicilio, flete y estibada del
+     freelance, sin fecha ni nota). No cambia la lógica de guardado. */
+  if(verEntrega && cli){
+    const ubis = ubicMap[CLI_ID_DE[cli]]||[];
+    return (<>
+      <button className="ghost" onClick={()=>setVerEntrega(false)} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver al pedido</button>
+      <div className="h1" style={{textAlign:"center"}}>Detalles de entrega</div>
+      <div className="card" style={{padding:"14px 14px 16px",marginBottom:14}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:"var(--field)",marginBottom:6}}>¿Cómo lo recibe?</div>
+        <div style={{display:"flex",gap:8}}>
+          <button type="button" onClick={()=>setRetiroBodegaPed(false)}
+            style={{flex:1,minWidth:0,textAlign:"center",padding:"9px 8px",borderRadius:11,cursor:"pointer",fontSize:12.5,fontWeight:700,border:`1.5px solid ${!retiroBodegaPed?"#2E7D52":"#d8ddd7"}`,background:!retiroBodegaPed?"#E7F3EC":"#fff",color:"#1E4D3A"}}>🏠 Entrega a domicilio</button>
+          <button type="button" onClick={()=>{setRetiroBodegaPed(true);setUbicPed(null);}}
+            style={{flex:1,minWidth:0,textAlign:"center",padding:"9px 8px",borderRadius:11,cursor:"pointer",fontSize:12.5,fontWeight:700,border:`1.5px solid ${retiroBodegaPed?"#B45309":"#d8ddd7"}`,background:retiroBodegaPed?"#FFF7ED":"#fff",color:"#9a3412"}}>🏭 Retira de Piladora</button>
+        </div>
+        {!retiroBodegaPed && ubis.length>1 && (
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:11.5,fontWeight:700,color:"var(--muted)",marginBottom:5}}>¿A qué local?</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {ubis.map(u=>{
+                const sel = ubicPed && ubicPed.ubic_id===u.ubic_id;
+                return (<button key={u.ubic_id} type="button" onClick={()=>setUbicPed(u)}
+                  style={{textAlign:"left",padding:"8px 11px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${sel?"#2E7D52":"#d8ddd7"}`,background:sel?"#E7F3EC":"#fff"}}>
+                  <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A"}}>{u.nombre||"Local"}</div>
+                  <div style={{fontSize:11,color:"#6b7a70",marginTop:1}}>{(u.ciudad||"")+(u.direccion?" · "+u.direccion:"")}</div>
+                </button>);
+              })}
+            </div>
+          </div>
+        )}
+        <div style={{fontSize:12.5,fontWeight:700,color:"var(--field)",margin:"12px 0 6px"}}>¿Quién asume?</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {[["flete","🚚","Flete",asumeFletePed,setAsumeFletePed],["estibada","📦","Estibada",asumeEstibadaPed,setAsumeEstibadaPed]].map(([k,ic,lbl,val,set])=>{
+            const cliente = val==="cliente"; const off = retiroBodegaPed;
+            return (<button key={k} type="button" disabled={off} onClick={()=>set(cliente?"freelance":"cliente")}
+              style={{flex:"1 1 150px",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",borderRadius:11,cursor:off?"default":"pointer",textAlign:"left",opacity:off?.55:1,border:`1.5px solid ${off?"#d8ddd7":(cliente?"#2E7D52":"#d8ddd7")}`,background:off?"#f3f5f4":(cliente?"#E7F3EC":"#fff")}}>
+              <span style={{fontSize:16}}>{ic}</span>
+              <span style={{lineHeight:1.2}}>
+                <span style={{fontSize:12.5,fontWeight:700,color:off?"#9aa3ad":"#1E4D3A"}}>{lbl}</span><br/>
+                <span style={{fontSize:11,fontWeight:600,color:off?"#9aa3ad":(cliente?"#2E7D52":"#6b7a70")}}>{off?"No aplica":(cliente?"lo asume el cliente":"lo asume el freelance")}</span>
+              </span>
+            </button>);
+          })}
+        </div>
+        <div style={{fontSize:12.5,fontWeight:700,color:"var(--field)",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
+        <div style={{fontSize:12.5,fontWeight:700,color:"var(--field)",margin:"12px 0 6px"}}>Nota para el chofer <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
+        <textarea value={notaChoferPed} onChange={e=>setNotaChoferPed(e.target.value)} rows={2}
+          placeholder="Ej: entregar en la mañana, preguntar por Don Pedro"
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}} />
+      </div>
+      <button className="cta" onClick={()=>setVerEntrega(false)}>Listo</button>
+    </>);
+  }
+
   return (<>
     {!(cli && prod) && <div className="h1" style={{textAlign:"center"}}>Tomar pedido</div>}
 
@@ -6593,54 +6672,6 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:c=>(<><div className="p1" style={{textTransform:"uppercase"}}>{refCortoCliente(c)}</div><div className="p2" style={{textTransform:"uppercase"}}>{c}</div></>)
       }}/>
     </div>
-    )}
-
-    {cli && !bloqueado && !verFact && !prod && (
-      <div className="busc-grande" style={{marginBottom:12}}>
-        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",marginBottom:6}}>¿Cómo lo recibe?</div>
-        <div style={{display:"flex",gap:8}}>
-          <button type="button" onClick={()=>setRetiroBodegaPed(false)}
-            style={{flex:1,minWidth:0,textAlign:"center",padding:"9px 8px",borderRadius:11,cursor:"pointer",fontSize:12.5,fontWeight:700,border:`1.5px solid ${!retiroBodegaPed?"#2E7D52":"#d8ddd7"}`,background:!retiroBodegaPed?"#E7F3EC":"#fff",color:"#1E4D3A"}}>🏠 Entrega a domicilio</button>
-          <button type="button" onClick={()=>{setRetiroBodegaPed(true);setUbicPed(null);}}
-            style={{flex:1,minWidth:0,textAlign:"center",padding:"9px 8px",borderRadius:11,cursor:"pointer",fontSize:12.5,fontWeight:700,border:`1.5px solid ${retiroBodegaPed?"#B45309":"#d8ddd7"}`,background:retiroBodegaPed?"#FFF7ED":"#fff",color:"#9a3412"}}>🏭 Retira de Piladora</button>
-        </div>
-        {!retiroBodegaPed && (ubicMap[CLI_ID_DE[cli]]||[]).length>1 && (
-          <div style={{marginTop:8}}>
-            <div style={{fontSize:11.5,fontWeight:700,color:"#6b7a70",marginBottom:5}}>¿A qué local?</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-              {(ubicMap[CLI_ID_DE[cli]]||[]).map(u=>{
-                const sel = ubicPed && ubicPed.ubic_id===u.ubic_id;
-                return (<button key={u.ubic_id} type="button" onClick={()=>setUbicPed(u)}
-                  style={{textAlign:"left",padding:"8px 11px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${sel?"#2E7D52":"#d8ddd7"}`,background:sel?"#E7F3EC":"#fff"}}>
-                  <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A"}}>{u.nombre||"Local"}</div>
-                  <div style={{fontSize:11,color:"#6b7a70",marginTop:1}}>{(u.ciudad||"")+(u.direccion?" · "+u.direccion:"")}</div>
-                </button>);
-              })}
-            </div>
-          </div>
-        )}
-        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>¿Quién asume?</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-          {[["flete","🚚","Flete",asumeFletePed,setAsumeFletePed],["estibada","📦","Estibada",asumeEstibadaPed,setAsumeEstibadaPed]].map(([k,ic,lbl,val,set])=>{
-            const cliente = val==="cliente"; const off = retiroBodegaPed;
-            return (<button key={k} type="button" disabled={off} onClick={()=>set(cliente?"freelance":"cliente")}
-              style={{flex:"1 1 150px",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",borderRadius:11,cursor:off?"default":"pointer",textAlign:"left",opacity:off?.55:1,border:`1.5px solid ${off?"#d8ddd7":(cliente?"#2E7D52":"#d8ddd7")}`,background:off?"#f3f5f4":(cliente?"#E7F3EC":"#fff")}}>
-              <span style={{fontSize:16}}>{ic}</span>
-              <span style={{lineHeight:1.2}}>
-                <span style={{fontSize:12.5,fontWeight:700,color:off?"#9aa3ad":"#1E4D3A"}}>{lbl}</span><br/>
-                <span style={{fontSize:11,fontWeight:600,color:off?"#9aa3ad":(cliente?"#2E7D52":"#6b7a70")}}>{off?"No aplica":(cliente?"lo asume el cliente":"lo asume el freelance")}</span>
-              </span>
-            </button>);
-          })}
-        </div>
-        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
-        <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
-          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
-        <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Nota para el chofer <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
-        <textarea value={notaChoferPed} onChange={e=>setNotaChoferPed(e.target.value)} rows={2}
-          placeholder="Ej: entregar en la mañana, preguntar por Don Pedro"
-          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}} />
-      </div>
     )}
 
     {cli && !bloqueado && !verFact && !prod && <div className="busc-grande proveedor-destacado"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov} multiPalabra
@@ -6700,6 +6731,19 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         picked:p=>(<div className="p1">{p.nombre}</div>)
       }}/></div>}
 
+    {/* Detalles de entrega: resumen en una línea; al tocar abre la 2.ª pantalla.
+       Todo opcional: si no se abre, el pedido se guarda con los valores de hoy. */}
+    {cli && !bloqueado && !verFact && !prod && (
+      <button type="button" onClick={()=>setVerEntrega(true)}
+        style={{width:"100%",textAlign:"left",background:"var(--card)",border:"1px solid var(--line)",borderRadius:14,padding:"11px 14px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:11}}>
+        <span style={{fontSize:18,flexShrink:0}}>🚚</span>
+        <span style={{flex:1,minWidth:0}}>
+          <span style={{display:"block",fontSize:13,fontWeight:700,color:"var(--field)"}}>Detalles de entrega</span>
+          <span style={{display:"block",fontSize:11.5,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{resumenEntrega}</span>
+        </span>
+        <span style={{color:"var(--muted)",fontSize:16,flexShrink:0}}>›</span>
+      </button>
+    )}
 
     {cli && !bloqueado && carrito.length===0 && !prod && (()=>{  /* última factura: venta y posventa, todo a la mano */
       const fs=(FACTURAS_DETALLE[cli]||[]);
@@ -6837,38 +6881,12 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       return (
         <div className={"card"+(!rojo?" cliente-insights":"")} style={{padding:rojo?"8px 10px":undefined,marginBottom:8,borderLeft:`3px solid ${sem[0]}`}}>
           {!rojo && (<>
-          <div className="cliente-insights-head"><span>📊</span> Información de compras</div>
-          {/* estado + mini-dashboard gráfico del cliente */}
-          {pf.premium && (
-          <div style={{display:"flex",alignItems:"center",gap:6,margin:"8px 10px 2px",flexWrap:"wrap"}}>
-            <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Premium</span>
-          </div>
-          )}
-          <div className="cliente-insights-grid">
-            {(()=>{
-              const mini=(ic,num,unidad,lbl,sub,color)=>(
-                <div className="cliente-insight">
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:5}}>
-                    <span style={{fontSize:11,flexShrink:0}}>{ic}</span>
-                    <span className="num" style={{fontSize:14,fontWeight:800,lineHeight:1,color:color||"var(--field)",whiteSpace:"nowrap"}}>
-                      {num}{unidad?<span style={{fontSize:8.5,fontWeight:600}}> {unidad}</span>:null}</span>
-                  </div>
-                  <div style={{fontSize:9.5,fontWeight:700,marginTop:2,color:"var(--ink)",
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lbl}</div>
-                  {sub && <div className="meta" style={{fontSize:8.5,
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>}
-                </div>
-              );
-              return (<>
-                {mini("🛒", pf.frecuencia||"—", "días", "Suele comprar cada",
-                  toca!=null ? (toca<=0?`atrasado ${-toca} d`:`le toca en ${toca} d`) : null,
-                  toca!=null && toca<=0 ? "var(--clay)" : "var(--field)")}
-                {mini("💳", pf.diasPago||"—", "días", "Suele pagar en",
-                  `${pg.ic} ${(pg.t||"").replace(" pagador","").toLowerCase()}`, pg.c)}
-                {mini("🏆", "#"+(pf.top||"—"), null, "Puesto en compras", "de 30 clientes")}
-                {mini("📦", pf.qqAnio||0, "qq", "Compró este año", "acumulado")}
-              </>);
-            })()}
+          {/* Semáforo de crédito: verde = al día. Es funcional; se conserva.
+             Las estadísticas de compras salían de datos de DEMO (PERFIL_CLIENTE)
+             y en clientes reales quedaban vacías: se quitaron. */}
+          <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 12px 2px",flexWrap:"wrap"}}>
+            <span style={{...CH,background:sem[0]+"1A",color:sem[0],fontSize:11.5}}>{sem[1]} {sem[2]}</span>
+            {pf.premium && <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Premium</span>}
           </div>
 
           {/* crédito del cliente: define si se le puede vender a plazo */}

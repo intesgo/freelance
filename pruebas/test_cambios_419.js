@@ -10,8 +10,8 @@ const probar = (ok, mensaje) => {
   else { mal++; console.error("✗ " + mensaje); }
 };
 
-probar(/const VERSION = \{ n:"427"/.test(app), "la aplicación debe anunciar v427");
-probar(/const CACHE = "freelance-v219"/.test(sw), "el service worker debe renovar la caché a v219");
+probar(/const VERSION = \{ n:"428"/.test(app), "la aplicación debe anunciar v428");
+probar(/const CACHE = "freelance-v220"/.test(sw), "el service worker debe renovar la caché a v220");
 
 probar(/className="busc-grande proveedor-destacado"/.test(app), "el buscador de proveedor debe estar resaltado");
 probar(/items=\{PROVS_PED\} sinLabel value=\{prov\} multiPalabra/.test(app), "el proveedor debe buscar por palabras sueltas");
@@ -23,7 +23,12 @@ probar(/onClick=\{abrirMenu\} aria-label="Abrir menú"/.test(app), "el botón de
 probar(/border-left:4px solid var\(--field-700\)/.test(app), "los encabezados grupales deben estar resaltados");
 
 probar(app.includes('className={"card"+(!rojo?" cliente-insights":"")}'), "la tarjeta de información debe usar el nuevo diseño");
-probar(/Información de compras/.test(app), "la tarjeta debe tener encabezado grupal");
+/* b428 · la pantalla de entrada se separó en dos: se quitaron las estadísticas
+   de demo (Información de compras) y la entrega vive en su propia pantalla. */
+probar(!/Información de compras/.test(app), "se debe quitar la tarjeta de estadísticas de demo (Información de compras)");
+probar(!/Suele comprar cada/.test(app) && !/Puesto en compras/.test(app), "no deben quedar las estadísticas de demo del cliente");
+probar(/Detalles de entrega/.test(app), "debe existir el botón/pantalla \"Detalles de entrega\"");
+probar(/const \[verEntrega,setVerEntrega\]=useState\(false\)/.test(app), "la segunda pantalla de entrega debe tener su propio estado");
 probar(/\.cliente-insights\{margin-top:28px!important/.test(app), "la tarjeta debe quedar separada más abajo");
 
 const recortesPedido = [
