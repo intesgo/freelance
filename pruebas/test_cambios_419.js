@@ -10,8 +10,8 @@ const probar = (ok, mensaje) => {
   else { mal++; console.error("✗ " + mensaje); }
 };
 
-probar(/const VERSION = \{ n:"426"/.test(app), "la aplicación debe anunciar v426");
-probar(/const CACHE = "freelance-v218"/.test(sw), "el service worker debe renovar la caché a v218");
+probar(/const VERSION = \{ n:"427"/.test(app), "la aplicación debe anunciar v427");
+probar(/const CACHE = "freelance-v219"/.test(sw), "el service worker debe renovar la caché a v219");
 
 probar(/className="busc-grande proveedor-destacado"/.test(app), "el buscador de proveedor debe estar resaltado");
 probar(/items=\{PROVS_PED\} sinLabel value=\{prov\} multiPalabra/.test(app), "el proveedor debe buscar por palabras sueltas");
