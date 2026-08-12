@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"428", fecha:"11 ago 2026", desc:"Tomar pedido más simple: cliente, proveedor y producto en una pantalla; los detalles de entrega (cómo lo recibe, quién asume, fecha y nota) pasan a su propia pantalla con un resumen. Si no la abres, el pedido se guarda igual que antes." };
+const VERSION = { n:"429", fecha:"11 ago 2026", desc:"El estado de crédito del cliente (🟢 Al día / 🔴 Bloqueado) se muestra en el encabezado, bajo el nombre. La tarjeta de crédito solo aparece cuando tiene datos (cupo/deuda o cliente bloqueado); ya no queda una caja vacía." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6669,7 +6669,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       render={{
         text:c=>c,
         option:c=>(<><div className="o1" style={{textTransform:"uppercase"}}>{refCortoCliente(c)}</div><div className="o2" style={{textTransform:"uppercase"}}>{c}</div></>),
-        picked:c=>(<><div className="p1" style={{textTransform:"uppercase"}}>{refCortoCliente(c)}</div><div className="p2" style={{textTransform:"uppercase"}}>{c}</div></>)
+        picked:c=>(<><div className="p1" style={{textTransform:"uppercase"}}>{refCortoCliente(c)}</div><div className="p2" style={{textTransform:"uppercase"}}>{c}</div><div style={{marginTop:5}}><span style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:700,background:(bloqueado?"#B5613C":"#2E7D52")+"1A",color:bloqueado?"#B5613C":"#2E7D52"}}>{bloqueado?"🔴 Bloqueado":"🟢 Al día"}</span></div></>)
       }}/>
     </div>
     )}
@@ -6878,20 +6878,17 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       const dUlt = p.length===3 ? Math.round((new Date(2026,5,12) - new Date(2026, MES[p[1]]||0, Number(p[0])))/86400000) : null;
       const toca = (dUlt!=null && pf.frecuencia) ? pf.frecuencia-dUlt : null;
       const CH={display:"inline-flex",alignItems:"center",gap:4,borderRadius:20,padding:"3px 9px",fontSize:10.5,fontWeight:700};
+      /* Al día y sin ficha de crédito: no hay nada real que mostrar → no se
+         dibuja la tarjeta (evita la caja blanca vacía). El semáforo 🟢/🔴 vive
+         ahora en el encabezado del cliente. */
+      if(!rojo && !ficha) return null;
       return (
         <div className={"card"+(!rojo?" cliente-insights":"")} style={{padding:rojo?"8px 10px":undefined,marginBottom:8,borderLeft:`3px solid ${sem[0]}`}}>
           {!rojo && (<>
-          {/* Semáforo de crédito: verde = al día. Es funcional; se conserva.
-             Las estadísticas de compras salían de datos de DEMO (PERFIL_CLIENTE)
-             y en clientes reales quedaban vacías: se quitaron. */}
-          <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 12px 2px",flexWrap:"wrap"}}>
-            <span style={{...CH,background:sem[0]+"1A",color:sem[0],fontSize:11.5}}>{sem[1]} {sem[2]}</span>
-            {pf.premium && <span style={{...CH,background:"#FBF3DC",color:"#8A6D12"}}>★ Premium</span>}
-          </div>
-
-          {/* crédito del cliente: define si se le puede vender a plazo */}
+          {/* El semáforo de crédito (🟢/🔴) vive ahora en el encabezado del
+             cliente. Aquí queda solo el crédito real: cupo, deuda y días. */}
           {ficha && (
-            <div style={{display:"flex",gap:6,marginTop:6}}>
+            <div style={{display:"flex",gap:6,padding:"10px 12px"}}>
               <div style={{flex:1,minWidth:0,background:"var(--paper)",borderRadius:8,padding:"5px 7px"}}>
                 <div className="meta" style={{fontSize:9}}>Cupo disponible</div>
                 <div className="num" style={{fontSize:14,fontWeight:800,
