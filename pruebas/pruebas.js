@@ -99,6 +99,7 @@ const PLAN = [
   { arnes:"test_cambios_422.js",      que:"portada, pedido web y scroll de productos", apps:[null] },
   { arnes:"test_operacion_424.js",     que:"fechas EC, demo aislado, errores y pedidos offline", apps:[null] },
   { arnes:"test_pedido_entrega_nota.js", que:"fecha de entrega y nota para el chofer viajan en el payload del pedido", apps:[null] },
+  { arnes:"test_logistica_log001.js", que:"Logística conectada a LOG-001 (rutas reales, acciones a RPC, sin «sin factura»)", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
      la regresión normal y no deben quedar omitidos por falta de una variable. */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },

@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"144", fecha:"10 ago 2026", desc:"Logística: los pedidos reales muestran sus quintales verdaderos (tomados de la base, ya en quintales) en vez de «0 qq». Antes se recalculaba el peso por el nombre de la presentación y las descripciones reales no encajaban." };
+const VERSION = { n:"145", fecha:"12 ago 2026", desc:"Logística conectada a la base (LOG-001): las rutas se cargan, arman, ordenan, editan (agregar/quitar pedido), anulan y despachan de verdad contra Supabase, con candado por acción y mensajes claros de error. Se quitó el sello «sin factura» de escoger pedidos (el candado del despacho sigue exigiendo factura)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2360,6 +2360,18 @@ function TrazabilidadWeb({ usuario }) {
         En un despacho corto no son lo mismo. */
   const [fuenteLog, setFuenteLog] = useState("demo");
   const [cargandoLog, setCargandoLog] = useState(false);
+  /* ══ LOG-001 · RUTAS REALES ══════════════════════════════════════════════
+     La pantalla se conecta a las funciones de base (crear_ruta, ordenar,
+     confirmar, agregar/quitar pedido, anular, cerrar despacho). LOG_RUTAS_INI
+     ya NO sostiene la pantalla: solo queda para el modo demo (sin sesión).
+     `estadoRutas` distingue 5 situaciones: cargando · vivo · sin · error ·
+     sin_sesion. Tras una consulta real vacía se queda en "sin", NUNCA vuelve a
+     demo (mostrar rutas de mentira aquí termina en un camión mal cargado). */
+  const [estadoRutas, setEstadoRutas] = useState("cargando");
+  const [rpcOn, setRpcOn] = useState(false);          // una acción de ruta en curso → botones deshabilitados
+  const opLock = React.useRef(false);                  // candado: no dispares dos veces la misma acción
+  const [anulaRuta, setAnulaRuta] = useState(null);    // { rutaId, nombre, motivo } · modal anular ruta
+  const [agregarEnRuta, setAgregarEnRuta] = useState(false);   // panel "agregar pedido" abierto en Orden de entrega
   useEffect(() => {
     if (!window.supa || !window.supa.auth) return;
     let activo = true;
@@ -2408,6 +2420,7 @@ function TrazabilidadWeb({ usuario }) {
           qqReal,
           retiroBodega: !!p.retiro_bodega,
           cliId: p.cli_id,          /* lo necesita la guía del viaje */
+          ubicacionId: (u && u.ubic_id) || p.ubicacion_id || null,   /* lo necesita crear_ruta / agregar_pedido_ruta */
           cli: (p.clientes && p.clientes.nombre) || p.cli_id,
           zona: u.provincia || "—",
           sc: (p.usuarios && p.usuarios.nombre) || "—",
@@ -2435,6 +2448,83 @@ function TrazabilidadWeb({ usuario }) {
     })();
     return () => { activo = false; };
   }, []);
+
+  /* ── Errores de las RPC de logística: se muestra el mensaje del CÓDIGO que
+     devuelve la función (RAISE EXCEPTION 'CODIGO'), nunca el error crudo de
+     Postgres. Un código desconocido se muestra tal cual, pero legible. ── */
+  const LOG_ERR = {
+    SIN_SESION: "Tu sesión terminó. Vuelve a entrar para continuar.",
+    ROL_NO_AUTORIZADO: "Tu rol no tiene permiso para esta acción de logística.",
+    RUTA_NO_ENCONTRADA: "Esa ruta ya no existe. Actualicé la lista.",
+    RUTA_NO_ARMADA: "La ruta ya no está 'armada'. Actualicé la lista.",
+    RUTA_NO_ORDENADA: "La ruta debe estar 'ordenada' antes de despachar.",
+    RUTA_NO_EDITABLE: "La ruta ya no se puede editar (despachada o anulada).",
+    RUTA_SIN_PEDIDOS: "La ruta no tiene pedidos: agrega al menos uno.",
+    RUTA_YA_DESPACHADA: "La ruta ya fue despachada: no se puede anular.",
+    RUTA_YA_ANULADA: "La ruta ya estaba anulada.",
+    MOTIVO_OBLIGATORIO: "El motivo es obligatorio.",
+    PEDIDO_YA_ASIGNADO: "Ese pedido ya está en otra ruta.",
+    PEDIDO_NO_EN_RUTA: "Ese pedido ya no está en la ruta.",
+    PEDIDO_NO_ELEGIBLE: "Ese pedido no se puede sumar a una ruta (revisa su estado).",
+  };
+  const codigoRpc = (error) => String((error && error.message) || "").trim().split(":")[0].split(/\s+/)[0];
+  const mensajeRpc = (error) => { const c = codigoRpc(error); return LOG_ERR[c] || ("No se pudo completar la acción" + (c ? " (" + c + ")" : ".")); };
+
+  /* Corre una RPC de ruta con candado (no se dispara dos veces), deja los
+     botones deshabilitados mientras corre y traduce el error del código. El
+     op_id lo genera CADA acción una sola vez (crypto.randomUUID) y se pasa
+     aquí; nunca se regenera en un reintento del usuario. */
+  const correrRpc = async (fn, params) => {
+    if (opLock.current) return { ok:false, ocupado:true };
+    opLock.current = true; setRpcOn(true);
+    try {
+      const { data, error } = await window.supa.rpc(fn, params);
+      if (error) { toast("⚠ " + mensajeRpc(error)); return { ok:false }; }
+      return { ok:true, data };
+    } catch (e) {
+      toast("⚠ No se pudo conectar. Revisa tu señal e intenta de nuevo.");
+      return { ok:false };
+    } finally { opLock.current = false; setRpcOn(false); }
+  };
+
+  /* ── CARGA DE RUTAS REALES (LOG-001) ── */
+  const mapRutaViva = (r) => {
+    const rp = (r.ruta_pedidos || []).filter(x => x.estado_asignacion === "activo")
+      .sort((a,b) => (a.orden_entrega||0) - (b.orden_entrega||0));
+    return {
+      id: r.ruta_id, nombre: r.nombre || "Ruta", estado: r.estado,
+      pedidos: rp.map(x => x.ped_id),
+      viajeId: r.viaje_id || null,
+      qq: Number(r.qq_total) || 0,
+      destino: (rp[0] && rp[0].ciudad) || "—",
+      chofer: r.transportista_id || "Por asignar",
+      placa: r.placa || "Por asignar",
+      despachoEstado: r.estado === "despachada" ? "programado" : null,
+      armado: { ts: 0, texto: String(r.creado || "").slice(0,16).replace("T"," ") },
+      motivoAnulacion: r.motivo_anulacion || null,
+      vivo: true, log: [],
+    };
+  };
+  const recargarRutas = async () => {
+    if (!window.supa || !window.supa.auth) { setEstadoRutas("demo"); return []; }
+    setEstadoRutas("cargando");
+    const { data: s } = await window.supa.auth.getSession().catch(()=>({data:null}));
+    if (!s || !s.session) { setEstadoRutas("sin_sesion"); return []; }
+    const { data, error } = await window.supa.from("rutas_logisticas")
+      .select("ruta_id,nombre,estado,viaje_id,qq_total,transportista_id,placa,motivo_anulacion,creado," +
+              "ruta_pedidos(ped_id,orden_entrega,ciudad,ubicacion_id,estado_asignacion)")
+      .in("estado", ["armada","ordenada","despachada"]).eq("es_demo", false)
+      .order("creado", { ascending:false }).limit(200);
+    if (error) { setEstadoRutas("error"); toast("⚠ No se pudieron traer las rutas: " + (error.message||"")); return []; }
+    const mapped = (data || []).map(mapRutaViva);
+    setRutas(mapped);
+    /* Tras una consulta real (aunque venga vacía) la pantalla es de datos
+       reales: nunca se vuelve a LOG_RUTAS_INI. */
+    setEstadoRutas(mapped.length ? "vivo" : "sin");
+    return mapped;
+  };
+  useEffect(() => { recargarRutas(); }, []);
+
   const [rutaDetalle, setRutaDetalle] = useState(null);
   const [gruposCiu, setGruposCiu] = useState(LOG_GRUPOS_INI);   // grupos de ciudades: LA regla del armado
 
@@ -2658,7 +2748,9 @@ function TrazabilidadWeb({ usuario }) {
   const disponibles = pedidos.filter(p => p.estado!=="anulado" && !enRuta(p.id) && !p.retiroBodega);
   const retirosBodega = pedidos.filter(p => p.retiroBodega);
   const pedidosDe = (r) => r.pedidos.map(id=>pedidos.find(x=>x.id===id)).filter(Boolean);
-  const qqRuta = (r) => pedidosDe(r).reduce((a,p)=>a+logQQ(p),0);
+  /* Suma en vivo desde los pedidos cargados; si la ruta ya está despachada sus
+     pedidos pueden no estar en la lista local, entonces vale su qq_total. */
+  const qqRuta = (r) => { const s = pedidosDe(r).reduce((a,p)=>a+logQQ(p),0); return s>0 ? s : (Number(r.qq)||0); };
   const rutaDe = (id) => rutas.find(r => r.pedidos.indexOf(id)>=0);
 
   // ── Selección de pedidos (pestaña Rutas) ──
@@ -2720,24 +2812,24 @@ function TrazabilidadWeb({ usuario }) {
     if (z) return "Ruta " + z.nombre.replace("Zona ","");
     return "Ruta " + cs[0] + "–" + cs[cs.length-1];
   };
-  const guardarRuta = () => {
+  const guardarRuta = async () => {
     if (idsSel.length===0) { toast("Selecciona al menos un pedido."); return; }
+    if (fuenteLog !== "vivo") { toast("Entra con tu cuenta para armar rutas de verdad."); return; }
     const orden = ordenarEntrega("ns", idsSel, true);   // orden inicial Norte→Sur; se afina en Orden de entrega
-    const primer = pedidos.find(x=>x.id===orden[0]);
-    const nueva = {
-      id: "R-" + Date.now().toString().slice(-4),
+    /* op_id: uno por acción, generado una sola vez (idempotencia en la base). */
+    const op_id = crypto.randomUUID();
+    const payload = {
       nombre: nombreInteligente(orden),
-      destino: primer ? primer.destino : "—",
-      chofer: "Por asignar", placa: "Por asignar",
-      pedidos: orden,
-      estado: "armada", despachoEstado: null, viajeId: null,
-      armado: { ts: Date.now(), texto: "recién" },
-      log: [],
+      pedidos: orden.map((id, i) => {
+        const p = pedidos.find(x => x.id === id) || {};
+        return { ped_id: id, orden_entrega: i+1, ciudad: p.ciudad || null, ubicacion_id: p.ubicacionId || null };
+      }),
     };
-    setRutas(r => [nueva, ...r]);
-    setPedidos(ps => ps.map(p => idsSel.indexOf(p.id)>=0 ? {...p, estado:"armando"} : p));
+    const r = await correrRpc("crear_ruta", { p_payload: payload, p_op_id: op_id });
+    if (!r.ok) return;
     setSel({}); setCiudadAbierta({});
-    toast("Ruta creada: " + nueva.nombre + " · " + orden.length + " pedido(s). Sigue: Orden de entrega.");
+    await recargarRutas();     // la base es la verdad: se relee tras crear
+    toast("Ruta creada: " + payload.nombre + " · " + orden.length + " pedido(s). Sigue: Orden de entrega.");
   };
 
   const seleccionPedidos = () => {
@@ -2756,7 +2848,7 @@ function TrazabilidadWeb({ usuario }) {
     });
     return (
       <div style={{ ...card, marginBottom:16 }}>
-        <p style={{ fontSize:14, fontWeight:700, color:COLOR.text, marginBottom:4 }}>Escoger pedidos · {disponibles.length} por armar<span style={{fontWeight:600, fontSize:12, color:COLOR.muted, marginLeft:8}}>({disponibles.filter(p=>!p.facturado).length} sin factura aún)</span></p>
+        <p style={{ fontSize:14, fontWeight:700, color:COLOR.text, marginBottom:4 }}>Escoger pedidos · {disponibles.length} por armar</p>
         {zonaActiva && (
           <p style={{ fontSize:12.5, color:COLOR.muted, marginBottom:12 }}>
             <span>Armando en <span style={{...chip(COLOR.teal), marginLeft:4}}>{zonaActiva.nombre}</span> — solo puedes combinar ciudades de este grupo.</span>
@@ -2800,9 +2892,7 @@ function TrazabilidadWeb({ usuario }) {
                     <input type="checkbox" checked={!!sel[p.id]} onChange={()=>toggleSel(p.id)} onClick={e=>e.stopPropagation()}
                            style={{ width:17, height:17, accentColor:COLOR.teal }} />
                     <div style={{ flex:1 }}>
-                      <p style={{ fontSize:13.5, fontWeight:700, color:COLOR.text, margin:0 }}>{p.cli}
-                        {!p.facturado && <span style={{ display:"inline-block", marginLeft:6, fontSize:10.5, fontWeight:700, padding:"2px 8px", borderRadius:20, background:COLOR.orange+"22", color:COLOR.orange }}>sin factura</span>}
-                      </p>
+                      <p style={{ fontSize:13.5, fontWeight:700, color:COLOR.text, margin:0 }}>{p.cli}</p>
                       <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{p.id} · {p.sc}{llena?" · ⚠ llena un camión":""}</p>
                     </div>
                     <p className="num" style={{ fontSize:14, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(logQQ(p))} qq</p>
@@ -2818,7 +2908,7 @@ function TrazabilidadWeb({ usuario }) {
             <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.tealDark, margin:0 }}>
               🚚 {idsSel.length} entrega(s) · <span className="num">{Math.round(qqSel)} qq</span>
             </p>
-            <button onClick={guardarRuta} style={{ ...btn(COLOR.tealDark), padding:"11px 20px", fontSize:14 }}>Guardar ruta ✓</button>
+            <button disabled={rpcOn} onClick={guardarRuta} style={{ ...btn(COLOR.tealDark), padding:"11px 20px", fontSize:14, opacity:rpcOn?.6:1 }}>Guardar ruta ✓</button>
           </div>}
       </div>
     );
@@ -2862,13 +2952,77 @@ function TrazabilidadWeb({ usuario }) {
     const out = []; cs.forEach(cc => lista.filter(p=>p.ciudad===cc).forEach(p=>out.push(p.id)));
     setOrdenIds(out);
   };
-  const confirmarOrden = () => {
-    setRutas(rs => rs.map(r => r.id===ordRutaId
-      ? { ...r, pedidos: ordenIds.slice(), estado: "ordenada",
-          log:[...(r.log||[]), "Orden de entrega confirmado"] }
-      : r));
-    toast("Orden de entrega confirmado. La ruta pasó a Despacho.");
+  const confirmarOrden = async () => {
+    const r = rutas.find(x => x.id === ordRutaId);
+    if (!r) { setOrdRutaId(null); return; }
+    /* Demo (sin sesión): comportamiento local de siempre. */
+    if (fuenteLog !== "vivo") {
+      setRutas(rs => rs.map(x => x.id===ordRutaId
+        ? { ...x, pedidos: ordenIds.slice(), estado: "ordenada", log:[...(x.log||[]), "Orden de entrega confirmado"] } : x));
+      toast("Orden de entrega confirmado. La ruta pasó a Despacho.");
+      setOrdRutaId(null); return;
+    }
+    /* 1) Persistir el orden que armó el usuario (actualizar_orden_ruta). */
+    const op1 = crypto.randomUUID();
+    const orden = ordenIds.map((id, i) => ({ ped_id: id, orden_entrega: i+1 }));
+    const a = await correrRpc("actualizar_orden_ruta", { p_ruta_id: ordRutaId, p_orden: orden, p_op_id: op1 });
+    if (!a.ok) return;
+    /* 2) Si la ruta estaba 'armada', confirmarla (pasa a 'ordenada'). Si ya
+       estaba 'ordenada', solo se guardó el nuevo orden. */
+    if (r.estado === "armada") {
+      const op2 = crypto.randomUUID();
+      const c = await correrRpc("confirmar_orden_ruta", { p_ruta_id: ordRutaId, p_op_id: op2 });
+      if (!c.ok) { await recargarRutas(); return; }
+    }
+    await recargarRutas();
+    toast(r.estado === "armada" ? "Orden de entrega confirmado. La ruta pasó a Despacho." : "Orden de entrega actualizado.");
     setOrdRutaId(null);
+  };
+
+  /* ── Quitar / agregar pedido de una ruta en edición (Orden de entrega) ──
+     Escriben en la base (quitar_pedido_ruta / agregar_pedido_ruta) y releen la
+     ruta para volver a sincronizar el orden en pantalla. */
+  const quitarPedidoDeRuta = async (pedId) => {
+    if (fuenteLog !== "vivo") {
+      setOrdenIds(o => o.filter(id => id !== pedId));
+      setRutas(rs => rs.map(x => x.id===ordRutaId ? { ...x, pedidos: x.pedidos.filter(id=>id!==pedId) } : x));
+      return;
+    }
+    const op_id = crypto.randomUUID();
+    const r = await correrRpc("quitar_pedido_ruta", { p_ruta_id: ordRutaId, p_ped_id: pedId, p_motivo: "Quitado al ordenar la ruta", p_op_id: op_id });
+    if (!r.ok) return;
+    const rutasNuevas = await recargarRutas();
+    const ruta = rutasNuevas.find(x => x.id === ordRutaId);
+    if (ruta) setOrdenIds(ruta.pedidos.slice()); else setOrdRutaId(null);
+    toast("Pedido quitado de la ruta.");
+  };
+  const agregarPedidoARuta = async (pedId) => {
+    if (fuenteLog !== "vivo") { toast("Entra con tu cuenta para editar rutas de verdad."); return; }
+    const p = pedidos.find(x => x.id === pedId) || {};
+    const op_id = crypto.randomUUID();
+    const r = await correrRpc("agregar_pedido_ruta", { p_ruta_id: ordRutaId, p_ped_id: pedId, p_ubicacion_id: p.ubicacionId || null, p_op_id: op_id });
+    if (!r.ok) return;
+    const rutasNuevas = await recargarRutas();
+    const ruta = rutasNuevas.find(x => x.id === ordRutaId);
+    if (ruta) setOrdenIds(ruta.pedidos.slice());
+    setAgregarEnRuta(false);
+    toast("Pedido agregado a la ruta.");
+  };
+
+  /* ── Anular una ruta armada/ordenada (anular_ruta · motivo obligatorio) ── */
+  const confirmarAnularRuta = async () => {
+    if (!anulaRuta || !anulaRuta.motivo.trim()) { toast("El motivo de anulación es obligatorio."); return; }
+    if (fuenteLog !== "vivo") {
+      setRutas(rs => rs.filter(r => r.id !== anulaRuta.rutaId));
+      setAnulaRuta(null); toast("Ruta anulada."); return;
+    }
+    const op_id = crypto.randomUUID();
+    const r = await correrRpc("anular_ruta", { p_ruta_id: anulaRuta.rutaId, p_motivo: anulaRuta.motivo.trim(), p_op_id: op_id });
+    if (!r.ok) return;
+    if (ordRutaId === anulaRuta.rutaId) setOrdRutaId(null);
+    setAnulaRuta(null);
+    await recargarRutas();
+    toast("Ruta anulada · sus pedidos vuelven a estar disponibles.");
   };
 
   const vistaOrden = () => {
@@ -2916,13 +3070,35 @@ function TrazabilidadWeb({ usuario }) {
                   </div>
                   <p className="num" style={{ fontSize:15, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(logQQ(p))} qq</p>
                   <div>{flecha(-1, primeroC)}{flecha(1, ultimoC)}</div>
+                  {!soloLectura && <button disabled={rpcOn} title="Quitar de la ruta" onClick={()=>quitarPedidoDeRuta(p.id)}
+                    style={{ width:34, height:34, borderRadius:8, border:"1px solid #f5c2c2", background:"#fdecec", color:"#b91c1c", fontSize:15, fontWeight:800, cursor:rpcOn?"default":"pointer", opacity:rpcOn?.6:1, flexShrink:0 }}>✕</button>}
                 </div>
               </React.Fragment>
             );
           })}
+          {/* Agregar un pedido disponible a esta ruta (agregar_pedido_ruta) */}
+          {!soloLectura && (
+            <div style={{ marginTop:6, borderTop:`1px solid ${COLOR.border}`, paddingTop:12 }}>
+              <button disabled={rpcOn} onClick={()=>setAgregarEnRuta(v=>!v)} style={{ ...btn(COLOR.tealLight, COLOR.tealDark), padding:"9px 14px", fontSize:13, opacity:rpcOn?.6:1 }}>
+                {agregarEnRuta ? "▲ Cerrar" : "＋ Agregar pedido"}</button>
+              {agregarEnRuta && (disponibles.length===0
+                ? <p style={{ fontSize:12.5, color:COLOR.muted, marginTop:10 }}>No hay pedidos disponibles para agregar.</p>
+                : <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:8 }}>
+                    {disponibles.map(dp => (
+                      <div key={dp.id} style={{ display:"flex", alignItems:"center", gap:10, border:`1px solid ${COLOR.border}`, borderRadius:10, padding:"9px 12px" }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0 }}>{dp.cli}</p>
+                          <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{dp.id} · {dp.ciudad} · {Math.round(logQQ(dp))} qq</p>
+                        </div>
+                        <button disabled={rpcOn} onClick={()=>agregarPedidoARuta(dp.id)} style={{ ...btn(COLOR.teal), padding:"7px 12px", fontSize:12.5, opacity:rpcOn?.6:1 }}>Agregar</button>
+                      </div>
+                    ))}
+                  </div>)}
+            </div>
+          )}
           <div style={{ display:"flex", justifyContent:"space-between", marginTop:16 }}>
-            <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setOrdRutaId(null)}>Cancelar</button>
-            <button style={btn(COLOR.green)} onClick={confirmarOrden}>Confirmar orden ✓</button>
+            <button disabled={rpcOn} style={{ ...btn("#f3f5f7", COLOR.text), opacity:rpcOn?.6:1 }} onClick={()=>{ setOrdRutaId(null); setAgregarEnRuta(false); }}>Cancelar</button>
+            <button disabled={rpcOn} style={{ ...btn(COLOR.green), opacity:rpcOn?.6:1 }} onClick={confirmarOrden}>Confirmar orden ✓</button>
           </div>
         </div>
       );
@@ -2945,7 +3121,12 @@ function TrazabilidadWeb({ usuario }) {
                     <td style={td}>{r.pedidos.length}</td>
                     <td style={td}>{cs.join(" → ")}</td>
                     <td style={{...td, fontWeight:700}} className="num">{Math.round(qqRuta(r))} qq</td>
-                    <td style={td}>{!soloLectura && <button style={{...btn(COLOR.teal), padding:"7px 12px", fontSize:12.5}} onClick={()=>abrirOrden(r)}>{textoBtn}</button>}</td>
+                    <td style={td}>{!soloLectura && (
+                      <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap" }}>
+                        <button disabled={rpcOn} style={{...btn(COLOR.teal), padding:"7px 12px", fontSize:12.5, opacity:rpcOn?.6:1}} onClick={()=>abrirOrden(r)}>{textoBtn}</button>
+                        <button disabled={rpcOn} style={{...btn("#fdecec","#b91c1c"), padding:"7px 12px", fontSize:12.5, opacity:rpcOn?.6:1}} onClick={()=>setAnulaRuta({ rutaId:r.id, nombre:r.nombre, motivo:"" })}>Anular</button>
+                      </div>
+                    )}</td>
                   </tr>
                 );
               })}</tbody>
@@ -3221,8 +3402,17 @@ function TrazabilidadWeb({ usuario }) {
         return;
       }
       toast("Viaje " + vj + " creado en la base · " + r.guias + " guía(s) para el chofer");
+      /* LOG-001 · SOLO SE AGREGA: cerrar la ruta (ordenada → despachada) con su viaje. */
+      const opId = crypto.randomUUID();
+      const cr = await correrRpc("cerrar_ruta_despachada", { p_ruta_id: despachar.id, p_viaje_id: vj, p_op_id: opId });
+      if (!cr.ok) { await recargarRutas(); setDespachar(null); return; }
+      await recargarRutas();
+      toast(`Despacho guardado. Nació el viaje ${vj}, ruta despachada.`);
+      setDespachar(null);
+      return;
     }
 
+    /* Demo (sin sesión): comportamiento local de siempre. */
     setRutas(rs => rs.map(r => r.id===despachar.id
       ? { ...r, chofer:dTr.nombre, placa:dPlaca.trim().toUpperCase(), estado:"despachada", despachoEstado:"programado", viajeId:vj,
           ficha:{ dia:dDia, hora:dHora, placa:dPlaca.trim().toUpperCase(), transportista:dTr.nombre },
@@ -3421,6 +3611,22 @@ function TrazabilidadWeb({ usuario }) {
         ))}
       </div>
 
+      {/* Estado de la carga de RUTAS reales · 5 situaciones distinguibles */}
+      {["rutas","orden","despacho"].indexOf(tab)>=0 && (()=>{
+        const box = (bg,bd,fg,txt,extra) => (
+          <div style={{ marginBottom:14, background:bg, border:`1px solid ${bd}`, borderRadius:10, padding:"10px 13px",
+            display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+            <span style={{ fontSize:12.5, fontWeight:700, color:fg }}>{txt}</span>{extra}</div>
+        );
+        if (estadoRutas==="cargando") return box("#F1F5F9","#dbe3ea",COLOR.muted,"⏳ Cargando rutas…");
+        if (estadoRutas==="sin_sesion") return box("#FFF7ED","#fed7aa","#9a3412","🔒 Entra con tu cuenta para ver y armar rutas reales.");
+        if (estadoRutas==="error") return box("#FDECEC","#f5c2c2","#b91c1c","⚠ No se pudieron cargar las rutas.",
+          <button onClick={()=>recargarRutas()} style={{ ...btn("#b91c1c"), padding:"6px 12px", fontSize:12.5 }}>Reintentar</button>);
+        if (estadoRutas==="sin") return box("#F7F9FB","#e2e8ee",COLOR.muted,"No hay rutas armadas.");
+        if (estadoRutas==="vivo") return box("#f2faf5","#bfe3cd","#1e6641","🟢 Rutas reales · " + rutas.length + " en Supabase.");
+        return null;   // demo (sin supa): sin banner
+      })()}
+
       {tab==="rutas" ? vistaRutas() : tab==="orden" ? vistaOrden() : tab==="despacho" ? vistaDespacho() : tab==="novedades" ? vistaNovedades() : vistaZonas()}
 
       {/* Aviso flotante */}
@@ -3545,7 +3751,7 @@ function TrazabilidadWeb({ usuario }) {
 
             <div style={{ display:"flex", justifyContent:"space-between" }}>
               <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setDespachar(null)}>Cancelar</button>
-              <button style={btn(COLOR.green)} onClick={guardarDespacho}>Despachar ✓ · nace {proximoViaje()}</button>
+              <button disabled={rpcOn} style={{ ...btn(COLOR.green), opacity:rpcOn?.6:1 }} onClick={guardarDespacho}>Despachar ✓ · nace {proximoViaje()}</button>
             </div>
           </div>
         </div>
@@ -3742,6 +3948,22 @@ function TrazabilidadWeb({ usuario }) {
             <div style={{ display:"flex", justifyContent:"space-between" }}>
               <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setAnulaDesp(null)}>Cancelar</button>
               <button style={btn("#b91c1c")} onClick={confirmarAnularDespacho}>Confirmar anulación</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal anular RUTA (armada/ordenada · antes de despachar) */}
+      {anulaRuta && (
+        <div onClick={()=>!rpcOn && setAnulaRuta(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:480, maxWidth:"100%", padding:"22px 24px" }}>
+            <h2 style={{ fontSize:17, fontWeight:800, margin:"0 0 8px", color:"#b91c1c" }}>Anular ruta · {anulaRuta.nombre}</h2>
+            <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 12px" }}>Sus pedidos vuelven a estar disponibles para armar otra ruta. El motivo queda registrado — nada se borra. Solo es posible antes de despachar.</p>
+            <input value={anulaRuta.motivo} onChange={e=>setAnulaRuta(a=>({...a, motivo:e.target.value}))} placeholder="Motivo (obligatorio)…"
+              style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:"1px solid #fca5a5", fontSize:14, marginBottom:12 }} />
+            <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <button disabled={rpcOn} style={{ ...btn("#f3f5f7", COLOR.text), opacity:rpcOn?.6:1 }} onClick={()=>setAnulaRuta(null)}>Cancelar</button>
+              <button disabled={rpcOn} style={{ ...btn("#b91c1c"), opacity:rpcOn?.6:1 }} onClick={confirmarAnularRuta}>Confirmar anulación</button>
             </div>
           </div>
         </div>
