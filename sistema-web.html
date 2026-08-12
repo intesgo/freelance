@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"145", fecha:"12 ago 2026", desc:"Logística conectada a la base (LOG-001): las rutas se cargan, arman, ordenan, editan (agregar/quitar pedido), anulan y despachan de verdad contra Supabase, con candado por acción y mensajes claros de error. Se quitó el sello «sin factura» de escoger pedidos (el candado del despacho sigue exigiendo factura)." };
+const VERSION = { n:"146", fecha:"12 ago 2026", desc:"Logística: la anulación de despacho se hace contra la base (anular_viaje): el viaje queda anulado, sus pedidos vuelven a «sin despachar» y la ruta a «ordenada». Se quitó el código de autorización de ese diálogo (motivo obligatorio, candado por acción) y se muestran mensajes claros por cada error." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2474,12 +2474,12 @@ function TrazabilidadWeb({ usuario }) {
      botones deshabilitados mientras corre y traduce el error del código. El
      op_id lo genera CADA acción una sola vez (crypto.randomUUID) y se pasa
      aquí; nunca se regenera en un reintento del usuario. */
-  const correrRpc = async (fn, params) => {
+  const correrRpc = async (fn, params, errMap) => {
     if (opLock.current) return { ok:false, ocupado:true };
     opLock.current = true; setRpcOn(true);
     try {
       const { data, error } = await window.supa.rpc(fn, params);
-      if (error) { toast("⚠ " + mensajeRpc(error)); return { ok:false }; }
+      if (error) { const c = codigoRpc(error); toast("⚠ " + ((errMap && errMap[c]) || mensajeRpc(error))); return { ok:false }; }
       return { ok:true, data };
     } catch (e) {
       toast("⚠ No se pudo conectar. Revisa tu señal e intenta de nuevo.");
@@ -3421,17 +3421,39 @@ function TrazabilidadWeb({ usuario }) {
     toast(`Despacho guardado. Nació el viaje ${vj}, vinculado a la ruta.`);
     setDespachar(null);
   };
-  const confirmarAnularDespacho = () => {
-    if (!anulaDesp || !anulaDesp.motivo.trim()) { toast("El motivo de anulación es obligatorio."); return; }
-    if (!esFreelance && (anulaDesp.codigo||"").trim() !== CODIGO_ANULACION_FREELANCE) {
-      toast("Código incorrecto. El Freelance lo recibe en su aplicativo móvil."); return;
+  /* Mensajes claros por código de anular_viaje (no el error crudo de Postgres). */
+  const ANUL_VIAJE_ERR = {
+    VIAJE_CON_ENTREGAS: "No se puede anular: el viaje ya tiene entregas.",
+    MOTIVO_OBLIGATORIO: "El motivo es obligatorio.",
+    VIAJE_YA_ANULADO: "Este despacho ya estaba anulado.",
+    VIAJE_NO_ENCONTRADO: "No se encontró el viaje.",
+    ROL_NO_AUTORIZADO: "Tu rol no puede anular despachos.",
+    SIN_SESION: "Tu sesión terminó. Vuelve a entrar para continuar.",
+  };
+  const confirmarAnularDespacho = async () => {
+    if (!anulaDesp || !anulaDesp.motivo.trim()) { toast("El motivo es obligatorio."); return; }
+    const ruta = rutas.find(r => r.id === anulaDesp.rutaId);
+    const viajeId = (ruta && ruta.viajeId) || anulaDesp.viajeId || null;
+    /* Demo (sin sesión): comportamiento local de siempre. */
+    if (fuenteLog !== "vivo") {
+      setRutas(rs => rs.map(r => r.id===anulaDesp.rutaId
+        ? { ...r, chofer:"Por asignar", placa:"Por asignar", estado:"ordenada", despachoEstado:null, viajeId:null, ficha:null,
+            log:[...(r.log||[]), `Despacho anulado: ${anulaDesp.motivo.trim()}`] }
+        : r));
+      auditar(usuario, "Logística", "Anulación de despacho", anulaDesp.rutaId, "Motivo: "+anulaDesp.motivo.trim());
+      setAnulaDesp(null); return;
     }
-    setRutas(rs => rs.map(r => r.id===anulaDesp.rutaId
-      ? { ...r, chofer:"Por asignar", placa:"Por asignar", estado:"ordenada", despachoEstado:null, viajeId:null, ficha:null,
-          log:[...(r.log||[]), `Despacho anulado: ${anulaDesp.motivo.trim()}${esFreelance?"":" · autorizado con código del Freelance"}`] }
-      : r));
-    auditar(usuario, "Logística", "Anulación de despacho"+(esFreelance?"":" · con código del Freelance"), anulaDesp.rutaId, "Motivo: "+anulaDesp.motivo.trim());
+    if (!viajeId) { toast("Esta ruta no tiene un viaje que anular."); return; }
+    /* La base es la fuente de verdad: deja el viaje 'anulado', los pedidos
+       'sin_despachar' y la ruta 'ordenada'. Se relee tras terminar. */
+    const r = await correrRpc("anular_viaje",
+      { p_viaje_id: viajeId, p_motivo: anulaDesp.motivo.trim(), p_op_id: anulaDesp.opId },
+      ANUL_VIAJE_ERR);
+    if (!r.ok) return;
+    auditar(usuario, "Logística", "Anulación de despacho", anulaDesp.rutaId, "Motivo: "+anulaDesp.motivo.trim()+" · viaje "+viajeId);
     setAnulaDesp(null);
+    await recargarRutas();
+    toast("Despacho anulado · la ruta volvió a 'ordenada' y sus pedidos quedaron 'sin despachar'.");
   };
 
   const barraAvance = (frac, color) => (
@@ -3502,7 +3524,7 @@ function TrazabilidadWeb({ usuario }) {
                       })()}</td>
                       <td style={td}><span style={chip(ed.c)}>{ed.t}</span></td>
                       <td style={td}>{anulable && !soloLectura &&
-                        <button style={{...btn("#fdecec","#b91c1c"), padding:"6px 10px", fontSize:12}} onClick={()=>setAnulaDesp({rutaId:r.id, motivo:"", codigo:""})}>Anular despacho</button>}</td>
+                        <button style={{...btn("#fdecec","#b91c1c"), padding:"6px 10px", fontSize:12}} onClick={()=>setAnulaDesp({rutaId:r.id, viajeId:r.viajeId||null, motivo:"", opId:crypto.randomUUID()})}>Anular despacho</button>}</td>
                     </tr>
                   );
                 })}</tbody>
@@ -3932,22 +3954,15 @@ function TrazabilidadWeb({ usuario }) {
       )}
 
       {anulaDesp && (
-        <div onClick={()=>setAnulaDesp(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
+        <div onClick={()=>!rpcOn && setAnulaDesp(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:480, maxWidth:"100%", padding:"22px 24px" }}>
             <h2 style={{ fontSize:17, fontWeight:800, margin:"0 0 8px", color:"#b91c1c" }}>Anular despacho</h2>
-            <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 12px" }}>La ruta vuelve a "Ordenada" y su viaje se desvincula. El motivo queda registrado — nada se borra. Solo es posible antes de que el camión salga.</p>
+            <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 12px" }}>La ruta vuelve a "Ordenada", su viaje queda anulado y los pedidos vuelven a "sin despachar". El motivo queda registrado — nada se borra. Solo es posible antes de que el camión entregue.</p>
             <input value={anulaDesp.motivo} onChange={e=>setAnulaDesp(a=>({...a, motivo:e.target.value}))} placeholder="Motivo (obligatorio)…"
               style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:"1px solid #fca5a5", fontSize:14, marginBottom:12 }} />
-            {!esFreelance && (
-              <div style={{ marginBottom:12 }}>
-                <label style={{ fontSize:12, fontWeight:700, color:"#b91c1c", display:"block", marginBottom:6 }}>Código de autorización — le llega al Freelance en su aplicativo móvil</label>
-                <input value={anulaDesp.codigo||""} onChange={e=>setAnulaDesp(a=>({...a, codigo:e.target.value}))} placeholder="Código…" inputMode="numeric"
-                  style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:"1px solid #fca5a5", fontSize:16, letterSpacing:3, fontWeight:700 }} />
-              </div>
-            )}
             <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setAnulaDesp(null)}>Cancelar</button>
-              <button style={btn("#b91c1c")} onClick={confirmarAnularDespacho}>Confirmar anulación</button>
+              <button disabled={rpcOn} style={{ ...btn("#f3f5f7", COLOR.text), opacity:rpcOn?.6:1 }} onClick={()=>setAnulaDesp(null)}>Cancelar</button>
+              <button disabled={rpcOn} style={{ ...btn("#b91c1c"), opacity:rpcOn?.6:1 }} onClick={confirmarAnularDespacho}>Confirmar anulación</button>
             </div>
           </div>
         </div>

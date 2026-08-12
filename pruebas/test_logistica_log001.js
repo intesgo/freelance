@@ -62,5 +62,16 @@ prueba(/mapped\.length \? "vivo" : "sin"/.test(web) && /nunca se vuelve a LOG_RU
 prueba(/SIN_SESION/.test(web) && /ROL_NO_AUTORIZADO/.test(web) && /PEDIDO_YA_ASIGNADO/.test(web),
   "los errores deben traducir los códigos (SIN_SESION, ROL_NO_AUTORIZADO, …)");
 
+/* ── 8) Anulación de despacho conectada a anular_viaje (sin código en ESE flujo) ── */
+const anulDesp = (web.match(/const confirmarAnularDespacho = async[\s\S]*?\n  const /) || [""])[0];
+prueba(/correrRpc\("anular_viaje"/.test(anulDesp), "confirmarAnularDespacho debe llamar a anular_viaje");
+prueba(!/CODIGO_ANULACION_FREELANCE/.test(anulDesp), "el flujo de anular despacho ya NO debe usar el código de autorización");
+prueba(/const CODIGO_ANULACION_FREELANCE = /.test(web), "la constante CODIGO_ANULACION_FREELANCE NO debe borrarse (otras anulaciones la usan)");
+prueba(/p_op_id:\s*anulaDesp\.opId/.test(web), "la anulación de despacho debe usar el op_id generado al abrir el diálogo");
+prueba(/opId:\s*crypto\.randomUUID\(\)/.test(web), "el op_id de anular despacho se genera una sola vez al abrir (crypto.randomUUID)");
+prueba(!/anulaDesp\.codigo/.test(web), "el diálogo de anular despacho ya no debe leer un código");
+prueba(/VIAJE_CON_ENTREGAS/.test(web) && /VIAJE_YA_ANULADO/.test(web) && /VIAJE_NO_ENCONTRADO/.test(web),
+  "deben estar los mensajes claros por código de anular_viaje");
+
 if (mal) { console.error(`Resultado LOG-001: ${bien} ✓ · ${mal} ✗`); process.exit(1); }
 console.log(`Resultado LOG-001: ${bien} ✓ · 0 ✗`);
