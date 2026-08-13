@@ -112,6 +112,35 @@ const guion=(tab)=>`(async()=>{
   return cont.textContent;
 })()`;
 
+/* Igual que `guion`, pero además abre la sub-vista «Resumen» de Pedidos: desde
+   ago/2026 la entrada de Pedidos es liviana (pestañas + lista) y el panorama
+   —dónde están los pedidos y por proveedor— vive tras el botón «Ver resumen». */
+const guionResumen=(tab)=>`(async()=>{
+  var cont=document.createElement("div"); document.body.appendChild(cont);
+  var raiz=ReactDOM.createRoot(cont);
+  ReactDOM.flushSync(function(){
+    raiz.render(React.createElement(App,{ usuario:{nombre:"Usuario Demo Principal",codigo:"USR-DEMO-01",rol:"freelance",real:true},
+      onSalir:function(){}, toast:function(){} }));
+  });
+  var esperar=function(ms){ return new Promise(function(r){ setTimeout(r,ms||60); }); };
+  await esperar(120);
+  var ir=function(nombre){
+    var bs=cont.querySelectorAll(".nav button");
+    for(var i=0;i<bs.length;i++){ if((bs[i].textContent||"").indexOf(nombre)>=0){ bs[i].click(); return true; } }
+    return false;
+  };
+  ir(${JSON.stringify(tab)});
+  await esperar(150);
+  var abrir=function(txt){
+    var bs=cont.querySelectorAll("button");
+    for(var i=0;i<bs.length;i++){ if((bs[i].textContent||"").indexOf(txt)>=0){ bs[i].click(); return true; } }
+    return false;
+  };
+  abrir("Ver resumen");
+  await esperar(120);
+  return cont.textContent;
+})()`;
+
 (async()=>{
   console.log("═══ CON datos del sistema");
   {
@@ -119,8 +148,10 @@ const guion=(tab)=>`(async()=>{
     const pedidos=await vm.runInContext(guion("Pedidos"), m.ctx);
     comprobar("Pedidos muestra el sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(pedidos));
     comprobar("Pedidos trae el cliente sintético", pedidos.indexOf("Cliente Demo Norte")>=0);
-    comprobar("el estado guardado se traduce al del negocio", pedidos.indexOf("Enviado al proveedor")>=0);
-    comprobar("el proveedor sale por su nombre sintético", pedidos.indexOf("Proveedor Demo Uno")>=0);
+    /* El estado y el proveedor viven en la sub-vista «Resumen» (entrada liviana). */
+    const resumen=await vm.runInContext(guionResumen("Pedidos"), montar(true).ctx);
+    comprobar("el estado guardado se traduce al del negocio (en Resumen)", resumen.indexOf("Enviado al proveedor")>=0);
+    comprobar("el proveedor sale por su nombre sintético (en Resumen)", resumen.indexOf("Proveedor Demo Uno")>=0);
   }
   {
     const m=montar(true);
