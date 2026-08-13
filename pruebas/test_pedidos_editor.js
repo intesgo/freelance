@@ -55,5 +55,24 @@ prueba(/crypto\.randomUUID/.test(fl), "el guardado usa un op_id único");
 /* Mensaje de error traducido (trampa 7) */
 prueba(/ya no se puede editar\/i[\s\S]{0,80}ya se facturó: ya no se puede editar/.test(fl), "traduce el error «ya no se puede editar»");
 
+/* ── Entrada liviana (Trabajo A del alcance entrada-liviana) ── */
+prueba(/const \[vistaResumen,setVistaResumen\]=useState\(false\)/.test(fl), "la sub-vista Resumen tiene su propio estado");
+prueba(/onClick=\{\(\)=>setVistaResumen\(true\)\}[\s\S]{0,600}📊 Ver resumen/.test(fl), "hay un botón «Ver resumen» que abre el panorama");
+prueba(/Volver a la lista/.test(fl) && /onClick=\{\(\)=>setVistaResumen\(false\)\}/.test(fl), "desde el Resumen se puede volver a la lista");
+prueba(/if\(vistaResumen\)\{ setVistaResumen\(false\); return true; \}/.test(fl), "el botón atrás cierra el Resumen");
+prueba(/const cambiarPestana=\(p,mantenerEstado\)=>\{setVistaResumen\(false\);/.test(fl), "tocar un estado/pestaña sale del Resumen y filtra la lista");
+prueba(/const \[verRegla,setVerRegla\]=useState\(false\)/.test(fl) && /onClick=\{\(\)=>setVerRegla\(v=>!v\)\}/.test(fl), "la regla de la pestaña vive tras el ícono ⓘ");
+
+/* ── Rendimiento (Trabajo B del alcance): sin cambiar qué se ve ── */
+prueba(/const panorama = React\.useMemo\(\(\)=>\{[\s\S]{0,1400}\},\[pedidos\]\);/.test(fl), "los agregados del panorama van en useMemo dep [pedidos]");
+prueba(/const \{ lista, nPendientes, ordenada \} = React\.useMemo\(\(\)=>\{[\s\S]{0,1600}\},\[pedidos,q,estado,desde,hasta,orden,pestana\]\);/.test(fl),
+  "la lista filtrada/ordenada va en useMemo con sus dependencias");
+prueba(/const itemsPorPed=\{\};[\s\S]{0,140}itemsPorPed\[i\.ped_id\]=itemsPorPed\[i\.ped_id\]\|\|\[\]/.test(fl), "los ítems se indexan por pedido una sola vez");
+prueba(/const its=itemsPorPed\[p\.ped_id\]\|\|\[\]/.test(fl), "cada pedido toma sus ítems del índice, no con filter");
+prueba(/function lineaDePedido\(p\)\{/.test(fl), "la línea de tiempo se arma con un helper a demanda");
+prueba(/const linea = p\.linea \|\| lineaDePedido\(p\)/.test(fl), "el detalle arma la línea de tiempo solo al abrirse");
+prueba(!/linea: ETAPAS_PEDIDO\.map/.test(fl), "el cargador de la lista ya NO construye la línea de tiempo de cada pedido");
+prueba(/etapaLinea:m\.linea, creado:p\.creado/.test(fl), "el cargador solo guarda los primitivos para armarla después");
+
 if (mal) { console.error(`Resultado PEDIDOS-EDITOR: ${bien} ✓ · ${mal} ✗`); process.exit(1); }
 console.log(`Resultado PEDIDOS-EDITOR: ${bien} ✓ · 0 ✗`);

@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"431", fecha:"13 ago 2026", desc:"Pedidos: ahora TRES pestañas que dicen dónde está cada pedido. Pendientes (con el número de los que faltan) = todavía se puede editar o anular; En camino = ya facturado, va hacia el cliente; Entregados = cerrado, para consulta (los anulados quedan aquí, ocultos hasta filtrar «Anulado»). El filtro por estado sirve en las tres. NUEVO editor de líneas: desde un pedido que todavía se puede tocar, el botón «Editar pedido» abre el armador con las líneas cargadas para agregar, quitar o cambiar productos, cantidades y precios; el cliente y el proveedor quedan fijos. El freelance sigue pudiendo ANULAR solo antes de facturar. La comisión muestra la ESTIMADA mientras el pedido está por aprobar." };
+const VERSION = { n:"432", fecha:"13 ago 2026", desc:"Pedidos entra más liviano: arriba quedan los 4 indicadores y enseguida las pestañas y la lista. Las dos tarjetas grandes de panorama («Dónde están» / «Por proveedor») ahora se abren con el botón «Ver resumen» y se vuelve con «Volver»; tocar un estado en el resumen filtra la lista. La regla de cada pestaña se muestra al tocar el ícono ⓘ, para no llenar la pantalla. Por dentro, la lista se arma más rápido: los ítems se agrupan una sola vez y la línea de tiempo del pedido se construye solo al abrir el detalle. Nada cambia en los datos, los permisos ni las reglas del negocio." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11004,6 +11004,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   useRetroceso(()=>{
       if(verFechas){ setVerFechas(false); return true; }
       if(sel){ setSel(null); return true; }
+      if(vistaResumen){ setVistaResumen(false); return true; }
       return false;
     });
   const [sel,setSel]=useState(null);
@@ -11014,31 +11015,17 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   const [orden,setOrden]=useState("recientes"); // recientes | antiguos | comision
   const [verFechas,setVerFechas]=useState(false);
   const [pestana,setPestana]=useState("pendientes"); // pendientes | encamino | entregados
+  const [vistaResumen,setVistaResumen]=useState(false); // sub-vista con las dos tarjetas de panorama
+  const [verRegla,setVerRegla]=useState(false); // la regla de la pestaña, tras el ícono ⓘ
   const [verComo,setVerComo]=useState("factura");  // factura | seguimiento (al abrir un pedido)
   const [pagina,setPagina]=useState(1);
   const POR_PAGINA=15;
-  if(sel){
-    const p=pedidos.find(x=>x.id===sel);
-    /* si el pedido desapareció de la lista (se recargó y cambió de pestaña),
-       no dejar la pantalla en blanco: se vuelve al listado */
-    if(!p){ setSel(null); return null; }
-    return <DetallePedido p={p} modo={verComo} volver={()=>setSel(null)}
-      vivo={vivo} toast={toast} onAprobado={onRecargar} onEditar={onEditar}/>;
-  }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  /* ══ 13/08/2026 · LAS DOS PESTAÑAS DICEN LA REGLA ═══════════════════════
-     «En proceso» = todavía se puede tocar (editar / anular).
-     «Historial»  = SELLADO: ya se facturó, y de ahí en adelante nadie lo edita
-                    ni lo anula, tampoco el freelance. Queda para consulta.
-     Antes el Historial solo guardaba los de comisión liberada, así que los
-     facturados y despachados seguían mezclados con los editables en «En
-     proceso»: la pantalla no dejaba ver la regla.
-     Lo que falta cobrar NO se pierde de vista: eso vive en Cartera. */
+  /* Las TRES pestanas dicen la regla: Pendientes = todavia se puede editar o
+     anular; En camino = ya facturado, va hacia el cliente; Entregados =
+     cerrado, para consulta. Lo que falta cobrar vive en Cartera. */
   const SELLADOS=["Facturado","Despachado","Entregado","Cobrado y validado","Comisión liberada","Anulado"];
   const esSellado = (p)=> SELLADOS.includes(p.estado) || p.comisionLiberada;
-  /* ══ 13/08/2026 · TRES PESTAÑAS QUE DICEN DÓNDE ESTÁ CADA PEDIDO ═════════
-     Pendientes = todavía se puede editar o anular; En camino = ya facturado,
-     va hacia el cliente; Entregados = cerrado, para consulta. */
   const TAB_ESTADOS = {
     pendientes: ["Esperando aprobación","Enviado al proveedor"],
     encamino:   ["Facturado","Despachado"],
@@ -11046,35 +11033,69 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   };
   const tabDe = (p)=> TAB_ESTADOS.pendientes.includes(p.estado) ? "pendientes"
     : TAB_ESTADOS.encamino.includes(p.estado) ? "encamino" : "entregados";
-  const ESTADOS = ["Todos", ...TAB_ESTADOS[pestana]];
-  const lista=pedidos.filter(p=>{
-    if(tabDe(p)!==pestana) return false;
-    /* Los anulados viven en Entregados pero OCULTOS por defecto (no se
-       entregaron); solo aparecen si el filtro es "Anulado". */
-    if(pestana==="entregados" && p.estado==="Anulado" && estado!=="Anulado") return false;
-    const t=norm(q);
-    const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
-    const estOk = estado==="Todos" || p.estado===estado;
-    const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
-    return txtOk && estOk && fechaOk;
-  });
-  const nPendientes = pedidos.filter(p=>tabDe(p)==="pendientes").length;
-  const ordenada=[...lista].sort((a,b)=>{
-    if(orden==="comision") return b.comision-a.comision;
-    if(orden==="antiguos") return a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0;
-    return a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0; // recientes (por defecto)
-  });
-  const totalPag=Math.max(1,Math.ceil(ordenada.length/POR_PAGINA));
-  const pagActual=Math.min(pagina,totalPag);
-  const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
-  const cambiarPestana=(p,mantenerEstado)=>{setPestana(p);setPagina(1);if(!mantenerEstado)setEstado("Todos");};
-  /* El panel de arriba muestra el EMBUDO completo (desde que se toma el pedido
-     hasta que se despacha), sin importar en qué pestaña viva cada uno: si no,
-     al mandar los facturados al Historial el panel se quedaría casi vacío. */
+  /* El panel de arriba (sub-vista Resumen) muestra el EMBUDO completo, sin
+     importar en que pestana viva cada pedido. */
   const CERRADOS=["Cobrado y validado","Comisión liberada","Anulado"];
   const enCurso=(p)=> !CERRADOS.includes(p.estado) && !p.comisionLiberada;
   const ESTADOS_CURSO=["Esperando aprobación","Enviado al proveedor","Facturado","Despachado"];
-  /* Al tocar un estado, lleva a la pestaña donde de verdad está ese pedido. */
+
+  /* Agregados del panorama: SOLO dependen de `pedidos`, no del buscador. En
+     useMemo para que teclear en el buscador NO recompute los graficos. */
+  const panorama = React.useMemo(()=>{
+    const activos = pedidos.filter(enCurso);
+    const porEstado = ESTADOS_CURSO.map(e=>({
+      estado:e, n:activos.filter(p=>p.estado===e).length,
+      monto:activos.filter(p=>p.estado===e).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
+    })).filter(x=>x.n>0);
+    const porProv = Array.from(new Set(activos.map(p=>p.prov))).map(pr=>({
+      prov:pr, n:activos.filter(p=>p.prov===pr).length,
+      qq:activos.filter(p=>p.prov===pr).reduce((a,p)=>a+(p.cant||0),0),
+      monto:activos.filter(p=>p.prov===pr).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
+    })).sort((a,b)=>b.monto-a.monto);
+    return { activos, porEstado, porProv };
+  },[pedidos]);
+
+  /* Lista filtrada, numero de pendientes y orden: dependen del buscador y los
+     filtros. Reunidos en un solo memo. */
+  const { lista, nPendientes, ordenada } = React.useMemo(()=>{
+    const lista=pedidos.filter(p=>{
+      if(tabDe(p)!==pestana) return false;
+      /* Los anulados viven en Entregados pero OCULTOS por defecto (no se
+         entregaron); solo aparecen si el filtro es "Anulado". */
+      if(pestana==="entregados" && p.estado==="Anulado" && estado!=="Anulado") return false;
+      const t=norm(q);
+      const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
+      const estOk = estado==="Todos" || p.estado===estado;
+      const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
+      return txtOk && estOk && fechaOk;
+    });
+    const nPendientes = pedidos.filter(p=>tabDe(p)==="pendientes").length;
+    const ordenada=[...lista].sort((a,b)=>{
+      if(orden==="comision") return b.comision-a.comision;
+      if(orden==="antiguos") return a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0;
+      return a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0; // recientes (por defecto)
+    });
+    return { lista, nPendientes, ordenada };
+  },[pedidos,q,estado,desde,hasta,orden,pestana]);
+
+  /* El detalle de un pedido es una sub-vista: se muestra sobre la lista. Va
+     DESPUES de los hooks (useMemo) para no romper el orden de hooks de React. */
+  if(sel){
+    const p=pedidos.find(x=>x.id===sel);
+    /* si el pedido desaparecio de la lista (se recargo y cambio de pestana),
+       no dejar la pantalla en blanco: se vuelve al listado */
+    if(!p){ setSel(null); return null; }
+    return <DetallePedido p={p} modo={verComo} volver={()=>setSel(null)}
+      vivo={vivo} toast={toast} onAprobado={onRecargar} onEditar={onEditar}/>;
+  }
+
+  const ESTADOS = ["Todos", ...TAB_ESTADOS[pestana]];
+  const totalPag=Math.max(1,Math.ceil(ordenada.length/POR_PAGINA));
+  const pagActual=Math.min(pagina,totalPag);
+  const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
+  /* Cambiar de pestana/estado SIEMPRE vuelve a la lista (sale de Resumen). */
+  const cambiarPestana=(p,mantenerEstado)=>{setVistaResumen(false);setPestana(p);setPagina(1);if(!mantenerEstado)setEstado("Todos");};
+  /* Al tocar un estado, lleva a la pestana donde de verdad esta ese pedido. */
   const irAEstado=(e)=>{
     const t = TAB_ESTADOS.pendientes.includes(e) ? "pendientes"
       : TAB_ESTADOS.encamino.includes(e) ? "encamino" : "entregados";
@@ -11086,7 +11107,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
 
     {/* indicadores del estado del embudo de pedidos */}
     {(()=>{
-      const activos=pedidos.filter(enCurso);
+      const activos=panorama.activos;
       const enProceso=activos.filter(p=>!esSellado(p)).length;
       const esperando=activos.filter(p=>p.estado==="Esperando aprobación").length;
       const enCamino=activos.filter(p=>p.estado==="Despachado"||p.estado==="Facturado").length;
@@ -11109,28 +11130,32 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
       );
     })()}
 
-    {/* ENTRADA DEL MÓDULO · norma sellada: la entrada nunca es solo una lista.
-        Los 4 KPI de arriba dan el número; estas dos tarjetas dan el panorama. */}
-    {(()=>{
-      const activos = pedidos.filter(enCurso);
-      /* dónde se traban los pedidos */
-      const porEstado = ESTADOS_CURSO.map(e=>({
-        estado:e, n:activos.filter(p=>p.estado===e).length,
-        monto:activos.filter(p=>p.estado===e).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
-      })).filter(x=>x.n>0);
-      const maxE = Math.max(...porEstado.map(x=>x.n), 1);
-      const COLOR_EST = {"Esperando aprobación":"#C9A227","Enviado al proveedor":"#2B6CB0",
-                         "Facturado":"#2E7D52","Despachado":"#7C5CBF"};
-      /* con quién estás más comprometido */
-      const porProv = Array.from(new Set(activos.map(p=>p.prov))).map(pr=>({
-        prov:pr, n:activos.filter(p=>p.prov===pr).length,
-        qq:activos.filter(p=>p.prov===pr).reduce((a,p)=>a+(p.cant||0),0),
-        monto:activos.filter(p=>p.prov===pr).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
-      })).sort((a,b)=>b.monto-a.monto);
-      const maxP = Math.max(...porProv.map(x=>x.monto), 1);
-      if(activos.length===0) return null;
-      return (
-        <div className="ndash" style={{marginTop:12,marginBottom:14}}>
+    {/* Entrada liviana: el panorama (dos tarjetas) ya no va en la lista;
+        se abre a demanda desde el botón Resumen y vuelve con "Volver". */}
+    {!vistaResumen && panorama.activos.length>0 && (
+      <button onClick={()=>setVistaResumen(true)}
+        style={{width:"100%",marginBottom:12,padding:"10px 14px",borderRadius:12,
+          border:"1px solid var(--line)",background:"var(--card)",cursor:"pointer",
+          fontFamily:"inherit",fontWeight:700,color:"var(--field)",fontSize:13,
+          display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        📊 Ver resumen
+        <span className="meta" style={{fontWeight:600,fontSize:11.5}}>· dónde están y por proveedor</span>
+      </button>
+    )}
+
+    {vistaResumen && (
+      <>
+        <button className="back" style={{marginBottom:12}} onClick={()=>setVistaResumen(false)}>‹ Volver a la lista</button>
+        {(()=>{
+          const porEstado = panorama.porEstado;
+          const maxE = Math.max(...porEstado.map(x=>x.n), 1);
+          const COLOR_EST = {"Esperando aprobación":"#C9A227","Enviado al proveedor":"#2B6CB0",
+                             "Facturado":"#2E7D52","Despachado":"#7C5CBF"};
+          const porProv = panorama.porProv;
+          const maxP = Math.max(...porProv.map(x=>x.monto), 1);
+          if(panorama.activos.length===0) return <div className="ph">No hay pedidos en curso para resumir.</div>;
+          return (
+        <div className="ndash" style={{marginBottom:14}}>
 
           <div className="ncard" onClick={()=>cambiarPestana("pendientes",true)}>
             <div className="nk">Dónde están</div>
@@ -11176,22 +11201,34 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
           </div>
 
         </div>
-      );
-    })()}
+          );
+        })()}
+      </>
+    )}
 
-    {/* pestañas Pendientes · En camino · Entregados */}
+    {!vistaResumen && (<>
+        {/* pestañas Pendientes · En camino · Entregados */}
     <div className="eq-tabs" style={{marginBottom:12}}>
       <button className={pestana==="pendientes"?"on":""} onClick={()=>cambiarPestana("pendientes")}>Pendientes{nPendientes>0?` (${nPendientes})`:""}</button>
       <button className={pestana==="encamino"?"on":""} onClick={()=>cambiarPestana("encamino")}>En camino</button>
       <button className={pestana==="entregados"?"on":""} onClick={()=>cambiarPestana("entregados")}>Entregados</button>
     </div>
-    {/* la pantalla dice la regla, para no tener que descubrirla con un error */}
-    <div className="meta" style={{fontSize:11.5,margin:"-4px 2px 12px",lineHeight:1.45}}>
-      {pestana==="pendientes"
-        ? "Aquí están los pedidos que todavía se pueden editar o anular."
-        : pestana==="encamino"
-        ? "🔒 Ya facturados: van hacia el cliente. No se editan ni se anulan."
-        : "🔒 Cerrados: quedan para consulta. Si hay un problema, va por Novedad o Nota de crédito."}
+    {/* la regla vive tras un ícono ⓘ, para bajar el ruido vertical sin perderla */}
+    <div style={{display:"flex",alignItems:"flex-start",gap:7,margin:"-2px 2px 12px"}}>
+      <button onClick={()=>setVerRegla(v=>!v)} aria-label="Qué significa esta pestaña"
+        style={{flexShrink:0,width:20,height:20,borderRadius:"50%",border:"1px solid var(--line)",
+          background:verRegla?"var(--field)":"var(--card)",color:verRegla?"#fff":"var(--field)",
+          fontSize:12,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",
+          justifyContent:"center",lineHeight:1,fontFamily:"inherit"}}>ⓘ</button>
+      {verRegla && (
+        <span className="meta" style={{fontSize:11.5,lineHeight:1.4,paddingTop:2}}>
+          {pestana==="pendientes"
+            ? "Aquí están los pedidos que todavía se pueden editar o anular."
+            : pestana==="encamino"
+            ? "🔒 Ya facturados: van hacia el cliente. No se editan ni se anulan."
+            : "🔒 Cerrados: quedan para consulta. Si hay un problema, va por Novedad o Nota de crédito."}
+        </span>
+      )}
     </div>
 
     <div className="row" style={{gap:10,marginBottom:10,alignItems:"stretch"}}>
@@ -11286,6 +11323,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
           onClick={()=>setPagina(p=>Math.min(totalPag,p+1))}>Siguiente ›</button>
       </div>
     )}
+    </>)}
   </>);
 }
 
@@ -11408,7 +11446,10 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast, onEd
   const [cargandoEdit,setCargandoEdit]=useState(false);
   useModal(pidiendoPago, React.useCallback(()=>setPidiendoPago(false),[]));
   useModal(anulando, React.useCallback(()=>setAnulando(false),[]));
-  const cumplidos = p.linea.filter(x=>x.st==="ok").length;
+  /* La línea de tiempo: los pedidos demo la traen hecha (p.linea); los reales
+     la arman aquí a demanda con lineaDePedido, para no cargarla en la lista. */
+  const linea = p.linea || lineaDePedido(p);
+  const cumplidos = linea.filter(x=>x.st==="ok").length;
   const monto=p.cant*p.precio;
   const fmt=f=>{ const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]} ${d.getFullYear()}`; };
@@ -11586,12 +11627,12 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast, onEd
           <div className="row" style={{alignItems:"center"}}>
             <span className={"chip "+(p.sync==="pend"?"c-sync":"c-ok")}>
               <span className="d"></span>{p.sync==="pend"?"Pendiente de enviar":"Sincronizado"}</span>
-            <span className="meta" style={{fontWeight:600}}>{cumplidos} de {p.linea.length} pasos</span>
+            <span className="meta" style={{fontWeight:600}}>{cumplidos} de {linea.length} pasos</span>
           </div>
         </div>
         <div className="sec-h"><h2>Seguimiento del pedido</h2><div className="grain"></div></div>
         <div className="tl">
-          {p.linea.map((x,i)=>(
+          {linea.map((x,i)=>(
             <div className={"item "+x.st} key={i}>
               <div className="node">{x.st==="ok"?"✓":x.st==="now"?"●":i+1}</div>
               <div className="c">
@@ -18346,6 +18387,19 @@ const PED_MAPA={
   cerrado:              {linea:10, etapa:7, t:"Comisión liberada"},
   anulado:              {linea:0,  etapa:0, t:"Anulado"},
 };
+/* La línea de tiempo del pedido se arma A DEMANDA: solo la usa el detalle
+   (DetallePedido), así el cargador de la lista no la construye para los 300
+   pedidos que nunca se abren. Necesita `etapaLinea` (el paso numérico) y
+   `creado` (para el sello del primer paso), que el cargador sí guarda. */
+function lineaDePedido(p){
+  const n = (p && typeof p.etapaLinea==="number") ? p.etapaLinea : 0;
+  return ETAPAS_PEDIDO.map((t,i)=>({
+    t,
+    f: i===0 ? selloCorto(p&&p.creado) : (i<n ? "✓ cumplido" : "—"),
+    st: i<n ? "ok" : (i===n ? "now" : "wait"),
+    d: (i===5 && p && p.factura) ? ("Factura "+p.factura) : "",
+  }));
+}
 async function vivoPedidos(){
   try{
     await cargarArranque();
@@ -18363,8 +18417,12 @@ async function vivoPedidos(){
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; habProv[p.prov_cod]=p.pago_habitual||""; });
     ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
     const items=(ri&&ri.data)||[];
+    /* Índice de ítems por pedido, UNA sola vez: antes se hacía items.filter(...)
+       por cada pedido (N×M). Con el índice cada pedido toma los suyos directo. */
+    const itemsPorPed={};
+    items.forEach(i=>{ (itemsPorPed[i.ped_id]=itemsPorPed[i.ped_id]||[]).push(i); });
     return peds.map(p=>{
-      const its=items.filter(i=>i.ped_id===p.ped_id);
+      const its=itemsPorPed[p.ped_id]||[];
       /* Lo que cuenta para la plata es lo DESPACHADO; mientras la piladora no
          confirme, vale lo pedido. La diferencia se muestra, no se esconde. */
       const qqDe=(i)=> i.despachado_qq==null ? Number(i.cantidad_qq||0) : Number(i.despachado_qq);
@@ -18397,12 +18455,9 @@ async function vivoPedidos(){
         pedidoQq, faltante: Math.round((pedidoQq - cant)*100)/100,
         lineas: its.map(i=>({ nombre:i.descripcion, pedido:Number(i.cantidad_qq||0),
           salio: i.despachado_qq==null ? null : Number(i.despachado_qq) })),
-        linea: ETAPAS_PEDIDO.map((t,i)=>({
-          t,
-          f: i===0 ? selloCorto(p.creado) : (i<m.linea ? "✓ cumplido" : "—"),
-          st: i<m.linea ? "ok" : (i===m.linea ? "now" : "wait"),
-          d: (i===5 && p.factura) ? ("Factura "+p.factura) : "",
-        })),
+        /* primitivos para armar la línea de tiempo a demanda en el detalle
+           (ver lineaDePedido): el paso numérico y la fecha de creación. */
+        etapaLinea:m.linea, creado:p.creado,
       };
     });
   }catch(e){ return null; }
