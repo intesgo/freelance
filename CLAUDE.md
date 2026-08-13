@@ -165,18 +165,19 @@ permiso para fusionar ni publicar**:
    en verde y avisa que salió (o reporta el fallo con la salida real). No dar por hecho el
    deploy sin verlo (§5).
 
-**La ÚNICA excepción es la base de datos.** Si el cambio **toca la base (Supabase)** —insert,
-update, delete, migración, carga masiva, o cualquier escritura— **primero se pide la aprobación
-expresa del dueño** con un resumen de qué se va a escribir y por qué (§6-seguridad). Recién con
-el "sí" se ejecuta. El resto del flujo (crear, probar, fusionar, publicar) no necesita permiso.
+**La ÚNICA excepción es la base de datos**, y desde el 13/08/2026 **no es tarea de Code**:
+la base la maneja Claude en Cowork, con aprobación del dueño (ver §9). Si un trabajo parece
+necesitar tocar Supabase —insert, update, delete, migración, carga masiva—, **no lo hagas**:
+dilo en la respuesta para que se resuelva desde Cowork. El resto del flujo (crear, probar,
+fusionar, publicar) no necesita permiso.
 
 ---
 
 ## 7. Seguridad (base de datos, claves, respaldos)
 
 - **Ninguna escritura en la base (Supabase)** —insert, update, delete, migración, carga
-  masiva— sin un **resumen previo y la aprobación expresa del dueño**. Primero explicas
-  qué vas a escribir y por qué; solo con el "sí" se ejecuta.
+  masiva— sin un **resumen previo y la aprobación expresa del dueño**. Desde el 13/08/2026
+  la base la trabaja Claude en Cowork (§9): **Code no la toca**, solo avisa si hace falta.
 - **Claves y tokens nunca por el chat.** No los pidas, no los pegues, no los repitas.
 - **Nunca restaurar un respaldo encima de producción.**
 
@@ -191,6 +192,41 @@ el "sí" se ejecuta. El resto del flujo (crear, probar, fusionar, publicar) no n
 
 ---
 
+## 9. Reparto del trabajo: Cowork define el alcance, Code construye y publica
+
+**Vigente desde el 13/08/2026.** El trabajo va en dos manos y cada una tiene lo suyo:
+
+**Claude en Cowork** (la sesión del móvil, con acceso a Supabase) hace el trabajo previo:
+investiga, revisa la base, propone y **escribe el alcance** de cada modificación. Además
+**es la única que toca la base de datos**, con el resumen y la aprobación expresa del dueño,
+ensayando antes con `BEGIN … ROLLBACK`.
+
+**Claude Code** (esta sesión, en el repositorio) **construye, prueba y publica**: toma el
+alcance, hace el cambio en las apps, valida y lleva a producción con el flujo completo de §6.
+
+### Reglas de esta división
+
+- **Code NO toca la base de datos.** Ni migraciones, ni `insert/update/delete`, ni cargas.
+  Si un alcance parece necesitar un cambio de base, **no lo hagas**: dilo en la respuesta para
+  que se resuelva desde Cowork. (Antes esto era "con aprobación"; ahora directamente no es
+  tarea de Code.) Las funciones de base que un alcance mande **usar** ya están aplicadas.
+- **El alcance manda, pero no apaga el criterio.** Si al construir descubres que el alcance
+  rompe algo (una app que escribe donde no debía, una variable que queda huérfana, un arnés
+  atado a la versión), **para y avísalo**. Vale más un aviso que un deploy roto.
+- **Dónde viven los alcances:** `docs/alcances/`. Cada uno dice qué se cambia, qué **no** se
+  debe tocar, cómo verificar que salió bien, y las trampas conocidas.
+
+### Qué debe traer un alcance (para poder construirlo sin adivinar)
+
+1. **Qué se cambia y por qué** — en una línea, en lenguaje de negocio.
+2. **Archivos y puntos exactos** — app, función o componente, con números de línea de
+   referencia.
+3. **Qué NO se debe tocar** — lo que debe seguir igual (camino demo, otros roles, otras apps).
+4. **Cómo verificar** — qué pruebas correr y qué mirar en el celular después de publicar.
+5. **Trampas conocidas** — lo que ya se revisó y lo que puede morder.
+
+---
+
 ## Resumen de un vistazo
 
 1. Español claro (Ecuador). 2. React en un solo HTML, sin vanilla y sin CDN nuevos.
@@ -198,7 +234,8 @@ el "sí" se ejecuta. El resto del flujo (crear, probar, fusionar, publicar) no n
 hazlo. 5. Tras cada cambio: `node scripts/compilar.js` y `node pruebas/pruebas.js rapido`.
 6. Al publicar: sube `VERSION` (HTML) y `CACHE` (`sw.js`), y **actualiza los arneses de
 versión/diseño en el mismo cambio**. 7. Cambios de código: **flujo completo sin pedir fusión**
-(crear → probar → fusionar → publicar → confirmar el deploy); la ÚNICA excepción es tocar la
-base, que necesita aprobación previa. 8. Base solo con aprobación; claves nunca por chat;
-nunca restaurar sobre producción. 9. No toques permisos ni reglas de negocio salvo lo
-pedido.
+(crear → probar → fusionar → publicar → confirmar el deploy). 8. **La base no es tarea de
+Code** (la trabaja Cowork con aprobación del dueño): si hace falta tocarla, avisa y no lo
+hagas. Claves nunca por chat; nunca restaurar sobre producción. 9. No toques permisos ni
+reglas de negocio salvo lo pedido. 10. **Cowork define el alcance (`docs/alcances/`), Code
+construye y publica** (§9); si el alcance rompe algo, para y avísalo.
