@@ -73,5 +73,21 @@ prueba(!/anulaDesp\.codigo/.test(web), "el diálogo de anular despacho ya no deb
 prueba(/VIAJE_CON_ENTREGAS/.test(web) && /VIAJE_YA_ANULADO/.test(web) && /VIAJE_NO_ENCONTRADO/.test(web),
   "deben estar los mensajes claros por código de anular_viaje");
 
+/* ── 9) Novedades (Logística) conectadas a la base ── */
+prueba(/const recargarNovedades = async/.test(web), "Novedades debe cargar de la base (recargarNovedades)");
+prueba(/from\("novedades"\)/.test(web), "Novedades debe consultar la tabla novedades");
+["gestionar_novedad","resolver_novedad","anular_novedad"].forEach(fn =>
+  prueba(new RegExp('correrRpc\\("'+fn+'"').test(web), "debe estar enlazada la RPC " + fn));
+prueba(/setNvResolver\(\{ id:n\.id, texto:"", opId:crypto\.randomUUID\(\) \}\)/.test(web), "el diálogo de resolver debe generar el op_id al abrir");
+prueba(/setNvAnular\(\{ id:n\.id, motivo:"", opId:crypto\.randomUUID\(\) \}\)/.test(web), "el diálogo de anular novedad debe generar el op_id al abrir");
+prueba(/Resolver DIRECTO desde 'reportada'/.test(web), "se debe poder resolver directo desde 'reportada'");
+const nvAnul = (web.match(/const nvConfirmarAnular = async[\s\S]*?\n  const /) || [""])[0];
+prueba(!/CODIGO_ANULACION_FREELANCE/.test(nvAnul), "anular novedad ya NO debe exigir el código del Freelance");
+prueba(!/nvAnular\.codigo/.test(web), "el diálogo de anular novedad ya no debe leer un código");
+prueba(/const \[estadoNov,/.test(web) && /No hay novedades/.test(web), "Novedades debe tener 5 estados (incluye vacío «No hay novedades»)");
+prueba(/RESPUESTA_OBLIGATORIA/.test(web) && /NOVEDAD_YA_CERRADA/.test(web) && /NOVEDAD_NO_REPORTADA/.test(web) && /NOVEDAD_NO_ENCONTRADA/.test(web),
+  "deben estar los mensajes claros por código de las novedades");
+prueba((web.match(/await recargarNovedades\(\)/g)||[]).length >= 3, "tras cada gestión de novedad se debe releer con recargarNovedades()");
+
 if (mal) { console.error(`Resultado LOG-001: ${bien} ✓ · ${mal} ✗`); process.exit(1); }
 console.log(`Resultado LOG-001: ${bien} ✓ · 0 ✗`);
