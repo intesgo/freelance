@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"147", fecha:"12 ago 2026", desc:"Novedades (Logística) conectadas a la base: se cargan las novedades reales y se gestionan de verdad (en gestión, resolver, anular) con candado por acción y mensajes claros; se puede resolver directo desde «reportada». El pedido no se toca al resolver. Se quitó el código de autorización de la anulación de novedad." };
+const VERSION = { n:"148", fecha:"13 ago 2026", desc:"LOG-002 · Despacho atómico: el despacho ahora ocurre en una sola operación de base (crea el viaje, sus guías, pasa los pedidos a despachado y cierra la ruta), de un solo golpe e idempotente (un doble toque no crea dos viajes). El número de viaje lo asigna el servidor. Mensajes claros por candado sin factura, ruta no ordenada, etc." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -3407,55 +3407,13 @@ function TrazabilidadWeb({ usuario }) {
     const t = { id:"TR-"+Date.now().toString().slice(-5), cedula:dNuevoTr.cedula.trim(), nombre:dNuevoTr.nombre.trim(), telefono:"", referencia:"", tarifas:[], activo:true };
     setTrCat(ts=>[...ts, t]); setDTr(t); setDTrTxt(t.nombre); setDNuevoTr(null);
   };
-  /* ══ 31/07/2026 · EL VIAJE NACE EN LA BASE, NO EN LA MEMORIA ═════════════
-     Antes esto decia "Nacio el viaje VJ-xxx" y el viaje vivia en una variable:
-     al recargar la pantalla desaparecia, y la app del transportista no tenia
-     nada que confirmar porque no habia nada escrito en ninguna parte.
-
-     Ahora se escriben las dos filas que hacen falta:
-       viajes       · el camion, su chofer, su placa y su capacidad
-       viaje_guias  · una por pedido, con su orden de entrega y sus quintales
-
-     Se escribe ANTES de tocar la pantalla, y si falla NO se sigue: mas vale
-     que el despacho no aparezca a que aparezca en la pantalla y no exista
-     para el chofer. Es justo el error contrario al que veniamos arrastrando
-     todo el dia. */
-  const guardarDespachoEnBase = async (vj, ruta) => {
-    const chofer = trCat.find(t => t.id === dTr.id);
-    if (fuenteTr !== "vivo") {
-      return { ok:false, motivo:"Los transportistas que ves son de demostración. Entra con tu cuenta para despachar de verdad." };
-    }
-    const salida = new Date(dDia + "T" + (dHora||"08:00") + ":00").toISOString();
-    const { error: e1 } = await window.supa.from("viajes").insert({
-      viaje_id: vj, org_id: await orgActivaWeb(), ruta_nombre: ruta.nombre,
-      transportista_id: chofer.id, placa: dPlaca.trim().toUpperCase(),
-      /* `programado` no es un estado valido de viaje: la base solo acepta
-         armando, despachado, en_ruta, entregado, cerrado y anulado. Un viaje
-         al que se le acaba de asignar chofer y placa esta DESPACHADO. */
-      /* la capacidad del camion que SALE, no null: sin ella, mirar un viaje
-         viejo no dice si iba lleno o a medias. */
-      capacidad_qq: (chofer && Number(chofer.capacidadQQ)) || null,
-      estado: "despachado", salida,
-    });
-    if (e1) return { ok:false, motivo:"No se pudo crear el viaje: " + (e1.message||"") };
-
-    const guias = (ruta.pedidos||[]).map((pid, i) => {
-      const ped = pedidos.find(x => x.id === pid) || {};
-      const qq = (ped.items||[]).reduce((a,it)=>a + (Number(it.q)||0), 0);
-      return { guia_id: vj + "-G" + String(i+1).padStart(2,"0"), viaje_id: vj,
-               ped_id: pid, cli_id: ped.cliId || null, orden_entrega: i+1,
-               qq, estado_entrega: "pendiente", es_demo: false };
-    });
-    if (guias.length) {
-      const { error: e2 } = await window.supa.from("viaje_guias").insert(guias);
-      if (e2) {
-        /* si fallan las guias se deshace el viaje: nunca un camion sin carga */
-        try { await window.supa.from("viajes").delete().eq("viaje_id", vj); } catch (e3) {}
-        return { ok:false, motivo:"No se pudieron crear las guías: " + (e2.message||"") };
-      }
-    }
-    return { ok:true, guias: guias.length };
-  };
+  /* ══ 13/08/2026 · LOG-002 · EL DESPACHO ES ATÓMICO ═════════════════════
+     El viaje, sus guías, el paso de los pedidos a 'despachado' y el cierre de
+     la ruta (ordenada → despachada) ocurren AHORA en una sola RPC de base
+     (`despachar_ruta`): o todo o nada, e idempotente (un doble toque no crea
+     dos viajes). El número de viaje lo pone el servidor. Antes esto se hacía
+     en tres pasos desde el cliente (crear viaje, crear guías, cerrar ruta),
+     que podían quedar a medias si se cortaba la señal. */
 
   const guardarDespacho = async () => {
     if (!dTr) { toast("Elige el transportista del catálogo."); return; }
@@ -3484,27 +3442,33 @@ function TrazabilidadWeb({ usuario }) {
       }
     }
 
-    const vj = proximoViaje();
-
     if (fuenteLog === "vivo") {
-      const r = await guardarDespachoEnBase(vj, despachar);
-      if (!r.ok) {
-        alert("\u26A0 EL DESPACHO NO SE GUARDÓ\n\n" + r.motivo +
-              "\n\nNo se despachó nada. El chofer no vería este viaje en su app.");
+      /* LOG-002 · una sola RPC atómica: viaje + guías + pedidos + cierre de ruta. */
+      const chofer = trCat.find(t => t.id === dTr.id);
+      if (fuenteTr !== "vivo") {
+        alert("⚠ EL DESPACHO NO SE GUARDÓ\n\nLos transportistas que ves son de demostración. Entra con tu cuenta para despachar de verdad.");
         return;
       }
-      toast("Viaje " + vj + " creado en la base · " + r.guias + " guía(s) para el chofer");
-      /* LOG-001 · SOLO SE AGREGA: cerrar la ruta (ordenada → despachada) con su viaje. */
+      const salida = new Date(dDia + "T" + (dHora||"08:00") + ":00").toISOString();
       const opId = crypto.randomUUID();
-      const cr = await correrRpc("cerrar_ruta_despachada", { p_ruta_id: despachar.id, p_viaje_id: vj, p_op_id: opId });
-      if (!cr.ok) { await recargarRutas(); setDespachar(null); return; }
+      const r = await correrRpc("despachar_ruta", {
+        p_ruta_id: despachar.id,
+        p_transportista_id: chofer.id,
+        p_placa: dPlaca.trim().toUpperCase(),
+        p_capacidad_qq: (chofer && Number(chofer.capacidadQQ)) || null,
+        p_salida: salida,
+        p_op_id: opId,
+      }, DESP_ERR);
+      if (!r.ok) return;
+      const vj = r.data && r.data.viaje_id;
       await recargarRutas();
-      toast(`Despacho guardado. Nació el viaje ${vj}, ruta despachada.`);
+      toast(`Despacho guardado. Nació el viaje ${vj} · ${r.data && r.data.guias} guía(s) para el chofer.`);
       setDespachar(null);
       return;
     }
 
     /* Demo (sin sesión): comportamiento local de siempre. */
+    const vj = proximoViaje();
     setRutas(rs => rs.map(r => r.id===despachar.id
       ? { ...r, chofer:dTr.nombre, placa:dPlaca.trim().toUpperCase(), estado:"despachada", despachoEstado:"programado", viajeId:vj,
           ficha:{ dia:dDia, hora:dHora, placa:dPlaca.trim().toUpperCase(), transportista:dTr.nombre },
@@ -3512,6 +3476,18 @@ function TrazabilidadWeb({ usuario }) {
       : r));
     toast(`Despacho guardado. Nació el viaje ${vj}, vinculado a la ruta.`);
     setDespachar(null);
+  };
+  /* LOG-002 · mensajes claros por código de despachar_ruta. */
+  const DESP_ERR = {
+    CANDADO_SIN_FACTURA: "El camión no puede salir: hay pedidos de la ruta sin factura de la piladora.",
+    RUTA_NO_ORDENADA: "Esta ruta no está lista para despachar (ordena la entrega primero).",
+    RUTA_SIN_PEDIDOS: "La ruta no tiene pedidos.",
+    RUTA_NO_ENCONTRADA: "No se encontró la ruta.",
+    TRANSPORTISTA_NO_ENCONTRADO: "Ese transportista no existe en el sistema.",
+    TRANSPORTISTA_OBLIGATORIO: "Elige el transportista.",
+    PLACA_OBLIGATORIA: "Ingresa la placa del camión.",
+    ROL_NO_AUTORIZADO: "No tienes permiso para despachar.",
+    SIN_SESION: "Tu sesión terminó. Vuelve a entrar para continuar.",
   };
   /* Mensajes claros por código de anular_viaje (no el error crudo de Postgres). */
   const ANUL_VIAJE_ERR = {
