@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"429", fecha:"11 ago 2026", desc:"El estado de crédito del cliente (🟢 Al día / 🔴 Bloqueado) se muestra en el encabezado, bajo el nombre. La tarjeta de crédito solo aparece cuando tiene datos (cupo/deuda o cliente bloqueado); ya no queda una caja vacía." };
+const VERSION = { n:"430", fecha:"13 ago 2026", desc:"Pedidos: las dos pestañas ahora dicen la regla. En proceso = lo que todavía se puede editar o anular; Historial = ya facturado, despachado o entregado, sellado para consulta (con filtro por estado y candado que explica por qué). El freelance puede ANULAR desde el detalle solo antes de facturar, con motivo y registro. La comisión muestra la ESTIMADA mientras el pedido está por aprobar. En Solicitudes llegan las ANULACIONES que pide el comisionista: al aprobarlas el pedido se anula y queda registrado quién pidió y quién aprobó." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -10972,15 +10972,26 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       vivo={vivo} toast={toast} onAprobado={onRecargar}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado"];
-  const LIBERADOS=["Comisión liberada","Cobrado y validado"]; // van al historial
+  /* ══ 13/08/2026 · LAS DOS PESTAÑAS DICEN LA REGLA ═══════════════════════
+     «En proceso» = todavía se puede tocar (editar / anular).
+     «Historial»  = SELLADO: ya se facturó, y de ahí en adelante nadie lo edita
+                    ni lo anula, tampoco el freelance. Queda para consulta.
+     Antes el Historial solo guardaba los de comisión liberada, así que los
+     facturados y despachados seguían mezclados con los editables en «En
+     proceso»: la pantalla no dejaba ver la regla.
+     Lo que falta cobrar NO se pierde de vista: eso vive en Cartera. */
+  const SELLADOS=["Facturado","Despachado","Entregado","Cobrado y validado","Comisión liberada","Anulado"];
+  const esSellado = (p)=> SELLADOS.includes(p.estado) || p.comisionLiberada;
+  const ESTADOS = pestana==="historial"
+    ? ["Todos","Facturado","Despachado","Entregado","Cobrado y validado","Comisión liberada","Anulado"]
+    : ["Todos","Esperando aprobación","Enviado al proveedor"];
   const lista=pedidos.filter(p=>{
-    const liberado = LIBERADOS.includes(p.estado) || p.comisionLiberada;
-    if(pestana==="activos" && liberado) return false;   // liberados salen de Activos
-    if(pestana==="historial" && !liberado) return false; // historial solo liberados
+    const sellado = esSellado(p);
+    if(pestana==="activos" && sellado) return false;    // sellados salen de En proceso
+    if(pestana==="historial" && !sellado) return false; // historial: solo sellados
     const t=norm(q);
     const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
-    const estOk = pestana==="historial" || estado==="Todos" || p.estado===estado;
+    const estOk = estado==="Todos" || p.estado===estado;
     const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
     return txtOk && estOk && fechaOk;
   });
@@ -10993,25 +11004,37 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
   const pagActual=Math.min(pagina,totalPag);
   const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
   const cambiarPestana=(p,mantenerEstado)=>{setPestana(p);setPagina(1);if(!mantenerEstado)setEstado("Todos");};
+  /* El panel de arriba muestra el EMBUDO completo (desde que se toma el pedido
+     hasta que se despacha), sin importar en qué pestaña viva cada uno: si no,
+     al mandar los facturados al Historial el panel se quedaría casi vacío. */
+  const CERRADOS=["Cobrado y validado","Comisión liberada","Anulado"];
+  const enCurso=(p)=> !CERRADOS.includes(p.estado) && !p.comisionLiberada;
+  const ESTADOS_CURSO=["Esperando aprobación","Enviado al proveedor","Facturado","Despachado"];
+  /* Al tocar un estado, lleva a la pestaña donde de verdad está ese pedido. */
+  const irAEstado=(e)=>{
+    const enProceso = ["Esperando aprobación","Enviado al proveedor"].includes(e);
+    cambiarPestana(enProceso?"activos":"historial", true); setEstado(e);
+  };
 
   return (<>
     <div className="h1">Pedidos <SelloVivo vivo={!!vivo}/></div>
 
     {/* indicadores del estado del embudo de pedidos */}
     {(()=>{
-      const activos=pedidos.filter(p=>!(LIBERADOS.includes(p.estado)||p.comisionLiberada));
+      const activos=pedidos.filter(enCurso);
+      const enProceso=activos.filter(p=>!esSellado(p)).length;
       const esperando=activos.filter(p=>p.estado==="Esperando aprobación").length;
       const enCamino=activos.filter(p=>p.estado==="Despachado"||p.estado==="Facturado").length;
       const montoAct=activos.reduce((s,p)=>s+((p.cant||0)*(p.precio||0)),0);
       return (
         <div className="mini-kpi">
           <button onClick={()=>{cambiarPestana("activos");setEstado("Todos");}}>
-            <span className="mk-v num">{activos.length}</span>
+            <span className="mk-v num">{enProceso}</span>
             <span className="mk-k">En proceso</span></button>
-          <button onClick={()=>{cambiarPestana("activos",true);setEstado("Esperando aprobación");}}>
+          <button onClick={()=>irAEstado("Esperando aprobación")}>
             <span className="mk-v num" style={{color:esperando>0?"#C9A227":"var(--field)"}}>{esperando}</span>
             <span className="mk-k">Por aprobar</span></button>
-          <button onClick={()=>{cambiarPestana("activos",true);setEstado("Despachado");}}>
+          <button onClick={()=>irAEstado("Despachado")}>
             <span className="mk-v num">{enCamino}</span>
             <span className="mk-k">En camino</span></button>
           <button style={{cursor:"default"}}>
@@ -11024,9 +11047,9 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
     {/* ENTRADA DEL MÓDULO · norma sellada: la entrada nunca es solo una lista.
         Los 4 KPI de arriba dan el número; estas dos tarjetas dan el panorama. */}
     {(()=>{
-      const activos = pedidos.filter(p=>!(LIBERADOS.includes(p.estado)||p.comisionLiberada));
+      const activos = pedidos.filter(enCurso);
       /* dónde se traban los pedidos */
-      const porEstado = ESTADOS.filter(e=>e!=="Todos").map(e=>({
+      const porEstado = ESTADOS_CURSO.map(e=>({
         estado:e, n:activos.filter(p=>p.estado===e).length,
         monto:activos.filter(p=>p.estado===e).reduce((a,p)=>a+((p.cant||0)*(p.precio||0)),0),
       })).filter(x=>x.n>0);
@@ -11049,7 +11072,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
             <div className="nbars" style={{marginTop:6}}>
               {porEstado.map(x=>(
                 <button key={x.estado}
-                  onClick={ev=>{ev.stopPropagation();cambiarPestana("activos",true);setEstado(x.estado);}}
+                  onClick={ev=>{ev.stopPropagation();irAEstado(x.estado);}}
                   style={{border:"none",background:"none",padding:0,width:"100%",
                     textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
@@ -11096,6 +11119,12 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       <button className={pestana==="activos"?"on":""} onClick={()=>cambiarPestana("activos")}>En proceso</button>
       <button className={pestana==="historial"?"on":""} onClick={()=>cambiarPestana("historial")}>Historial</button>
     </div>
+    {/* la pantalla dice la regla, para no tener que descubrirla con un error */}
+    <div className="meta" style={{fontSize:11.5,margin:"-4px 2px 12px",lineHeight:1.45}}>
+      {pestana==="activos"
+        ? "Aquí están los pedidos que todavía se pueden editar o anular."
+        : "🔒 Ya facturados: quedan para consulta. No se editan ni se anulan, tampoco por el freelance. Si hay un problema después del despacho, va por Novedad o Nota de crédito."}
+    </div>
 
     <div className="row" style={{gap:10,marginBottom:10,alignItems:"stretch"}}>
       <div className="ss" style={{flex:1,marginBottom:0}}>
@@ -11106,13 +11135,13 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       </div>
     </div>
 
-    {/* selectores: en Activos van Estado·Fecha·Ordenar; en Historial solo Fecha·Ordenar */}
-    <div style={{display:"grid",gridTemplateColumns:pestana==="activos"?"1fr 1fr 1fr":"1fr 1fr",gap:7,marginBottom:12}}>
-      {pestana==="activos" && (
-        <FiltroBuscador estilo={{flex:1,minWidth:110}} items={ESTADOS.filter(e=>e!=="Todos")}
-          value={estado} onPick={v=>{setEstado(v);setPagina(1);}}
-          todos="Todos" etiquetaTodos="Estado: todos"/>
-      )}
+    {/* selectores: Estado·Fecha·Ordenar en las dos pestañas. En Historial el
+        filtro de estado hace falta más que nunca: ahí conviven facturados,
+        despachados, entregados y cobrados. */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:12}}>
+      <FiltroBuscador estilo={{flex:1,minWidth:110}} items={ESTADOS.filter(e=>e!=="Todos")}
+        value={estado} onPick={v=>{setEstado(v);setPagina(1);}}
+        todos="Todos" etiquetaTodos="Estado: todos"/>
       <button className={"selmini"+((desde||hasta)?" on":"")} onClick={()=>setVerFechas(v=>!v)}>
         {(desde||hasta) ? `${desde?desde.slice(5):"…"}→${hasta?hasta.slice(5):"…"}` : "Fecha"} ▾
       </button>
@@ -11141,7 +11170,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
         return isNaN(d)?p.fecha:`${d.getDate()} ${ms[d.getMonth()]}`; })();
       const abrir=(comoVer)=>{ setVerComo(comoVer); setSel(p.id); };
       /* el estado se lee de un vistazo por la barra lateral */
-      const cerrado = LIBERADOS.includes(p.estado) || p.comisionLiberada;
+      const cerrado = CERRADOS.includes(p.estado) || p.comisionLiberada;
       const porCobrar = /por cobrar|entregado/i.test(p.estado||"");
       const barraP = cerrado ? "#2E7D52" : porCobrar ? "#C9A227" : "#8A9A8E";
       return (
@@ -11170,7 +11199,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       </div>
       );
     })}
-    {ordenada.length===0 && <div className="ph">{pestana==="historial"?"Aún no tienes pedidos con comisión liberada.":"Sin pedidos que coincidan."}</div>}
+    {ordenada.length===0 && <div className="ph">{pestana==="historial"?"Aquí se guardan los pedidos ya facturados, despachados y entregados. Todavía no hay ninguno.":"Sin pedidos que coincidan."}</div>}
 
     </Deslizable>
     <PuntosPag pag={pagina} total={totalPag}/>
@@ -11270,11 +11299,42 @@ function PagoPiladoraSheet({p, onClose, onConfirmar, guardando}){
   );
 }
 
+function AnularPedidoSheet({p, onClose, onConfirmar, guardando}){
+  const [motivo,setMotivo]=useState("");
+  const ok = motivo.trim().length>2;
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="sheet" onClick={e=>e.stopPropagation()}>
+        <h3>Anular pedido</h3>
+        <div className="sh-sub">{p.cli} · {p.prov} · {p.cant} qq</div>
+        <div className="meta" style={{margin:"2px 2px 12px",fontSize:12,lineHeight:1.45}}>
+          El pedido quedará en <b>anulado</b> y el registro guarda quién, cuándo y el motivo.
+          Solo se puede antes de facturar.
+        </div>
+        <label style={{display:"block",fontWeight:700,fontSize:12,margin:"0 2px 6px",color:"var(--muted)"}}>Motivo (obligatorio)</label>
+        <textarea value={motivo} onChange={e=>setMotivo(e.target.value)}
+          placeholder="Por qué se anula este pedido…" rows={3}
+          style={{width:"100%",boxSizing:"border-box",borderRadius:12,border:"1px solid var(--line)",
+            padding:"12px",fontSize:14,fontFamily:"inherit",resize:"vertical",marginBottom:14,
+            background:"var(--paper)",color:"var(--ink)"}}/>
+        <button className="cta" disabled={!ok || guardando}
+          style={{background:(ok&&!guardando)?"#8A2E3B":"#d8c3c8",color:"#fff"}}
+          onClick={()=>onConfirmar(motivo.trim())}>
+          {guardando ? "Anulando…" : "Anular pedido"}</button>
+        <button className="ghost" onClick={onClose} disabled={guardando}>Ahora no</button>
+      </div>
+    </div>
+  );
+}
+
 function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
   const [vista,setVista]=useState(modo); // factura | seguimiento
   const [pidiendoPago,setPidiendoPago]=useState(false);
   const [guardando,setGuardando]=useState(false);
+  const [anulando,setAnulando]=useState(false);
+  const [guardandoAnul,setGuardandoAnul]=useState(false);
   useModal(pidiendoPago, React.useCallback(()=>setPidiendoPago(false),[]));
+  useModal(anulando, React.useCallback(()=>setAnulando(false),[]));
   const cumplidos = p.linea.filter(x=>x.st==="ok").length;
   const monto=p.cant*p.precio;
   const fmt=f=>{ const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
@@ -11282,6 +11342,17 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
   /* Aprobar es escribir en el sistema: solo con datos de verdad. En la
      demostración el botón no aparece, para no prometer lo que no hace. */
   const sePuedeAprobar = !!vivo && !p.demo && p.estado==="Esperando aprobación";
+  /* Anular: solo el freelance (toda esta app es del freelance) y solo antes de
+     facturar. La base valida el estado real; aquí ocultamos el botón cuando ya
+     no aplica. */
+  const NO_ANULABLES = ["Facturado","Despachado","Entregado","Cobrado","Cobrado y validado","Cerrado","Comisión liberada","Anulado"];
+  const selladoPed = NO_ANULABLES.includes(p.estado);
+  const sePuedeAnular = !!vivo && !p.demo && !selladoPed;
+  /* Comisión: si todavía no hay real (pedido por aprobar), se muestra la estimada. */
+  const comReal = Number(p.comision)||0;
+  const comEst = Number(p.comisionEst)||0;
+  const comMostrar = comReal>0 ? comReal : comEst;
+  const comEsEstimada = !(comReal>0) && comEst>0;
   const NOMBRE_PAGO = {contado:"de contado", credito:"a crédito"};
   const confirmarPago = async (pago, recordar)=>{
     setGuardando(true);
@@ -11290,6 +11361,15 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
     if(!r.ok){ if(toast) toast(r.motivo || "No se pudo aprobar"); return; }
     setPidiendoPago(false);
     if(toast) toast(r.aviso);
+    if(onAprobado) onAprobado();
+  };
+  const confirmarAnular = async (motivo)=>{
+    setGuardandoAnul(true);
+    const r = await anularPedidoEnBase(p.id, motivo);
+    setGuardandoAnul(false);
+    if(!r.ok){ if(toast) toast(r.motivo || "No se pudo anular el pedido"); return; }
+    setAnulando(false);
+    if(toast) toast("Pedido anulado. Quedó registrado.");
     if(onAprobado) onAprobado();
   };
   return (<>
@@ -11307,6 +11387,8 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
     )}
     {pidiendoPago && <PagoPiladoraSheet p={p} guardando={guardando}
       onClose={()=>{ if(!guardando) setPidiendoPago(false); }} onConfirmar={confirmarPago}/>}
+    {anulando && <AnularPedidoSheet p={p} guardando={guardandoAnul}
+      onClose={()=>{ if(!guardandoAnul) setAnulando(false); }} onConfirmar={confirmarAnular}/>}
 
     {/* toggle entre Factura y Seguimiento */}
     <div className="eq-tabs" style={{marginBottom:16}}>
@@ -11325,6 +11407,21 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
         {p.pagoProv && (
           <div className="meta" style={{fontSize:11.5,marginTop:-8,marginBottom:12,fontWeight:700,color:"var(--field)"}}>
             A {p.prov} le pagas {NOMBRE_PAGO[p.pagoProv]||p.pagoProv}
+          </div>
+        )}
+        {sePuedeAnular && (
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+            <button onClick={()=>setAnulando(true)}
+              style={{background:"#fff",color:"#8A2E3B",border:"1.5px solid #E6C9CF",borderRadius:10,
+                padding:"8px 14px",fontSize:12.5,fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>
+              ✕ Anular pedido</button>
+          </div>
+        )}
+        {selladoPed && !p.demo && (
+          <div style={{margin:"0 0 12px",padding:"9px 12px",borderRadius:10,background:"#F5F5F1",
+            border:"1px solid var(--line)",fontSize:11.5,color:"var(--muted)",lineHeight:1.45}}>
+            🔒 <b style={{color:"var(--ink)"}}>Pedido sellado.</b> Ya se facturó: no se edita ni se anula,
+            tampoco por el freelance. Si hay un problema, va por Novedad o Nota de crédito.
           </div>
         )}
         {(p.fechaEntrega || p.notaChofer) && (
@@ -11376,9 +11473,10 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
             <span className="meta">Monto del pedido</span><span className="num" style={{fontWeight:700}}>{money(monto)}</span>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:14,padding:"6px 0 0",borderTop:"1px dashed #E0DBCE",marginTop:6}}>
-            <span style={{fontWeight:700}}>Tu comisión</span>
-            <span className="num" style={{fontWeight:800,color:"var(--field)"}}>{money(p.comision)}</span>
+            <span style={{fontWeight:700}}>{comEsEstimada ? "Tu comisión estimada" : "Tu comisión"}</span>
+            <span className="num" style={{fontWeight:800,color:"var(--field)"}}>{money(comMostrar)}</span>
           </div>
+          {comEsEstimada && <div className="meta" style={{fontSize:11,marginTop:3}}>Se confirma cuando apruebas el pedido.</div>}
         </div>
 
         <div style={{marginTop:12}}>
@@ -18188,6 +18286,9 @@ async function vivoPedidos(){
         cant, precio: cant ? Number((importe/cant).toFixed(2)) : 0,
         cond: p.condicion==="contado" ? "Contado" : "Crédito",
         comision: c ? Number(c.monto||0) : 0,
+        /* Estimada: suma de la comisión de las líneas. Mientras el pedido está
+           por aprobar no hay comisión real todavía; se muestra esta como guía. */
+        comisionEst: its.reduce((s,i)=>s+Number(i.comision_usd||0),0),
         estado:m.t, etapa:m.etapa, sync:"ok",
         comisionLiberada: p.estado==="cerrado" || (c && c.estado==="pagada"),
         factura:p.factura||"", ciudad:p.ciudad||"", demo:!!p.es_demo,
@@ -18238,6 +18339,19 @@ async function aprobarPedidoEnBase(pedId, pago, recordar){
     if(error) return { ok:false, motivo:error.message||"No se pudo aprobar" };
     const r = (data && data[0]) || {};
     return { ok:true, aviso:r.aviso||"Pedido aprobado", pago:r.pago_prov||pago };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* Anular un pedido (solo el freelance; la base lo valida). Motivo obligatorio,
+   queda registrado en auditoría. Solo antes de facturar. */
+async function anularPedidoEnBase(pedId, motivo){
+  try{
+    const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                 : ("anp-"+pedId+"-"+Date.now());
+    const { data, error } = await window.SB.rpc("anular_pedido",
+      { p_ped:pedId, p_motivo:motivo, p_op_id:opId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo anular el pedido" };
+    return { ok:true, data };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
@@ -18410,7 +18524,10 @@ async function vivoSolicitudes(){
       const de=usr[s.origen_id]||{};
       return {
         id:s.sol_id, num:s.sol_id, sc:de.nombre||s.origen_id||"—",
-        cargo:CARGO[de.rol]||de.rol||"—", tipo:s.tipo,
+        /* `tipo` es lo que se lee en pantalla; `tipoRaw` es lo que decide la acción. */
+        cargo:CARGO[de.rol]||de.rol||"—",
+        tipo: ({anular_pedido:"Anular pedido"})[s.tipo] || s.tipo,
+        tipoRaw: s.tipo, pedId: s.ped_id||"",
         cli:nCli[s.cli_id]||"", proveedor:nProv[s.prov_cod]||"",
         detalle:s.detalle||"", fecha:selloCorto(s.creado), estado:s.estado,
         prioridad:"normal",
@@ -18427,14 +18544,25 @@ async function vivoSolicitudes(){
   }catch(e){ return null; }
 }
 
-/* responde una solicitud recibida (aprobar / rechazar) */
-async function responderSolicitud(solId, estado, motivo){
+/* responde una solicitud recibida (aprobar / rechazar).
+   Las de ANULAR PEDIDO no se responden a mano: van por función, porque además
+   de contestar tienen que anular el pedido y dejar registrado quién lo pidió,
+   quién aprobó y el motivo. */
+async function responderSolicitud(solId, estado, motivo, tipoRaw){
   try{
+    if(tipoRaw === "anular_pedido"){
+      const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                   : ("RSA-"+solId+"-"+Date.now());
+      const { error } = await window.SB.rpc("resolver_anulacion_pedido", {
+        p_sol_id: solId, p_aprueba: estado === "aprobada",
+        p_respuesta: motivo || null, p_op_id: opId });
+      return { ok: !error, motivo: error ? (error.message||"No se pudo resolver") : "" };
+    }
     const { error } = await window.SB.from("solicitudes")
       .update({ estado, motivo_resp:motivo||null, resuelto_en:new Date().toISOString() })
       .eq("sol_id", solId);
-    return !error;
-  }catch(e){ return false; }
+    return { ok: !error, motivo: error ? (error.message||"No se pudo guardar") : "" };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
 /* ── NOVEDADES ─────────────────────────────────────────────────────────
@@ -20416,7 +20544,19 @@ function Solicitudes({toast, verCliente, datos}){
     const upd=(arr)=>arr.map(s=>s.id===id?{...s,estado,...(extra||{})}:s);
     if(pestana==="aprobar") setSols(upd); else setMias(upd);
     /* b365 · la decisión queda guardada en el sistema, no solo en pantalla */
-    if(datos && (estado==="aprobada"||estado==="rechazada")) responderSolicitud(id, estado, motivo);
+    if(datos && (estado==="aprobada"||estado==="rechazada")){
+      const s0 = (pestana==="aprobar" ? sols : mias).find(x=>x.id===id) || {};
+      responderSolicitud(id, estado, motivo, s0.tipoRaw).then(r=>{
+        /* Si la base no aceptó (p. ej. el pedido ya se facturó), no dejar la
+           pantalla diciendo que sí: se avisa y se devuelve a pendiente. */
+        if(r && !r.ok){
+          const volver=(arr)=>arr.map(s=>s.id===id?{...s,estado:"pendiente"}:s);
+          if(pestana==="aprobar") setSols(volver); else setMias(volver);
+          alert("⚠ NO SE PUDO GUARDAR LA DECISIÓN\n\n"+(r.motivo||"")+
+                "\n\nLa solicitud sigue pendiente.");
+        }
+      });
+    }
   };
   const agregarComentario=(id,txt)=>{
     const c={de:"Daniel Ríos", txt, f:"ahora"};

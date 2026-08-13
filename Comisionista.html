@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"183", fecha:"11 ago 2026", desc:"En el detalle de cada pedido ahora se ven la fecha de entrega y la nota para el chofer que se anotaron al crearlo." };
+const VERSION = { n:"184", fecha:"13 ago 2026", desc:"En el detalle de tu pedido puedes PEDIR LA ANULACIÓN al Freelance (solo mientras la piladora no haya facturado): escribes el motivo y él decide. No anula nada por sí solo; mientras tanto el pedido queda marcado como «anulación pedida»." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -8749,6 +8749,9 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
   const [devol,setDevol]=useState(null);        // {ped, motivo}
   const [devGuardando,setDevGuardando]=useState(false);
   const [devHechas,setDevHechas]=useState({});  // ped_id -> solicitud recién pedida
+  const [anul,setAnul]=useState(null);          // {ped, motivo} · pedir anulación al Freelance
+  const [anulGuardando,setAnulGuardando]=useState(false);
+  const [anulHechas,setAnulHechas]=useState({});// ped_id -> solicitud de anulación pedida
 
   /* Pedir la devolución NO anula nada: abre la solicitud para que la piladora
      decida. Si la base la rechaza, la pantalla NO se pinta como si hubiera
@@ -8768,6 +8771,22 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
     setDevol(null);
     toast && toast("Devolución pedida ("+(r.sol||"")+") · la piladora ya la ve.");
   };
+  /* Pedir anulación: NO anula. Abre la solicitud y el Freelance decide. */
+  const confirmarAnul=async()=>{
+    if(!anul || anulGuardando) return;
+    if(anul.motivo.trim().length < 5){ toast && toast("Escribe por qué se anula."); return; }
+    setAnulGuardando(true);
+    const r=await pedirAnulacionPedido(anul.ped.id, anul.motivo.trim());
+    setAnulGuardando(false);
+    if(!r.ok){
+      alert("⚠ LA ANULACIÓN NO SE PIDIÓ\n\n"+r.motivo+
+            "\n\nEl pedido sigue igual y el Freelance no se ha enterado. Vuelve a intentarlo.");
+      return;
+    }
+    setAnulHechas(d=>({...d,[anul.ped.id]:{estado:"pendiente", sol:r.sol}}));
+    setAnul(null);
+    toast && toast("Anulación pedida"+(r.sol?" ("+r.sol+")":"")+" · el Freelance la revisa.");
+  };
   const [q,setQ]=useState("");
   const [pestana,setPestana]=useState("activos");  // activos | historial
   const [pagina,setPagina]=useState(1);
@@ -8784,7 +8803,9 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
   const [tOrden,setTOrden]=useState("recientes");
   if(sel){
     const p=pedidos.find(x=>x.id===sel);
-    return <DetallePedido p={p} volver={()=>setSel(null)}/>;
+    return <DetallePedido p={p} volver={()=>setSel(null)}
+      anulPedida={anulHechas[p.id]||null}
+      onPedirAnular={vivo ? ()=>setAnul({ped:p, motivo:""}) : null}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const ESTADOS=["Todos","Esperando aprobación","Enviado al proveedor","Facturado","Despachado","Entregado","Cobrado"];
@@ -8916,6 +8937,31 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
       </div>
     )}
 
+    {/* ── PEDIR ANULACIÓN AL FREELANCE ── */}
+    {anul && (
+      <div className="ov" onClick={()=>!anulGuardando&&setAnul(null)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()}>
+          <h3>Pedir anulación</h3>
+          <div className="meta" style={{fontSize:12,margin:"4px 0 12px",lineHeight:1.45}}>
+            {anul.ped.cli} · {anul.ped.cant} × {anul.ped.prod}
+            <br/>
+            Esto <b>no anula nada todavía</b>: el Freelance recibe tu pedido y decide.
+            Si lo aprueba, el pedido queda anulado y queda registrado quién lo pidió y
+            por qué. Solo se puede antes de que la piladora facture.
+          </div>
+          <div className="field"><label>¿Por qué se anula?</label>
+            <input className="inp" value={anul.motivo}
+              onChange={e=>setAnul(x=>({...x,motivo:e.target.value}))}
+              placeholder="Ej: el cliente se arrepintió, me equivoqué de cliente"/></div>
+          <button className="cta" style={{marginTop:8,opacity:anulGuardando?.5:1}}
+            disabled={anulGuardando} onClick={confirmarAnul}>
+            {anulGuardando ? "Enviando…" : "Pedir anulación al Freelance"}</button>
+          <button className="back" style={{width:"100%",marginTop:10}}
+            disabled={anulGuardando} onClick={()=>setAnul(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
     {/* ventana de filtros */}
     {verFiltros && (
       <div className="ov" onClick={()=>setVerFiltros(false)}>
@@ -8953,8 +8999,11 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
 }
 
 // ---------- DETALLE DEL PEDIDO (trazabilidad §17) ----------
-function DetallePedido({p, volver}){
+function DetallePedido({p, volver, onPedirAnular, anulPedida}){
   const cumplidos = p.linea.filter(x=>x.st==="ok").length;
+  /* Solo se puede pedir la anulación mientras la piladora no haya facturado. */
+  const ANULABLES = ["Esperando aprobación","Enviado al proveedor"];
+  const puedePedirAnular = !!onPedirAnular && !anulPedida && ANULABLES.includes(p.estado);
   return (<>
     <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a mis pedidos</button>
     <div className="det-head">
@@ -8980,6 +9029,20 @@ function DetallePedido({p, volver}){
         {p.notaChofer && <div className="meta" style={{fontSize:11.5,marginTop:p.fechaEntrega?3:0,lineHeight:1.45}}>📝 Nota para el chofer: {p.notaChofer}</div>}
       </div>);
     })()}
+
+    {anulPedida && (
+      <div style={{margin:"0 0 14px",padding:"11px 13px",borderRadius:10,background:"#FCF9EF",borderLeft:"4px solid #C9A227"}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#8A6A16"}}>Anulación pedida al Freelance</div>
+        <div className="meta" style={{fontSize:11.5,marginTop:3,lineHeight:1.45}}>
+          El pedido sigue vigente hasta que él la apruebe. Te avisamos cuando responda.
+        </div>
+      </div>
+    )}
+    {puedePedirAnular && (
+      <button className="back" onClick={onPedirAnular}
+        style={{width:"100%",marginBottom:14,color:"#B5613C",fontWeight:700}}>
+        🚫 Pedir anulación al Freelance</button>
+    )}
 
     <div className="sec-h"><h2>Seguimiento del pedido</h2><div className="grain"></div></div>
     <LineaTiempoPedido pasos={p.linea} />
@@ -10625,6 +10688,20 @@ async function pedirDevolucion(pedId, motivo){
       p_ped_id:pedId, p_motivo:motivo, p_op_id:"DEV-"+pedId });
     if(error) return { ok:false, motivo:error.message||"No se pudo pedir la devolución" };
     return { ok:true, sol:data||null };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* Pedir al Freelance que anule un pedido MÍO. No anula nada todavía: abre la
+   solicitud y el Freelance decide. La base valida que el pedido sea mío y que
+   todavía no esté facturado. */
+async function pedirAnulacionPedido(pedId, motivo){
+  try{
+    const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                 : ("ANU-"+pedId+"-"+Date.now());
+    const { data, error } = await window.SB.rpc("pedir_anulacion_pedido", {
+      p_ped:pedId, p_motivo:motivo, p_op_id:opId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo pedir la anulación" };
+    return { ok:true, sol:(data && data.sol_id) || null };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 

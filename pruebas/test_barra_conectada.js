@@ -189,7 +189,10 @@ const guion=(tab)=>`(async()=>{
     comprobar("el reclamo queda amarrado al cliente por su código", !!ins && ins.f.cli_id==="CLI-DEMO-01");
     comprobar("y al proveedor por su código", !!ins && ins.f.prov_cod==="PROV-DEMO-01");
     comprobar("el reclamo lleva quién lo reportó (padrón, no texto libre)", !!ins && ins.f.reporto==="USR-DEMO-01");
-    comprobar("las tres escrituras responden que sí", res.a===true && res.b===true && !!res.c);
+    /* responderSolicitud ahora devuelve {ok,motivo} (para avisar si la base
+       rechaza); antes devolvía un booleano. Se acepta cualquiera de las dos. */
+    comprobar("las tres escrituras responden que sí",
+      (res.a===true || (res.a && res.a.ok===true)) && res.b===true && !!res.c);
   }
   console.log("═══ SIN sesión (la app no puede quedarse en blanco)");
   {
