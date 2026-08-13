@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"146", fecha:"12 ago 2026", desc:"Logística: la anulación de despacho se hace contra la base (anular_viaje): el viaje queda anulado, sus pedidos vuelven a «sin despachar» y la ruta a «ordenada». Se quitó el código de autorización de ese diálogo (motivo obligatorio, candado por acción) y se muestran mensajes claros por cada error." };
+const VERSION = { n:"147", fecha:"12 ago 2026", desc:"Novedades (Logística) conectadas a la base: se cargan las novedades reales y se gestionan de verdad (en gestión, resolver, anular) con candado por acción y mensajes claros; se puede resolver directo desde «reportada». El pedido no se toca al resolver. Se quitó el código de autorización de la anulación de novedad." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -3192,29 +3192,104 @@ function TrazabilidadWeb({ usuario }) {
   const nvViaje = (id) => EF_VIAJES_INI.find(v=>v.id===id);
   const nvHist = (n, quien, accion) => ({ ...n, historial:[...n.historial, { fecha:hoyECWeb(), quien, accion }] });
 
-  const nvGestionar = (id) => {
-    setNovedades(ns => ns.map(n => n.id===id ? nvHist({ ...n, estado:"en_gestion" }, usuario.nombre||usuario.rol, "Tomada en gestión") : n));
-    auditar(usuario, "Logística", "Novedad en gestión", id, "");
+  /* ══ NOVEDADES REALES ══════════════════════════════════════════════════
+     El módulo de Novedades deja de sostenerse con NOVEDADES_INI (local): con
+     sesión pide las novedades de la base y las gestiona con sus funciones.
+     NOVEDADES_INI queda SOLO para el modo demo (sin sesión). `estadoNov`
+     distingue 5 situaciones; tras una consulta real vacía NO se vuelve a demo. */
+  const [estadoNov, setEstadoNov] = useState("cargando");
+  const mapNovViva = (n) => {
+    const fResuelto = String(n.resuelto_en || "").slice(0,10);
+    const nombreReporta = (n.usuarios && n.usuarios.nombre) || n.reporto || "—";
+    const hist = [{ fecha: String(n.creado||"").slice(0,10), quien: nombreReporta, accion: "Reportada" }];
+    if (n.estado === "resuelta" && n.respuesta) hist.push({ fecha:fResuelto, quien:n.resuelto_por||"—", accion:"Resuelta: "+n.respuesta });
+    if (n.estado === "anulada" && n.respuesta) hist.push({ fecha:fResuelto, quien:n.resuelto_por||"—", accion:"Anulada: "+n.respuesta });
+    return {
+      id: n.nov_id, viajeId: n.viaje_id || "—", guia: n.guia_id || "—",
+      cliente: (n.clientes && n.clientes.nombre) || n.cli_id || "—",
+      prov: (n.proveedores && n.proveedores.nombre) || n.prov_cod || "—",
+      tipo: n.tipo || "Novedad", detalle: n.detalle || "", cambios: null,
+      foto: n.foto_url ? { quien: nombreReporta, origen: n.origen || "App", data: n.foto_url } : null,
+      fecha: String(n.creado || "").slice(0,10), quien: nombreReporta,
+      estado: n.estado, afecta: [],
+      resolucion: n.respuesta ? { fecha: fResuelto, quien: n.resuelto_por || "—", texto: n.respuesta } : null,
+      historial: hist, demo: !!n.es_demo,
+    };
   };
-  const nvConfirmarResolver = () => {
-    if (!nvResolver.texto.trim()) { toast("Escribe qué se resolvió (reposición, nota de crédito, ajuste…)."); return; }
-    const f = hoyECWeb();
-    setNovedades(ns => ns.map(n => n.id===nvResolver.id
-      ? nvHist({ ...n, estado:"resuelta", resolucion:{ fecha:f, quien:usuario.nombre||usuario.rol, texto:nvResolver.texto.trim() } }, usuario.nombre||usuario.rol, "Resuelta: "+nvResolver.texto.trim())
-      : n));
-    auditar(usuario, "Logística", "Novedad resuelta", nvResolver.id, nvResolver.texto.trim());
-    setNvResolver(null); toast("✓ Novedad resuelta.");
+  const recargarNovedades = async () => {
+    if (!window.supa || !window.supa.auth) { setEstadoNov("demo"); return []; }
+    setEstadoNov("cargando");
+    const { data: s } = await window.supa.auth.getSession().catch(()=>({data:null}));
+    if (!s || !s.session) { setEstadoNov("sin_sesion"); return []; }
+    const { data, error } = await window.supa.from("novedades")
+      .select("nov_id,viaje_id,guia_id,cli_id,tipo,detalle,foto_url,reporto,estado,creado,origen,prov_cod," +
+              "respuesta,resuelto_en,resuelto_por,es_demo,clientes(nombre),proveedores(nombre),usuarios(nombre)")
+      .eq("es_demo", false).order("creado", { ascending:false }).limit(300);
+    if (error) { setEstadoNov("error"); toast("⚠ No se pudieron traer las novedades: " + (error.message||"")); return []; }
+    const mapped = (data || []).map(mapNovViva);
+    setNovedades(mapped);
+    setEstadoNov(mapped.length ? "vivo" : "sin");   /* vacía real → "sin"; nunca se vuelve a NOVEDADES_INI */
+    return mapped;
   };
-  const nvConfirmarAnular = () => {
-    if (!nvAnular.motivo.trim()) { toast("El motivo de anulación es obligatorio."); return; }
-    if (!esFreelance && (nvAnular.codigo||"").trim() !== CODIGO_ANULACION_FREELANCE) {
-      toast("Código incorrecto. El Freelance lo recibe en su aplicativo móvil."); return;
+  useEffect(() => { recargarNovedades(); }, []);
+  /* Mensajes claros por código de las funciones de novedad (no el crudo de Postgres). */
+  const NOVEDAD_ERR = {
+    RESPUESTA_OBLIGATORIA: "Escribe qué se resolvió: la respuesta es obligatoria.",
+    MOTIVO_OBLIGATORIO: "El motivo es obligatorio.",
+    NOVEDAD_YA_CERRADA: "Esta novedad ya está cerrada.",
+    NOVEDAD_NO_REPORTADA: "Esta novedad ya no está 'reportada'.",
+    NOVEDAD_NO_ENCONTRADA: "No se encontró la novedad. Actualicé la lista.",
+    ROL_NO_AUTORIZADO: "Tu rol no puede gestionar novedades.",
+    SIN_SESION: "Tu sesión terminó. Vuelve a entrar para continuar.",
+  };
+
+  const nvGestionar = async (id) => {
+    /* Demo (sin sesión): comportamiento local de siempre. */
+    if (fuenteLog !== "vivo") {
+      setNovedades(ns => ns.map(n => n.id===id ? nvHist({ ...n, estado:"en_gestion" }, usuario.nombre||usuario.rol, "Tomada en gestión") : n));
+      auditar(usuario, "Logística", "Novedad en gestión", id, ""); return;
     }
-    setNovedades(ns => ns.map(n => n.id===nvAnular.id
-      ? nvHist({ ...n, estado:"anulada" }, usuario.nombre||usuario.rol, "Anulada: "+nvAnular.motivo.trim()+(esFreelance?"":" · autorizado con código del Freelance"))
-      : n));
-    auditar(usuario, "Logística", "Anulación de novedad"+(esFreelance?"":" · con código del Freelance"), nvAnular.id, "Motivo: "+nvAnular.motivo.trim());
-    setNvAnular(null); toast("Novedad anulada · queda en el historial.");
+    const op_id = crypto.randomUUID();   // op_id por acción, una sola vez
+    const r = await correrRpc("gestionar_novedad", { p_nov_id: id, p_op_id: op_id }, NOVEDAD_ERR);
+    if (!r.ok) return;
+    auditar(usuario, "Logística", "Novedad en gestión", id, "");
+    await recargarNovedades();
+    toast("Novedad en gestión.");
+  };
+  const nvConfirmarResolver = async () => {
+    if (!nvResolver.texto.trim()) { toast("Escribe qué se resolvió (reposición, nota de crédito, ajuste…)."); return; }
+    /* Demo (sin sesión): comportamiento local de siempre. */
+    if (fuenteLog !== "vivo") {
+      const f = hoyECWeb();
+      setNovedades(ns => ns.map(n => n.id===nvResolver.id
+        ? nvHist({ ...n, estado:"resuelta", resolucion:{ fecha:f, quien:usuario.nombre||usuario.rol, texto:nvResolver.texto.trim() } }, usuario.nombre||usuario.rol, "Resuelta: "+nvResolver.texto.trim())
+        : n));
+      auditar(usuario, "Logística", "Novedad resuelta", nvResolver.id, nvResolver.texto.trim());
+      setNvResolver(null); toast("✓ Novedad resuelta."); return;
+    }
+    const r = await correrRpc("resolver_novedad", { p_nov_id: nvResolver.id, p_respuesta: nvResolver.texto.trim(), p_op_id: nvResolver.opId }, NOVEDAD_ERR);
+    if (!r.ok) return;
+    auditar(usuario, "Logística", "Novedad resuelta", nvResolver.id, nvResolver.texto.trim());
+    setNvResolver(null);
+    await recargarNovedades();
+    toast("✓ Novedad resuelta. (El pedido no se toca.)");
+  };
+  const nvConfirmarAnular = async () => {
+    if (!nvAnular.motivo.trim()) { toast("El motivo es obligatorio."); return; }
+    /* Demo (sin sesión): comportamiento local de siempre. */
+    if (fuenteLog !== "vivo") {
+      setNovedades(ns => ns.map(n => n.id===nvAnular.id
+        ? nvHist({ ...n, estado:"anulada" }, usuario.nombre||usuario.rol, "Anulada: "+nvAnular.motivo.trim())
+        : n));
+      auditar(usuario, "Logística", "Anulación de novedad", nvAnular.id, "Motivo: "+nvAnular.motivo.trim());
+      setNvAnular(null); toast("Novedad anulada · queda en el historial."); return;
+    }
+    const r = await correrRpc("anular_novedad", { p_nov_id: nvAnular.id, p_motivo: nvAnular.motivo.trim(), p_op_id: nvAnular.opId }, NOVEDAD_ERR);
+    if (!r.ok) return;
+    auditar(usuario, "Logística", "Anulación de novedad", nvAnular.id, "Motivo: "+nvAnular.motivo.trim());
+    setNvAnular(null);
+    await recargarNovedades();
+    toast("Novedad anulada · queda en el historial.");
   };
   const nvGuardar = () => {
     const n = nvNueva;
@@ -3249,8 +3324,23 @@ function TrazabilidadWeb({ usuario }) {
     const abiertas = novedades.filter(n => n.estado==="reportada" || n.estado==="en_gestion");
     const lista = novedades.filter(n => nvFiltro==="todas" ? true : nvFiltro==="abiertas" ? (n.estado==="reportada"||n.estado==="en_gestion") : n.estado===nvFiltro);
     const GN = "110px minmax(170px,1.3fr) minmax(190px,1.5fr) minmax(150px,1.1fr) 110px 210px";
+    const bannerNov = (() => {
+      const box = (bg,bd,fg,txt,extra) => (
+        <div style={{ marginBottom:14, background:bg, border:`1px solid ${bd}`, borderRadius:10, padding:"10px 13px",
+          display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+          <span style={{ fontSize:12.5, fontWeight:700, color:fg }}>{txt}</span>{extra}</div>
+      );
+      if (estadoNov==="cargando") return box("#F1F5F9","#dbe3ea",COLOR.muted,"⏳ Cargando novedades…");
+      if (estadoNov==="sin_sesion") return box("#FFF7ED","#fed7aa","#9a3412","🔒 Entra con tu cuenta para ver las novedades reales.");
+      if (estadoNov==="error") return box("#FDECEC","#f5c2c2","#b91c1c","⚠ No se pudieron cargar las novedades.",
+        <button onClick={()=>recargarNovedades()} style={{ ...nvBtn("#b91c1c"), padding:"6px 12px", fontSize:12.5 }}>Reintentar</button>);
+      if (estadoNov==="sin") return box("#F7F9FB","#e2e8ee",COLOR.muted,"No hay novedades.");
+      if (estadoNov==="vivo") return box("#f2faf5","#bfe3cd","#1e6641","🟢 Novedades reales · " + novedades.length + " en Supabase.");
+      return null;   // demo (sin supa)
+    })();
     return (
       <div>
+        {bannerNov}
         <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:14 }}>
           {[["Abiertas", abiertas.length, "#b45309"],["Afectan comisión", abiertas.filter(n=>n.afecta.includes("comisión")).length, COLOR.purple],["Resueltas", novedades.filter(n=>n.estado==="resuelta").length, COLOR.green]].map(([t,v,c],i)=>(
             <div key={i} style={{ flex:"1 1 140px", background:"#fff", border:`1px solid ${COLOR.border}`, borderTop:`3px solid ${c}`, borderRadius:11, padding:"12px 15px" }}>
@@ -3266,7 +3356,8 @@ function TrazabilidadWeb({ usuario }) {
                 background: nvFiltro===k?COLOR.tealDark:"#f3f5f7", color: nvFiltro===k?"#fff":COLOR.muted }}>{t}</button>
           ))}
           <span style={{ flex:1 }} />
-          {!soloLectura && <button style={nvBtn(COLOR.teal)} onClick={()=>setNvNueva({ viajeId:"", guia:"", tipo:"", detalle:"", cambios:null, foto:null })}>+ Registrar novedad</button>}
+          {/* En vivo las novedades nacen en el campo (app del transportista); el registro local es solo para el demo. */}
+          {!soloLectura && fuenteLog !== "vivo" && <button style={nvBtn(COLOR.teal)} onClick={()=>setNvNueva({ viajeId:"", guia:"", tipo:"", detalle:"", cambios:null, foto:null })}>+ Registrar novedad</button>}
         </div>
         <div style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden" }}>
           <div style={{ display:"grid", gridTemplateColumns:GN, gap:10, padding:"11px 16px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
@@ -3288,11 +3379,12 @@ function TrazabilidadWeb({ usuario }) {
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                   <button style={{...nvBtn("transparent",COLOR.teal), padding:"6px 0", width:"100%"}} onClick={()=>setNvVer(n)}>Ver ›</button>
                   {!soloLectura && n.estado==="reportada" &&
-                    <button style={{...nvBtn(COLOR.blue), padding:"6px 0", fontSize:12, width:"100%"}} onClick={()=>nvGestionar(n.id)}>Gestionar</button>}
-                  {!soloLectura && n.estado==="en_gestion" &&
-                    <button style={{...nvBtn(COLOR.green), padding:"6px 0", fontSize:12, width:"100%"}} onClick={()=>setNvResolver({ id:n.id, texto:"" })}>Resolver ✓</button>}
+                    <button disabled={rpcOn} style={{...nvBtn(COLOR.blue), padding:"6px 0", fontSize:12, width:"100%", opacity:rpcOn?.6:1}} onClick={()=>nvGestionar(n.id)}>Gestionar</button>}
+                  {/* Resolver DIRECTO desde 'reportada' o desde 'en_gestion' (no se obliga a pasar por gestión). */}
                   {!soloLectura && (n.estado==="reportada" || n.estado==="en_gestion") &&
-                    <button style={{...nvBtn("#fdecec","#b91c1c"), padding:"6px 0", fontSize:12, width:"100%", gridColumn:"1 / -1"}} onClick={()=>setNvAnular({ id:n.id, motivo:"", codigo:"" })}>Anular</button>}
+                    <button disabled={rpcOn} style={{...nvBtn(COLOR.green), padding:"6px 0", fontSize:12, width:"100%", opacity:rpcOn?.6:1}} onClick={()=>setNvResolver({ id:n.id, texto:"", opId:crypto.randomUUID() })}>Resolver ✓</button>}
+                  {!soloLectura && (n.estado==="reportada" || n.estado==="en_gestion") &&
+                    <button disabled={rpcOn} style={{...nvBtn("#fdecec","#b91c1c"), padding:"6px 0", fontSize:12, width:"100%", gridColumn:"1 / -1", opacity:rpcOn?.6:1}} onClick={()=>setNvAnular({ id:n.id, motivo:"", opId:crypto.randomUUID() })}>Anular</button>}
                 </div>
               </div>
             );
@@ -3917,37 +4009,30 @@ function TrazabilidadWeb({ usuario }) {
 
       {/* ── Novedades: resolver ── */}
       {nvResolver && (
-        <div onClick={()=>setNvResolver(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
+        <div onClick={()=>!rpcOn && setNvResolver(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:460, maxWidth:"100%", padding:"22px 24px" }}>
             <h2 style={{ fontSize:17, fontWeight:800, margin:"0 0 10px" }}>Resolver novedad · {nvResolver.id}</h2>
             <label style={nvLbl}>¿Qué se resolvió? * (reposición, nota de crédito, ajuste aceptado…)</label>
             <input value={nvResolver.texto} onChange={e=>setNvResolver(x=>({ ...x, texto:e.target.value }))} placeholder="Ej: nota de crédito por 5 qq acordada con el proveedor" style={{...nvInp, marginBottom:14}} />
             <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <button style={nvBtn("#f3f5f7", COLOR.text)} onClick={()=>setNvResolver(null)}>Cancelar</button>
-              <button style={nvBtn(COLOR.green)} onClick={nvConfirmarResolver}>Resolver ✓</button>
+              <button disabled={rpcOn} style={{...nvBtn("#f3f5f7", COLOR.text), opacity:rpcOn?.6:1}} onClick={()=>setNvResolver(null)}>Cancelar</button>
+              <button disabled={rpcOn} style={{...nvBtn(COLOR.green), opacity:rpcOn?.6:1}} onClick={nvConfirmarResolver}>Resolver ✓</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Novedades: anular (regla global: motivo + código del Freelance) ── */}
+      {/* ── Novedades: anular (la base autoriza por rol; motivo obligatorio) ── */}
       {nvAnular && (
-        <div onClick={()=>setNvAnular(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
+        <div onClick={()=>!rpcOn && setNvAnular(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:460, maxWidth:"100%", padding:"22px 24px" }}>
             <h2 style={{ fontSize:17, fontWeight:800, margin:"0 0 10px" }}>Anular novedad · {nvAnular.id}</h2>
             <label style={nvLbl}>Motivo de anulación *</label>
             <input value={nvAnular.motivo} onChange={e=>setNvAnular(x=>({ ...x, motivo:e.target.value }))} placeholder="Ej: registrada por error, el viaje no corresponde" style={{...nvInp, marginBottom:12}} />
-            {!esFreelance && (
-              <div style={{ marginBottom:12 }}>
-                <label style={{...nvLbl, color:"#b91c1c"}}>Código de autorización del Freelance *</label>
-                <input value={nvAnular.codigo} onChange={e=>setNvAnular(x=>({ ...x, codigo:e.target.value }))} placeholder="Código que llega al móvil del Freelance" inputMode="numeric"
-                  style={{...nvInp, border:"1px solid #fca5a5", background:"#FFF5F5"}} />
-              </div>
-            )}
             <p style={{ fontSize:11.5, color:COLOR.muted, margin:"0 0 14px" }}>La novedad no se borra: queda anulada en el historial, con rastro en Auditoría.</p>
             <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <button style={nvBtn("#f3f5f7", COLOR.text)} onClick={()=>setNvAnular(null)}>Cancelar</button>
-              <button style={nvBtn("#b91c1c")} onClick={nvConfirmarAnular}>Anular novedad</button>
+              <button disabled={rpcOn} style={{...nvBtn("#f3f5f7", COLOR.text), opacity:rpcOn?.6:1}} onClick={()=>setNvAnular(null)}>Cancelar</button>
+              <button disabled={rpcOn} style={{...nvBtn("#b91c1c"), opacity:rpcOn?.6:1}} onClick={nvConfirmarAnular}>Anular novedad</button>
             </div>
           </div>
         </div>
