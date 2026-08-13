@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"148"/.test(web),"Sistema Web debe anunciar b148");
-prueba(/const CACHE = "freelance-v225"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"149"/.test(web),"Sistema Web debe anunciar b149");
+prueba(/const CACHE = "freelance-v226"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -33,6 +33,13 @@ prueba(/Precio de venta/.test(web),"debe mantenerse el Precio de venta");
 prueba(/Resumen del pedido/.test(web)&&/overflowY:"auto"/.test(web),"el resumen debe existir y desplazarse (scroll)");
 prueba(/name="home"/.test(web),"Cancelar e Inicio deben estar en la cabecera");
 prueba(/fecha_entrega/.test(web)&&/nota_chofer/.test(web),"deben enviarse fecha de entrega y nota para el chofer");
+
+/* ── b149 · Precio especial (P5): piso = costo + flete + estibada ── */
+prueba(/const requiereAutorizacion = esP5 && !esFreelanceWeb/.test(web),"el freelance ya no se autoriza a sí mismo el precio especial");
+prueba(/const bajoPiso = /.test(web)&&/precioNum < pisoUnidad/.test(web),"debe calcularse si el precio queda por debajo del piso");
+prueba(/&& !bajoPiso;/.test(web),"un precio por debajo del piso debe invalidar el pedido");
+prueba(/from\("tarifas_fe"\)/.test(web),"el piso debe leer las tarifas de flete/estibada de la base");
+prueba(/costo: Number\(o\.costo\) \|\| Number\(o\.costo_contado\)/.test(web),"la oferta debe traer su costo para el piso");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
