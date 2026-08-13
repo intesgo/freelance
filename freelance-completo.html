@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"430", fecha:"13 ago 2026", desc:"Pedidos: las dos pestañas ahora dicen la regla. En proceso = lo que todavía se puede editar o anular; Historial = ya facturado, despachado o entregado, sellado para consulta (con filtro por estado y candado que explica por qué). El freelance puede ANULAR desde el detalle solo antes de facturar, con motivo y registro. La comisión muestra la ESTIMADA mientras el pedido está por aprobar. En Solicitudes llegan las ANULACIONES que pide el comisionista: al aprobarlas el pedido se anula y queda registrado quién pidió y quién aprobó." };
+const VERSION = { n:"431", fecha:"13 ago 2026", desc:"Pedidos: ahora TRES pestañas que dicen dónde está cada pedido. Pendientes (con el número de los que faltan) = todavía se puede editar o anular; En camino = ya facturado, va hacia el cliente; Entregados = cerrado, para consulta (los anulados quedan aquí, ocultos hasta filtrar «Anulado»). El filtro por estado sirve en las tres. NUEVO editor de líneas: desde un pedido que todavía se puede tocar, el botón «Editar pedido» abre el armador con las líneas cargadas para agregar, quitar o cambiar productos, cantidades y precios; el cliente y el proveedor quedan fijos. El freelance sigue pudiendo ANULAR solo antes de facturar. La comisión muestra la ESTIMADA mientras el pedido está por aprobar." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6247,7 +6247,7 @@ function BannerArroz(){
   );
 }
 
-function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar, go}){
+function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, onConsumirCli, onCobrar, go, edicion, onConsumirEdicion, onEditarPedido}){
   const [prodPend,setProdPend]=useState(null);    // producto traído desde el catálogo, en espera de elegir cliente
   const [verFact,setVerFact]=useState(false);     // desplegar la última factura del cliente
   const [verHist,setVerHist]=useState(false);     // desplegar el historial de compras del producto
@@ -6384,6 +6384,49 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const reset=()=>{setTipo("P1");setPrecio("");setGratis("");setCondP3("contado");setPromoF(null);setPromoP(null);setComProp("");setMotivo("");};
   const resetProducto=()=>{setProd(null);setCant(50);reset();};
   const cerrarPedido=()=>{setCli(null);setProv(null);setUbicPed(null);setRetiroBodegaPed(false);setFechaEntregaPed("");setNotaChoferPed("");setVerEntrega(false);setCarrito([]);setVerCarrito(false);setCodigo("");setDesbloqueado(false);setProdPend(null);resetProducto();};
+
+  /* ══ MODO EDICIÓN DE LÍNEAS ═══════════════════════════════════════════════
+     Al entrar con `edicion`, el armador carga las líneas del pedido en el
+     carrito (emparejadas al catálogo por prod_id+pres_cod, con su `equiv`) y
+     deja fijos el cliente y el proveedor: aquí solo se cambian los PRODUCTOS.
+     La base (editar_pedido_atomico) trabaja en QUINTALES; el armador en
+     presentaciones: cant = cantidad_qq/equiv, precio = precio_usd×equiv. */
+  const modoEdicion = !!edicion;
+  const [pedIdEdit,setPedIdEdit]=useState(null);
+  const TIPO_NOMBRE={P1:"Contado",P2:"Crédito",P3:"Promo vend.",P4:"Promo freel.",P5:"Especial",P6:"Promo prov."};
+  React.useEffect(()=>{
+    if(!edicion) return;
+    const pres = vivoPed ? vivoPed.pres : PRESENTACIONES;
+    const provs = vivoPed ? vivoPed.provs : PROVEEDORES;
+    if(!pres || !pres.length) return;   // espera a que el catálogo esté listo
+    const provObj = (edicion.provCod && provs.find(x=>x.id===edicion.provCod)) || {id:edicion.provCod||"", nombre:edicion.prov||"—"};
+    const lineas=(edicion.items||[]).map((it,k)=>{
+      const prod = pres.find(x=>x.id===(it.prod_id+"-"+it.pres_cod)) || pres.find(x=>x.prodId===it.prod_id && x.presCod===it.pres_cod) || null;
+      const eq = prod ? (Number(prod.equiv)||1) : 1;
+      const credito = (it.condicion||"credito")==="credito";
+      const cant = Math.round((Number(it.cantidad_qq)||0)/eq*100)/100;
+      const precio = Math.round((Number(it.precio_usd)||0)*eq*100)/100;
+      const gratis = Math.round((Number(it.gratis_qq)||0)/eq*100)/100;
+      const base = prod ? (credito?Number(prod.baseCredito)||0:Number(prod.baseContado)||0) : 0;
+      const com = prod ? Math.round((precio-base)*cant*100)/100 : 0;
+      return { id:Date.now()+k, itemId:it.item_id||null, prod, sinCatalogo:!prod,
+        prodNombre: prod?prod.nombre:(it.descripcion||"Producto"), unidad: prod?prod.unidad:"",
+        tipo: it.tipo_precio||"P2", tipoNombre: TIPO_NOMBRE[it.tipo_precio]||it.tipo_precio||"—",
+        cant, precio, gratis, credito, comisionTotal:com, requiere:false, motivoAuth:null, promoId: it.promo_id||null };
+    });
+    setCli(edicion.cli); setProv(provObj); setProd(null);
+    setCarrito(lineas); setVerCarrito(false); setPedIdEdit(edicion.pedId);
+    if(onConsumirEdicion) onConsumirEdicion();
+  },[edicion, vivoPed]);
+
+  /* Enviar: en modo edición va a editar_pedido_atomico; si no, al alta normal. */
+  const enviarPedido=(carritoFinal)=>{
+    if(modoEdicion || pedIdEdit){
+      if(onEditarPedido) onEditarPedido({pedId:pedIdEdit, carrito:carritoFinal});
+      return;
+    }
+    if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:carritoFinal, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
+  };
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
   const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
@@ -6650,8 +6693,9 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       </div>
     )}
 
-    {/* b327 · Ya elegidos cliente y producto: el cliente es el título, sin buscador */}
-    {cli && prod ? (
+    {/* b327 · Ya elegidos cliente y producto: el cliente es el título, sin buscador.
+        En modo edición el cliente queda fijo siempre (solo se cambian productos). */}
+    {(modoEdicion || (cli && prod)) ? (
       <div className="cli-titulo">{cli}</div>
     ) : (
     <div className="busc-cliente busc-grande">
@@ -6674,7 +6718,15 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     </div>
     )}
 
-    {cli && !bloqueado && !verFact && !prod && <div className="busc-grande proveedor-destacado"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov} multiPalabra
+    {/* Modo edición: cliente y proveedor fijos; aquí solo se cambian los productos. */}
+    {modoEdicion && (
+      <div className="busc-grande" style={{marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#2E5D46",textTransform:"uppercase"}}>Proveedor: {(prov&&prov.nombre)||"—"}</div>
+        <div style={{marginTop:6,fontSize:12,color:"#3A6B52",lineHeight:1.4}}>Aquí se cambian los productos del pedido. El cliente y el proveedor no se cambian.</div>
+      </div>
+    )}
+
+    {cli && !bloqueado && !verFact && !prod && !modoEdicion && <div className="busc-grande proveedor-destacado"><SearchSelect label="Proveedor" cat="proveedores" items={PROVS_PED} sinLabel value={prov} multiPalabra
       onPick={p=>{setProv(p);setProd(null);reset();}} onClear={()=>{if(carrito.length===0){setProv(null);setProd(null);reset();}}}
       hint={carrito.length>0?"Un pedido es de un solo proveedor. Cierra el pedido para cambiarlo.":null}
       render={{
@@ -7512,7 +7564,8 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
             const items = valido ? [...carrito, construirItem()] : carrito;
             if(items.length===0) return;
-            if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
+            enviarPedido(items);
+            if(modoEdicion || pedIdEdit) return;   // en edición, el padre confirma y navega
             const resumen = items.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
             setGuardadoOk({ cli, n:items.length, resumen });
             cerrarPedido();
@@ -7626,7 +7679,8 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
           <button className="cta" disabled={carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado}
             onClick={()=>{
               if(bloqueado){ toast("Cliente bloqueado: solicita autorización antes de cerrar el pedido."); return; }
-              if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
+              enviarPedido(carrito);
+              if(modoEdicion || pedIdEdit) return;   // en edición, el padre confirma y navega
               const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre} · ${money(it.precio)}`).join("\n");
               setGuardadoOk({ cli, n:carrito.length, resumen });
               cerrarPedido();
@@ -10946,7 +11000,7 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
   );
 }
 
-function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
+function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   useRetroceso(()=>{
       if(verFechas){ setVerFechas(false); return true; }
       if(sel){ setSel(null); return true; }
@@ -10959,7 +11013,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
   const [hasta,setHasta]=useState("");
   const [orden,setOrden]=useState("recientes"); // recientes | antiguos | comision
   const [verFechas,setVerFechas]=useState(false);
-  const [pestana,setPestana]=useState("activos"); // activos | historial
+  const [pestana,setPestana]=useState("pendientes"); // pendientes | encamino | entregados
   const [verComo,setVerComo]=useState("factura");  // factura | seguimiento (al abrir un pedido)
   const [pagina,setPagina]=useState(1);
   const POR_PAGINA=15;
@@ -10969,7 +11023,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
        no dejar la pantalla en blanco: se vuelve al listado */
     if(!p){ setSel(null); return null; }
     return <DetallePedido p={p} modo={verComo} volver={()=>setSel(null)}
-      vivo={vivo} toast={toast} onAprobado={onRecargar}/>;
+      vivo={vivo} toast={toast} onAprobado={onRecargar} onEditar={onEditar}/>;
   }
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   /* ══ 13/08/2026 · LAS DOS PESTAÑAS DICEN LA REGLA ═══════════════════════
@@ -10982,19 +11036,29 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
      Lo que falta cobrar NO se pierde de vista: eso vive en Cartera. */
   const SELLADOS=["Facturado","Despachado","Entregado","Cobrado y validado","Comisión liberada","Anulado"];
   const esSellado = (p)=> SELLADOS.includes(p.estado) || p.comisionLiberada;
-  const ESTADOS = pestana==="historial"
-    ? ["Todos","Facturado","Despachado","Entregado","Cobrado y validado","Comisión liberada","Anulado"]
-    : ["Todos","Esperando aprobación","Enviado al proveedor"];
+  /* ══ 13/08/2026 · TRES PESTAÑAS QUE DICEN DÓNDE ESTÁ CADA PEDIDO ═════════
+     Pendientes = todavía se puede editar o anular; En camino = ya facturado,
+     va hacia el cliente; Entregados = cerrado, para consulta. */
+  const TAB_ESTADOS = {
+    pendientes: ["Esperando aprobación","Enviado al proveedor"],
+    encamino:   ["Facturado","Despachado"],
+    entregados: ["Entregado","Cobrado y validado","Comisión liberada","Anulado"],
+  };
+  const tabDe = (p)=> TAB_ESTADOS.pendientes.includes(p.estado) ? "pendientes"
+    : TAB_ESTADOS.encamino.includes(p.estado) ? "encamino" : "entregados";
+  const ESTADOS = ["Todos", ...TAB_ESTADOS[pestana]];
   const lista=pedidos.filter(p=>{
-    const sellado = esSellado(p);
-    if(pestana==="activos" && sellado) return false;    // sellados salen de En proceso
-    if(pestana==="historial" && !sellado) return false; // historial: solo sellados
+    if(tabDe(p)!==pestana) return false;
+    /* Los anulados viven en Entregados pero OCULTOS por defecto (no se
+       entregaron); solo aparecen si el filtro es "Anulado". */
+    if(pestana==="entregados" && p.estado==="Anulado" && estado!=="Anulado") return false;
     const t=norm(q);
     const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
     const estOk = estado==="Todos" || p.estado===estado;
     const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
     return txtOk && estOk && fechaOk;
   });
+  const nPendientes = pedidos.filter(p=>tabDe(p)==="pendientes").length;
   const ordenada=[...lista].sort((a,b)=>{
     if(orden==="comision") return b.comision-a.comision;
     if(orden==="antiguos") return a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0;
@@ -11012,8 +11076,9 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
   const ESTADOS_CURSO=["Esperando aprobación","Enviado al proveedor","Facturado","Despachado"];
   /* Al tocar un estado, lleva a la pestaña donde de verdad está ese pedido. */
   const irAEstado=(e)=>{
-    const enProceso = ["Esperando aprobación","Enviado al proveedor"].includes(e);
-    cambiarPestana(enProceso?"activos":"historial", true); setEstado(e);
+    const t = TAB_ESTADOS.pendientes.includes(e) ? "pendientes"
+      : TAB_ESTADOS.encamino.includes(e) ? "encamino" : "entregados";
+    cambiarPestana(t, true); setEstado(e);
   };
 
   return (<>
@@ -11028,7 +11093,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       const montoAct=activos.reduce((s,p)=>s+((p.cant||0)*(p.precio||0)),0);
       return (
         <div className="mini-kpi">
-          <button onClick={()=>{cambiarPestana("activos");setEstado("Todos");}}>
+          <button onClick={()=>{cambiarPestana("pendientes");setEstado("Todos");}}>
             <span className="mk-v num">{enProceso}</span>
             <span className="mk-k">En proceso</span></button>
           <button onClick={()=>irAEstado("Esperando aprobación")}>
@@ -11067,7 +11132,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       return (
         <div className="ndash" style={{marginTop:12,marginBottom:14}}>
 
-          <div className="ncard" onClick={()=>cambiarPestana("activos",true)}>
+          <div className="ncard" onClick={()=>cambiarPestana("pendientes",true)}>
             <div className="nk">Dónde están</div>
             <div className="nbars" style={{marginTop:6}}>
               {porEstado.map(x=>(
@@ -11090,7 +11155,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
             <div className="nsub">Toca un estado para filtrar</div>
           </div>
 
-          <div className="ncard" onClick={()=>cambiarPestana("activos",true)}>
+          <div className="ncard" onClick={()=>cambiarPestana("pendientes",true)}>
             <div className="nk">Por proveedor</div>
             <div className="nbars" style={{marginTop:6}}>
               {porProv.slice(0,3).map(x=>(
@@ -11114,16 +11179,19 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       );
     })()}
 
-    {/* pestañas Activos · Historial */}
+    {/* pestañas Pendientes · En camino · Entregados */}
     <div className="eq-tabs" style={{marginBottom:12}}>
-      <button className={pestana==="activos"?"on":""} onClick={()=>cambiarPestana("activos")}>En proceso</button>
-      <button className={pestana==="historial"?"on":""} onClick={()=>cambiarPestana("historial")}>Historial</button>
+      <button className={pestana==="pendientes"?"on":""} onClick={()=>cambiarPestana("pendientes")}>Pendientes{nPendientes>0?` (${nPendientes})`:""}</button>
+      <button className={pestana==="encamino"?"on":""} onClick={()=>cambiarPestana("encamino")}>En camino</button>
+      <button className={pestana==="entregados"?"on":""} onClick={()=>cambiarPestana("entregados")}>Entregados</button>
     </div>
     {/* la pantalla dice la regla, para no tener que descubrirla con un error */}
     <div className="meta" style={{fontSize:11.5,margin:"-4px 2px 12px",lineHeight:1.45}}>
-      {pestana==="activos"
+      {pestana==="pendientes"
         ? "Aquí están los pedidos que todavía se pueden editar o anular."
-        : "🔒 Ya facturados: quedan para consulta. No se editan ni se anulan, tampoco por el freelance. Si hay un problema después del despacho, va por Novedad o Nota de crédito."}
+        : pestana==="encamino"
+        ? "🔒 Ya facturados: van hacia el cliente. No se editan ni se anulan."
+        : "🔒 Cerrados: quedan para consulta. Si hay un problema, va por Novedad o Nota de crédito."}
     </div>
 
     <div className="row" style={{gap:10,marginBottom:10,alignItems:"stretch"}}>
@@ -11199,7 +11267,11 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar}){
       </div>
       );
     })}
-    {ordenada.length===0 && <div className="ph">{pestana==="historial"?"Aquí se guardan los pedidos ya facturados, despachados y entregados. Todavía no hay ninguno.":"Sin pedidos que coincidan."}</div>}
+    {ordenada.length===0 && <div className="ph">{
+      (q||estado!=="Todos"||desde||hasta) ? "Sin pedidos que coincidan."
+      : pestana==="pendientes" ? "No tienes pedidos pendientes por aprobar o enviar."
+      : pestana==="encamino" ? "Aquí aparecen los pedidos ya facturados o despachados. Todavía no hay ninguno."
+      : "Aquí se guardan los pedidos entregados y cerrados. Todavía no hay ninguno."}</div>}
 
     </Deslizable>
     <PuntosPag pag={pagina} total={totalPag}/>
@@ -11327,12 +11399,13 @@ function AnularPedidoSheet({p, onClose, onConfirmar, guardando}){
   );
 }
 
-function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
+function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast, onEditar}){
   const [vista,setVista]=useState(modo); // factura | seguimiento
   const [pidiendoPago,setPidiendoPago]=useState(false);
   const [guardando,setGuardando]=useState(false);
   const [anulando,setAnulando]=useState(false);
   const [guardandoAnul,setGuardandoAnul]=useState(false);
+  const [cargandoEdit,setCargandoEdit]=useState(false);
   useModal(pidiendoPago, React.useCallback(()=>setPidiendoPago(false),[]));
   useModal(anulando, React.useCallback(()=>setAnulando(false),[]));
   const cumplidos = p.linea.filter(x=>x.st==="ok").length;
@@ -11348,6 +11421,21 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
   const NO_ANULABLES = ["Facturado","Despachado","Entregado","Cobrado","Cobrado y validado","Cerrado","Comisión liberada","Anulado"];
   const selladoPed = NO_ANULABLES.includes(p.estado);
   const sePuedeAnular = !!vivo && !p.demo && !selladoPed;
+  /* Editar líneas: mismas condiciones que Anular, solo antes de facturar. Abre
+     el armador en modo edición con las líneas del pedido ya cargadas. */
+  const EDITABLES = ["Esperando aprobación","Enviado al proveedor"];
+  const sePuedeEditar = !!vivo && !p.demo && !!onEditar && EDITABLES.includes(p.estado);
+  const abrirEditor = async ()=>{
+    if(cargandoEdit) return;
+    setCargandoEdit(true);
+    try{
+      const { data, error } = await window.SB.from("pedido_items")
+        .select("item_id,prod_id,pres_cod,descripcion,cantidad_qq,precio_usd,tipo_precio,condicion,gratis_qq,promo_id")
+        .eq("ped_id", p.id);
+      if(error || !data || !data.length){ setCargandoEdit(false); if(toast) toast("No se pudieron traer las líneas del pedido."); return; }
+      onEditar({ pedId:p.id, cli:p.cli, prov:p.prov, provCod:p.provCod||null, items:data });
+    }catch(e){ setCargandoEdit(false); if(toast) toast("No se pudieron traer las líneas del pedido."); }
+  };
   /* Comisión: si todavía no hay real (pedido por aprobar), se muestra la estimada. */
   const comReal = Number(p.comision)||0;
   const comEst = Number(p.comisionEst)||0;
@@ -11409,12 +11497,20 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast}){
             A {p.prov} le pagas {NOMBRE_PAGO[p.pagoProv]||p.pagoProv}
           </div>
         )}
-        {sePuedeAnular && (
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
-            <button onClick={()=>setAnulando(true)}
-              style={{background:"#fff",color:"#8A2E3B",border:"1.5px solid #E6C9CF",borderRadius:10,
-                padding:"8px 14px",fontSize:12.5,fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>
-              ✕ Anular pedido</button>
+        {(sePuedeEditar || sePuedeAnular) && (
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:12}}>
+            {sePuedeEditar && (
+              <button disabled={cargandoEdit} onClick={abrirEditor}
+                style={{background:"#fff",color:"#1E4D3A",border:"1.5px solid #BFE0CC",borderRadius:10,
+                  padding:"8px 14px",fontSize:12.5,fontWeight:800,fontFamily:"inherit",cursor:cargandoEdit?"default":"pointer",opacity:cargandoEdit?.6:1}}>
+                {cargandoEdit?"Abriendo…":"✏️ Editar pedido"}</button>
+            )}
+            {sePuedeAnular && (
+              <button onClick={()=>setAnulando(true)}
+                style={{background:"#fff",color:"#8A2E3B",border:"1.5px solid #E6C9CF",borderRadius:10,
+                  padding:"8px 14px",fontSize:12.5,fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>
+                ✕ Anular pedido</button>
+            )}
           </div>
         )}
         {selladoPed && !p.demo && (
@@ -24314,6 +24410,7 @@ function App({usuario, onSalir}){
   const [prodInicial,setProdInicial]=useState(null); // presentación precargada desde Productos
   const [cobroInicial,setCobroInicial]=useState(null); // cliente precargado desde Cartera → Cobrar
   const [cliInicial,setCliInicial]=useState(null); // cliente precargado desde Ficha de cliente → Nuevo pedido
+  const [pedEdit,setPedEdit]=useState(null); // pedido en edición de líneas: {pedId, cli, prov, items}
   const [carteraCliente,setCarteraCliente]=useState(null);
   const [cliFicha,setCliFicha]=useState(null); // abrir ficha de cliente desde el buscador global // cliente para filtrar Cartera desde su ficha
   const [secFicha,setSecFicha]=useState(null); // sección inicial de la ficha (ej. "cartera" desde el asistente)
@@ -24562,6 +24659,44 @@ function App({usuario, onSalir}){
   const tareasActivas=TAREAS_NOTIF.filter(t=>prefsNotif[t.tipo] && t.n>0);
   const totalNotifs=tareasActivas.reduce((a,t)=>a+t.n,0);
 
+  /* ── EDITAR LÍNEAS DE UN PEDIDO (editar_pedido_atomico) ──────────────────
+     La función trabaja en QUINTALES; el armador en presentaciones: se convierte
+     con el `equiv` de cada producto (cant×equiv, precio/equiv, gratis×equiv).
+     Se mandan TODAS las líneas que deben quedar: las que no van, la base las
+     borra (así funciona «quitar producto»). No puede quedar sin líneas. */
+  const guardarEdicionPedido=async ({pedId, carrito})=>{
+    const items=(carrito||[]).filter(it=>it && it.prod && it.prod.prodId);
+    if(!items.length){ alert("El pedido no puede quedar sin productos.\n\nPara dejarlo en cero, usa «Anular pedido»."); return false; }
+    const avisoRegalo = await revisarRegaloDePromo(items, null);
+    if(avisoRegalo){ alert(avisoRegalo); return false; }
+    const p_items=items.map(it=>{
+      const eq=Number(it.prod.equiv)||1;
+      return {
+        item_id: it.itemId || null,
+        prod_id: it.prod.prodId, pres_cod: it.prod.presCod,
+        cantidad_qq: Math.round((Number(it.cant)||0)*eq*100)/100,
+        precio_qq: Math.round(((Number(it.precio)||0)/eq)*100)/100,
+        gratis_qq: Math.round((Number(it.gratis)||0)*eq*100)/100,
+        tipo_precio: it.tipo,
+        condicion: it.credito?"credito":"contado",
+        promo_id: it.promoId||null,
+        comision_propuesta: it.tipo==="P5" ? (Number(it.comisionTotal)||0) : null,
+      };
+    });
+    const opId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("edp-"+pedId+"-"+Date.now());
+    try{
+      const { error } = await window.SB.rpc("editar_pedido_atomico", { p_ped:pedId, p_items:p_items, p_op_id:opId });
+      if(error){
+        const m=error.message||"No se pudo editar el pedido";
+        alert("⚠ NO SE GUARDÓ EL CAMBIO\n\n"+(/ya no se puede editar/i.test(m)?"Este pedido ya se facturó: ya no se puede editar.":m));
+        return false;
+      }
+      show("✓ Pedido "+pedId+" actualizado.");
+      await recargarPedidos();
+      return true;
+    }catch(e){ registrarError("pedido.editar",e,{toast:show}); return false; }
+  };
+
   const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer})=>{
     /* PROMO-03 · el regalo de más se frena ANTES de guardar nada, ni siquiera
        en el teléfono. El vendedor ve cuánto concede la promoción y el pedido
@@ -24656,8 +24791,11 @@ function App({usuario, onSalir}){
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
           onCobrar={(fac)=>{ setCobroInicial(fac); navegar("cobros"); }}
           go={navegar}
+          edicion={pedEdit} onConsumirEdicion={()=>setPedEdit(null)}
+          onEditarPedido={(data)=>{ guardarEdicionPedido(data).then(ok=>{ if(ok) navegar("pedidos"); }).catch(()=>{}); }}
           onGuardarPedido={(data)=>{ guardarPedido(data).then(ok=>{ if(ok) navegar("pedidos"); }).catch(()=>{}); }}/>}
-        {tab==="pedidos" && <Pedidos pedidos={pedidos} vivo={pedidosVivos} toast={show} onRecargar={recargarPedidos}/>}
+        {tab==="pedidos" && <Pedidos pedidos={pedidos} vivo={pedidosVivos} toast={show} onRecargar={recargarPedidos}
+          onEditar={(ped)=>{ setPedEdit(ped); navegar("pedido"); }}/>}
         {tab==="cobros" && <Cobros toast={show} go={navegar} cobroInicial={cobroInicial} onConsumir={()=>setCobroInicial(null)}/>}
         {tab==="midia" && <MiDia toast={show} usuario={usuario}/>}
         {tab==="boveda" && <Boveda toast={show} yo="Daniel Ríos (Freelance)"/>}

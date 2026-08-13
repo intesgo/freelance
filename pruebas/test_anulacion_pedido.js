@@ -33,10 +33,10 @@ prueba(/rpc\("anular_pedido"/.test(fl), "Freelance: debe llamar a la RPC anular_
 prueba(/function AnularPedidoSheet\(/.test(fl), "Freelance: debe existir la hoja de anular pedido");
 prueba(/const NO_ANULABLES = \[/.test(fl) && /const sePuedeAnular = /.test(fl), "Freelance: el botón de anular solo aparece si el pedido no está sellado");
 
-/* ── Freelance: pestañas En proceso / Historial (regla sellada) ── */
+/* ── Freelance: pestañas Pendientes / En camino / Entregados (regla sellada) ── */
 prueba(/const SELLADOS=\[/.test(fl) && /"Facturado","Despachado"/.test(fl), "Freelance: los facturados/despachados están sellados");
-prueba(/Ya facturados: quedan para consulta/.test(fl), "Freelance: el Historial explica que está sellado");
-prueba(/Aquí están los pedidos que todavía se pueden editar o anular/.test(fl), "Freelance: «En proceso» explica su regla");
+prueba(/Ya facturados: van hacia el cliente/.test(fl), "Freelance: «En camino» explica que está sellado");
+prueba(/Aquí están los pedidos que todavía se pueden editar o anular/.test(fl), "Freelance: «Pendientes» explica su regla");
 
 /* ── Freelance: resolver anulaciones que pide el comisionista ── */
 prueba(/rpc\("resolver_anulacion_pedido"/.test(fl), "Freelance: Solicitudes debe resolver con resolver_anulacion_pedido");
