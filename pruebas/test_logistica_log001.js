@@ -9,7 +9,8 @@
 
    Esta prueba vigila los enganches clave, sin navegador:
      · guardarRuta llama a crear_ruta y ya NO fabrica el id con Date.now();
-     · el despacho, además del viaje, llama a cerrar_ruta_despachada;
+     · el despacho llama a la RPC atómica despachar_ruta (LOG-002) y ya no
+       escribe el viaje ni las guías directo;
      · las otras RPC de LOG-001 están enlazadas;
      · el sello «sin factura» de "Escoger pedidos" desapareció (el candado del
        despacho, que sí exige factura, se conserva);
@@ -28,10 +29,10 @@ prueba(/const guardarRuta = async/.test(web), "guardarRuta debe ser asíncrona (
 prueba(/correrRpc\("crear_ruta"/.test(web), "guardarRuta debe llamar a crear_ruta");
 prueba(!/id:\s*"R-"\s*\+\s*Date\.now/.test(web), "guardarRuta NO debe fabricar el id con Date.now()");
 
-/* ── 2) Despacho → además del viaje, cerrar_ruta_despachada ── */
-prueba(/correrRpc\("cerrar_ruta_despachada"/.test(web), "el despacho debe llamar a cerrar_ruta_despachada");
-prueba(/from\("viajes"\)\.insert/.test(web), "el despacho debe seguir creando el viaje (LOG-002 intacto)");
-prueba(/from\("viaje_guias"\)\.insert/.test(web), "el despacho debe seguir creando las guías (LOG-002 intacto)");
+/* ── 2) Despacho LOG-002: una sola RPC atómica (despachar_ruta) ── */
+prueba(/correrRpc\("despachar_ruta"/.test(web), "el despacho debe llamar a despachar_ruta (LOG-002)");
+prueba(!/from\("viajes"\)\.insert/.test(web), "el despacho ya NO crea el viaje directo (lo hace la RPC)");
+prueba(!/from\("viaje_guias"\)\.insert/.test(web), "el despacho ya NO crea las guías directas (lo hace la RPC)");
 
 /* ── 3) El resto de acciones LOG-001 enlazadas ── */
 ["actualizar_orden_ruta","confirmar_orden_ruta","agregar_pedido_ruta","quitar_pedido_ruta","anular_ruta"]
