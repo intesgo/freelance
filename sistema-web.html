@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"148", fecha:"13 ago 2026", desc:"LOG-002 · Despacho atómico: el despacho ahora ocurre en una sola operación de base (crea el viaje, sus guías, pasa los pedidos a despachado y cierra la ruta), de un solo golpe e idempotente (un doble toque no crea dos viajes). El número de viaje lo asigna el servidor. Mensajes claros por candado sin factura, ruta no ordenada, etc." };
+const VERSION = { n:"149", fecha:"13 ago 2026", desc:"Pedido (precio especial P5): el freelance ya no se autoriza a sí mismo; en su lugar el precio especial respeta un PISO = costo de la oferta + flete + estibada (los que asume el freelance). Si el precio queda por debajo del piso, se bloquea con aviso (Fase 2: pedir autorización al proveedor cuando exista su login)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5172,6 +5172,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               ic: "🌾", foto: fotoPres[o.prod_id + "|" + (o.pres_cod || "")] || null,
               unidad: pres, equiv: Number(o.equiv_qq) || 1,
               baseContado: contado, baseCredito: credito,
+              costo: Number(o.costo) || Number(o.costo_contado) || 0,   // costo real de la oferta (para el piso del precio especial)
               promos: [], promosProv: [],   // sin promos reales (tabla de promociones vacía por ahora)
             });
           });
@@ -5183,6 +5184,27 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     })();
   }, []);
   const PRODS_PED = (prodsReales && prodsReales.length > 0) ? prodsReales : PRODUCTOS_WEB;
+
+  /* Piso del precio especial: tarifas vigentes de flete/estibada ($/qq) desde la base. */
+  const [tarifaFleteQq, setTarifaFleteQq] = useState(0);
+  const [tarifaEstibadaQq, setTarifaEstibadaQq] = useState(0);
+  React.useEffect(() => {
+    if (!window.supa) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const { data } = await window.supa.from("tarifas_fe")
+          .select("concepto, valor_qq, ambito, vigente_hasta")
+          .eq("ambito", "general").is("vigente_hasta", null);
+        if (!vivo || !data) return;
+        const f = data.find(t => t.concepto === "flete");
+        const e = data.find(t => t.concepto === "estibada");
+        if (f) setTarifaFleteQq(Number(f.valor_qq) || 0);
+        if (e) setTarifaEstibadaQq(Number(e.valor_qq) || 0);
+      } catch (err) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
 
   const [cli, setCli] = useState(null);
   const [cliTexto, setCliTexto] = useState("");
@@ -5316,7 +5338,27 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const comisionBruta = Math.round(comisionUnidad*cantNum*100)/100;
   const comisionTotal = Math.round((comisionBruta - costoGratis)*100)/100;
   const totalLinea = Math.round(precioNum*cantNum*100)/100;
-  const requiereAutorizacion = esP5;
+
+  /* ── Piso del precio especial (P5) ────────────────────────────────────────
+     El precio especial no puede quedar por debajo de (costo de la oferta +
+     flete + estibada), contando flete/estibada SOLO cuando los asume el
+     freelance. El costo y las tarifas son por quintal; se llevan a la unidad
+     de la presentación con equiv (qq por unidad). */
+  const esFreelanceWeb = usuario && usuario.rol === "Freelance";
+  const equivProd = prod ? (Number(prod.equiv) || 1) : 1;
+  const costoUnidad = prod ? (Number(prod.costo) || 0) : 0;
+  const fletePiso = asumeFlete === "freelance" ? (Number(tarifaFleteQq) || 0) : 0;
+  const estibadaPiso = asumeEstibada === "freelance" ? (Number(tarifaEstibadaQq) || 0) : 0;
+  const pisoUnidad = Math.round((costoUnidad + (fletePiso + estibadaPiso) * equivProd) * 100) / 100;
+  /* Solo se puede evaluar el piso si conocemos el costo de la oferta. */
+  const pisoConocido = esP5 && costoUnidad > 0;
+  const bajoPiso = pisoConocido && esFreelanceWeb && precio !== "" && precioNum > 0 && precioNum < pisoUnidad;
+
+  /* El freelance NO se autoriza a sí mismo el precio especial: solo lo pide
+     para roles por debajo (operadora/contadora). El freelance se topa con el
+     PISO (arriba): si su precio queda por debajo, se bloquea (Fase 2: pedir
+     autorización al proveedor, aún sin login de proveedor). */
+  const requiereAutorizacion = esP5 && !esFreelanceWeb;
 
   const disponibleCupo = cli ? Math.max(0, cli.cupo - cli.usado) : 0;
   const totalCarrito = carrito.reduce((s,it)=>s+it.total,0);
@@ -5327,7 +5369,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const baseLista = esP5 || (tipo==="P4" ? !!promoF : (tipo==="P6" ? !!promoP : true));
   const precioOk = precio!=="" && precioNum>0 && (esP5 || !bajoBase);
   const p5Ok = !esP5 || (comProp!=="" && motivo.trim().length>2);
-  const valido = cli && !cli.bloqueado && prod && cantNum>0 && baseLista && precioOk && p5Ok && !excedeCupo;
+  const valido = cli && !cli.bloqueado && prod && cantNum>0 && baseLista && precioOk && p5Ok && !excedeCupo && !bajoPiso;
 
   const PROVEEDORES_LISTA = [...new Set(PRODS_PED.map(p=>p.prov))].filter(p=>p!=="POR ASIGNAR");     // proveedores disponibles
   const productosDelProv = provSel ? PRODS_PED.filter(p=>p.prov===provSel) : [];
@@ -5964,6 +6006,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               </div>
               {bajoBase && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"10px 0 0" }}>⚠ El precio está bajo la base. No se permite (salvo precio especial P5).</p>}
               {excedeCupo && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"8px 0 0" }}>⚠ Excede el cupo de crédito disponible del cliente.</p>}
+              {bajoPiso && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"8px 0 0" }}>⚠ Precio especial por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo + flete + estibada). Necesita autorización del proveedor (aún no disponible): sube el precio para continuar.</p>}
             </div>
           )}
         </div>
@@ -6148,6 +6191,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                     {sugerido>0 && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{color:COLOR.muted}}>Precio sugerido{cli&&cli.canal?" ("+cli.canal+")":""}</span><b className="num">{money(sugerido)}</b></div>}
                     <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0", borderTop:`1px solid ${COLOR.border}`, marginTop:4, paddingTop:8 }}><span style={{fontWeight:700}}>Tu comisión{precio!==""?" con "+money(parseFloat(String(precio).replace(",","."))||0):""}</span><b className="num" style={{ color: comisionTotal>=0?COLOR.tealDark:COLOR.red }}>{money(comisionTotal)}</b></div>
                     {requiereAutorizacion && <p style={{ fontSize:11.5, color:"#7a4fb0", fontWeight:600, marginTop:6 }}>● Requiere autorización del freelance (precio especial).</p>}
+                    {bajoPiso && <p style={{ fontSize:11.5, color:COLOR.red, fontWeight:700, marginTop:6 }}>● El precio ({money(precioNum)}) queda por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo {money(costoUnidad)}{(fletePiso+estibadaPiso)>0?" + flete/estibada "+money(Math.round((fletePiso+estibadaPiso)*equivProd*100)/100):""}). Necesita autorización del proveedor, aún no disponible: sube el precio para continuar.</p>}
                   </div>
                   <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:10 }}>La cantidad y el precio se ponen en la fila de abajo, al cerrar este cuadro.</p>
                 </div>
