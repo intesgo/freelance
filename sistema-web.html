@@ -308,7 +308,7 @@ const SECCIONES = [
      ahí: decía «guardado» y el vendedor seguía cotizando lo de antes.
      Ahora las cuatro rutas viejas caen en Precios vigentes, que muestra las
      ofertas de verdad y sólo deja mover el COSTO de una piladora. */
-  { key:"preciosvig",   icon:"🏷️", label:"Precios vigentes", sub:"Lo que cobra cada piladora hoy" },
+  { key:"preciosvig",   icon:"🏭", label:"Piladoras", sub:"Costos y base por piladora" },
   { key:"documentos",   icon:"📑", label:"Documentos",           sub:"Custodia · cadena de documentos" },
   { key:"comunicacion", icon:"💬", label:"Mensajes",             sub:"Equipo y clientes informados" },
   { key:"auditoria",    icon:"🔎", label:"Auditoría",            sub:"Quién hizo qué y cuándo" },
@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"149", fecha:"13 ago 2026", desc:"Pedido (precio especial P5): el freelance ya no se autoriza a sí mismo; en su lugar el precio especial respeta un PISO = costo de la oferta + flete + estibada (los que asume el freelance). Si el precio queda por debajo del piso, se bloquea con aviso (Fase 2: pedir autorización al proveedor cuando exista su login)." };
+const VERSION = { n:"150", fecha:"14 ago 2026", desc:"Nuevo módulo «Piladoras» (Fase 1): reemplaza a «Precios vigentes» y organiza los costos y las bases por piladora. Se elige una piladora y se ven sus productos por Grano → Marca → Presentación, con el Costo (lo que cotiza la piladora) y el Base (el precio que armas tú) + el margen guía; se edita cada uno y hay «Ajustar por grano» (subir/bajar en monto o %) para todas las marcas de un grano de ESA piladora, dejando fuera las excluidas. Todo es por piladora: nunca cruza a otra. Cada cambio guarda una versión nueva y cierra la anterior (histórico intacto). El Catálogo (replicar productos e histórico de precios) queda igual." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8449,6 +8449,290 @@ function preSubirCosto(o, { pct, porQq }) {
    Lo único que se escribe desde aquí es el COSTO de una piladora, en
    `ofertas_piladora`, y eso pasa por ModalCostoBloque con vista previa.
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   MÓDULO · Piladoras · Costos y Base (Fase 1)
+   Unifica "Precios vigentes" en una ficha POR PILADORA: se elige una piladora
+   y se ven sus productos por Grano → Marca → Presentación, con el COSTO (lo que
+   cotiza la piladora) y el BASE (el precio que arma el freelance) + margen.
+   Se edita Costo/Base por presentación y se "Ajusta por grano" (monto o %),
+   SIEMPRE dentro de esa piladora: filtra por prov_cod y nunca cruza a otra.
+   Cada cambio VERSIONA en `ofertas_piladora` (cierra la vigente e inserta una
+   nueva), como ModalCostoBloque: el histórico y el motor de precios quedan
+   intactos. No toca `precios`. El Catálogo (replicar/histórico) queda igual.
+   ══════════════════════════════════════════════════════════════════════════ */
+function PiladorasWeb({ usuario }){
+  const [ofertas,setOfertas]=useState(null);   // null = cargando; array normalizado (preLeerOfertas)
+  const [prodInfo,setProdInfo]=useState({});   // prodId -> {nombre, marca, linea}
+  const [nomProv,setNomProv]=useState({});     // provCod -> nombre
+  const [selProv,setSelProv]=useState(null);   // piladora abierta
+  const [busca,setBusca]=useState("");
+  const [edit,setEdit]=useState(null);         // ofertaId en edición
+  const [form,setForm]=useState(null);
+  const [excluidas,setExcluidas]=useState({}); // prodId -> true: el ajuste por grano la salta
+  const [ajuste,setAjuste]=useState(null);     // {linea,campo,modo,signo,valor}
+  const [guardando,setGuardando]=useState(false);
+  const [error,setError]=useState("");
+  const r4=n=>Math.round((Number(n)||0)*10000)/10000;
+  const num=v=>{ const n=parseFloat(String(v==null?"":v).replace(",",".")); return isNaN(n)?null:n; };
+  const norm=s=>(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+  const S={
+    card:{background:"#fff",border:"1px solid #E7E2D6",borderRadius:12,padding:"12px 14px",marginBottom:12},
+    meta:{color:"#8A8578",fontSize:12},
+    inp:{width:"100%",boxSizing:"border-box",padding:"8px 9px",borderRadius:8,border:"1px solid #D8D2C4",fontFamily:"inherit",fontSize:13},
+    btn:(bg,fg)=>({padding:"10px 12px",borderRadius:9,border:"none",background:bg,color:fg||"#fff",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}),
+    chip:(on)=>({padding:"9px",borderRadius:9,border:"1px solid "+(on?"#2E7D52":"#D8D2C4"),background:on?"#2E7D52":"#fff",color:on?"#fff":"#333",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}),
+  };
+  const GRANO_IC={Arroz:"🍚","Azúcar":"🧂",Harina:"🌾","Maíz":"🌽"};
+
+  const cargar=React.useCallback(async()=>{
+    if(!window.supa){ setOfertas([]); setError("Sin conexión con la base."); return; }
+    try{
+      const [ofs,rProds,rProvs]=await Promise.all([
+        preLeerOfertas(),
+        window.supa.from("productos").select("prod_id,nombre,marca,linea").eq("estado","activo"),
+        window.supa.from("proveedores").select("prov_cod,nombre"),
+      ]);
+      const pi={}, nv={};
+      ((rProds&&rProds.data)||[]).forEach(p=>{ pi[p.prod_id]={nombre:p.nombre||p.marca||p.prod_id, marca:p.marca||p.nombre||p.prod_id, linea:p.linea||"Otros"}; });
+      ((rProvs&&rProvs.data)||[]).forEach(p=>{ nv[p.prov_cod]=p.nombre||p.prov_cod; });
+      setProdInfo(pi); setNomProv(nv); setOfertas(ofs);
+      setError(ofs.length?"":"No hay ofertas vigentes que mostrar.");
+    }catch(e){ setOfertas([]); setError("No se pudieron leer las ofertas."); }
+  },[]);
+  React.useEffect(()=>{ cargar(); },[cargar]);
+
+  const infoDe=(pid)=> prodInfo[pid]||{nombre:pid,marca:pid,linea:"Otros"};
+
+  const piladoras=React.useMemo(()=>{
+    const m={};
+    (ofertas||[]).forEach(o=>{ (m[o.provCod]=m[o.provCod]||{provCod:o.provCod, nombre:nomProv[o.provCod]||o.provCod, n:0}).n++; });
+    const t=norm(busca).trim();
+    return Object.values(m)
+      .filter(p=>!t || t.split(/\s+/).every(w=>norm(p.nombre).includes(w)||norm(p.provCod).includes(w)))
+      .sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  },[ofertas,nomProv,busca]);
+
+  const granos=React.useMemo(()=>{
+    if(!selProv) return {};
+    const g={};
+    (ofertas||[]).filter(o=>o.provCod===selProv).forEach(o=>{
+      const inf=infoDe(o.prodId);
+      (g[inf.linea]=g[inf.linea]||{});
+      (g[inf.linea][o.prodId]=g[inf.linea][o.prodId]||{nombre:inf.marca, ofertas:[]}).ofertas.push(o);
+    });
+    return g;
+  },[ofertas,prodInfo,selProv]);
+
+  /* Versiona una oferta (objeto normalizado de preLeerOfertas) en
+     ofertas_piladora: cierra la vigente (vigente_hasta=hoy) e inserta una nueva
+     (vigente_desde=hoy). Nunca sobrescribe. Igual patrón que ModalCostoBloque. */
+  const versionar=async(o,nuevos)=>{
+    const hoy=preHoy();
+    const c1=await window.supa.from("ofertas_piladora").update({vigente_hasta:hoy}).eq("oferta_id",o.ofertaId);
+    if(c1.error) throw new Error(c1.error.message);
+    const nid=o.prodId+"-"+o.presCod+"-"+o.provCod+"-"+Date.now();
+    const fila={
+      oferta_id:nid, prod_id:o.prodId, pres_cod:o.presCod, presentacion:o.presentacion,
+      equiv_qq:o.equivQq, prov_cod:o.provCod,
+      costo: nuevos.costo!=null?nuevos.costo:o.costo,
+      costo_contado: nuevos.costo_contado!=null?nuevos.costo_contado:o.costoContado,
+      precio_contado: nuevos.precio_contado!=null?nuevos.precio_contado:o.contado,
+      precio_credito: nuevos.precio_credito!=null?nuevos.precio_credito:o.credito,
+      margen_min: o.margenMin!=null?o.margenMin:preMargenObjetivo(), activo:true, vigente_desde:hoy, es_demo:false,
+    };
+    const c2=await window.supa.from("ofertas_piladora").insert(fila);
+    if(c2.error) throw new Error(c2.error.message);
+    try{ await window.supa.from("auditoria").insert({ org_id:await orgActivaWeb(), codigo:preAu(),
+      usuario:(usuario&&usuario.nombre)||"", tabla:"ofertas_piladora", operacion:"Costo/Base por piladora",
+      registro_id:o.ofertaId, fecha:new Date().toISOString(),
+      valor_anterior:JSON.stringify({costo:o.costo,costo_contado:o.costoContado,precio_contado:o.contado,precio_credito:o.credito}),
+      valor_nuevo:JSON.stringify(fila) }); }catch(e){}
+    return fila;
+  };
+
+  const guardarFila=async()=>{
+    const o=(ofertas||[]).find(x=>x.ofertaId===edit); if(!o||!form) return;
+    const keep=(v,old)=>{ const n=num(v); return (n!=null&&n>0)?n:old; };
+    setGuardando(true);
+    try{
+      await versionar(o,{ costo:keep(form.costoCred,o.costo), costo_contado:keep(form.costoCont,o.costoContado),
+        precio_contado:keep(form.baseCont,o.contado), precio_credito:keep(form.baseCred,o.credito) });
+      setEdit(null); setForm(null); await cargar();
+    }catch(e){ setError(String((e&&e.message)||e)); }
+    setGuardando(false);
+  };
+
+  /* Ajuste por grano: aplica a TODAS las marcas del grano de ESTA piladora
+     (granos ya está filtrado por selProv), salvo las excluidas. No cruza. */
+  const aplicarAjuste=async()=>{
+    if(!ajuste) return;
+    const v=num(ajuste.valor); if(v==null||v<=0){ setError("Escribe un valor mayor a 0"); return; }
+    const marcas=granos[ajuste.linea]||{};
+    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid]);
+    if(!objetivo.length){ setError("No hay marcas para ajustar (todas excluidas)"); return; }
+    setGuardando(true);
+    const aj=(x)=>{ const base=Number(x)||0; if(!(base>0)) return base; const delta=ajuste.modo==="pct"?base*(v/100):v; return Math.max(0,r4(base+ajuste.signo*delta)); };
+    let err=0;
+    try{
+      for(const pid of objetivo){ for(const o of marcas[pid].ofertas){
+        const nuevos=ajuste.campo==="costo"?{costo:aj(o.costo),costo_contado:aj(o.costoContado)}:{precio_contado:aj(o.contado),precio_credito:aj(o.credito)};
+        try{ await versionar(o,nuevos); }catch(e){ err++; }
+      } }
+    }finally{ setGuardando(false); }
+    setAjuste(null);
+    setError(err?`Ajuste con ${err} error(es)`:"");
+    await cargar();
+  };
+
+  if(ofertas===null) return <div style={{padding:20,...S.meta}}>Cargando piladoras…</div>;
+
+  /* ── LISTA de piladoras ── */
+  if(!selProv){
+    return (
+    <div style={{maxWidth:760,margin:"0 auto",padding:"8px 4px 40px"}}>
+      <h2 style={{margin:"6px 2px 4px"}}>Piladoras · Costos y precios</h2>
+      <div style={{...S.meta,margin:"0 2px 14px",lineHeight:1.45}}>
+        Elige una piladora para ver y ajustar sus <b>costos</b> (lo que cotiza) y sus <b>bases</b> (el precio que armas tú),
+        por Grano → Marca → Presentación. Todo es por piladora: un cambio aquí nunca toca a otra.
+      </div>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar piladora…"
+        style={{...S.inp,marginBottom:12,padding:"11px 12px",fontSize:15}}/>
+      {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
+      {piladoras.map(p=>(
+        <div key={p.provCod} style={{...S.card,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}
+          onClick={()=>{ setSelProv(p.provCod); setEdit(null); setForm(null); setAjuste(null); }}>
+          <div style={{minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:15}}>🏭 {p.nombre}</div>
+            <div style={S.meta}>{p.n} oferta(s) vigente(s)</div>
+          </div>
+          <span style={{color:"#8A8578",fontSize:18,flexShrink:0}}>›</span>
+        </div>
+      ))}
+      {!piladoras.length && !error && <div style={{...S.meta,padding:"20px 4px"}}>Ninguna piladora con ofertas vigentes.</div>}
+    </div>);
+  }
+
+  /* ── DETALLE de una piladora ── */
+  const provNombre=nomProv[selProv]||selProv;
+  const lineas=Object.keys(granos).sort();
+  return (
+    <div style={{maxWidth:760,margin:"0 auto",padding:"8px 4px 40px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,margin:"6px 2px 12px"}}>
+        <button onClick={()=>{ setSelProv(null); setEdit(null); setAjuste(null); }} style={{...S.btn("#fff","#333"),border:"1px solid #D8D2C4"}}>‹ Piladoras</button>
+        <h2 style={{margin:0}}>🏭 {provNombre}</h2>
+      </div>
+      <div style={{...S.meta,margin:"0 2px 12px",lineHeight:1.45}}>
+        <b>Costo</b> = lo que cotiza la piladora · <b>Base</b> = el precio que armas tú. El margen es una guía (base − costo).
+        Cambiar aquí NO toca a otras piladoras.
+      </div>
+      {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
+
+      {!lineas.length && <div style={{...S.meta,padding:"16px 4px"}}>Esta piladora no tiene ofertas vigentes.</div>}
+
+      {lineas.map(ln=>{
+        const marcas=granos[ln];
+        const pids=Object.keys(marcas).sort((a,b)=>String(marcas[a].nombre||"").localeCompare(String(marcas[b].nombre||""),"es"));
+        return (
+        <div key={ln} style={S.card}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{fontWeight:800,fontSize:15}}>{GRANO_IC[ln]||"📦"} {ln} <span style={{...S.meta,fontWeight:600}}>· {pids.length} marca(s)</span></div>
+            <button onClick={()=>setAjuste({linea:ln,campo:"base",modo:"monto",signo:1,valor:""})}
+              style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>⚙ Ajustar por grano</button>
+          </div>
+          {pids.map(pid=>{
+            const m=marcas[pid]; const exc=!!excluidas[pid];
+            return (
+            <div key={pid} style={{borderTop:"1px solid #EDE9DE",marginTop:8,paddingTop:8,opacity:exc?0.55:1}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
+                <div style={{fontWeight:700,fontSize:13}}>{m.nombre}</div>
+                <label style={{...S.meta,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                  <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir del ajuste
+                </label>
+              </div>
+              {m.ofertas.slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0)).map(o=>{
+                const enEd=edit===o.ofertaId;
+                const margenK=Math.round(((Number(o.credito)||0)-(Number(o.costo)||0))*100)/100;
+                return (
+                <div key={o.ofertaId} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:10,padding:"9px 10px",marginBottom:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <b style={{fontSize:12.5}}>{o.presentacion||o.presCod}</b>
+                    {!enEd && <button onClick={()=>{ setEdit(o.ofertaId); setForm({costoCont:o.costoContado,costoCred:o.costo,baseCont:o.contado,baseCred:o.credito}); }}
+                      style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>✎ Editar</button>}
+                  </div>
+                  {!enEd ? (
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
+                      <div>
+                        <div style={{...S.meta,fontSize:9.5,textTransform:"uppercase"}}>Costo</div>
+                        <div style={{fontSize:12.5}}>{o.costoContado>0?preMoney(o.costoContado):"—"} <span style={{...S.meta,fontSize:9}}>cont</span></div>
+                        <div style={{fontSize:12.5}}>{o.costo>0?preMoney(o.costo):"—"} <span style={{...S.meta,fontSize:9}}>créd</span></div>
+                      </div>
+                      <div>
+                        <div style={{...S.meta,fontSize:9.5,textTransform:"uppercase"}}>Base</div>
+                        <div style={{fontSize:12.5}}>{o.contado>0?preMoney(o.contado):"—"} <span style={{...S.meta,fontSize:9}}>cont</span></div>
+                        <div style={{fontSize:12.5}}>{o.credito>0?preMoney(o.credito):"—"} <span style={{...S.meta,fontSize:9}}>créd</span></div>
+                      </div>
+                      <div style={{...S.meta,fontSize:10,gridColumn:"1 / -1"}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"#B5613C"}}>{preMoney(margenK)}</b></div>
+                    </div>
+                  ) : (
+                    <div style={{marginTop:8}}>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {[["Costo contado","costoCont"],["Costo crédito","costoCred"],["Base contado","baseCont"],["Base crédito","baseCred"]].map(([lbl,k])=>(
+                          <div key={k}>
+                            <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>{lbl}</label>
+                            <input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={S.inp}/>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{display:"flex",gap:8,marginTop:10}}>
+                        <button onClick={()=>{setEdit(null);setForm(null);}} disabled={guardando} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
+                        <button onClick={guardarFila} disabled={guardando} style={{...S.btn(guardando?"#9DBBA9":"#2E7D52"),flex:1}}>{guardando?"Guardando…":"Guardar"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>);
+              })}
+            </div>);
+          })}
+        </div>);
+      })}
+
+      {ajuste && (()=>{
+        const marcas=granos[ajuste.linea]||{};
+        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid]);
+        return (
+        <div onClick={()=>{ if(!guardando) setAjuste(null); }}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px 18px",maxWidth:420,width:"100%",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
+            <h3 style={{margin:"0 0 6px"}}>Ajustar {ajuste.linea} · {provNombre}</h3>
+            <div style={{...S.meta,margin:"0 0 12px",lineHeight:1.45}}>
+              Aplica el mismo cambio a <b>todas las marcas de {ajuste.linea}</b> de esta piladora
+              ({objetivo.length} de {Object.keys(marcas).length}; las excluidas se saltan). No toca otras piladoras.
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:9}}>
+              <button onClick={()=>setAjuste(a=>({...a,campo:"costo"}))} style={{flex:1,...S.chip(ajuste.campo==="costo")}}>Costo</button>
+              <button onClick={()=>setAjuste(a=>({...a,campo:"base"}))} style={{flex:1,...S.chip(ajuste.campo==="base")}}>Base</button>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:9}}>
+              <button onClick={()=>setAjuste(a=>({...a,signo:1}))} style={{flex:1,...S.chip(ajuste.signo===1)}}>Subir +</button>
+              <button onClick={()=>setAjuste(a=>({...a,signo:-1}))} style={{flex:1,...S.chip(ajuste.signo===-1)}}>Bajar −</button>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:9}}>
+              <button onClick={()=>setAjuste(a=>({...a,modo:"monto"}))} style={{flex:1,...S.chip(ajuste.modo==="monto")}}>$ Monto</button>
+              <button onClick={()=>setAjuste(a=>({...a,modo:"pct"}))} style={{flex:1,...S.chip(ajuste.modo==="pct")}}>% Porcentaje</button>
+            </div>
+            <input inputMode="decimal" value={ajuste.valor} onChange={e=>setAjuste(a=>({...a,valor:e.target.value}))}
+              placeholder={ajuste.modo==="pct"?"Ej. 5 (=5%)":"Ej. 0,50"} style={{...S.inp,padding:"11px",fontSize:15,marginBottom:14}}/>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setAjuste(null)} disabled={guardando} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
+              <button onClick={aplicarAjuste} disabled={guardando} style={{...S.btn(guardando?"#9DBBA9":"#2E7D52"),flex:1}}>{guardando?"Aplicando…":"Aplicar"}</button>
+            </div>
+          </div>
+        </div>);
+      })()}
+    </div>
+  );
+}
+
 function PreciosWeb({ usuario }) {
   const [ofertas, setOfertas] = useState(null);   // null = cargando
   const [nomProd, setNomProd] = useState({});
@@ -19349,11 +19633,11 @@ function App() {
         return <EmparejarWeb usuario={sesion} />;
       case "marcas":
         return <MarcasWeb usuario={sesion} />;
-      case "precios":     /* b61 · Precios vigentes se disolvió dentro de Catálogo. */
-      case "ofertas":     /* Las ofertas por piladora viven en la ficha del producto y */
-      case "preciosvig":  /* el precio se ajusta ahí mismo. Aquí solo quedan las decisiones. */
-      case "propuestas":
-        return <PreciosWeb usuario={sesion} />;
+      case "precios":     /* Fase 1 · "Precios vigentes" se fusiona en "Piladoras": la */
+      case "ofertas":     /* misma data por piladora (Grano → Marca → Presentación) con */
+      case "preciosvig":  /* Costo + Base + "Ajustar por grano". El Catálogo (replicar / */
+      case "propuestas":  /* histórico) queda igual. */
+        return <PiladorasWeb usuario={sesion} />;
       case "documentos":
         return <CustodiaWeb usuario={sesion} />;
       case "auditoria":
