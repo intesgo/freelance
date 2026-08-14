@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"434", fecha:"14 ago 2026", desc:"Arreglo de la pantalla de Pedidos: la fila de «⚙ Filtros» y «Ordenar» se salía a un lado y empujaba todo (el título, las pestañas y el buscador quedaban cortados). Ahora «Ordenar» se ajusta al ancho de la pantalla y todo se ve completo. Se mantiene lo de la versión anterior: Pedidos en dos pantallas (la lista para trabajar y «Ver resumen» con los 4 números y el panorama)." };
+const VERSION = { n:"435", fecha:"14 ago 2026", desc:"Anular con red de seguridad y poder deshacer. Al anular un pedido ahora sale una ficha clara (cliente, fecha, monto, estado y proveedor) con «Cancelar» del mismo tamaño que el botón rojo, para no anular el equivocado por un toque apurado; el motivo sigue siendo obligatorio. Nuevo «Ver anulados»: una pantalla aparte con los pedidos anulados, cada uno con «Revivir pedido», que —tras confirmar— lo devuelve a su estado anterior y reaparece en Pendientes. Solo app: usa la función de base que ya existe, no cambia datos ni permisos." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11002,9 +11002,11 @@ function LineaPago({modalidad, onSave, onCancel, restante, cliente}){
 
 function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   useRetroceso(()=>{
+      if(revivirP){ setRevivirP(null); return true; }
       if(verFechas){ setVerFechas(false); return true; }
       if(sel){ setSel(null); return true; }
       if(vistaResumen){ setVistaResumen(false); return true; }
+      if(vistaAnulados){ setVistaAnulados(false); return true; }
       if(filtrosAbiertos){ setFiltrosAbiertos(false); return true; }
       return false;
     });
@@ -11017,11 +11019,15 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   const [verFechas,setVerFechas]=useState(false);
   const [pestana,setPestana]=useState("pendientes"); // pendientes | encamino | entregados
   const [vistaResumen,setVistaResumen]=useState(false); // sub-vista con los KPI y el panorama
+  const [vistaAnulados,setVistaAnulados]=useState(false); // sub-vista con los pedidos anulados
+  const [revivirP,setRevivirP]=useState(null); // pedido anulado en confirmación de revivir
+  const [revivirGuard,setRevivirGuard]=useState(false);
   const [verRegla,setVerRegla]=useState(false); // la regla de la pestaña, tras el ícono ⓘ
   const [filtrosAbiertos,setFiltrosAbiertos]=useState(false); // Estado/Fecha, plegados por defecto
   const [verComo,setVerComo]=useState("factura");  // factura | seguimiento (al abrir un pedido)
   const [pagina,setPagina]=useState(1);
   const POR_PAGINA=15;
+  useModal(!!revivirP, React.useCallback(()=>setRevivirP(null),[]));
   const norm=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   /* Las TRES pestanas dicen la regla: Pendientes = todavia se puede editar o
      anular; En camino = ya facturado, va hacia el cliente; Entregados =
@@ -11096,11 +11102,26 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
      el panel de filtros esté plegado, y ofrecer «Limpiar». */
   const filtrosActivos = (estado!=="Todos"?1:0) + ((desde||hasta)?1:0);
   const limpiarFiltros = ()=>{ setEstado("Todos"); setDesde(""); setHasta(""); setPagina(1); };
+  /* Los anulados ya vienen en `pedidos`; su ficha vive aparte (sub-vista). */
+  const anulados = pedidos.filter(p=>p.estado==="Anulado");
+  const nAnulados = anulados.length;
+  /* Revivir: la base (revivir_pedido) devuelve el pedido a su estado anterior.
+     No se pinta éxito si la base contesta con error. */
+  const hacerRevivir = async ()=>{
+    if(!revivirP) return;
+    setRevivirGuard(true);
+    const r = await revivirPedidoEnBase(revivirP.id);
+    setRevivirGuard(false);
+    if(!r.ok){ if(toast) toast(r.motivo || "No se pudo revivir el pedido"); return; }
+    if(toast) toast("Pedido revivido");
+    setRevivirP(null);
+    if(onRecargar) onRecargar();   // el pedido sale de Anulados y vuelve a su pestaña
+  };
   const totalPag=Math.max(1,Math.ceil(ordenada.length/POR_PAGINA));
   const pagActual=Math.min(pagina,totalPag);
   const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
-  /* Cambiar de pestana/estado SIEMPRE vuelve a la lista (sale de Resumen). */
-  const cambiarPestana=(p,mantenerEstado)=>{setVistaResumen(false);setPestana(p);setPagina(1);if(!mantenerEstado)setEstado("Todos");};
+  /* Cambiar de pestana/estado SIEMPRE vuelve a la lista (sale de Resumen/Anulados). */
+  const cambiarPestana=(p,mantenerEstado)=>{setVistaResumen(false);setVistaAnulados(false);setPestana(p);setPagina(1);if(!mantenerEstado)setEstado("Todos");};
   /* Al tocar un estado, lleva a la pestana donde de verdad esta ese pedido. */
   const irAEstado=(e)=>{
     const t = TAB_ESTADOS.pendientes.includes(e) ? "pendientes"
@@ -11109,16 +11130,28 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   };
 
   return (<>
-    {!vistaResumen && <div className="h1">Pedidos <SelloVivo vivo={!!vivo}/></div>}
+    {!vistaResumen && !vistaAnulados && <div className="h1">Pedidos <SelloVivo vivo={!!vivo}/></div>}
+
+    {revivirP && <RevivirPedidoSheet p={revivirP} guardando={revivirGuard}
+      onClose={()=>{ if(!revivirGuard) setRevivirP(null); }} onConfirmar={hacerRevivir}/>}
 
     {/* PANTALLA 1 · enlace fino para abrir el Resumen (pantalla 2). Los KPI
         ya no viven aquí: se movieron al Resumen para aligerar la entrada. */}
-    {!vistaResumen && panorama.activos.length>0 && (
-      <div style={{margin:"-2px 2px 12px"}}>
-        <button className="mini-link" onClick={()=>setVistaResumen(true)}
-          style={{fontSize:12.5,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
-          📊 Ver resumen <span style={{color:"var(--muted)"}}>›</span>
-        </button>
+    {!vistaResumen && !vistaAnulados && (panorama.activos.length>0 || (!!vivo && nAnulados>0)) && (
+      <div style={{display:"flex",gap:16,flexWrap:"wrap",margin:"-2px 2px 12px"}}>
+        {panorama.activos.length>0 && (
+          <button className="mini-link" onClick={()=>setVistaResumen(true)}
+            style={{fontSize:12.5,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+            📊 Ver resumen <span style={{color:"var(--muted)"}}>›</span>
+          </button>
+        )}
+        {/* «Ver anulados» solo con sesión real: revivir escribe en la base. */}
+        {!!vivo && nAnulados>0 && (
+          <button className="mini-link" onClick={()=>setVistaAnulados(true)}
+            style={{fontSize:12.5,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+            🗑 Ver anulados ({nAnulados}) <span style={{color:"var(--muted)"}}>›</span>
+          </button>
+        )}
       </div>
     )}
 
@@ -11218,7 +11251,33 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
       );
     })()}
 
-    {!vistaResumen && (<>
+    {/* SUB-VISTA · Anulados: ficha aparte (no se mezcla con la lista normal).
+        Cada uno se puede REVIVIR (vuelve a su estado anterior). */}
+    {vistaAnulados && (
+      <>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <button className="back" style={{margin:0}} onClick={()=>setVistaAnulados(false)}>‹ Pedidos</button>
+          <div className="h1" style={{margin:0}}>Anulados</div>
+        </div>
+        {nAnulados===0
+          ? <div className="ph">No hay pedidos anulados.</div>
+          : anulados.map(p=>{
+              const monto=(p.cant||0)*(p.precio||0);
+              return (
+              <div className="card" key={p.id} style={{padding:"12px 14px",marginBottom:10,border:"1px solid var(--line)"}}>
+                <div style={{fontSize:14.5,fontWeight:800,color:"var(--field)"}}>{p.cli}</div>
+                <div className="meta" style={{fontSize:12,margin:"4px 0 10px"}}>{p.fecha||"—"} · {money(monto)} · {p.prov}</div>
+                <button onClick={()=>setRevivirP(p)}
+                  style={{width:"100%",padding:"11px",borderRadius:11,border:"1px solid #2E7D52",
+                    background:"var(--card)",color:"#2E7D52",fontWeight:800,fontSize:14,
+                    fontFamily:"inherit",cursor:"pointer"}}>
+                  ♻ Revivir pedido</button>
+              </div>);
+            })}
+      </>
+    )}
+
+    {!vistaResumen && !vistaAnulados && (<>
         {/* pestañas Pendientes · En camino · Entregados */}
     <div className="eq-tabs" style={{marginBottom:12}}>
       <button className={pestana==="pendientes"?"on":""} onClick={()=>cambiarPestana("pendientes")}>Pendientes{nPendientes>0?` (${nPendientes})`:""}</button>
@@ -11437,12 +11496,21 @@ function PagoPiladoraSheet({p, onClose, onConfirmar, guardando}){
 function AnularPedidoSheet({p, onClose, onConfirmar, guardando}){
   const [motivo,setMotivo]=useState("");
   const ok = motivo.trim().length>2;
+  const monto = (p.cant||0)*(p.precio||0);
+  const fila = {display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",fontSize:13,borderTop:"1px solid var(--line)"};
   return (
     <div className="ov" onClick={onClose}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
-        <h3>Anular pedido</h3>
-        <div className="sh-sub">{p.cli} · {p.prov} · {p.cant} qq</div>
-        <div className="meta" style={{margin:"2px 2px 12px",fontSize:12,lineHeight:1.45}}>
+        <h3>Vas a anular ESTE pedido:</h3>
+        {/* ficha clara: para no anular el pedido equivocado por un clic apurado */}
+        <div className="card" style={{padding:"12px 14px",margin:"4px 0 12px",border:"1px solid var(--line)"}}>
+          <div style={{fontSize:16,fontWeight:800,color:"var(--field)",marginBottom:4}}>{p.cli}</div>
+          <div style={fila}><span className="meta">Fecha</span><b>{p.fecha||"—"}</b></div>
+          <div style={fila}><span className="meta">Monto</span><b>{money(monto)}</b></div>
+          <div style={fila}><span className="meta">Estado</span><b>{p.estado}</b></div>
+          <div style={fila}><span className="meta">Proveedor</span><b>{p.prov}</b></div>
+        </div>
+        <div className="meta" style={{margin:"0 2px 12px",fontSize:12,lineHeight:1.45}}>
           El pedido quedará en <b>anulado</b> y el registro guarda quién, cuándo y el motivo.
           Solo se puede antes de facturar.
         </div>
@@ -11452,11 +11520,52 @@ function AnularPedidoSheet({p, onClose, onConfirmar, guardando}){
           style={{width:"100%",boxSizing:"border-box",borderRadius:12,border:"1px solid var(--line)",
             padding:"12px",fontSize:14,fontFamily:"inherit",resize:"vertical",marginBottom:14,
             background:"var(--paper)",color:"var(--ink)"}}/>
-        <button className="cta" disabled={!ok || guardando}
-          style={{background:(ok&&!guardando)?"#8A2E3B":"#d8c3c8",color:"#fff"}}
-          onClick={()=>onConfirmar(motivo.trim())}>
-          {guardando ? "Anulando…" : "Anular pedido"}</button>
-        <button className="ghost" onClick={onClose} disabled={guardando}>Ahora no</button>
+        {/* Cancelar del mismo peso que el botón rojo y fácil de tocar (a la izquierda) */}
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} disabled={guardando}
+            style={{flex:1,padding:"13px",borderRadius:12,border:"1px solid var(--line)",background:"var(--card)",
+              color:"var(--ink)",fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:"pointer"}}>
+            Cancelar</button>
+          <button onClick={()=>onConfirmar(motivo.trim())} disabled={!ok || guardando}
+            style={{flex:1,padding:"13px",borderRadius:12,border:"none",
+              background:(ok&&!guardando)?"#8A2E3B":"#d8c3c8",color:"#fff",fontWeight:800,fontSize:15,
+              fontFamily:"inherit",cursor:(ok&&!guardando)?"pointer":"default"}}>
+            {guardando ? "Anulando…" : "Sí, anular pedido"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Revivir un pedido anulado: confirma antes (mismo espíritu que anular, al
+   revés) mostrando la ficha del pedido. «Cancelar» del mismo peso; «Sí,
+   revivir» llama a la base. No pinta éxito si la base devuelve error. */
+function RevivirPedidoSheet({p, onClose, onConfirmar, guardando}){
+  const monto = (p.cant||0)*(p.precio||0);
+  const fila = {display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",fontSize:13,borderTop:"1px solid var(--line)"};
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="sheet" onClick={e=>e.stopPropagation()}>
+        <h3>¿Revivir este pedido?</h3>
+        <div className="card" style={{padding:"12px 14px",margin:"4px 0 12px",border:"1px solid var(--line)"}}>
+          <div style={{fontSize:16,fontWeight:800,color:"var(--field)",marginBottom:4}}>{p.cli}</div>
+          <div style={fila}><span className="meta">Fecha</span><b>{p.fecha||"—"}</b></div>
+          <div style={fila}><span className="meta">Monto</span><b>{money(monto)}</b></div>
+          <div style={fila}><span className="meta">Proveedor</span><b>{p.prov}</b></div>
+        </div>
+        <div className="meta" style={{margin:"0 2px 14px",fontSize:12,lineHeight:1.45}}>
+          Volverá a su estado anterior (antes de anular).
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} disabled={guardando}
+            style={{flex:1,padding:"13px",borderRadius:12,border:"1px solid var(--line)",background:"var(--card)",
+              color:"var(--ink)",fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:"pointer"}}>
+            Cancelar</button>
+          <button onClick={onConfirmar} disabled={guardando}
+            style={{flex:1,padding:"13px",borderRadius:12,border:"none",background:guardando?"#9DBBA9":"#2E7D52",
+              color:"#fff",fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:guardando?"default":"pointer"}}>
+            {guardando ? "Reviviendo…" : "Sí, revivir"}</button>
+        </div>
       </div>
     </div>
   );
@@ -18527,6 +18636,21 @@ async function anularPedidoEnBase(pedId, motivo){
     const { data, error } = await window.SB.rpc("anular_pedido",
       { p_ped:pedId, p_motivo:motivo, p_op_id:opId });
     if(error) return { ok:false, motivo:error.message||"No se pudo anular el pedido" };
+    return { ok:true, data };
+  }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
+}
+
+/* Revivir un pedido anulado: la base (revivir_pedido) lo devuelve a su estado
+   anterior. Solo freelance/admin y solo si está "anulado" (la base lo valida).
+   op_id idempotente de 8+ caracteres. Si hay error de Supabase, se muestra y
+   NO se pinta éxito. */
+async function revivirPedidoEnBase(pedId){
+  try{
+    const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                 : ("rev-"+pedId+"-"+Date.now());
+    const { data, error } = await window.SB.rpc("revivir_pedido",
+      { p_ped:pedId, p_op_id:opId });
+    if(error) return { ok:false, motivo:error.message||"No se pudo revivir el pedido" };
     return { ok:true, data };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
