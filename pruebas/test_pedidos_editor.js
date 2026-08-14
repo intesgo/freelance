@@ -82,6 +82,10 @@ prueba(/const limpiarFiltros = \(\)=>\{ setEstado\("Todos"\); setDesde\(""\); se
 prueba(/onClick=\{limpiarFiltros\}>Limpiar<\/button>/.test(fl), "aparece el enlace «Limpiar» cuando hay filtros");
 prueba(/\{filtrosAbiertos && \(/.test(fl) && /items=\{ESTADOS\.filter\(e=>e!=="Todos"\)\}/.test(fl), "el selector de Estado vive dentro del panel de filtros");
 prueba(/\{filtrosAbiertos && verFechas && \(/.test(fl), "el panel Desde/Hasta solo se ve con los filtros abiertos");
+/* «Ordenar» debe encogerse (flex 1 1 0 · min-width 0): como .fb es width:100%,
+   si no se encoge desborda la pantalla y corta el título y las pestañas. */
+prueba(/estilo=\{\{flex:"1 1 0",minWidth:0\}\} items=\{\["recientes","antiguos","comision"\]\}/.test(fl),
+  "el selector Ordenar se ajusta al ancho (no desborda la pantalla)");
 /* Los 4 KPI ya no van en la lista, ahora en el Resumen y son tocables */
 prueba(/ya no viven aquí: se movieron al Resumen/.test(fl), "los 4 KPI ya no van en la pantalla de lista (se movieron al Resumen)");
 prueba(/\{vistaResumen && \(\(\)=>\{[\s\S]{0,900}const enProceso = activos\.filter/.test(fl), "el Resumen calcula los 4 números (En proceso, etc.)");
