@@ -5921,7 +5921,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"432", fecha:"13 ago 2026", desc:"Pedidos entra más liviano: arriba quedan los 4 indicadores y enseguida las pestañas y la lista. Las dos tarjetas grandes de panorama («Dónde están» / «Por proveedor») ahora se abren con el botón «Ver resumen» y se vuelve con «Volver»; tocar un estado en el resumen filtra la lista. La regla de cada pestaña se muestra al tocar el ícono ⓘ, para no llenar la pantalla. Por dentro, la lista se arma más rápido: los ítems se agrupan una sola vez y la línea de tiempo del pedido se construye solo al abrir el detalle. Nada cambia en los datos, los permisos ni las reglas del negocio." };
+const VERSION = { n:"433", fecha:"13 ago 2026", desc:"Pedidos se parte en dos pantallas. La primera es solo para trabajar: pestañas, buscador y la lista casi de una; los filtros de Estado y Fecha se pliegan tras un chip «⚙ Filtros» (si hay uno puesto, el chip se pinta, muestra cuántos y ofrece «Limpiar»), y «Ordenar» queda a la vista. La segunda pantalla, «Ver resumen», reúne los 4 números (En proceso / Por aprobar / En camino / En curso) y el panorama «Dónde están» / «Por proveedor»; tocar un número o una barra filtra y vuelve a la lista. Solo organización: no cambia datos, permisos ni reglas del negocio." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11005,6 +11005,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
       if(verFechas){ setVerFechas(false); return true; }
       if(sel){ setSel(null); return true; }
       if(vistaResumen){ setVistaResumen(false); return true; }
+      if(filtrosAbiertos){ setFiltrosAbiertos(false); return true; }
       return false;
     });
   const [sel,setSel]=useState(null);
@@ -11015,8 +11016,9 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   const [orden,setOrden]=useState("recientes"); // recientes | antiguos | comision
   const [verFechas,setVerFechas]=useState(false);
   const [pestana,setPestana]=useState("pendientes"); // pendientes | encamino | entregados
-  const [vistaResumen,setVistaResumen]=useState(false); // sub-vista con las dos tarjetas de panorama
+  const [vistaResumen,setVistaResumen]=useState(false); // sub-vista con los KPI y el panorama
   const [verRegla,setVerRegla]=useState(false); // la regla de la pestaña, tras el ícono ⓘ
+  const [filtrosAbiertos,setFiltrosAbiertos]=useState(false); // Estado/Fecha, plegados por defecto
   const [verComo,setVerComo]=useState("factura");  // factura | seguimiento (al abrir un pedido)
   const [pagina,setPagina]=useState(1);
   const POR_PAGINA=15;
@@ -11090,6 +11092,10 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   }
 
   const ESTADOS = ["Todos", ...TAB_ESTADOS[pestana]];
+  /* Cuántos filtros hay puestos (estado + rango de fechas): para avisarlo aunque
+     el panel de filtros esté plegado, y ofrecer «Limpiar». */
+  const filtrosActivos = (estado!=="Todos"?1:0) + ((desde||hasta)?1:0);
+  const limpiarFiltros = ()=>{ setEstado("Todos"); setDesde(""); setHasta(""); setPagina(1); };
   const totalPag=Math.max(1,Math.ceil(ordenada.length/POR_PAGINA));
   const pagActual=Math.min(pagina,totalPag);
   const visibles=ordenada.slice((pagActual-1)*POR_PAGINA, pagActual*POR_PAGINA);
@@ -11103,58 +11109,64 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
   };
 
   return (<>
-    <div className="h1">Pedidos <SelloVivo vivo={!!vivo}/></div>
+    {!vistaResumen && <div className="h1">Pedidos <SelloVivo vivo={!!vivo}/></div>}
 
-    {/* indicadores del estado del embudo de pedidos */}
-    {(()=>{
-      const activos=panorama.activos;
-      const enProceso=activos.filter(p=>!esSellado(p)).length;
-      const esperando=activos.filter(p=>p.estado==="Esperando aprobación").length;
-      const enCamino=activos.filter(p=>p.estado==="Despachado"||p.estado==="Facturado").length;
-      const montoAct=activos.reduce((s,p)=>s+((p.cant||0)*(p.precio||0)),0);
-      return (
-        <div className="mini-kpi">
-          <button onClick={()=>{cambiarPestana("pendientes");setEstado("Todos");}}>
-            <span className="mk-v num">{enProceso}</span>
-            <span className="mk-k">En proceso</span></button>
-          <button onClick={()=>irAEstado("Esperando aprobación")}>
-            <span className="mk-v num" style={{color:esperando>0?"#C9A227":"var(--field)"}}>{esperando}</span>
-            <span className="mk-k">Por aprobar</span></button>
-          <button onClick={()=>irAEstado("Despachado")}>
-            <span className="mk-v num">{enCamino}</span>
-            <span className="mk-k">En camino</span></button>
-          <button style={{cursor:"default"}}>
-            <span className="mk-v num" style={{fontSize:14}}>{money(montoAct)}</span>
-            <span className="mk-k">En curso</span></button>
-        </div>
-      );
-    })()}
-
-    {/* Entrada liviana: el panorama (dos tarjetas) ya no va en la lista;
-        se abre a demanda desde el botón Resumen y vuelve con "Volver". */}
+    {/* PANTALLA 1 · enlace fino para abrir el Resumen (pantalla 2). Los KPI
+        ya no viven aquí: se movieron al Resumen para aligerar la entrada. */}
     {!vistaResumen && panorama.activos.length>0 && (
-      <button onClick={()=>setVistaResumen(true)}
-        style={{width:"100%",marginBottom:12,padding:"10px 14px",borderRadius:12,
-          border:"1px solid var(--line)",background:"var(--card)",cursor:"pointer",
-          fontFamily:"inherit",fontWeight:700,color:"var(--field)",fontSize:13,
-          display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-        📊 Ver resumen
-        <span className="meta" style={{fontWeight:600,fontSize:11.5}}>· dónde están y por proveedor</span>
-      </button>
+      <div style={{margin:"-2px 2px 12px"}}>
+        <button className="mini-link" onClick={()=>setVistaResumen(true)}
+          style={{fontSize:12.5,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+          📊 Ver resumen <span style={{color:"var(--muted)"}}>›</span>
+        </button>
+      </div>
     )}
 
-    {vistaResumen && (
+    {/* PANTALLA 2 · Resumen: los 4 números (TOCABLES) arriba y el panorama
+        («Dónde están» / «Por proveedor») debajo. Tocar un número o una barra
+        aplica el filtro/pestaña y vuelve a la lista (cierra el resumen). */}
+    {vistaResumen && (()=>{
+      const activos = panorama.activos;
+      const enProceso = activos.filter(p=>!esSellado(p)).length;
+      const esperando = activos.filter(p=>p.estado==="Esperando aprobación").length;
+      const enCamino = activos.filter(p=>p.estado==="Despachado"||p.estado==="Facturado").length;
+      const montoAct = activos.reduce((s,p)=>s+((p.cant||0)*(p.precio||0)),0);
+      const porEstado = panorama.porEstado;
+      const maxE = Math.max(...porEstado.map(x=>x.n), 1);
+      const COLOR_EST = {"Esperando aprobación":"#C9A227","Enviado al proveedor":"#2B6CB0",
+                         "Facturado":"#2E7D52","Despachado":"#7C5CBF"};
+      const porProv = panorama.porProv;
+      const maxP = Math.max(...porProv.map(x=>x.monto), 1);
+      const kpi = {padding:"12px 14px",textAlign:"left",cursor:"pointer",fontFamily:"inherit",
+        border:"1px solid var(--line)",background:"var(--card)",borderRadius:12};
+      return (
       <>
-        <button className="back" style={{marginBottom:12}} onClick={()=>setVistaResumen(false)}>‹ Volver a la lista</button>
-        {(()=>{
-          const porEstado = panorama.porEstado;
-          const maxE = Math.max(...porEstado.map(x=>x.n), 1);
-          const COLOR_EST = {"Esperando aprobación":"#C9A227","Enviado al proveedor":"#2B6CB0",
-                             "Facturado":"#2E7D52","Despachado":"#7C5CBF"};
-          const porProv = panorama.porProv;
-          const maxP = Math.max(...porProv.map(x=>x.monto), 1);
-          if(panorama.activos.length===0) return <div className="ph">No hay pedidos en curso para resumir.</div>;
-          return (
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <button className="back" style={{margin:0}} onClick={()=>setVistaResumen(false)}>‹ Pedidos</button>
+          <div className="h1" style={{margin:0}}>Resumen</div>
+        </div>
+
+        {/* Los 4 números, tocables: filtran/cambian de pestaña y vuelven a la lista */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          <button style={kpi} onClick={()=>{cambiarPestana("pendientes");setEstado("Todos");}}>
+            <div className="num" style={{fontSize:22,fontWeight:800,color:"var(--field)"}}>{enProceso}</div>
+            <div className="meta" style={{fontSize:12}}>En proceso</div>
+          </button>
+          <button style={kpi} onClick={()=>irAEstado("Esperando aprobación")}>
+            <div className="num" style={{fontSize:22,fontWeight:800,color:esperando>0?"#C9A227":"var(--field)"}}>{esperando}</div>
+            <div className="meta" style={{fontSize:12}}>Por aprobar</div>
+          </button>
+          <button style={kpi} onClick={()=>irAEstado("Despachado")}>
+            <div className="num" style={{fontSize:22,fontWeight:800,color:"var(--field)"}}>{enCamino}</div>
+            <div className="meta" style={{fontSize:12}}>En camino</div>
+          </button>
+          <div style={{...kpi,cursor:"default"}}>
+            <div className="num" style={{fontSize:17,fontWeight:800,color:"var(--field)"}}>{money(montoAct)}</div>
+            <div className="meta" style={{fontSize:12}}>En curso</div>
+          </div>
+        </div>
+
+        {activos.length===0 ? <div className="ph">No hay pedidos en curso para resumir.</div> : (
         <div className="ndash" style={{marginBottom:14}}>
 
           <div className="ncard" onClick={()=>cambiarPestana("pendientes",true)}>
@@ -11201,10 +11213,10 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
           </div>
 
         </div>
-          );
-        })()}
+        )}
       </>
-    )}
+      );
+    })()}
 
     {!vistaResumen && (<>
         {/* pestañas Pendientes · En camino · Entregados */}
@@ -11240,23 +11252,35 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
       </div>
     </div>
 
-    {/* selectores: Estado·Fecha·Ordenar en las dos pestañas. En Historial el
-        filtro de estado hace falta más que nunca: ahí conviven facturados,
-        despachados, entregados y cobrados. */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:12}}>
-      <FiltroBuscador estilo={{flex:1,minWidth:110}} items={ESTADOS.filter(e=>e!=="Todos")}
-        value={estado} onPick={v=>{setEstado(v);setPagina(1);}}
-        todos="Todos" etiquetaTodos="Estado: todos"/>
-      <button className={"selmini"+((desde||hasta)?" on":"")} onClick={()=>setVerFechas(v=>!v)}>
-        {(desde||hasta) ? `${desde?desde.slice(5):"…"}→${hasta?hasta.slice(5):"…"}` : "Fecha"} ▾
+    {/* Pantalla 1: Estado y Fecha se pliegan tras «⚙ Filtros»; Ordenar queda a
+        la vista. Si hay filtros puestos, el chip se pinta y ofrece «Limpiar». */}
+    <div style={{display:"flex",gap:7,marginBottom:filtrosAbiertos?7:12,alignItems:"center"}}>
+      <button className={"selmini"+(filtrosActivos>0?" on":"")} style={{width:"auto",flex:"0 0 auto"}}
+        onClick={()=>setFiltrosAbiertos(v=>!v)}>
+        ⚙ Filtros{filtrosActivos>0?` (${filtrosActivos})`:""} {filtrosAbiertos?"▲":"▾"}
       </button>
-      <FiltroBuscador obligatorio estilo={{flex:1,minWidth:110}} items={["recientes","antiguos","comision"]}
+      {filtrosActivos>0 && (
+        <button className="mini-link" style={{flex:"0 0 auto"}} onClick={limpiarFiltros}>Limpiar</button>
+      )}
+      <div style={{flex:1}}/>
+      <FiltroBuscador obligatorio estilo={{flex:"0 0 auto",minWidth:130}} items={["recientes","antiguos","comision"]}
         value={orden} onPick={v=>{setOrden(v==="__"?"recientes":v);setPagina(1);}}
         todos="__" etiquetaTodos="Ordenar…"
         render={v=>({recientes:"Recientes",antiguos:"Antiguos",comision:"Mayor comisión"})[v]||v}/>
     </div>
 
-    {verFechas && (
+    {filtrosAbiertos && (
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>
+        <FiltroBuscador estilo={{flex:1,minWidth:110}} items={ESTADOS.filter(e=>e!=="Todos")}
+          value={estado} onPick={v=>{setEstado(v);setPagina(1);}}
+          todos="Todos" etiquetaTodos="Estado: todos"/>
+        <button className={"selmini"+((desde||hasta)?" on":"")} onClick={()=>setVerFechas(v=>!v)}>
+          {(desde||hasta) ? `${desde?desde.slice(5):"…"}→${hasta?hasta.slice(5):"…"}` : "Fecha"} ▾
+        </button>
+      </div>
+    )}
+
+    {filtrosAbiertos && verFechas && (
       <div className="card" style={{padding:"12px 14px",marginBottom:12}}>
         <div style={{display:"flex",gap:10}}>
           <div style={{flex:1}}><label className="meta" style={{fontSize:10.5,display:"block",marginBottom:3}}>Desde</label>
