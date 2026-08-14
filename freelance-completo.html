@@ -2749,8 +2749,11 @@ const PRESENTACIONES = PRODUCTOS
         stock: STOCK_DEMO[pr.id] != null ? STOCK_DEMO[pr.id] : 0,
         promosFreelance: pr.promosFreelance,
         promosProveedor: pr.promosProveedor || [],
-        /* costo del proveedor y costos operativos (demo; en Fase 4 vienen de Supabase) */
+        /* costo del proveedor (crédito y contado) y costos operativos (demo; en
+           Fase 4 vienen de Supabase: ofertas_piladora.costo / .costo_contado).
+           El contado suele ser un poco más barato que el crédito. */
         costo: pr.costo != null ? pr.costo : Math.round(pr.baseCredito*0.885*100)/100,
+        costoContado: pr.costoContado != null ? pr.costoContado : Math.round(pr.baseCredito*0.870*100)/100,
         costosOper: pr.costosOper != null ? pr.costosOper : Math.round(pr.baseCredito*0.045*100)/100,
         /* precios adicionales (demo): promoción del proveedor y precio especial autorizado */
         promoProv: pr.promoProv != null ? pr.promoProv : Math.round(pr.baseContado*0.965*100)/100,
@@ -5921,7 +5924,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"435", fecha:"14 ago 2026", desc:"Anular con red de seguridad y poder deshacer. Al anular un pedido ahora sale una ficha clara (cliente, fecha, monto, estado y proveedor) con «Cancelar» del mismo tamaño que el botón rojo, para no anular el equivocado por un toque apurado; el motivo sigue siendo obligatorio. Nuevo «Ver anulados»: una pantalla aparte con los pedidos anulados, cada uno con «Revivir pedido», que —tras confirmar— lo devuelve a su estado anterior y reaparece en Pendientes. Solo app: usa la función de base que ya existe, no cambia datos ni permisos." };
+const VERSION = { n:"436", fecha:"14 ago 2026", desc:"El costo de compra ahora se muestra EN DOS, igual que el precio de venta: «Compra crédito» y «Compra contado». En el detalle del producto (Precios) la tarjeta de Compra trae ambos valores, y en la lista de precios cada producto muestra su costo a crédito y a contado. Si un costo no está cargado, se ve un guion (no «$0,00»). La utilidad y el margen sugerido quedan rotulados «sobre costo crédito» para no confundir. Solo pantalla: no cambia datos, la base ni los permisos." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -16312,6 +16315,19 @@ function HistorialLineas({nombre, toast}){
   </>);
 }
 
+/* Costo de compra EN DOS: crédito y contado, igual que el precio de venta.
+   - En vivo, los costos por piladora viven en `p.costos` (costoCredito /
+     costoContado, de ofertas_piladora.costo / .costo_contado).
+   - Si además `p` trae un costo suelto (`p.costo` / `p.costoContado`), se usa.
+   Devuelve null en el que NO exista (nunca $0,00 como si fuera un costo real). */
+function costoCompra(p){
+  const minPos = (arr)=>{ const v=(arr||[]).map(Number).filter(n=>n>0); return v.length?Math.min(...v):null; };
+  const costos = (p && p.costos) || [];
+  const cred = (Number(p&&p.costo)>0) ? Number(p.costo) : minPos(costos.map(c=>c.costoCredito));
+  const cont = (Number(p&&p.costoContado)>0) ? Number(p.costoContado) : minPos(costos.map(c=>c.costoContado));
+  return { cred, cont };
+}
+
 // ---------- LISTA DE PRECIOS (dashboard + consulta por línea/marca) ----------
 function ListaPrecios({pedirCon}){
   const [q,setQ]=useState("");
@@ -16630,10 +16646,15 @@ function ListaPrecios({pedirCon}){
       </div>
 
       {/* utilidades (solo para el freelance) */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginBottom:12}}>
+      {(()=>{ const cc=costoCompra(p); return (<>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginBottom:6}}>
+        {/* Compra EN DOS, igual que el precio de venta: crédito y contado */}
         <div className="card" style={{margin:0,padding:"12px 10px",textAlign:"center"}}>
           <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Compra</div>
-          <div className="num" style={{fontSize:16,fontWeight:800,color:"var(--muted)"}}>{money(p.costo)}</div>
+          <div className="num" style={{fontSize:14.5,fontWeight:800,color:"var(--muted)",marginTop:2}}>{cc.cred!=null?money(cc.cred):"—"}</div>
+          <div className="meta" style={{fontSize:8.5}}>crédito</div>
+          <div className="num" style={{fontSize:14.5,fontWeight:800,color:"var(--muted)",marginTop:3}}>{cc.cont!=null?money(cc.cont):"—"}</div>
+          <div className="meta" style={{fontSize:8.5}}>contado</div>
         </div>
         <div className="card" style={{margin:0,padding:"12px 10px",textAlign:"center"}}>
           <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>U. bruta</div>
@@ -16645,6 +16666,9 @@ function ListaPrecios({pedirCon}){
           <div className="meta" style={{fontSize:9}}>{p.pct}%</div>
         </div>
       </div>
+      {/* la utilidad se calcula contra el costo a crédito, para no confundir */}
+      <div className="meta" style={{fontSize:9.5,margin:"0 2px 12px"}}>Utilidad calculada sobre el costo a crédito.</div>
+      </>); })()}
 
       {/* precio sugerido por tipo de cliente (guía para no dañar la zona) */}
       <div className="card" style={{padding:"15px 14px",marginBottom:12}}>
@@ -16680,7 +16704,7 @@ function ListaPrecios({pedirCon}){
                   <span style={{fontSize:17,flexShrink:0}}>{c.ic}</span>
                   <span style={{flex:1,minWidth:0}}>
                     <span style={{display:"block",fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.t}</span>
-                    <span className="meta" style={{fontSize:10}}>Margen {c.margen}%</span>
+                    <span className="meta" style={{fontSize:10}}>Margen {c.margen}% <span style={{opacity:.75}}>s/ crédito</span></span>
                   </span>
                   <span className="num" style={{flexShrink:0,fontSize:15,fontWeight:800,color:c.col}}>{money(c.precio)}</span>
                 </div>
@@ -17022,7 +17046,10 @@ function ListaPrecios({pedirCon}){
                 <div style={{flexShrink:0,display:"flex",gap:14,alignItems:"center"}}>
                   <div style={{textAlign:"right"}}>
                     <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Compra</div>
-                    <div className="num" style={{fontSize:13.5,fontWeight:700,color:"var(--muted)"}}>{money(p.costo)}</div>
+                    {(()=>{ const cc=costoCompra(p); return (<>
+                      <div className="num" style={{fontSize:12.5,fontWeight:700,color:"var(--muted)",lineHeight:1.2}}>{cc.cred!=null?money(cc.cred):"—"} <span className="meta" style={{fontSize:8.5,fontWeight:600}}>créd</span></div>
+                      <div className="num" style={{fontSize:12.5,fontWeight:700,color:"var(--muted)",lineHeight:1.2}}>{cc.cont!=null?money(cc.cont):"—"} <span className="meta" style={{fontSize:8.5,fontWeight:600}}>cont</span></div>
+                    </>); })()}
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Crédito</div>
