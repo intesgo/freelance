@@ -58,7 +58,7 @@ prueba(/ya no se puede editar\/i[\s\S]{0,80}ya se facturó: ya no se puede edita
 /* ── Entrada liviana (Trabajo A del alcance entrada-liviana) ── */
 prueba(/const \[vistaResumen,setVistaResumen\]=useState\(false\)/.test(fl), "la sub-vista Resumen tiene su propio estado");
 prueba(/onClick=\{\(\)=>setVistaResumen\(true\)\}[\s\S]{0,600}📊 Ver resumen/.test(fl), "hay un botón «Ver resumen» que abre el panorama");
-prueba(/Volver a la lista/.test(fl) && /onClick=\{\(\)=>setVistaResumen\(false\)\}/.test(fl), "desde el Resumen se puede volver a la lista");
+prueba(/onClick=\{\(\)=>setVistaResumen\(false\)\}/.test(fl), "desde el Resumen se puede volver a la lista");
 prueba(/if\(vistaResumen\)\{ setVistaResumen\(false\); return true; \}/.test(fl), "el botón atrás cierra el Resumen");
 prueba(/const cambiarPestana=\(p,mantenerEstado\)=>\{setVistaResumen\(false\);/.test(fl), "tocar un estado/pestaña sale del Resumen y filtra la lista");
 prueba(/const \[verRegla,setVerRegla\]=useState\(false\)/.test(fl) && /onClick=\{\(\)=>setVerRegla\(v=>!v\)\}/.test(fl), "la regla de la pestaña vive tras el ícono ⓘ");
@@ -73,6 +73,20 @@ prueba(/function lineaDePedido\(p\)\{/.test(fl), "la línea de tiempo se arma co
 prueba(/const linea = p\.linea \|\| lineaDePedido\(p\)/.test(fl), "el detalle arma la línea de tiempo solo al abrirse");
 prueba(!/linea: ETAPAS_PEDIDO\.map/.test(fl), "el cargador de la lista ya NO construye la línea de tiempo de cada pedido");
 prueba(/etapaLinea:m\.linea, creado:p\.creado/.test(fl), "el cargador solo guarda los primitivos para armarla después");
+
+/* ── Dos pantallas (alcance dos-pantallas): lista liviana + Resumen con KPI ── */
+prueba(/const \[filtrosAbiertos,setFiltrosAbiertos\]=useState\(false\)/.test(fl), "Estado/Fecha se pliegan tras «⚙ Filtros» (plegados por defecto)");
+prueba(/const filtrosActivos = \(estado!=="Todos"\?1:0\) \+ \(\(desde\|\|hasta\)\?1:0\)/.test(fl), "se cuentan los filtros puestos para avisarlos");
+prueba(/⚙ Filtros\{filtrosActivos>0\?` \(\$\{filtrosActivos\}\)`:""\}/.test(fl), "el chip muestra cuántos filtros hay puestos");
+prueba(/const limpiarFiltros = \(\)=>\{ setEstado\("Todos"\); setDesde\(""\); setHasta\(""\); setPagina\(1\); \}/.test(fl), "«Limpiar» resetea estado, fechas y página");
+prueba(/onClick=\{limpiarFiltros\}>Limpiar<\/button>/.test(fl), "aparece el enlace «Limpiar» cuando hay filtros");
+prueba(/\{filtrosAbiertos && \(/.test(fl) && /items=\{ESTADOS\.filter\(e=>e!=="Todos"\)\}/.test(fl), "el selector de Estado vive dentro del panel de filtros");
+prueba(/\{filtrosAbiertos && verFechas && \(/.test(fl), "el panel Desde/Hasta solo se ve con los filtros abiertos");
+/* Los 4 KPI ya no van en la lista, ahora en el Resumen y son tocables */
+prueba(/ya no viven aquí: se movieron al Resumen/.test(fl), "los 4 KPI ya no van en la pantalla de lista (se movieron al Resumen)");
+prueba(/\{vistaResumen && \(\(\)=>\{[\s\S]{0,900}const enProceso = activos\.filter/.test(fl), "el Resumen calcula los 4 números (En proceso, etc.)");
+prueba(/‹ Pedidos<\/button>[\s\S]{0,120}Resumen<\/div>/.test(fl), "el Resumen tiene su encabezado «‹ Pedidos» + «Resumen»");
+prueba(/onClick=\{\(\)=>irAEstado\("Despachado"\)\}>[\s\S]{0,300}En camino/.test(fl), "los números del Resumen son tocables (filtran y vuelven a la lista)");
 
 if (mal) { console.error(`Resultado PEDIDOS-EDITOR: ${bien} ✓ · ${mal} ✗`); process.exit(1); }
 console.log(`Resultado PEDIDOS-EDITOR: ${bien} ✓ · 0 ✗`);
