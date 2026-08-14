@@ -103,6 +103,7 @@ const PLAN = [
   { arnes:"test_anulacion_pedido.js", que:"anulación de pedido: el comisionista pide y el freelance decide", apps:[null] },
   { arnes:"test_pedidos_editor.js",  que:"Pedidos: tres pestañas y el editor de líneas (editar_pedido_atomico)", apps:[null] },
   { arnes:"test_costo_dos.js",       que:"el costo de compra se muestra en dos (contado y crédito)", apps:[null] },
+  { arnes:"test_piladoras_costos.js", que:"Piladoras · Costos y Base por piladora (versionado, sin cruzar)", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
      la regresión normal y no deben quedar omitidos por falta de una variable. */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },
