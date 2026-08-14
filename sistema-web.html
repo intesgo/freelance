@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"150", fecha:"14 ago 2026", desc:"Nuevo módulo «Piladoras» (Fase 1): reemplaza a «Precios vigentes» y organiza los costos y las bases por piladora. Se elige una piladora y se ven sus productos por Grano → Marca → Presentación, con el Costo (lo que cotiza la piladora) y el Base (el precio que armas tú) + el margen guía; se edita cada uno y hay «Ajustar por grano» (subir/bajar en monto o %) para todas las marcas de un grano de ESA piladora, dejando fuera las excluidas. Todo es por piladora: nunca cruza a otra. Cada cambio guarda una versión nueva y cierra la anterior (histórico intacto). El Catálogo (replicar productos e histórico de precios) queda igual." };
+const VERSION = { n:"151", fecha:"14 ago 2026", desc:"Piladoras · dos mejoras. (1) «Base = Costo + %»: al editar una presentación, un toque pone la base = costo + un porcentaje (arranca en 12%), y en «Ajustar por grano» hay un modo nuevo que deja la base de todas las marcas del grano = su costo + el % elegido. (2) Guardar el mismo día ya no apila versiones: si el precio ya se movió hoy, se corrige en su sitio; recién al otro día se guarda como una versión nueva. Sigue siendo por piladora: nunca cruza a otra." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8460,6 +8460,11 @@ function preSubirCosto(o, { pct, porQq }) {
    nueva), como ModalCostoBloque: el histórico y el motor de precios quedan
    intactos. No toca `precios`. El Catálogo (replicar/histórico) queda igual.
    ══════════════════════════════════════════════════════════════════════════ */
+/* Base sugerida = Costo + un %. El % por defecto (BASE_PCT_SOBRE_COSTO) es solo
+   el arranque; se puede escribir otro. Redondeo a 4 (se muestra a 2).
+   Ej.: 18 + 12% = 20,16 ; 26,50 + 30% = 34,45. */
+const BASE_PCT_SOBRE_COSTO = 12;
+function baseDesdeCosto(costo, pct){ return Math.round((Number(costo)||0)*(1+(Number(pct)||0)/100)*10000)/10000; }
 function PiladorasWeb({ usuario }){
   const [ofertas,setOfertas]=useState(null);   // null = cargando; array normalizado (preLeerOfertas)
   const [prodInfo,setProdInfo]=useState({});   // prodId -> {nombre, marca, linea}
@@ -8528,25 +8533,38 @@ function PiladorasWeb({ usuario }){
      (vigente_desde=hoy). Nunca sobrescribe. Igual patrón que ModalCostoBloque. */
   const versionar=async(o,nuevos)=>{
     const hoy=preHoy();
+    const val={
+      costo: nuevos.costo!=null?nuevos.costo:o.costo,
+      costo_contado: nuevos.costo_contado!=null?nuevos.costo_contado:o.costoContado,
+      precio_contado: nuevos.precio_contado!=null?nuevos.precio_contado:o.contado,
+      precio_credito: nuevos.precio_credito!=null?nuevos.precio_credito:o.credito,
+    };
+    const auditar=async(fila)=>{ try{ await window.supa.from("auditoria").insert({ org_id:await orgActivaWeb(), codigo:preAu(),
+      usuario:(usuario&&usuario.nombre)||"", tabla:"ofertas_piladora", operacion:"Costo/Base por piladora",
+      registro_id:o.ofertaId, fecha:new Date().toISOString(),
+      valor_anterior:JSON.stringify({costo:o.costo,costo_contado:o.costoContado,precio_contado:o.contado,precio_credito:o.credito}),
+      valor_nuevo:JSON.stringify(fila) }); }catch(e){} };
+    /* MISMO_DIA_ACTUALIZA: si la fila vigente ya es de HOY, se corrige en su
+       sitio (no se apila otra versión por cada retoque del mismo día). */
+    const MISMO_DIA_ACTUALIZA = (String(o.desde||"").slice(0,10) === hoy);
+    if(MISMO_DIA_ACTUALIZA){
+      const u=await window.supa.from("ofertas_piladora").update(val).eq("oferta_id",o.ofertaId);
+      if(u.error) throw new Error(u.error.message);
+      await auditar({oferta_id:o.ofertaId, ...val, mismoDia:true});
+      return {...o, ...val};
+    }
+    /* Día distinto: se VERSIONA — cierra la vigente e inserta una nueva. */
     const c1=await window.supa.from("ofertas_piladora").update({vigente_hasta:hoy}).eq("oferta_id",o.ofertaId);
     if(c1.error) throw new Error(c1.error.message);
     const nid=o.prodId+"-"+o.presCod+"-"+o.provCod+"-"+Date.now();
     const fila={
       oferta_id:nid, prod_id:o.prodId, pres_cod:o.presCod, presentacion:o.presentacion,
-      equiv_qq:o.equivQq, prov_cod:o.provCod,
-      costo: nuevos.costo!=null?nuevos.costo:o.costo,
-      costo_contado: nuevos.costo_contado!=null?nuevos.costo_contado:o.costoContado,
-      precio_contado: nuevos.precio_contado!=null?nuevos.precio_contado:o.contado,
-      precio_credito: nuevos.precio_credito!=null?nuevos.precio_credito:o.credito,
+      equiv_qq:o.equivQq, prov_cod:o.provCod, ...val,
       margen_min: o.margenMin!=null?o.margenMin:preMargenObjetivo(), activo:true, vigente_desde:hoy, es_demo:false,
     };
     const c2=await window.supa.from("ofertas_piladora").insert(fila);
     if(c2.error) throw new Error(c2.error.message);
-    try{ await window.supa.from("auditoria").insert({ org_id:await orgActivaWeb(), codigo:preAu(),
-      usuario:(usuario&&usuario.nombre)||"", tabla:"ofertas_piladora", operacion:"Costo/Base por piladora",
-      registro_id:o.ofertaId, fecha:new Date().toISOString(),
-      valor_anterior:JSON.stringify({costo:o.costo,costo_contado:o.costoContado,precio_contado:o.contado,precio_credito:o.credito}),
-      valor_nuevo:JSON.stringify(fila) }); }catch(e){}
+    await auditar(fila);
     return fila;
   };
 
@@ -8575,7 +8593,9 @@ function PiladorasWeb({ usuario }){
     let err=0;
     try{
       for(const pid of objetivo){ for(const o of marcas[pid].ofertas){
-        const nuevos=ajuste.campo==="costo"?{costo:aj(o.costo),costo_contado:aj(o.costoContado)}:{precio_contado:aj(o.contado),precio_credito:aj(o.credito)};
+        const nuevos=ajuste.campo==="costo"?{costo:aj(o.costo),costo_contado:aj(o.costoContado)}
+          :ajuste.campo==="basecosto"?{precio_contado:baseDesdeCosto(o.costoContado,v),precio_credito:baseDesdeCosto(o.costo,v)}
+          :{precio_contado:aj(o.contado),precio_credito:aj(o.credito)};
         try{ await versionar(o,nuevos); }catch(e){ err++; }
       } }
     }finally{ setGuardando(false); }
@@ -8683,6 +8703,12 @@ function PiladorasWeb({ usuario }){
                           </div>
                         ))}
                       </div>
+                      {/* atajo: pone la Base = Costo + un % (arranca en BASE_PCT_SOBRE_COSTO) */}
+                      <button onClick={()=>setForm(f=>({...f,
+                        baseCont:baseDesdeCosto(num(f.costoCont),BASE_PCT_SOBRE_COSTO),
+                        baseCred:baseDesdeCosto(num(f.costoCred),BASE_PCT_SOBRE_COSTO) }))}
+                        style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px dashed #2E7D52",background:"#fff",color:"#2E7D52",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12}}>
+                        Base = Costo + {BASE_PCT_SOBRE_COSTO}%</button>
                       <div style={{display:"flex",gap:8,marginTop:10}}>
                         <button onClick={()=>{setEdit(null);setForm(null);}} disabled={guardando} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
                         <button onClick={guardarFila} disabled={guardando} style={{...S.btn(guardando?"#9DBBA9":"#2E7D52"),flex:1}}>{guardando?"Guardando…":"Guardar"}</button>
@@ -8711,7 +8737,9 @@ function PiladorasWeb({ usuario }){
             <div style={{display:"flex",gap:8,marginBottom:9}}>
               <button onClick={()=>setAjuste(a=>({...a,campo:"costo"}))} style={{flex:1,...S.chip(ajuste.campo==="costo")}}>Costo</button>
               <button onClick={()=>setAjuste(a=>({...a,campo:"base"}))} style={{flex:1,...S.chip(ajuste.campo==="base")}}>Base</button>
+              <button onClick={()=>setAjuste(a=>({...a,campo:"basecosto",valor:a.valor||String(BASE_PCT_SOBRE_COSTO)}))} style={{flex:1.4,...S.chip(ajuste.campo==="basecosto")}}>Base = Costo + %</button>
             </div>
+            {ajuste.campo!=="basecosto" && (<>
             <div style={{display:"flex",gap:8,marginBottom:9}}>
               <button onClick={()=>setAjuste(a=>({...a,signo:1}))} style={{flex:1,...S.chip(ajuste.signo===1)}}>Subir +</button>
               <button onClick={()=>setAjuste(a=>({...a,signo:-1}))} style={{flex:1,...S.chip(ajuste.signo===-1)}}>Bajar −</button>
@@ -8720,8 +8748,10 @@ function PiladorasWeb({ usuario }){
               <button onClick={()=>setAjuste(a=>({...a,modo:"monto"}))} style={{flex:1,...S.chip(ajuste.modo==="monto")}}>$ Monto</button>
               <button onClick={()=>setAjuste(a=>({...a,modo:"pct"}))} style={{flex:1,...S.chip(ajuste.modo==="pct")}}>% Porcentaje</button>
             </div>
+            </>)}
+            {ajuste.campo==="basecosto" && <div style={{...S.meta,margin:"0 0 9px"}}>La Base de cada marca queda = su Costo + este %. Ej.: costo 18 + 12% = base 20,16.</div>}
             <input inputMode="decimal" value={ajuste.valor} onChange={e=>setAjuste(a=>({...a,valor:e.target.value}))}
-              placeholder={ajuste.modo==="pct"?"Ej. 5 (=5%)":"Ej. 0,50"} style={{...S.inp,padding:"11px",fontSize:15,marginBottom:14}}/>
+              placeholder={ajuste.campo==="basecosto"?"% sobre el costo (ej. 12)":(ajuste.modo==="pct"?"Ej. 5 (=5%)":"Ej. 0,50")} style={{...S.inp,padding:"11px",fontSize:15,marginBottom:14}}/>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setAjuste(null)} disabled={guardando} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
               <button onClick={aplicarAjuste} disabled={guardando} style={{...S.btn(guardando?"#9DBBA9":"#2E7D52"),flex:1}}>{guardando?"Aplicando…":"Aplicar"}</button>

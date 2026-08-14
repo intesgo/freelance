@@ -31,7 +31,8 @@ prueba(/from\("ofertas_piladora"\)[\s\S]{0,400}\.eq\("prov_cod",provCod\)/.test(
 prueba(/const c1=await window\.SB\.from\("ofertas_piladora"\)\.update\(\{vigente_hasta:hoy\}\)\.eq\("oferta_id",o\.oferta_id\)/.test(fl), "al guardar CIERRA la fila vigente (vigente_hasta = hoy)");
 prueba(/const c2=await window\.SB\.from\("ofertas_piladora"\)\.insert\(fila\)/.test(fl), "al guardar INSERTA una fila nueva (no sobrescribe)");
 prueba(/vigente_desde:hoy/.test(fl) && /activo:true/.test(fl), "la fila nueva abre con vigente_desde = hoy y activa");
-prueba(!/\.update\(\{\s*precio_/.test(fl), "no hay un update directo de precios sobre la fila (siempre versiona)");
+prueba(/MISMO_DIA_ACTUALIZA/.test(fl) && /window\.SB\.from\("ofertas_piladora"\)\.update\(val\)\.eq\("oferta_id",o\.oferta_id\)/.test(fl),
+  "el mismo día corrige la fila en su sitio; otro día versiona (cierra + inserta)");
 prueba(/oferta_id:nid, prod_id:o\.prod_id, pres_cod:o\.pres_cod, presentacion:o\.presentacion,/.test(fl), "la fila nueva conserva prod_id/pres_cod/presentacion/equiv del original");
 
 /* ── Costo (piladora) y Base (freelance) + margen ── */
