@@ -5927,7 +5927,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"439", fecha:"14 ago 2026", desc:"Piladoras · Costos y precios: dos mejoras. (1) «Base = Costo + %»: al editar una presentación, un toque pone la base a partir del costo más un porcentaje (arranca en 12%), y en «Ajustar por grano» hay un modo nuevo que deja la base de todas las marcas del grano = su costo + el % que elijas. (2) Guardar el mismo día ya no apila versiones: si el precio ya se movió hoy, se corrige en su sitio; recién al otro día se guarda como una versión nueva (el histórico queda con un salto por día). Sigue siendo por piladora: nunca cruza a otra." };
+const VERSION = { n:"440", fecha:"14 ago 2026", desc:"Piladoras · Costos y precios más claro: se quitó el textito gris de arriba; cada presentación ahora muestra la fecha en que se modificó por última vez y un botón «Historial de precios» para ver todas las versiones (desde–hasta, costo y base); y al editar aparece un resumen «Antes → Ahora» que marca en verde lo que cambia, para confirmar antes de guardar. Todo por piladora, como antes." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -22908,9 +22908,23 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   const [guardando,setGuardando]=useState(false);
   const [excluidas,setExcluidas]=useState({});  // prod_id -> true: el ajuste por grano la salta
   const [ajuste,setAjuste]=useState(null);      // {linea,campo,modo,signo,valor}
+  const [hist,setHist]=useState(null);          // oferta cuya historia de precios se ve
+  const [histRows,setHistRows]=useState(null);  // filas del histórico (null = cargando)
   const r2=n=>Math.round((Number(n)||0)*100)/100;
   const r4=n=>Math.round((Number(n)||0)*10000)/10000;
   const num=v=>{ const n=parseFloat(String(v==null?"":v).replace(",",".")); return isNaN(n)?null:n; };
+  const fmtFecha=s=>{ const t=String(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(t)) return "—"; const [y,m,d]=t.split("-"); return `${d}/${m}/${y}`; };
+  /* Historial de precios: TODAS las versiones de esa presentación en esa
+     piladora (prod_id + pres_cod + prov_cod), de la más nueva a la más vieja. */
+  const verHistorial=async(o)=>{
+    setHist(o); setHistRows(null);
+    try{ const {data}=await window.SB.from("ofertas_piladora")
+        .select("oferta_id,costo,costo_contado,precio_contado,precio_credito,vigente_desde,vigente_hasta")
+        .eq("prod_id",o.prod_id).eq("pres_cod",o.pres_cod).eq("prov_cod",o.prov_cod).limit(400);
+      const rows=(data||[]).slice().sort((a,b)=>String(b.vigente_desde||"").localeCompare(String(a.vigente_desde||"")));
+      setHistRows(rows);
+    }catch(e){ setHistRows([]); }
+  };
 
   const cargar=React.useCallback(async()=>{
     setCargando(true);
@@ -22933,6 +22947,7 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   },[provCod]);
   React.useEffect(()=>{ cargar(); },[cargar]);
   useModal(!!ajuste, React.useCallback(()=>setAjuste(null),[]));
+  useModal(!!hist, React.useCallback(()=>{setHist(null);setHistRows(null);},[]));
 
   const infoDe=(pid)=> prodInfo[pid] || {nombre:pid, marca:pid, linea:"Otros"};
   /* agrupar Grano(linea) → Marca(prod_id) → ofertas por presentación */
@@ -23041,11 +23056,6 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
 
   return (
     <div>
-      <div className="meta" style={{fontSize:11.5,margin:"0 2px 12px",lineHeight:1.45}}>
-        <b>Costo</b> = lo que cotiza la piladora · <b>Base</b> = el precio que armas tú. El margen es una guía (base − costo).
-        Todo es de <b>{provNombre}</b>: cambiarlo aquí NO toca a otras piladoras.
-      </div>
-
       {lineas.map(ln=>{
         const marcas=granos[ln];
         const pids=Object.keys(marcas).sort((a,b)=>String(marcas[a].nombre||"").localeCompare(String(marcas[b].nombre||""),"es"));
@@ -23094,6 +23104,11 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                         <div style={{fontSize:12.5}}>{o.precio_credito>0?money(o.precio_credito):"—"} <span className="meta" style={{fontSize:9}}>créd</span></div>
                       </div>
                       <div className="meta" style={{fontSize:10,gridColumn:"1 / -1"}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"var(--clay)"}}>{money(margenK)}</b></div>
+                      {/* FECHA_MODIF_TARJETA: cuándo se movió por última vez, + su historia */}
+                      <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:2}}>
+                        <span className="meta" style={{fontSize:9.5}}>Modificado: {fmtFecha(o.vigente_desde)}</span>
+                        <button className="mini-link" style={{fontSize:11}} onClick={()=>verHistorial(o)}>Historial de precios</button>
+                      </div>
                     </div>
                   ) : (
                     <div style={{marginTop:8}}>
@@ -23112,6 +23127,21 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                         baseCred:baseDesdeCosto(num(f.costoCred),BASE_PCT_SOBRE_COSTO) }))}
                         style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px dashed var(--field)",background:"var(--card)",color:"var(--field)",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12}}>
                         Base = Costo + {BASE_PCT_SOBRE_COSTO}%</button>
+                      {/* ANTES_AHORA: lo que cambia, para confirmar antes de guardar */}
+                      {(()=>{ const keep=(v,old)=>{ const n=num(v); return (n!=null&&n>0)?n:old; };
+                        const filas=[["Costo cont",o.costo_contado,keep(form.costoCont,o.costo_contado)],
+                          ["Costo créd",o.costo,keep(form.costoCred,o.costo)],
+                          ["Base cont",o.precio_contado,keep(form.baseCont,o.precio_contado)],
+                          ["Base créd",o.precio_credito,keep(form.baseCred,o.precio_credito)]];
+                        return (
+                        <div style={{marginTop:10,background:"var(--card)",border:"1px solid var(--line)",borderRadius:8,padding:"8px 10px"}}>
+                          <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em",marginBottom:3}}>Antes → Ahora</div>
+                          {filas.map(([lbl,a,b])=>{ const cambia=r2(a)!==r2(b); return (
+                            <div key={lbl} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:11,padding:"1.5px 0",opacity:cambia?1:0.5}}>
+                              <span className="meta">{lbl}</span>
+                              <span>{a>0?money(a):"—"} <span style={{color:"var(--muted)"}}>→</span> <b style={{color:cambia?"#2E7D52":"inherit"}}>{b>0?money(b):"—"}</b></span>
+                            </div>); })}
+                        </div>); })()}
                       <div style={{display:"flex",gap:8,marginTop:10}}>
                         <button onClick={()=>{setEdit(null);setForm(null);}} disabled={guardando}
                           style={{flex:1,padding:"10px",borderRadius:9,border:"1px solid var(--line)",background:"var(--card)",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Cancelar</button>
@@ -23166,6 +23196,29 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
           </div>
         </div>);
       })()}
+
+      {hist && (
+        <div className="ov" onClick={()=>{ setHist(null); setHistRows(null); }}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Historial de precios</h3>
+            <div className="meta" style={{fontSize:11.5,margin:"0 2px 12px"}}>{hist.presentacion||hist.pres_cod} · {provNombre}</div>
+            {histRows===null ? <div className="ph">Cargando…</div>
+              : !histRows.length ? <div className="ph">Sin historial.</div>
+              : histRows.map((h,i)=>(
+                <div key={h.oferta_id||i} style={{border:"1px solid var(--line)",borderRadius:10,padding:"8px 10px",marginBottom:6,background:i===0?"#F5F9F6":"var(--paper)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:11.5,fontWeight:700}}>
+                    <span>{fmtFecha(h.vigente_desde)} → {h.vigente_hasta?fmtFecha(h.vigente_hasta):"hoy"}</span>
+                    {i===0 && <span style={{color:"#2E7D52",fontSize:10}}>vigente</span>}
+                  </div>
+                  <div className="meta" style={{fontSize:10.5,marginTop:3}}>
+                    Costo {h.costo_contado>0?money(h.costo_contado):"—"}/{h.costo>0?money(h.costo):"—"} · Base {h.precio_contado>0?money(h.precio_contado):"—"}/{h.precio_credito>0?money(h.precio_credito):"—"} <span style={{opacity:.7}}>(cont/créd)</span>
+                  </div>
+                </div>))}
+            <button onClick={()=>{ setHist(null); setHistRows(null); }}
+              style={{marginTop:8,width:"100%",padding:"12px",borderRadius:11,border:"1px solid var(--line)",background:"var(--card)",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Cerrar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
