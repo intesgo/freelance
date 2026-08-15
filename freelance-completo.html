@@ -5947,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"445", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios rediseñado: cada marca muestra su variedad como subtítulo (p. ej. «Largo 011 · Especial») y, a la derecha, el crédito costo–base para plegarla. Al abrirla, los precios salen en una rejilla clara Contado / Crédito, con el crédito en ámbar. No cambia costos ni precios." };
+const VERSION = { n:"446", fecha:"15 ago 2026", desc:"Piladoras: «Ajustar por grano» ahora abre una pantalla completa donde eliges familia Y nivel de grano (Económico / Bueno / Especial) antes de subir o bajar precios. Más claro y con menos toques. No cambia costos ni precios por sí solo." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -23058,10 +23058,11 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
     if(!ajuste) return;
     const v=num(ajuste.valor); if(v==null||v<=0){ if(toast) toast("Escribe un valor mayor a 0"); return; }
     const marcas=granos[ajuste.linea]||{};
-    /* AJUSTE_POR_FAMILIA: si se eligió una familia de grano, solo se ajustan sus marcas */
+    /* AJUSTE_POR_FAMILIA + NIVEL_GRANO: si se eligió familia y/o nivel de grano, solo esas marcas */
     const enFamilia=(pid)=> !ajuste.familia || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(0,3)===ajuste.familia;
-    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFamilia(pid));
-    if(!objetivo.length){ if(toast) toast("No hay marcas para ajustar (revisa la familia o las excluidas)"); return; }
+    const enNivel=(pid)=> !ajuste.nivel || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(3,5)===ajuste.nivel;
+    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFamilia(pid) && enNivel(pid));
+    if(!objetivo.length){ if(toast) toast("No hay marcas para ajustar (revisa familia/nivel o las excluidas)"); return; }
     setGuardando(true);
     let n=0, err=0;
     const aj=(x)=>{ const base=Number(x)||0; if(!(base>0)) return base; const delta=ajuste.modo==="pct"? base*(v/100) : v; return Math.max(0, r4(base + ajuste.signo*delta)); };
@@ -23263,28 +23264,48 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
         </div>);
       })}
 
+      {/* AJUSTAR_PRECIOS_FULL: ajustar precios a PANTALLA COMPLETA, acotando por familia y nivel de grano */}
       {ajuste && (()=>{
         const marcas=granos[ajuste.linea]||{};
-        /* AJUSTE_POR_FAMILIA: el conteo respeta la familia elegida */
         const enFam=(pid)=> !ajuste.familia || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(0,3)===ajuste.familia;
-        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFam(pid));
+        const enNiv=(pid)=> !ajuste.nivel || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(3,5)===ajuste.nivel;
+        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFam(pid) && enNiv(pid));
         const famNom=(ajuste.familia&&(FAMILIAS_GRANO.find(f=>f.cod===ajuste.familia)||{}).desc)||"toda la línea";
+        const nivNom=(ajuste.nivel&&(NIVELES_GRANO.find(nv=>nv.cod===ajuste.nivel)||{}).n)||"todos los niveles";
         return (
-        <div className="ov" onClick={()=>{ if(!guardando) setAjuste(null); }}>
-          <div className="sheet" onClick={e=>e.stopPropagation()}>
-            <h3>Ajustar {ajuste.linea} · {provNombre}</h3>
-            <div className="meta" style={{fontSize:12,margin:"0 2px 10px",lineHeight:1.45}}>
-              Aplica el mismo cambio a las marcas de <b>{famNom}</b> en esta piladora
-              ({objetivo.length} de {Object.keys(marcas).length}; las excluidas se saltan). No toca otras piladoras.
+        <div style={{position:"fixed",inset:0,zIndex:3000,background:"var(--bg,#F3EFE6)",display:"flex",flexDirection:"column"}}>
+          {/* cabecera fija */}
+          <div style={{background:"var(--field)",color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+            <button onClick={()=>{ if(!guardando) setAjuste(null); }} style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:20,padding:"6px 12px",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>‹ Volver</button>
+            <div style={{fontWeight:800,fontSize:16}}>Ajustar precios · {ajuste.linea}</div>
+          </div>
+          {/* cuerpo desplazable */}
+          <div style={{flex:1,overflowY:"auto",padding:"14px 16px",maxWidth:560,width:"100%",margin:"0 auto",boxSizing:"border-box"}}>
+            <div className="meta" style={{fontSize:12.5,margin:"0 2px 14px",lineHeight:1.5}}>
+              {provNombre} · aplica el mismo cambio a <b>{famNom}</b> / <b>{nivNom}</b>
+              ({objetivo.length} de {Object.keys(marcas).length} marcas; las excluidas se saltan). No toca otras piladoras.
             </div>
-            {/* AJUSTE_POR_FAMILIA: elegir si el ajuste cubre toda la línea o solo una familia de grano */}
-            <div style={{display:"flex",gap:6,marginBottom:9,flexWrap:"wrap"}}>
-              <button onClick={()=>setAjuste(a=>({...a,familia:""}))} style={{...chip(!ajuste.familia),padding:"7px 10px",fontSize:11.5}}>Toda la línea</button>
+
+            {/* AJUSTE_POR_FAMILIA: familia de grano */}
+            <div style={{fontWeight:800,fontSize:12.5,margin:"0 2px 7px"}}>Familia de grano</div>
+            <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+              <button onClick={()=>setAjuste(a=>({...a,familia:""}))} style={{...chip(!ajuste.familia),padding:"8px 11px",fontSize:12}}>Toda la línea</button>
               {FAMILIAS_GRANO.map(f=>(
-                <button key={f.cod} onClick={()=>setAjuste(a=>({...a,familia:f.cod}))} style={{...chip(ajuste.familia===f.cod),padding:"7px 10px",fontSize:11.5}}>{f.desc}</button>
+                <button key={f.cod} onClick={()=>setAjuste(a=>({...a,familia:f.cod}))} style={{...chip(ajuste.familia===f.cod),padding:"8px 11px",fontSize:12}}>{f.desc}</button>
               ))}
             </div>
-            <div style={{display:"flex",gap:8,marginBottom:9}}>
+
+            {/* NIVEL_GRANO: Económico / Bueno / Especial */}
+            <div style={{fontWeight:800,fontSize:12.5,margin:"0 2px 7px"}}>Nivel de grano</div>
+            <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+              <button onClick={()=>setAjuste(a=>({...a,nivel:""}))} style={{...chip(!ajuste.nivel),padding:"8px 11px",fontSize:12}}>Todos</button>
+              {NIVELES_GRANO.map(nv=>(
+                <button key={nv.cod} onClick={()=>setAjuste(a=>({...a,nivel:nv.cod}))} style={{...chip(ajuste.nivel===nv.cod),padding:"8px 11px",fontSize:12}}>{nv.n}</button>
+              ))}
+            </div>
+
+            <div style={{fontWeight:800,fontSize:12.5,margin:"0 2px 7px"}}>Qué ajustar</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
               <button onClick={()=>setAjuste(a=>({...a,campo:"costo"}))} style={{flex:1,...chip(ajuste.campo==="costo")}}>Costo</button>
               <button onClick={()=>setAjuste(a=>({...a,campo:"base"}))} style={{flex:1,...chip(ajuste.campo==="base")}}>Base</button>
               <button onClick={()=>setAjuste(a=>({...a,campo:"basecosto",valor:a.valor||String(BASE_PCT_SOBRE_COSTO)}))} style={{flex:1.4,...chip(ajuste.campo==="basecosto")}}>Base = Costo + %</button>
@@ -23294,21 +23315,22 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
               <button onClick={()=>setAjuste(a=>({...a,signo:1}))} style={{flex:1,...chip(ajuste.signo===1)}}>Subir +</button>
               <button onClick={()=>setAjuste(a=>({...a,signo:-1}))} style={{flex:1,...chip(ajuste.signo===-1)}}>Bajar −</button>
             </div>
-            <div style={{display:"flex",gap:8,marginBottom:9}}>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
               <button onClick={()=>setAjuste(a=>({...a,modo:"monto"}))} style={{flex:1,...chip(ajuste.modo==="monto")}}>$ Monto</button>
               <button onClick={()=>setAjuste(a=>({...a,modo:"pct"}))} style={{flex:1,...chip(ajuste.modo==="pct")}}>% Porcentaje</button>
             </div>
             </>)}
-            {ajuste.campo==="basecosto" && <div className="meta" style={{fontSize:11.5,margin:"0 2px 9px"}}>La Base de cada marca queda = su Costo + este %. Ej.: costo 18 + 12% = base 20,16.</div>}
+            {ajuste.campo==="basecosto" && <div className="meta" style={{fontSize:11.5,margin:"0 2px 10px"}}>La Base de cada marca queda = su Costo + este %. Ej.: costo 18 + 12% = base 20,16.</div>}
             <input inputMode="decimal" value={ajuste.valor} onChange={e=>setAjuste(a=>({...a,valor:e.target.value}))}
               placeholder={ajuste.campo==="basecosto"?"% sobre el costo (ej. 12)":(ajuste.modo==="pct"?"Ej. 5 (=5%)":"Ej. 0,50")}
-              style={{width:"100%",boxSizing:"border-box",padding:"11px",borderRadius:10,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:15,marginBottom:14,background:"var(--paper)"}}/>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>setAjuste(null)} disabled={guardando}
-                style={{flex:1,padding:"12px",borderRadius:11,border:"1px solid var(--line)",background:"var(--card)",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Cancelar</button>
-              <button onClick={aplicarAjuste} disabled={guardando}
-                style={{flex:1,padding:"12px",borderRadius:11,border:"none",background:guardando?"#9DBBA9":"#2E7D52",color:"#fff",fontWeight:800,fontFamily:"inherit",cursor:guardando?"default":"pointer"}}>{guardando?"Aplicando…":"Aplicar"}</button>
-            </div>
+              style={{width:"100%",boxSizing:"border-box",padding:"13px",borderRadius:11,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:16,background:"var(--card)"}}/>
+          </div>
+          {/* pie fijo */}
+          <div style={{flexShrink:0,display:"flex",gap:10,padding:"12px 16px",borderTop:"1px solid var(--line)",background:"var(--card)",maxWidth:560,width:"100%",margin:"0 auto",boxSizing:"border-box"}}>
+            <button onClick={()=>setAjuste(null)} disabled={guardando}
+              style={{flex:1,padding:"13px",borderRadius:11,border:"1px solid var(--line)",background:"var(--card)",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Cancelar</button>
+            <button onClick={aplicarAjuste} disabled={guardando}
+              style={{flex:2,padding:"13px",borderRadius:11,border:"none",background:guardando?"#9DBBA9":"#2E7D52",color:"#fff",fontWeight:800,fontFamily:"inherit",cursor:guardando?"default":"pointer"}}>{guardando?"Aplicando…":`Aplicar a ${objetivo.length} marca(s)`}</button>
           </div>
         </div>);
       })()}
