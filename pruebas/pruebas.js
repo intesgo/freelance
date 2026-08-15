@@ -112,6 +112,7 @@ const PLAN = [
   { arnes:"test_costos_render.js",   que:"Piladoras: marca plegable, resumen de crédito, buscador uFuzzy y crédito en ámbar", apps:[null] },
   { arnes:"test_ajustar_visual.js",  que:"Piladoras: ajuste con verde suave, resumen sticky y ejemplo de impacto", apps:[null] },
   { arnes:"test_pedido_base_chips.js", que:"Pedido: base en los chips y nombre P1/P2 corregido (Crédito/Contado)", apps:[null] },
+  { arnes:"test_web_al_dia.js",       que:"Sistema Web: dos bases en el pedido, crear y ocultar piladora", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
      la regresión normal y no deben quedar omitidos por falta de una variable. */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },

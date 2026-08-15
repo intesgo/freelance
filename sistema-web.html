@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"159", fecha:"15 ago 2026", desc:"Piladoras · pantalla de ajuste más clara: lo que eliges se marca en verde suave, hay un resumen fijo de lo que se aplicará, un ejemplo del efecto sobre un precio, y un «Ver marcas». No cambia costo ni precio por sí solo." };
+const VERSION = { n:"160", fecha:"15 ago 2026", desc:"Sistema Web al día: en el pedido se ven las DOS bases del producto (contado y crédito) sin adivinar. En Piladoras ya puedes crear una piladora nueva y ocultar/reactivar una existente (queda por confirmar la estructura de la base con Cowork)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -6155,6 +6155,19 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                       <button key={t.id} onClick={()=>{ setTipo(t.id); setPrecio(""); setPromoF(null); setPromoP(null); }} title={t.desc} style={{ padding:"11px 5px", borderRadius:10, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t.nombre}</button>
                     );})}
                   </div>
+                  {/* BASE_EN_CHIPS_WEB: las DOS bases del producto (contado y crédito) a la vista, para no adivinar */}
+                  {prod && (Number(prod.baseContado)>0 || Number(prod.baseCredito)>0) && (
+                    <div style={{ display:"flex", gap:8, marginTop:10 }}>
+                      <div style={{ flex:1, border:`1px solid ${tipo==="P1"?COLOR.teal:COLOR.border}`, background:tipo==="P1"?COLOR.tealLight:"#fff", borderRadius:10, padding:"8px 10px" }}>
+                        <div style={{ fontSize:10, textTransform:"uppercase", letterSpacing:".03em", color:COLOR.muted }}>Base contado</div>
+                        <div style={{ fontSize:15, fontWeight:800, color:COLOR.tealDark }}>{Number(prod.baseContado)>0?money(prod.baseContado):"—"}</div>
+                      </div>
+                      <div style={{ flex:1, border:`1px solid ${tipo==="P2"?COLOR.teal:COLOR.border}`, background:tipo==="P2"?COLOR.tealLight:"#fff", borderRadius:10, padding:"8px 10px" }}>
+                        <div style={{ fontSize:10, textTransform:"uppercase", letterSpacing:".03em", color:COLOR.muted }}>Base crédito</div>
+                        <div style={{ fontSize:15, fontWeight:800, color:"#8A5A00" }}>{Number(prod.baseCredito)>0?money(prod.baseCredito):"—"}</div>
+                      </div>
+                    </div>
+                  )}
                   {tipo==="P3" && (<React.Fragment>
                     <label style={{...lblM, marginTop:16}}>Piso del precio</label>
                     <div style={{ display:"flex", gap:8 }}>{segBtn(condP3==="contado","Piso contado",()=>setCondP3("contado"))}{segBtn(condP3==="credito","Piso crédito",()=>setCondP3("credito"))}</div>
@@ -8486,6 +8499,11 @@ function PiladorasWeb({ usuario }){
   const [rucCargado,setRucCargado]=useState(""); // valor guardado, para saber si cambió
   const [rucGuardando,setRucGuardando]=useState(false);
   const [busca,setBusca]=useState("");
+  const [altaOpen,setAltaOpen]=useState(false); // form de "crear piladora" abierto
+  const [altaNombre,setAltaNombre]=useState("");
+  const [altaRuc,setAltaRuc]=useState("");
+  const [creando,setCreando]=useState(false);
+  const [ocultando,setOcultando]=useState(false);
   const [edit,setEdit]=useState(null);         // ofertaId en edición
   const [form,setForm]=useState(null);
   const [excluidas,setExcluidas]=useState({}); // prodId -> true: el ajuste por grano la salta
@@ -8532,6 +8550,41 @@ function PiladorasWeb({ usuario }){
       else { setRucCargado((rucWeb||"").trim()); setError(""); }
     }catch(e){ setError(String((e&&e.message)||e)); }
     setRucGuardando(false);
+  };
+  /* ALTA_PILADORA_WEB: crear una piladora nueva (insert en `proveedores`).
+     SUPUESTOS (a confirmar por Cowork): prov_cod de texto autogenerado, `nombre`,
+     es_demo=false, activo=true. Manejo de error visible: si el esquema o la RLS de
+     `proveedores` difieren, muestra el error y no crea nada. */
+  const crearPiladora=async()=>{
+    const nombre=(altaNombre||"").trim();
+    if(!nombre){ setError("Escribe el nombre de la piladora."); return; }
+    setCreando(true);
+    try{
+      const prov_cod="PROV-"+Date.now().toString(36).toUpperCase();
+      const fila={prov_cod, nombre, es_demo:false, activo:true};
+      const { error }=await window.supa.from("proveedores").insert(fila);
+      if(error){ setError("No se pudo crear la piladora (revisa permisos/estructura de la base): "+error.message); }
+      else {
+        /* si se dio un RUC, se guarda en su ficha */
+        if((altaRuc||"").trim()){ try{ await window.supa.from("proveedor_fichas").upsert({prov_cod, ruc:altaRuc.trim(), actualizado:new Date().toISOString()}); }catch(_){}}
+        setNomProv(m=>({...m,[prov_cod]:nombre}));
+        setAltaOpen(false); setAltaNombre(""); setAltaRuc(""); setError("");
+        setSelProv(prov_cod);   // abre la piladora recién creada
+      }
+    }catch(e){ setError(String((e&&e.message)||e)); }
+    setCreando(false);
+  };
+  /* OCULTAR_PILADORA_WEB: ocultar o reactivar una piladora (update proveedores.activo).
+     SUPUESTO: existe la columna `activo`. Manejo de error visible. */
+  const ocultarPiladora=async(cod, ocultar)=>{
+    if(!cod) return;
+    setOcultando(true);
+    try{
+      const { error }=await window.supa.from("proveedores").update({activo: !ocultar}).eq("prov_cod",cod);
+      if(error){ setError("No se pudo "+(ocultar?"ocultar":"reactivar")+" la piladora: "+error.message); }
+      else { setError(""); if(ocultar) setSelProv(null); }
+    }catch(e){ setError(String((e&&e.message)||e)); }
+    setOcultando(false);
   };
   /* Clasificar el producto por su variedad de grano: escribe productos.tipo_grano
      (el precio/costo NO cambia; es la etiqueta del grano). */
@@ -8682,8 +8735,24 @@ function PiladorasWeb({ usuario }){
         Elige una piladora para ver y ajustar sus <b>costos</b> (lo que cotiza) y sus <b>bases</b> (el precio que armas tú),
         por Grano → Marca → Presentación. Todo es por piladora: un cambio aquí nunca toca a otra.
       </div>
-      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar piladora…"
-        style={{...S.inp,marginBottom:12,padding:"11px 12px",fontSize:15}}/>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar piladora…"
+          style={{...S.inp,flex:1,padding:"11px 12px",fontSize:15}}/>
+        {/* ALTA_PILADORA_WEB: abrir el formulario para crear una piladora nueva */}
+        <button onClick={()=>{ setAltaOpen(v=>!v); setError(""); }} style={{...S.btn(altaOpen?"#fff":"#2E7D52",altaOpen?"#333":"#fff"),flexShrink:0,border:altaOpen?"1px solid #D8D2C4":"none"}}>{altaOpen?"Cancelar":"＋ Crear piladora"}</button>
+      </div>
+      {/* ALTA_PILADORA_WEB: formulario de alta */}
+      {altaOpen && (
+        <div style={{...S.card,marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:14,marginBottom:8}}>Nueva piladora</div>
+          <input value={altaNombre} onChange={e=>setAltaNombre(e.target.value)} placeholder="Nombre de la piladora"
+            style={{...S.inp,width:"100%",boxSizing:"border-box",padding:"10px 12px",fontSize:15,marginBottom:8}}/>
+          <input value={altaRuc} onChange={e=>setAltaRuc(e.target.value)} inputMode="numeric" placeholder="RUC (opcional)"
+            style={{...S.inp,width:"100%",boxSizing:"border-box",padding:"10px 12px",fontSize:15,marginBottom:10}}/>
+          <button onClick={crearPiladora} disabled={creando||!altaNombre.trim()} style={{...S.btn((creando||!altaNombre.trim())?"#9DBBA9":"#2E7D52"),width:"100%"}}>{creando?"Creando…":"Crear piladora"}</button>
+          <div style={{...S.meta,fontSize:11,marginTop:7,lineHeight:1.45}}>Se registra en la base. Aparecerá en la lista cuando cargue su primera oferta; mientras tanto puedes abrirla para llenar su ficha.</div>
+        </div>
+      )}
       {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
       {piladoras.map(p=>(
         <div key={p.provCod} style={{...S.card,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}
@@ -8765,6 +8834,15 @@ function PiladorasWeb({ usuario }){
               style={{...S.btn((rucGuardando||(rucWeb||"").trim()===(rucCargado||"").trim())?"#9DBBA9":"#2E7D52"),flexShrink:0}}>{rucGuardando?"Guardando…":"Guardar"}</button>
           </div>
           <div style={{...S.meta,fontSize:11,marginTop:6}}>Se guarda en la ficha de la piladora. El resto de condiciones (cupo, días de crédito, documentos) se administra en la app móvil.</div>
+        </div>
+        {/* OCULTAR_PILADORA_WEB: ocultar la piladora (no borra; deja de listarse) o reactivarla */}
+        <div style={S.card}>
+          <div style={{fontWeight:800,fontSize:14,marginBottom:6}}>Estado</div>
+          <div style={{...S.meta,fontSize:11.5,marginBottom:9,lineHeight:1.45}}>Ocultar una piladora la saca de la lista sin borrar nada (se puede reactivar). No toca sus ofertas ni su histórico.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>ocultarPiladora(selProv,true)} disabled={ocultando} style={{...S.btn("#fff","#B5613C"),flex:1,border:"1px solid #E3C4B7"}}>{ocultando?"…":"Ocultar piladora"}</button>
+            <button onClick={()=>ocultarPiladora(selProv,false)} disabled={ocultando} style={{...S.btn("#fff","#2E7D52"),flex:1,border:"1px solid #BFE0CC"}}>{ocultando?"…":"Reactivar"}</button>
+          </div>
         </div>
       </>)}
 
