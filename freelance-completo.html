@@ -5947,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"444", fecha:"15 ago 2026", desc:"Piladoras: al ajustar precios ya puedes limitar el cambio a una familia de grano (Grano corriente / largo 011 / Ferón), no solo a toda la línea. El menú muestra el número real de piladoras (leído de la base, no un número fijo). El RUC se edita en la ficha de la piladora. No cambia costos ni precios." };
+const VERSION = { n:"445", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios rediseñado: cada marca muestra su variedad como subtítulo (p. ej. «Largo 011 · Especial») y, a la derecha, el crédito costo–base para plegarla. Al abrirla, los precios salen en una rejilla clara Contado / Crédito, con el crédito en ámbar. No cambia costos ni precios." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -23088,6 +23088,14 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
 
   /* CRED_AMBAR: el crédito se resalta en ámbar para no confundirlo con el contado */
   const CRED_AMBAR={background:"#FBEFD6",color:"#8A5A00",borderRadius:6,padding:"0 5px",fontWeight:700};
+  /* celdas de la rejilla Contado | Crédito del detalle */
+  const celdaCont={background:"var(--card)",border:"1px solid var(--line)",borderRadius:9,padding:"9px 8px",textAlign:"center",fontWeight:700,fontSize:14};
+  const celdaCred={...CRED_AMBAR,border:"1px solid #EED9A8",borderRadius:9,padding:"9px 8px",textAlign:"center",fontWeight:800,fontSize:14};
+  /* nombre corto de la familia de grano para el subtítulo (quita "Grano " y capitaliza) */
+  const familiaCorta=(cod)=>{ const d=(FAMILIAS_GRANO.find(f=>f.cod===String(cod||"").slice(0,3))||{}).desc||""; return d?d.replace(/^Grano\s+/i,"").replace(/^./,c=>c.toUpperCase()):""; };
+  const nivelDe=(cod)=>(NIVELES_GRANO.find(nv=>nv.cod===String(cod||"").slice(3,5))||{}).n||"";
+  /* resumen crédito costo–base de la presentación principal (la de mayor equivalencia en qq) */
+  const numCorto=v=>{ v=Number(v)||0; if(!(v>0)) return null; return money(v).replace(/^\$/,"").replace(/,00$/,""); };
   const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
   /* buscador de marcas dentro de la piladora: reusa uFuzzy (ya embebido, sin CDN nuevo) */
   const filtraMarcas=(pids,marcas)=>{
@@ -23118,9 +23126,9 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
     <div>
       {/* buscador de marcas (uFuzzy) dentro de la piladora */}
       <div style={{position:"relative",marginBottom:12}}>
-        <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:"var(--muted)",fontSize:14}}>⌕</span>
+        <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:15}}>🔍</span>
         <input value={qMarca} onChange={e=>setQMarca(e.target.value)} placeholder="Buscar marca…"
-          style={{width:"100%",boxSizing:"border-box",padding:"10px 12px 10px 32px",borderRadius:10,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:14,background:"var(--card)"}}/>
+          style={{width:"100%",boxSizing:"border-box",padding:"12px 12px 12px 38px",borderRadius:12,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:15,background:"var(--card)"}}/>
         {qMarca && <button onClick={()=>setQMarca("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",fontSize:16,color:"var(--muted)",cursor:"pointer"}}>×</button>}
       </div>
       {lineas.map(ln=>{
@@ -23143,67 +23151,64 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
           {pids.map(pid=>{
             const m=marcas[pid]; const exc=!!excluidas[pid];
             const tgCod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
-            const tgDesc=(VARIEDADES_GRANO.find(v=>v.cod===tgCod)||{}).desc||"";
             const abierta=!!abiertas[pid];
-            const rc=resumenCred(m);
+            /* variedad como subtítulo verde: "Familia · Nivel" (tocarlo reclasifica) */
+            const subtVar = tgCod ? (familiaCorta(tgCod) + (nivelDe(tgCod)?(" · "+nivelDe(tgCod)):"")) : "Sin clasificar";
+            /* RESUMEN_CRED: crédito costo–base de la presentación principal (mayor qq) */
+            const ofsOrden=m.ofertas.slice().sort((a,b)=>(Number(b.equiv_qq)||0)-(Number(a.equiv_qq)||0));
+            const top=ofsOrden[0]||{};
+            const nc=numCorto(top.costo), nb=numCorto(top.precio_credito);
+            const resumenTxt=(nc||nb)?("$"+(nc||"—")+"–"+(nb||"—")):"—";
             return (
             /* TARJETA_MARCA + MARCA_PLEGABLE: tarjeta destacada que se pliega; el detalle se arma solo al abrir */
-            <div key={pid} className="tarjeta-marca" style={{background:"var(--paper)",border:"1px solid var(--line)",borderLeft:"3px solid var(--field)",borderRadius:12,padding:"10px 12px",marginTop:10,opacity:exc?0.55:1}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,minWidth:0,flex:1,cursor:"pointer"}}>
-                  <span style={{fontSize:12,color:"var(--muted)",flexShrink:0}}>{abierta?"▾":"▸"}</span>
-                  <div style={{fontWeight:800,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏷️ {m.nombre}</div>
+            <div key={pid} className="tarjeta-marca" style={{background:"var(--card)",border:"1px solid var(--line)",borderLeft:"3px solid var(--field)",borderRadius:14,padding:"12px 14px",marginTop:10,opacity:exc?0.6:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
+                {/* nombre + variedad (toca la variedad para reclasificar) */}
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontWeight:800,fontSize:16,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis"}}>{m.nombre}</div>
+                  <div onClick={()=>setTgSel(pid)} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"var(--field)":"var(--muted)",cursor:"pointer"}}>{subtVar}</div>
                 </div>
-                <label style={{fontSize:10.5,display:"flex",alignItems:"center",gap:5,color:"var(--muted)",flexShrink:0}}>
-                  <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir
-                </label>
+                {/* RESUMEN_CRED: crédito costo–base + plegar (ámbar) */}
+                <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flexShrink:0}}>
+                  <div style={{textAlign:"right"}}>
+                    <div className="meta" style={{fontSize:9,textTransform:"uppercase",letterSpacing:".03em"}}>Créd. costo–base</div>
+                    <div style={{fontWeight:800,fontSize:16,color:"#8A5A00"}}>{resumenTxt}</div>
+                  </div>
+                  <span style={{fontSize:14,color:"var(--muted)"}}>{abierta?"▾":"▸"}</span>
+                </div>
               </div>
-
-              {/* RESUMEN_CRED: plegada, el crédito (costo → base) se ve de un vistazo, resaltado en ámbar */}
-              {!abierta && (
-                <div onClick={()=>setAbiertas(s=>({...s,[pid]:true}))} style={{marginTop:6,fontSize:11.5,cursor:"pointer"}}>
-                  <span className="meta" style={{fontSize:10.5}}>Crédito · </span>
-                  Costo <span style={CRED_AMBAR}>{rc.costo}</span> <span className="meta">→</span> Base <span style={CRED_AMBAR}>{rc.base}</span>
-                </div>
-              )}
 
               {abierta && (<>
-              {/* variedad de grano (tipo_grano): se elige en un modal agrupado por familia (editable) */}
-              <div style={{display:"flex",alignItems:"center",gap:6,margin:"8px 0"}}>
-                <span className="meta" style={{fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
-                <button onClick={()=>setTgSel(pid)}
-                  style={{flex:1,minWidth:0,textAlign:"left",padding:"6px 9px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:11.5,background:"var(--card)",cursor:"pointer",fontWeight:tgDesc?700:400,color:tgDesc?"inherit":"var(--muted)"}}>
-                  {tgDesc?(tgCod+" · "+tgDesc):"— sin clasificar — (tocar para elegir)"}
-                </button>
-              </div>
-              {m.ofertas.slice().sort((a,b)=>(Number(b.equiv_qq)||0)-(Number(a.equiv_qq)||0)).map(o=>{
+              <div style={{height:8}}/>
+              {ofsOrden.map(o=>{
                 const enEd=edit===o.oferta_id;
                 const margenK=r2((Number(o.precio_credito)||0)-(Number(o.costo)||0));
                 return (
-                <div key={o.oferta_id} style={{background:"var(--paper)",border:"1px solid var(--line)",borderRadius:10,padding:"9px 10px",marginBottom:6}}>
+                <div key={o.oferta_id} style={{background:"var(--paper)",border:"1px solid var(--line)",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:12.5,fontWeight:700}}>{o.presentacion||o.pres_cod}</span>
-                    {!enEd && <button className="mini-link" style={{fontSize:12}}
+                    <span style={{fontSize:14,fontWeight:800}}>{o.presentacion||o.pres_cod}</span>
+                    {!enEd && <button className="mini-link" style={{fontSize:12.5,fontWeight:700}}
                       onClick={()=>{ setEdit(o.oferta_id); setForm({costoCont:o.costo_contado!=null?o.costo_contado:"",costoCred:o.costo!=null?o.costo:"",baseCont:o.precio_contado!=null?o.precio_contado:"",baseCred:o.precio_credito!=null?o.precio_credito:""}); }}>✎ Editar</button>}
                   </div>
                   {!enEd ? (
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
-                      <div>
-                        <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Costo</div>
-                        <div style={{fontSize:12.5}}>{o.costo_contado>0?money(o.costo_contado):"—"} <span className="meta" style={{fontSize:9}}>cont</span></div>
-                        {/* CRED_AMBAR: el crédito resaltado en ámbar */}
-                        <div style={{fontSize:12.5}}><span style={CRED_AMBAR}>{o.costo>0?money(o.costo):"—"}</span> <span className="meta" style={{fontSize:9}}>créd</span></div>
+                    <div style={{marginTop:8}}>
+                      {/* rejilla CONTADO | CRÉDITO (columnas), Costo / Base (filas); el crédito va en ámbar (CRED_AMBAR) */}
+                      <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center"}}>
+                        <div/>
+                        <div className="meta" style={{fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em"}}>Contado</div>
+                        <div style={{fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800,color:"#8A5A00"}}>Crédito</div>
+                        <div className="meta" style={{fontSize:12}}>Costo</div>
+                        <div style={celdaCont}>{o.costo_contado>0?money(o.costo_contado):"—"}</div>
+                        <div style={celdaCred}>{o.costo>0?money(o.costo):"—"}</div>
+                        <div className="meta" style={{fontSize:12}}>Base</div>
+                        <div style={celdaCont}>{o.precio_contado>0?money(o.precio_contado):"—"}</div>
+                        <div style={celdaCred}>{o.precio_credito>0?money(o.precio_credito):"—"}</div>
                       </div>
-                      <div>
-                        <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Base</div>
-                        <div style={{fontSize:12.5}}>{o.precio_contado>0?money(o.precio_contado):"—"} <span className="meta" style={{fontSize:9}}>cont</span></div>
-                        <div style={{fontSize:12.5}}><span style={CRED_AMBAR}>{o.precio_credito>0?money(o.precio_credito):"—"}</span> <span className="meta" style={{fontSize:9}}>créd</span></div>
-                      </div>
-                      <div className="meta" style={{fontSize:10,gridColumn:"1 / -1"}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"var(--clay)"}}>{money(margenK)}</b></div>
+                      <div className="meta" style={{fontSize:10.5,marginTop:8}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"var(--clay)"}}>{money(margenK)}</b></div>
                       {/* FECHA_MODIF_TARJETA: cuándo se movió por última vez, + su historia */}
-                      <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:2}}>
-                        <span className="meta" style={{fontSize:9.5}}>Modificado: {fmtFecha(o.vigente_desde)}</span>
-                        <button className="mini-link" style={{fontSize:11}} onClick={()=>verHistorial(o)}>Historial de precios</button>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid var(--line)"}}>
+                        <span className="meta" style={{fontSize:10}}>Modificado: {fmtFecha(o.vigente_desde)}</span>
+                        <button className="mini-link" style={{fontSize:11.5,fontWeight:700}} onClick={()=>verHistorial(o)}>Historial de precios ›</button>
                       </div>
                     </div>
                   ) : (
@@ -23248,6 +23253,10 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                   )}
                 </div>);
               })}
+              {/* excluir esta marca del ajuste por grano (queda dentro del detalle, sin recargar la vista plegada) */}
+              <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--muted)",marginTop:2}}>
+                <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir esta marca del ajuste por grano
+              </label>
               </>)}
             </div>);
           })}

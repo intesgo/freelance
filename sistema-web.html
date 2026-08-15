@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"156", fecha:"15 ago 2026", desc:"Piladoras: al ajustar precios ya puedes limitar el cambio a una familia de grano (Grano corriente / largo 011 / Ferón), no solo a toda la línea. En la Ficha de la piladora se puede editar y guardar el RUC. No cambia costo ni precio." };
+const VERSION = { n:"157", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios rediseñado: cada marca muestra su variedad como subtítulo y, a la derecha, el crédito costo–base para plegarla. Al abrirla, los precios salen en una rejilla clara Contado / Crédito, con el crédito en ámbar. No cambia costo ni precio." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8704,6 +8704,13 @@ function PiladorasWeb({ usuario }){
   const nOfertas=(ofertas||[]).filter(o=>o.provCod===selProv).length;
   /* CRED_AMBAR: el crédito se resalta en ámbar para no confundirlo con el contado */
   const CRED_AMBAR={background:"#FBEFD6",color:"#8A5A00",borderRadius:6,padding:"0 5px",fontWeight:700};
+  /* celdas de la rejilla Contado | Crédito del detalle */
+  const celdaCont={background:"#fff",border:"1px solid #EDE9DE",borderRadius:9,padding:"9px 8px",textAlign:"center",fontWeight:700,fontSize:14};
+  const celdaCred={...CRED_AMBAR,border:"1px solid #EED9A8",borderRadius:9,padding:"9px 8px",textAlign:"center",fontWeight:800,fontSize:14};
+  /* nombre corto de la familia de grano para el subtítulo (quita "Grano " y capitaliza) */
+  const familiaCorta=(cod)=>{ const d=(FAMILIAS_GRANO.find(f=>f.cod===String(cod||"").slice(0,3))||{}).desc||""; return d?d.replace(/^Grano\s+/i,"").replace(/^./,c=>c.toUpperCase()):""; };
+  const nivelDe=(cod)=>(NIVELES_GRANO.find(nv=>nv.cod===String(cod||"").slice(3,5))||{}).n||"";
+  const numCorto=v=>{ v=Number(v)||0; if(!(v>0)) return null; return preMoney(v).replace(/^\$/,"").replace(/,00$/,""); };
   const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
   /* buscador de marcas dentro de la piladora: reusa uFuzzy (embebido, sin CDN nuevo) */
   const filtraMarcas=(pids,marcas)=>{
@@ -8766,9 +8773,9 @@ function PiladorasWeb({ usuario }){
       {/* buscador de marcas (uFuzzy) dentro de la piladora */}
       {!!lineas.length && (
       <div style={{position:"relative",margin:"0 2px 12px"}}>
-        <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:"#8A8578",fontSize:14}}>⌕</span>
+        <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:15}}>🔍</span>
         <input value={qMarca} onChange={e=>setQMarca(e.target.value)} placeholder="Buscar marca…"
-          style={{...S.inp,width:"100%",boxSizing:"border-box",padding:"10px 12px 10px 32px",fontSize:14}}/>
+          style={{...S.inp,width:"100%",boxSizing:"border-box",padding:"12px 12px 12px 38px",fontSize:15}}/>
         {qMarca && <button onClick={()=>setQMarca("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",fontSize:16,color:"#8A8578",cursor:"pointer"}}>×</button>}
       </div>)}
 
@@ -8787,67 +8794,62 @@ function PiladorasWeb({ usuario }){
           {pids.map(pid=>{
             const m=marcas[pid]; const exc=!!excluidas[pid];
             const tgCod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
-            const tgDesc=(VARIEDADES_GRANO.find(v=>v.cod===tgCod)||{}).desc||"";
             const abierta=!!abiertas[pid];
-            const rc=resumenCred(m);
+            const subtVar = tgCod ? (familiaCorta(tgCod) + (nivelDe(tgCod)?(" · "+nivelDe(tgCod)):"")) : "Sin clasificar";
+            const ofsOrden=m.ofertas.slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0));
+            const top=ofsOrden[0]||{};
+            const nc=numCorto(top.costo), nb=numCorto(top.credito);
+            const resumenTxt=(nc||nb)?("$"+(nc||"—")+"–"+(nb||"—")):"—";
             return (
             /* TARJETA_MARCA + MARCA_PLEGABLE: tarjeta destacada que se pliega; el detalle se arma solo al abrir */
-            <div key={pid} className="tarjeta-marca" style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderLeft:"3px solid #2E7D52",borderRadius:12,marginTop:10,padding:"10px 12px",opacity:exc?0.55:1}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,minWidth:0,flex:1,cursor:"pointer"}}>
-                  <span style={{fontSize:12,color:"#8A8578",flexShrink:0}}>{abierta?"▾":"▸"}</span>
-                  <div style={{fontWeight:800,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏷️ {m.nombre}</div>
+            <div key={pid} className="tarjeta-marca" style={{background:"#fff",border:"1px solid #EDE9DE",borderLeft:"3px solid #2E7D52",borderRadius:14,marginTop:10,padding:"12px 14px",opacity:exc?0.6:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
+                {/* nombre + variedad (clic en la variedad para reclasificar) */}
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontWeight:800,fontSize:16,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis"}}>{m.nombre}</div>
+                  <div onClick={()=>setTgSel(pid)} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"#2E7D52":"#8A8578",cursor:"pointer"}}>{subtVar}</div>
                 </div>
-                <label style={{...S.meta,display:"flex",alignItems:"center",gap:5,cursor:"pointer",flexShrink:0}}>
-                  <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir
-                </label>
+                {/* RESUMEN_CRED: crédito costo–base + plegar (ámbar) */}
+                <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flexShrink:0}}>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{...S.meta,fontSize:9,textTransform:"uppercase",letterSpacing:".03em"}}>Créd. costo–base</div>
+                    <div style={{fontWeight:800,fontSize:16,color:"#8A5A00"}}>{resumenTxt}</div>
+                  </div>
+                  <span style={{fontSize:14,color:"#8A8578"}}>{abierta?"▾":"▸"}</span>
+                </div>
               </div>
-
-              {/* RESUMEN_CRED: plegada, el crédito (costo → base) se ve de un vistazo, resaltado en ámbar */}
-              {!abierta && (
-                <div onClick={()=>setAbiertas(s=>({...s,[pid]:true}))} style={{marginTop:6,fontSize:11.5,cursor:"pointer"}}>
-                  <span style={{...S.meta,fontSize:10.5}}>Crédito · </span>
-                  Costo <span style={CRED_AMBAR}>{rc.costo}</span> <span style={S.meta}>→</span> Base <span style={CRED_AMBAR}>{rc.base}</span>
-                </div>
-              )}
 
               {abierta && (<>
-              {/* variedad de grano (tipo_grano): se elige en un modal agrupado por familia (editable) */}
-              <div style={{display:"flex",alignItems:"center",gap:6,margin:"8px 0"}}>
-                <span style={{...S.meta,fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
-                <button onClick={()=>setTgSel(pid)}
-                  style={{...S.inp,flex:1,minWidth:0,textAlign:"left",padding:"6px 9px",fontSize:11.5,cursor:"pointer",fontWeight:tgDesc?700:400,color:tgDesc?"inherit":"#8A8578"}}>
-                  {tgDesc?(tgCod+" · "+tgDesc):"— sin clasificar — (clic para elegir)"}
-                </button>
-              </div>
-              {m.ofertas.slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0)).map(o=>{
+              <div style={{height:8}}/>
+              {ofsOrden.map(o=>{
                 const enEd=edit===o.ofertaId;
                 const margenK=Math.round(((Number(o.credito)||0)-(Number(o.costo)||0))*100)/100;
                 return (
-                <div key={o.ofertaId} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:10,padding:"9px 10px",marginBottom:6}}>
+                <div key={o.ofertaId} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                    <b style={{fontSize:12.5}}>{o.presentacion||o.presCod}</b>
+                    <b style={{fontSize:14}}>{o.presentacion||o.presCod}</b>
                     {!enEd && <button onClick={()=>{ setEdit(o.ofertaId); setForm({costoCont:o.costoContado,costoCred:o.costo,baseCont:o.contado,baseCred:o.credito}); }}
                       style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>✎ Editar</button>}
                   </div>
                   {!enEd ? (
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
-                      <div>
-                        <div style={{...S.meta,fontSize:9.5,textTransform:"uppercase"}}>Costo</div>
-                        <div style={{fontSize:12.5}}>{o.costoContado>0?preMoney(o.costoContado):"—"} <span style={{...S.meta,fontSize:9}}>cont</span></div>
-                        {/* CRED_AMBAR: el crédito resaltado en ámbar */}
-                        <div style={{fontSize:12.5}}><span style={CRED_AMBAR}>{o.costo>0?preMoney(o.costo):"—"}</span> <span style={{...S.meta,fontSize:9}}>créd</span></div>
+                    <div style={{marginTop:8}}>
+                      {/* rejilla CONTADO | CRÉDITO (columnas), Costo / Base (filas); el crédito va en ámbar (CRED_AMBAR) */}
+                      <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center"}}>
+                        <div/>
+                        <div style={{...S.meta,fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em"}}>Contado</div>
+                        <div style={{fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800,color:"#8A5A00"}}>Crédito</div>
+                        <div style={{...S.meta,fontSize:12}}>Costo</div>
+                        <div style={celdaCont}>{o.costoContado>0?preMoney(o.costoContado):"—"}</div>
+                        <div style={celdaCred}>{o.costo>0?preMoney(o.costo):"—"}</div>
+                        <div style={{...S.meta,fontSize:12}}>Base</div>
+                        <div style={celdaCont}>{o.contado>0?preMoney(o.contado):"—"}</div>
+                        <div style={celdaCred}>{o.credito>0?preMoney(o.credito):"—"}</div>
                       </div>
-                      <div>
-                        <div style={{...S.meta,fontSize:9.5,textTransform:"uppercase"}}>Base</div>
-                        <div style={{fontSize:12.5}}>{o.contado>0?preMoney(o.contado):"—"} <span style={{...S.meta,fontSize:9}}>cont</span></div>
-                        <div style={{fontSize:12.5}}><span style={CRED_AMBAR}>{o.credito>0?preMoney(o.credito):"—"}</span> <span style={{...S.meta,fontSize:9}}>créd</span></div>
-                      </div>
-                      <div style={{...S.meta,fontSize:10,gridColumn:"1 / -1"}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"#B5613C"}}>{preMoney(margenK)}</b></div>
+                      <div style={{...S.meta,fontSize:10.5,marginTop:8}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"#B5613C"}}>{preMoney(margenK)}</b></div>
                       {/* FECHA_MODIF_TARJETA: cuándo se movió por última vez, + su historia */}
-                      <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:2}}>
-                        <span style={{...S.meta,fontSize:9.5}}>Modificado: {fmtFecha(o.desde)}</span>
-                        <button onClick={()=>verHistorial(o)} style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>Historial de precios</button>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid #EDE9DE"}}>
+                        <span style={{...S.meta,fontSize:10}}>Modificado: {fmtFecha(o.desde)}</span>
+                        <button onClick={()=>verHistorial(o)} style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:11.5}}>Historial de precios ›</button>
                       </div>
                     </div>
                   ) : (
@@ -8889,6 +8891,10 @@ function PiladorasWeb({ usuario }){
                   )}
                 </div>);
               })}
+              {/* excluir esta marca del ajuste por grano (dentro del detalle) */}
+              <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#8A8578",marginTop:2,cursor:"pointer"}}>
+                <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir esta marca del ajuste por grano
+              </label>
               </>)}
             </div>);
           })}
