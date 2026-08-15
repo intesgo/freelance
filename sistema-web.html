@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"153", fecha:"14 ago 2026", desc:"Piladoras: cada marca se puede clasificar por su variedad de grano (Grano corriente, Grano largo 011, Grano Ferón, con sus niveles Económico / Bueno / Especial) y queda guardado en el producto. La familia «Grano Ferón» ahora va con tilde. Es solo la etiqueta del grano: no cambia costo ni precio." };
+const VERSION = { n:"154", fecha:"15 ago 2026", desc:"Piladoras: el detalle de cada piladora ahora tiene pestaña «Ficha» y «Costos y precios». Cada marca se ve en su propia tarjeta destacada, y la variedad de grano se elige en una ventana agrupada por familia (Grano corriente / largo 011 / Ferón). Sigue siendo editable; no cambia costo ni precio." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1237,6 +1237,8 @@ const FAMILIAS_GRANO = [
   { cod:"L11", desc:"Grano largo 011", linea:"Arroz" },
   { cod:"F14", desc:"Grano Ferón",     linea:"Arroz" },
 ];
+// Niveles dentro de cada familia (2 últimos caracteres del código de variedad).
+const NIVELES_GRANO = [{cod:"01",n:"Económico"},{cod:"02",n:"Bueno"},{cod:"03",n:"Especial"}];
 // Variedades de grano (código de variedad de 5 caract. + descripción). Una marca pertenece a una variedad.
 const VARIEDADES_GRANO = [
   { cod:"C0901", desc:"Grano corriente económico", linea:"Arroz" },
@@ -8470,6 +8472,8 @@ function PiladorasWeb({ usuario }){
   const [prodInfo,setProdInfo]=useState({});   // prodId -> {nombre, marca, linea}
   const [nomProv,setNomProv]=useState({});     // provCod -> nombre
   const [selProv,setSelProv]=useState(null);   // piladora abierta
+  const [secW,setSecW]=useState("costos");     // pestaña exterior del detalle: "ficha" o "costos"
+  const [tgSel,setTgSel]=useState(null);       // prodId con el modal de variedad de grano abierto
   const [busca,setBusca]=useState("");
   const [edit,setEdit]=useState(null);         // ofertaId en edición
   const [form,setForm]=useState(null);
@@ -8660,14 +8664,32 @@ function PiladorasWeb({ usuario }){
   /* ── DETALLE de una piladora ── */
   const provNombre=nomProv[selProv]||selProv;
   const lineas=Object.keys(granos).sort();
+  const nOfertas=(ofertas||[]).filter(o=>o.provCod===selProv).length;
   return (
     <div style={{maxWidth:760,margin:"0 auto",padding:"8px 4px 40px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,margin:"6px 2px 12px"}}>
         <button onClick={()=>{ setSelProv(null); setEdit(null); setAjuste(null); }} style={{...S.btn("#fff","#333"),border:"1px solid #D8D2C4"}}>‹ Piladoras</button>
         <h2 style={{margin:0}}>🏭 {provNombre}</h2>
       </div>
+
+      {/* Pestaña exterior: "Ficha" (datos de la piladora) y "Costos y precios" */}
+      <div style={{display:"flex",gap:8,margin:"0 2px 14px"}}>
+        <button onClick={()=>setSecW("ficha")} style={{...S.btn(secW==="ficha"?"#2E7D52":"#f3f5f7",secW==="ficha"?"#fff":"#333"),flex:1}}>Ficha</button>
+        <button onClick={()=>setSecW("costos")} style={{...S.btn(secW==="costos"?"#2E7D52":"#f3f5f7",secW==="costos"?"#fff":"#333"),flex:1}}>Costos y precios</button>
+      </div>
+
       {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
 
+      {/* FICHA_AGRUPA: la Ficha reúne los datos de la piladora; Representantes, Condiciones y Documentos se administran en la app móvil */}
+      {secW==="ficha" && (
+        <div style={S.card}>
+          <div style={{fontWeight:800,fontSize:15,marginBottom:6}}>🏭 {provNombre}</div>
+          <div style={{...S.meta,marginBottom:6}}>{nOfertas} oferta(s) vigente(s) · {lineas.length} línea(s)</div>
+          <div style={{...S.meta,lineHeight:1.5}}>Representantes, condiciones y documentos de esta piladora se agrupan y administran desde la app móvil (Freelance). Aquí trabajas sus costos y precios.</div>
+        </div>
+      )}
+
+      {secW==="costos" && (<>
       {!lineas.length && <div style={{...S.meta,padding:"16px 4px"}}>Esta piladora no tiene ofertas vigentes.</div>}
 
       {lineas.map(ln=>{
@@ -8682,22 +8704,24 @@ function PiladorasWeb({ usuario }){
           </div>
           {pids.map(pid=>{
             const m=marcas[pid]; const exc=!!excluidas[pid];
+            const tgCod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
+            const tgDesc=(VARIEDADES_GRANO.find(v=>v.cod===tgCod)||{}).desc||"";
             return (
-            <div key={pid} style={{borderTop:"1px solid #EDE9DE",marginTop:8,paddingTop:8,opacity:exc?0.55:1}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
-                <div style={{fontWeight:700,fontSize:13}}>{m.nombre}</div>
+            /* TARJETA_MARCA: cada marca en su propia tarjeta destacada (fondo, borde y acento a la izquierda) */
+            <div key={pid} className="tarjeta-marca" style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderLeft:"3px solid #2E7D52",borderRadius:12,marginTop:10,padding:"10px 12px",opacity:exc?0.55:1}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+                <div style={{fontWeight:800,fontSize:13.5}}>🏷️ {m.nombre}</div>
                 <label style={{...S.meta,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
                   <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir del ajuste
                 </label>
               </div>
-              {/* variedad de grano (tipo_grano) del producto */}
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+              {/* variedad de grano (tipo_grano): se elige en un modal agrupado por familia (editable) */}
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
                 <span style={{...S.meta,fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
-                <select value={(prodInfo[pid]&&prodInfo[pid].tipoGrano)||""} onChange={e=>guardarTipoGrano(pid,e.target.value)}
-                  style={{...S.inp,flex:1,minWidth:0,padding:"5px 7px",fontSize:11.5}}>
-                  <option value="">— sin clasificar —</option>
-                  {VARIEDADES_GRANO.map(v=><option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
-                </select>
+                <button onClick={()=>setTgSel(pid)}
+                  style={{...S.inp,flex:1,minWidth:0,textAlign:"left",padding:"6px 9px",fontSize:11.5,cursor:"pointer",fontWeight:tgDesc?700:400,color:tgDesc?"inherit":"#8A8578"}}>
+                  {tgDesc?(tgCod+" · "+tgDesc):"— sin clasificar — (clic para elegir)"}
+                </button>
               </div>
               {m.ofertas.slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0)).map(o=>{
                 const enEd=edit===o.ofertaId;
@@ -8771,6 +8795,7 @@ function PiladorasWeb({ usuario }){
           })}
         </div>);
       })}
+      </>)}
 
       {ajuste && (()=>{
         const marcas=granos[ajuste.linea]||{};
@@ -8832,6 +8857,35 @@ function PiladorasWeb({ usuario }){
           </div>
         </div>
       )}
+
+      {/* MODAL_TG_FAMILIA: elegir la variedad de grano, agrupada por familia (Grano corriente / largo 011 / Ferón) */}
+      {tgSel && (()=>{
+        const actual=(prodInfo[tgSel]&&prodInfo[tgSel].tipoGrano)||"";
+        const nombreMarca=(prodInfo[tgSel]&&prodInfo[tgSel].marca)||tgSel;
+        return (
+        <div onClick={()=>setTgSel(null)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px",maxWidth:440,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
+            <h3 style={{margin:"0 0 4px"}}>Variedad de grano</h3>
+            <div style={{...S.meta,margin:"0 0 12px"}}>{nombreMarca} · elige familia y nivel</div>
+            {FAMILIAS_GRANO.map(fam=>(
+              <div key={fam.cod} style={{marginBottom:12}}>
+                <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>{fam.desc}</div>
+                <div style={{display:"flex",gap:8}}>
+                  {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=actual===cod; return (
+                    <button key={cod} onClick={()=>{ guardarTipoGrano(tgSel,cod); setTgSel(null); }}
+                      style={{flex:1,padding:"9px 6px",borderRadius:10,border:on?"2px solid #2E7D52":"1px solid #D8D2C4",background:on?"#F5F9F6":"#fff",fontWeight:on?800:600,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>{niv.n}</button>
+                  ); })}
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:10,marginTop:6}}>
+              <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Sin clasificar</button>
+              <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cerrar</button>
+            </div>
+          </div>
+        </div>);
+      })()}
     </div>
   );
 }

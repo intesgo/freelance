@@ -5947,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"441", fecha:"14 ago 2026", desc:"Piladoras · Costos y precios: cada marca ahora se puede clasificar por su variedad de grano (Grano corriente, Grano largo 011, Grano Ferón — con sus niveles Económico / Bueno / Especial). Se elige de una lista y queda guardado en el producto. Es solo la etiqueta del grano: no cambia el costo ni el precio." };
+const VERSION = { n:"442", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios más ordenado: la piladora ahora tiene una pestaña «Ficha» que agrupa Representantes, Condiciones y Documentos, y aparte «Costos y precios». Cada marca se ve en su propia tarjeta destacada, y la variedad de grano se elige en una ventana agrupada por familia (Grano corriente / largo 011 / Ferón). No cambia costos ni precios." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -22930,6 +22930,7 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   const [ajuste,setAjuste]=useState(null);      // {linea,campo,modo,signo,valor}
   const [hist,setHist]=useState(null);          // oferta cuya historia de precios se ve
   const [histRows,setHistRows]=useState(null);  // filas del histórico (null = cargando)
+  const [tgSel,setTgSel]=useState(null);        // prod_id cuyo modal de variedad de grano está abierto
   const r2=n=>Math.round((Number(n)||0)*100)/100;
   const r4=n=>Math.round((Number(n)||0)*10000)/10000;
   const num=v=>{ const n=parseFloat(String(v==null?"":v).replace(",",".")); return isNaN(n)?null:n; };
@@ -23104,22 +23105,24 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
 
           {pids.map(pid=>{
             const m=marcas[pid]; const exc=!!excluidas[pid];
+            const tgCod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
+            const tgDesc=(VARIEDADES_GRANO.find(v=>v.cod===tgCod)||{}).desc||"";
             return (
-            <div key={pid} style={{borderTop:"1px solid var(--line)",marginTop:8,paddingTop:8,opacity:exc?0.55:1}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
-                <div style={{fontWeight:700,fontSize:13,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nombre}</div>
+            /* TARJETA_MARCA: cada marca en su propia tarjeta destacada (fondo, borde y acento a la izquierda) */
+            <div key={pid} className="tarjeta-marca" style={{background:"var(--paper)",border:"1px solid var(--line)",borderLeft:"3px solid var(--field)",borderRadius:12,padding:"10px 12px",marginTop:10,opacity:exc?0.55:1}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+                <div style={{fontWeight:800,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏷️ {m.nombre}</div>
                 <label style={{fontSize:10.5,display:"flex",alignItems:"center",gap:5,color:"var(--muted)",flexShrink:0}}>
                   <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir del ajuste
                 </label>
               </div>
-              {/* variedad de grano (tipo_grano) del producto */}
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+              {/* variedad de grano (tipo_grano): se elige en un modal agrupado por familia (editable) */}
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
                 <span className="meta" style={{fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
-                <select value={(prodInfo[pid]&&prodInfo[pid].tipoGrano)||""} onChange={e=>guardarTipoGrano(pid,e.target.value)}
-                  style={{flex:1,minWidth:0,padding:"5px 7px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:11.5,background:"var(--card)"}}>
-                  <option value="">— sin clasificar —</option>
-                  {VARIEDADES_GRANO.map(v=><option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
-                </select>
+                <button onClick={()=>setTgSel(pid)}
+                  style={{flex:1,minWidth:0,textAlign:"left",padding:"6px 9px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:11.5,background:"var(--card)",cursor:"pointer",fontWeight:tgDesc?700:400,color:tgDesc?"inherit":"var(--muted)"}}>
+                  {tgDesc?(tgCod+" · "+tgDesc):"— sin clasificar — (tocar para elegir)"}
+                </button>
               </div>
               {m.ofertas.slice().sort((a,b)=>(Number(b.equiv_qq)||0)-(Number(a.equiv_qq)||0)).map(o=>{
                 const enEd=edit===o.oferta_id;
@@ -23259,6 +23262,36 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
           </div>
         </div>
       )}
+
+      {/* MODAL_TG_FAMILIA: elegir la variedad de grano, agrupada por familia (Grano corriente / largo 011 / Ferón) */}
+      {tgSel && (()=>{
+        const actual=(prodInfo[tgSel]&&prodInfo[tgSel].tipoGrano)||"";
+        const nombreMarca=(prodInfo[tgSel]&&prodInfo[tgSel].marca)||tgSel;
+        return (
+        <div className="ov" onClick={()=>setTgSel(null)}>
+          <div className="sheet" onClick={e=>e.stopPropagation()}>
+            <h3>Variedad de grano</h3>
+            <div className="meta" style={{fontSize:11.5,margin:"0 2px 12px"}}>{nombreMarca} · elige familia y nivel</div>
+            {FAMILIAS_GRANO.map(fam=>(
+              <div key={fam.cod} style={{marginBottom:12}}>
+                <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>{fam.desc}</div>
+                <div style={{display:"flex",gap:8}}>
+                  {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=actual===cod; return (
+                    <button key={cod} onClick={()=>{ guardarTipoGrano(tgSel,cod); setTgSel(null); }}
+                      style={{flex:1,padding:"9px 6px",borderRadius:10,border:on?"2px solid #2E7D52":"1px solid var(--line)",background:on?"#F5F9F6":"var(--card)",fontWeight:on?800:600,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>{niv.n}</button>
+                  ); })}
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:10,marginTop:6}}>
+              <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }}
+                style={{flex:1,padding:"11px",borderRadius:11,border:"1px solid var(--line)",background:"var(--card)",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Sin clasificar</button>
+              <button onClick={()=>setTgSel(null)}
+                style={{flex:1,padding:"11px",borderRadius:11,border:"1px solid var(--line)",background:"var(--card)",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Cerrar</button>
+            </div>
+          </div>
+        </div>);
+      })()}
     </div>
   );
 }
@@ -23267,6 +23300,7 @@ function PiladorasReales({toast, usuario}){
   const [provs,setProvs]=useState([]);
   const [selCod,setSelCod]=useState(null);
   const [pestP,setPestP]=useState("contactos");
+  const [secP,setSecP]=useState("ficha");   /* pestaña exterior: "ficha" (agrupa las 3) o "costos" */
   const [fichas,setFichas]=useState({});
   const [contactos,setContactos]=useState({});
   const [editF,setEditF]=useState(null);   /* copia de la ficha en edición */
@@ -23408,7 +23442,7 @@ function PiladorasReales({toast, usuario}){
       {" "}<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:10.5,fontWeight:700,background:"rgba(28,122,68,.13)",color:"#1c7a44"}}>🟢 Datos vivos</span></div>
     {provs.map(p=>(
       <div key={p.id} className="card" style={{padding:"13px 15px",marginBottom:9,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}
-        onClick={()=>{setSelCod(p.id);setPestP("contactos");}}>
+        onClick={()=>{setSelCod(p.id);setSecP("ficha");setPestP("contactos");}}>
         <span style={{width:40,height:40,borderRadius:11,background:"var(--field)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800}}>{p.nombre.replace("Piladora ","")[0]}</span>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontWeight:800,fontSize:14.5}}>{p.nombre}</div>
@@ -23426,16 +23460,24 @@ function PiladorasReales({toast, usuario}){
   return (<>
     <div className="h1" style={{marginBottom:2}}>{prov.nombre}</div>
     <div className="sub">RUC {ficha.ruc||"—"}{ficha.ciudad?" · "+ficha.ciudad:""}</div>
-    <div className="eq-tabs eq-tabs-wrap4" style={{margin:"12px 0 14px"}}>
-      <button className={pestP==="contactos"?"on":""} onClick={()=>setPestP("contactos")}>Representantes</button>
-      <button className={pestP==="condiciones"?"on":""} onClick={()=>setPestP("condiciones")}>Condiciones</button>
-      <button className={pestP==="costos"?"on":""} onClick={()=>setPestP("costos")}>Costos y precios</button>
-      <button className={pestP==="documentos"?"on":""} onClick={()=>setPestP("documentos")}>Documentos</button>
+    {/* Pestaña exterior: "Ficha" agrupa Representantes/Condiciones/Documentos; "Costos y precios" aparte */}
+    <div className="eq-tabs" style={{margin:"12px 0 14px"}}>
+      <button className={secP==="ficha"?"on":""} onClick={()=>setSecP("ficha")}>Ficha</button>
+      <button className={secP==="costos"?"on":""} onClick={()=>setSecP("costos")}>Costos y precios</button>
     </div>
 
-    {pestP==="costos" && <CostosPreciosPiladora provCod={selCod} provNombre={prov.nombre} usuario={usuario} toast={toast}/>}
+    {secP==="costos" && <CostosPreciosPiladora provCod={selCod} provNombre={prov.nombre} usuario={usuario} toast={toast}/>}
 
-    {pestP==="contactos" && (<>
+    {/* FICHA_AGRUPA: dentro de "Ficha" viven las tres secciones (Representantes, Condiciones, Documentos) */}
+    {secP==="ficha" && (
+    <div className="eq-tabs eq-tabs-wrap4" style={{margin:"0 0 14px"}}>
+      <button className={pestP==="contactos"?"on":""} onClick={()=>setPestP("contactos")}>Representantes</button>
+      <button className={pestP==="condiciones"?"on":""} onClick={()=>setPestP("condiciones")}>Condiciones</button>
+      <button className={pestP==="documentos"?"on":""} onClick={()=>setPestP("documentos")}>Documentos</button>
+    </div>
+    )}
+
+    {secP==="ficha" && pestP==="contactos" && (<>
       {lista.map(c=>(
         <div key={c.contacto_id} className="card" style={{padding:"12px 14px",marginBottom:9}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -23466,7 +23508,7 @@ function PiladorasReales({toast, usuario}){
       )}
     </>)}
 
-    {pestP==="condiciones" && !editF && (<>
+    {secP==="ficha" && pestP==="condiciones" && !editF && (<>
       <div className="ficha-sec">Negociación</div>
       <div className="card" style={{padding:"13px 15px",marginBottom:10}}>
         <div className="cu-line"><span>Cupo de crédito</span><b className="num">{ficha.cupo_usd!=null?money(ficha.cupo_usd):"—"}</b></div>
@@ -23501,7 +23543,7 @@ function PiladorasReales({toast, usuario}){
       </div>
       <button className="ghost" style={{width:"100%"}} onClick={()=>setEditF({...ficha})}>Editar condiciones</button>
     </>)}
-    {pestP==="documentos" && (<>
+    {secP==="ficha" && pestP==="documentos" && (<>
       <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{display:"none"}} onChange={elegirArchivo}/>
       {(docs[selCod]||[]).map(d=>(
         <div key={d.doc_id} className="card" style={{padding:"12px 14px",marginBottom:9}}>
@@ -23537,7 +23579,7 @@ function PiladorasReales({toast, usuario}){
       <div className="meta" style={{marginTop:10}}>🔒 Los archivos se guardan en privado: solo se abren con tu sesión, con enlace temporal de 1 hora.</div>
     </>)}
 
-    {pestP==="condiciones" && editF && (
+    {secP==="ficha" && pestP==="condiciones" && editF && (
       <div className="card" style={{padding:"13px 15px"}}>
         <label style={lblS}>RUC<input style={inp} inputMode="numeric" value={editF.ruc||""} onChange={e=>setEditF({...editF,ruc:e.target.value})}/></label>
         <label style={lblS}>Dirección<input style={inp} value={editF.direccion||""} onChange={e=>setEditF({...editF,direccion:e.target.value})}/></label>
