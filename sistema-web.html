@@ -387,7 +387,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"152", fecha:"14 ago 2026", desc:"Piladoras más claro: se quitó el textito gris; cada presentación muestra la fecha de su última modificación y un botón «Historial de precios» (todas las versiones: desde–hasta, costo y base); y al editar aparece un resumen «Antes → Ahora» que marca en verde lo que cambia. Todo por piladora, como antes." };
+const VERSION = { n:"153", fecha:"14 ago 2026", desc:"Piladoras: cada marca se puede clasificar por su variedad de grano (Grano corriente, Grano largo 011, Grano Ferón, con sus niveles Económico / Bueno / Especial) y queda guardado en el producto. La familia «Grano Ferón» ahora va con tilde. Es solo la etiqueta del grano: no cambia costo ni precio." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1235,7 +1235,7 @@ const UNIDADES_MEDIDA = ["qq", "arroba", "caja", "saco", "funda", "unidad"];
 const FAMILIAS_GRANO = [
   { cod:"C09", desc:"Grano corriente", linea:"Arroz" },
   { cod:"L11", desc:"Grano largo 011", linea:"Arroz" },
-  { cod:"F14", desc:"Grano feron",     linea:"Arroz" },
+  { cod:"F14", desc:"Grano Ferón",     linea:"Arroz" },
 ];
 // Variedades de grano (código de variedad de 5 caract. + descripción). Una marca pertenece a una variedad.
 const VARIEDADES_GRANO = [
@@ -1245,9 +1245,9 @@ const VARIEDADES_GRANO = [
   { cod:"L1101", desc:"Grano largo 011 económico",  linea:"Arroz" },
   { cod:"L1102", desc:"Grano largo 011 bueno",      linea:"Arroz" },
   { cod:"L1103", desc:"Grano largo 011 especial",   linea:"Arroz" },
-  { cod:"F1401", desc:"Grano feron económico",      linea:"Arroz" },
-  { cod:"F1402", desc:"Grano feron bueno",          linea:"Arroz" },
-  { cod:"F1403", desc:"Grano feron especial",       linea:"Arroz" },
+  { cod:"F1401", desc:"Grano Ferón económico",      linea:"Arroz" },
+  { cod:"F1402", desc:"Grano Ferón bueno",          linea:"Arroz" },
+  { cod:"F1403", desc:"Grano Ferón especial",       linea:"Arroz" },
 ];
 const PRODUCTOS_WEB = [
   { id:"AC-QQ", nombre:"Arroz Conejo · Quintal (100 lb)",   prov:"Agrícola del Valle",  linea:"Arroz", variedad:"L1102", ic:"🌾", unidad:"qq", baseContado:45.00, baseCredito:45.50, promos:[{id:"PF3", nombre:"Promo flor", base:44.50, detalle:"compra 80 lleva 4"}] },
@@ -8494,6 +8494,16 @@ function PiladorasWeb({ usuario }){
       setHistRows(rows);
     }catch(e){ setHistRows([]); }
   };
+  /* Clasificar el producto por su variedad de grano: escribe productos.tipo_grano
+     (el precio/costo NO cambia; es la etiqueta del grano). */
+  const guardarTipoGrano=async(prodId, cod)=>{
+    try{
+      /* GUARDA_TIPO_GRANO */
+      const { error }=await window.supa.from("productos").update({tipo_grano:cod||null}).eq("prod_id",prodId);
+      if(error){ setError("No se pudo guardar el tipo de grano: "+error.message); return; }
+      setProdInfo(m=>({...m,[prodId]:{...(m[prodId]||{}),tipoGrano:cod||""}}));
+    }catch(e){ setError(String((e&&e.message)||e)); }
+  };
   const norm=s=>(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
   const S={
     card:{background:"#fff",border:"1px solid #E7E2D6",borderRadius:12,padding:"12px 14px",marginBottom:12},
@@ -8509,11 +8519,11 @@ function PiladorasWeb({ usuario }){
     try{
       const [ofs,rProds,rProvs]=await Promise.all([
         preLeerOfertas(),
-        window.supa.from("productos").select("prod_id,nombre,marca,linea").eq("estado","activo"),
+        window.supa.from("productos").select("prod_id,nombre,marca,linea,tipo_grano").eq("estado","activo"),
         window.supa.from("proveedores").select("prov_cod,nombre"),
       ]);
       const pi={}, nv={};
-      ((rProds&&rProds.data)||[]).forEach(p=>{ pi[p.prod_id]={nombre:p.nombre||p.marca||p.prod_id, marca:p.marca||p.nombre||p.prod_id, linea:p.linea||"Otros"}; });
+      ((rProds&&rProds.data)||[]).forEach(p=>{ pi[p.prod_id]={nombre:p.nombre||p.marca||p.prod_id, marca:p.marca||p.nombre||p.prod_id, linea:p.linea||"Otros", tipoGrano:p.tipo_grano||""}; });
       ((rProvs&&rProvs.data)||[]).forEach(p=>{ nv[p.prov_cod]=p.nombre||p.prov_cod; });
       setProdInfo(pi); setNomProv(nv); setOfertas(ofs);
       setError(ofs.length?"":"No hay ofertas vigentes que mostrar.");
@@ -8679,6 +8689,15 @@ function PiladorasWeb({ usuario }){
                 <label style={{...S.meta,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
                   <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir del ajuste
                 </label>
+              </div>
+              {/* variedad de grano (tipo_grano) del producto */}
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                <span style={{...S.meta,fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
+                <select value={(prodInfo[pid]&&prodInfo[pid].tipoGrano)||""} onChange={e=>guardarTipoGrano(pid,e.target.value)}
+                  style={{...S.inp,flex:1,minWidth:0,padding:"5px 7px",fontSize:11.5}}>
+                  <option value="">— sin clasificar —</option>
+                  {VARIEDADES_GRANO.map(v=><option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
+                </select>
               </div>
               {m.ofertas.slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0)).map(o=>{
                 const enEd=edit===o.ofertaId;

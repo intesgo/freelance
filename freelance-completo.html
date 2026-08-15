@@ -2732,6 +2732,26 @@ const PRODUCTOS = [
 ];
 
 const EMOJI_LINEA={Arroz:"🍚", Azúcar:"🧂", Harina:"🌾", Maíz:"🌽"};
+/* Variedades de grano (tipo_grano). La familia son los 3 primeros caracteres:
+   C09 corriente · L11 largo 011 · F14 Grano Ferón. Los niveles: 01 Económico,
+   02 Bueno, 03 Especial. Misma tabla que el Sistema Web. */
+const NIVELES_GRANO = [{cod:"01",n:"Económico"},{cod:"02",n:"Bueno"},{cod:"03",n:"Especial"}];
+const FAMILIAS_GRANO = [
+  {cod:"C09", desc:"Grano corriente"},
+  {cod:"L11", desc:"Grano largo 011"},
+  {cod:"F14", desc:"Grano Ferón"},
+];
+const VARIEDADES_GRANO = [
+  {cod:"C0901", desc:"Grano corriente · Económico"},
+  {cod:"C0902", desc:"Grano corriente · Bueno"},
+  {cod:"C0903", desc:"Grano corriente · Especial"},
+  {cod:"L1101", desc:"Grano largo 011 · Económico"},
+  {cod:"L1102", desc:"Grano largo 011 · Bueno"},
+  {cod:"L1103", desc:"Grano largo 011 · Especial"},
+  {cod:"F1401", desc:"Grano Ferón · Económico"},
+  {cod:"F1402", desc:"Grano Ferón · Bueno"},
+  {cod:"F1403", desc:"Grano Ferón · Especial"},
+];
 
 const STOCK_DEMO = { "AG-QQ":120, "AG-25":80, "AC-QQ":95, "AC-25":60, "AE-QQ":40, "AZ-50":150, "AZ-02":300, "HY-QQ":70, "HY-10":110, "MA-QQ":55 };
 const PRESENTACIONES = PRODUCTOS
@@ -5927,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"440", fecha:"14 ago 2026", desc:"Piladoras · Costos y precios más claro: se quitó el textito gris de arriba; cada presentación ahora muestra la fecha en que se modificó por última vez y un botón «Historial de precios» para ver todas las versiones (desde–hasta, costo y base); y al editar aparece un resumen «Antes → Ahora» que marca en verde lo que cambia, para confirmar antes de guardar. Todo por piladora, como antes." };
+const VERSION = { n:"441", fecha:"14 ago 2026", desc:"Piladoras · Costos y precios: cada marca ahora se puede clasificar por su variedad de grano (Grano corriente, Grano largo 011, Grano Ferón — con sus niveles Económico / Bueno / Especial). Se elige de una lista y queda guardado en el producto. Es solo la etiqueta del grano: no cambia el costo ni el precio." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -22925,6 +22945,17 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
       setHistRows(rows);
     }catch(e){ setHistRows([]); }
   };
+  /* Clasificar el producto por su variedad de grano. Escribe productos.tipo_grano
+     (el precio/costo NO cambia; es la etiqueta del grano). */
+  const guardarTipoGrano=async(prodId, cod)=>{
+    try{
+      /* GUARDA_TIPO_GRANO */
+      const { error }=await window.SB.from("productos").update({tipo_grano:cod||null}).eq("prod_id",prodId);
+      if(error){ if(toast) toast("No se pudo guardar el tipo de grano: "+error.message); return; }
+      setProdInfo(m=>({...m,[prodId]:{...(m[prodId]||{}),tipoGrano:cod||""}}));
+      if(toast) toast("Tipo de grano guardado");
+    }catch(e){ if(toast) toast(String((e&&e.message)||e)); }
+  };
 
   const cargar=React.useCallback(async()=>{
     setCargando(true);
@@ -22934,13 +22965,13 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
         window.SB.from("ofertas_piladora")
           .select("oferta_id,prod_id,prov_cod,pres_cod,presentacion,equiv_qq,precio_contado,precio_credito,costo,costo_contado,margen_min,activo,vigente_desde,vigente_hasta")
           .eq("prov_cod",provCod).limit(4000),
-        window.SB.from("productos").select("prod_id,nombre,marca,linea").limit(3000),
+        window.SB.from("productos").select("prod_id,nombre,marca,linea,tipo_grano").limit(3000),
       ]);
       /* vigentes: activo y con la fecha de hoy dentro del rango (regla del repo) */
       const vig=((ofs)||[]).filter(o=> o.activo!==false
         && (!o.vigente_desde || String(o.vigente_desde).slice(0,10)<=hoy)
         && (!o.vigente_hasta  || String(o.vigente_hasta).slice(0,10)>hoy));
-      const pi={}; ((prods)||[]).forEach(p=>{ pi[p.prod_id]={nombre:p.nombre||p.marca||p.prod_id, marca:p.marca||p.nombre||p.prod_id, linea:p.linea||"Otros"}; });
+      const pi={}; ((prods)||[]).forEach(p=>{ pi[p.prod_id]={nombre:p.nombre||p.marca||p.prod_id, marca:p.marca||p.nombre||p.prod_id, linea:p.linea||"Otros", tipoGrano:p.tipo_grano||""}; });
       setOfertas(vig); setProdInfo(pi);
     }catch(e){ setOfertas([]); }
     setCargando(false);
@@ -23080,6 +23111,15 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                 <label style={{fontSize:10.5,display:"flex",alignItems:"center",gap:5,color:"var(--muted)",flexShrink:0}}>
                   <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir del ajuste
                 </label>
+              </div>
+              {/* variedad de grano (tipo_grano) del producto */}
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                <span className="meta" style={{fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
+                <select value={(prodInfo[pid]&&prodInfo[pid].tipoGrano)||""} onChange={e=>guardarTipoGrano(pid,e.target.value)}
+                  style={{flex:1,minWidth:0,padding:"5px 7px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:11.5,background:"var(--card)"}}>
+                  <option value="">— sin clasificar —</option>
+                  {VARIEDADES_GRANO.map(v=><option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
+                </select>
               </div>
               {m.ofertas.slice().sort((a,b)=>(Number(b.equiv_qq)||0)-(Number(a.equiv_qq)||0)).map(o=>{
                 const enEd=edit===o.oferta_id;
