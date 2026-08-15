@@ -106,6 +106,7 @@ const PLAN = [
   { arnes:"test_piladoras_costos.js", que:"Piladoras · Costos y Base por piladora (versionado, sin cruzar)", apps:[null] },
   { arnes:"test_piladoras_web.js",   que:"Sistema Web · módulo Piladoras (fusiona Precios vigentes, versionado)", apps:[null] },
   { arnes:"test_base_pct.js",        que:"Base = Costo + % y el guardar del mismo día (ambas apps)", apps:[null] },
+  { arnes:"test_punto2.js",          que:"Piladoras: sin leyenda, fecha en la tarjeta, historial y Antes→Ahora", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
      la regresión normal y no deben quedar omitidos por falta de una variable. */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },
