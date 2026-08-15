@@ -5947,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"442", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios más ordenado: la piladora ahora tiene una pestaña «Ficha» que agrupa Representantes, Condiciones y Documentos, y aparte «Costos y precios». Cada marca se ve en su propia tarjeta destacada, y la variedad de grano se elige en una ventana agrupada por familia (Grano corriente / largo 011 / Ferón). No cambia costos ni precios." };
+const VERSION = { n:"443", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios más ágil: cada marca ahora se pliega (se abre solo la que quieres ver) y, plegada, muestra de un vistazo el costo y la base a crédito, resaltados en ámbar. Hay un buscador de marcas dentro de la piladora. No cambia costos ni precios." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -22931,6 +22931,8 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   const [hist,setHist]=useState(null);          // oferta cuya historia de precios se ve
   const [histRows,setHistRows]=useState(null);  // filas del histórico (null = cargando)
   const [tgSel,setTgSel]=useState(null);        // prod_id cuyo modal de variedad de grano está abierto
+  const [qMarca,setQMarca]=useState("");        // buscador de marcas dentro de la piladora (uFuzzy)
+  const [abiertas,setAbiertas]=useState({});    // prod_id -> true: la marca está desplegada (detalle diferido)
   const r2=n=>Math.round((Number(n)||0)*100)/100;
   const r4=n=>Math.round((Number(n)||0)*10000)/10000;
   const num=v=>{ const n=parseFloat(String(v==null?"":v).replace(",",".")); return isNaN(n)?null:n; };
@@ -23082,15 +23084,48 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   const chip=(on)=>({padding:"9px",borderRadius:9,border:"1px solid "+(on?"var(--field)":"var(--line)"),
     background:on?"var(--field)":"var(--card)",color:on?"#fff":"var(--ink)",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12.5});
 
+  /* CRED_AMBAR: el crédito se resalta en ámbar para no confundirlo con el contado */
+  const CRED_AMBAR={background:"#FBEFD6",color:"#8A5A00",borderRadius:6,padding:"0 5px",fontWeight:700};
+  const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+  /* buscador de marcas dentro de la piladora: reusa uFuzzy (ya embebido, sin CDN nuevo) */
+  const filtraMarcas=(pids,marcas)=>{
+    const q=qMarca.trim(); if(!q) return pids;
+    const hay=pids.map(pid=>normG(marcas[pid].nombre)); const ndl=normG(q);
+    if(typeof window!=="undefined" && window.uFuzzy){
+      try{ const uf=new window.uFuzzy({intraMode:1,intraIns:1,intraSub:1,intraTrn:1,intraDel:1});
+        const ix=uf.filter(hay,ndl);
+        if(ix&&ix.length){ const nf=uf.info(ix,hay,ndl); const od=uf.sort(nf,hay,ndl); return od.map(o=>pids[nf.idx[o]]); }
+        return [];
+      }catch(_){}
+    }
+    return pids.filter((pid,i)=>hay[i].includes(ndl));
+  };
+  /* RESUMEN_CRED: rango de costo y base en CRÉDITO de una marca (para verlo plegado) */
+  const resumenCred=(m)=>{
+    const cs=m.ofertas.map(o=>Number(o.costo)||0).filter(v=>v>0);
+    const bs=m.ofertas.map(o=>Number(o.precio_credito)||0).filter(v=>v>0);
+    const rango=(a)=>{ if(!a.length) return "—"; const mn=Math.min(...a),mx=Math.max(...a); return mn===mx?money(mn):money(mn)+"–"+money(mx); };
+    return {costo:rango(cs), base:rango(bs)};
+  };
+
   if(cargando) return <div className="ph" style={{marginTop:12}}>Cargando costos y precios…</div>;
   const lineas=Object.keys(granos).sort();
   if(!lineas.length) return <div className="ph" style={{marginTop:12}}>Esta piladora todavía no tiene ofertas vigentes cargadas.</div>;
 
   return (
     <div>
+      {/* buscador de marcas (uFuzzy) dentro de la piladora */}
+      <div style={{position:"relative",marginBottom:12}}>
+        <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:"var(--muted)",fontSize:14}}>⌕</span>
+        <input value={qMarca} onChange={e=>setQMarca(e.target.value)} placeholder="Buscar marca…"
+          style={{width:"100%",boxSizing:"border-box",padding:"10px 12px 10px 32px",borderRadius:10,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:14,background:"var(--card)"}}/>
+        {qMarca && <button onClick={()=>setQMarca("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",fontSize:16,color:"var(--muted)",cursor:"pointer"}}>×</button>}
+      </div>
       {lineas.map(ln=>{
         const marcas=granos[ln];
-        const pids=Object.keys(marcas).sort((a,b)=>String(marcas[a].nombre||"").localeCompare(String(marcas[b].nombre||""),"es"));
+        const pidsTodas=Object.keys(marcas).sort((a,b)=>String(marcas[a].nombre||"").localeCompare(String(marcas[b].nombre||""),"es"));
+        const pids=filtraMarcas(pidsTodas,marcas);
+        if(!pids.length) return null;   // con búsqueda activa, ocultar líneas sin coincidencias
         return (
         <div key={ln} className="card" style={{padding:"10px 12px",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"space-between"}}>
@@ -23107,17 +23142,32 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
             const m=marcas[pid]; const exc=!!excluidas[pid];
             const tgCod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
             const tgDesc=(VARIEDADES_GRANO.find(v=>v.cod===tgCod)||{}).desc||"";
+            const abierta=!!abiertas[pid];
+            const rc=resumenCred(m);
             return (
-            /* TARJETA_MARCA: cada marca en su propia tarjeta destacada (fondo, borde y acento a la izquierda) */
+            /* TARJETA_MARCA + MARCA_PLEGABLE: tarjeta destacada que se pliega; el detalle se arma solo al abrir */
             <div key={pid} className="tarjeta-marca" style={{background:"var(--paper)",border:"1px solid var(--line)",borderLeft:"3px solid var(--field)",borderRadius:12,padding:"10px 12px",marginTop:10,opacity:exc?0.55:1}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
-                <div style={{fontWeight:800,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏷️ {m.nombre}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,minWidth:0,flex:1,cursor:"pointer"}}>
+                  <span style={{fontSize:12,color:"var(--muted)",flexShrink:0}}>{abierta?"▾":"▸"}</span>
+                  <div style={{fontWeight:800,fontSize:13.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏷️ {m.nombre}</div>
+                </div>
                 <label style={{fontSize:10.5,display:"flex",alignItems:"center",gap:5,color:"var(--muted)",flexShrink:0}}>
-                  <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir del ajuste
+                  <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir
                 </label>
               </div>
+
+              {/* RESUMEN_CRED: plegada, el crédito (costo → base) se ve de un vistazo, resaltado en ámbar */}
+              {!abierta && (
+                <div onClick={()=>setAbiertas(s=>({...s,[pid]:true}))} style={{marginTop:6,fontSize:11.5,cursor:"pointer"}}>
+                  <span className="meta" style={{fontSize:10.5}}>Crédito · </span>
+                  Costo <span style={CRED_AMBAR}>{rc.costo}</span> <span className="meta">→</span> Base <span style={CRED_AMBAR}>{rc.base}</span>
+                </div>
+              )}
+
+              {abierta && (<>
               {/* variedad de grano (tipo_grano): se elige en un modal agrupado por familia (editable) */}
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,margin:"8px 0"}}>
                 <span className="meta" style={{fontSize:10.5,flexShrink:0}}>Tipo de grano:</span>
                 <button onClick={()=>setTgSel(pid)}
                   style={{flex:1,minWidth:0,textAlign:"left",padding:"6px 9px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:11.5,background:"var(--card)",cursor:"pointer",fontWeight:tgDesc?700:400,color:tgDesc?"inherit":"var(--muted)"}}>
@@ -23139,12 +23189,13 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                       <div>
                         <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Costo</div>
                         <div style={{fontSize:12.5}}>{o.costo_contado>0?money(o.costo_contado):"—"} <span className="meta" style={{fontSize:9}}>cont</span></div>
-                        <div style={{fontSize:12.5}}>{o.costo>0?money(o.costo):"—"} <span className="meta" style={{fontSize:9}}>créd</span></div>
+                        {/* CRED_AMBAR: el crédito resaltado en ámbar */}
+                        <div style={{fontSize:12.5}}><span style={CRED_AMBAR}>{o.costo>0?money(o.costo):"—"}</span> <span className="meta" style={{fontSize:9}}>créd</span></div>
                       </div>
                       <div>
                         <div className="meta" style={{fontSize:9.5,textTransform:"uppercase",letterSpacing:".02em"}}>Base</div>
                         <div style={{fontSize:12.5}}>{o.precio_contado>0?money(o.precio_contado):"—"} <span className="meta" style={{fontSize:9}}>cont</span></div>
-                        <div style={{fontSize:12.5}}>{o.precio_credito>0?money(o.precio_credito):"—"} <span className="meta" style={{fontSize:9}}>créd</span></div>
+                        <div style={{fontSize:12.5}}><span style={CRED_AMBAR}>{o.precio_credito>0?money(o.precio_credito):"—"}</span> <span className="meta" style={{fontSize:9}}>créd</span></div>
                       </div>
                       <div className="meta" style={{fontSize:10,gridColumn:"1 / -1"}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"var(--clay)"}}>{money(margenK)}</b></div>
                       {/* FECHA_MODIF_TARJETA: cuándo se movió por última vez, + su historia */}
@@ -23195,6 +23246,7 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                   )}
                 </div>);
               })}
+              </>)}
             </div>);
           })}
         </div>);
