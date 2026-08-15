@@ -5947,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"443", fecha:"15 ago 2026", desc:"Piladoras · Costos y precios más ágil: cada marca ahora se pliega (se abre solo la que quieres ver) y, plegada, muestra de un vistazo el costo y la base a crédito, resaltados en ámbar. Hay un buscador de marcas dentro de la piladora. No cambia costos ni precios." };
+const VERSION = { n:"444", fecha:"15 ago 2026", desc:"Piladoras: al ajustar precios ya puedes limitar el cambio a una familia de grano (Grano corriente / largo 011 / Ferón), no solo a toda la línea. El menú muestra el número real de piladoras (leído de la base, no un número fijo). El RUC se edita en la ficha de la piladora. No cambia costos ni precios." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -23058,8 +23058,10 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
     if(!ajuste) return;
     const v=num(ajuste.valor); if(v==null||v<=0){ if(toast) toast("Escribe un valor mayor a 0"); return; }
     const marcas=granos[ajuste.linea]||{};
-    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid]);
-    if(!objetivo.length){ if(toast) toast("No hay marcas para ajustar (todas excluidas)"); return; }
+    /* AJUSTE_POR_FAMILIA: si se eligió una familia de grano, solo se ajustan sus marcas */
+    const enFamilia=(pid)=> !ajuste.familia || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(0,3)===ajuste.familia;
+    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFamilia(pid));
+    if(!objetivo.length){ if(toast) toast("No hay marcas para ajustar (revisa la familia o las excluidas)"); return; }
     setGuardando(true);
     let n=0, err=0;
     const aj=(x)=>{ const base=Number(x)||0; if(!(base>0)) return base; const delta=ajuste.modo==="pct"? base*(v/100) : v; return Math.max(0, r4(base + ajuste.signo*delta)); };
@@ -23254,14 +23256,24 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
 
       {ajuste && (()=>{
         const marcas=granos[ajuste.linea]||{};
-        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid]);
+        /* AJUSTE_POR_FAMILIA: el conteo respeta la familia elegida */
+        const enFam=(pid)=> !ajuste.familia || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(0,3)===ajuste.familia;
+        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFam(pid));
+        const famNom=(ajuste.familia&&(FAMILIAS_GRANO.find(f=>f.cod===ajuste.familia)||{}).desc)||"toda la línea";
         return (
         <div className="ov" onClick={()=>{ if(!guardando) setAjuste(null); }}>
           <div className="sheet" onClick={e=>e.stopPropagation()}>
             <h3>Ajustar {ajuste.linea} · {provNombre}</h3>
-            <div className="meta" style={{fontSize:12,margin:"0 2px 12px",lineHeight:1.45}}>
-              Aplica el mismo cambio a <b>todas las marcas de {ajuste.linea}</b> de esta piladora
+            <div className="meta" style={{fontSize:12,margin:"0 2px 10px",lineHeight:1.45}}>
+              Aplica el mismo cambio a las marcas de <b>{famNom}</b> en esta piladora
               ({objetivo.length} de {Object.keys(marcas).length}; las excluidas se saltan). No toca otras piladoras.
+            </div>
+            {/* AJUSTE_POR_FAMILIA: elegir si el ajuste cubre toda la línea o solo una familia de grano */}
+            <div style={{display:"flex",gap:6,marginBottom:9,flexWrap:"wrap"}}>
+              <button onClick={()=>setAjuste(a=>({...a,familia:""}))} style={{...chip(!ajuste.familia),padding:"7px 10px",fontSize:11.5}}>Toda la línea</button>
+              {FAMILIAS_GRANO.map(f=>(
+                <button key={f.cod} onClick={()=>setAjuste(a=>({...a,familia:f.cod}))} style={{...chip(ajuste.familia===f.cod),padding:"7px 10px",fontSize:11.5}}>{f.desc}</button>
+              ))}
             </div>
             <div style={{display:"flex",gap:8,marginBottom:9}}>
               <button onClick={()=>setAjuste(a=>({...a,campo:"costo"}))} style={{flex:1,...chip(ajuste.campo==="costo")}}>Costo</button>
@@ -23633,6 +23645,7 @@ function PiladorasReales({toast, usuario}){
 
     {secP==="ficha" && pestP==="condiciones" && editF && (
       <div className="card" style={{padding:"13px 15px"}}>
+        {/* RUC_CONDICIONES: el RUC se edita aquí y se guarda en proveedor_fichas.ruc (guardarFicha → upsert) */}
         <label style={lblS}>RUC<input style={inp} inputMode="numeric" value={editF.ruc||""} onChange={e=>setEditF({...editF,ruc:e.target.value})}/></label>
         <label style={lblS}>Dirección<input style={inp} value={editF.direccion||""} onChange={e=>setEditF({...editF,direccion:e.target.value})}/></label>
         <label style={lblS}>Ciudad<input style={inp} value={editF.ciudad||""} onChange={e=>setEditF({...editF,ciudad:e.target.value})}/></label>
@@ -25026,6 +25039,18 @@ function App({usuario, onSalir}){
   const [barraVisible,setBarraVisible]=useBarraAlLeer();
   const refAvisos = React.useRef(null);
   const [sinLeerChat,setSinLeerChat]=useState(0);
+  /* CONTEO_PILADORAS_REAL: cuántas piladoras hay de verdad (proveedores no-demo),
+     leído de la base; ya no se muestra el número quemado del arreglo PROVEEDORES. */
+  const [nPiladoras,setNPiladoras]=useState(null);
+  React.useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{ const { count }=await window.SB.from("proveedores").select("prov_cod",{count:"exact",head:true}).eq("es_demo",false);
+        if(vivo && typeof count==="number") setNPiladoras(count);
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
   React.useEffect(()=>{
     let vivo=true, canal=null, miId=null;
     const contar=async()=>{
@@ -25666,7 +25691,7 @@ function App({usuario, onSalir}){
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("proveedores")}}>
                 <span className="di-ic" style={{background:"#E4F1E9",color:"#2E7D52"}}><Ico n="proveedores" c="#2E7D52" s={19}/></span>
                 <div style={{flex:1}}><div className="di-t">Piladoras</div>
-                  <div className="di-s">{PROVEEDORES.length} piladoras</div></div>
+                  <div className="di-s">{nPiladoras==null?"…":nPiladoras} piladora(s)</div></div>
                 <span className="di-a">›</span>
               </button>
               <button className="drawer-it" onClick={()=>{irDesdeDrawer("portafolio")}}>

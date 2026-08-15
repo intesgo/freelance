@@ -42,7 +42,7 @@ prueba(!/from\("precios"\)[\s\S]{0,40}\.(insert|update|upsert|delete)\(/.test(we
 
 /* ── Ajustar por grano: por prov_cod (implícito en granos), salta excluidas, monto/% ── */
 prueba(/const aplicarAjuste=async\(\)=>\{/.test(web), "existe «Ajustar por grano» (aplicarAjuste)");
-prueba(/const objetivo=Object\.keys\(marcas\)\.filter\(pid=>!excluidas\[pid\]\)/.test(web), "el ajuste salta las marcas excluidas");
+prueba(/const objetivo=Object\.keys\(marcas\)\.filter\(pid=>!excluidas\[pid\]/.test(web), "el ajuste salta las marcas excluidas");
 prueba(/ajuste\.modo==="pct"\?base\*\(v\/100\):v/.test(web), "el ajuste puede ser en % o en monto");
 prueba(/ajuste\.signo\*delta/.test(web), "el ajuste puede subir (+) o bajar (−)");
 
