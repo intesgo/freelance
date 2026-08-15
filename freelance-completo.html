@@ -5947,7 +5947,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"446", fecha:"15 ago 2026", desc:"Piladoras: «Ajustar por grano» ahora abre una pantalla completa donde eliges familia Y nivel de grano (Económico / Bueno / Especial) antes de subir o bajar precios. Más claro y con menos toques. No cambia costos ni precios por sí solo." };
+const VERSION = { n:"447", fecha:"15 ago 2026", desc:"Piladoras · pantalla de ajuste más clara: lo que eliges se marca en verde suave, hay un resumen fijo abajo de lo que se aplicará, un ejemplo del efecto sobre un precio, y un «Ver marcas» para revisar cuáles se van a tocar. No cambia costos ni precios por sí solo." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -23084,8 +23084,10 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
     await cargar();
   };
 
-  const chip=(on)=>({padding:"9px",borderRadius:9,border:"1px solid "+(on?"var(--field)":"var(--line)"),
-    background:on?"var(--field)":"var(--card)",color:on?"#fff":"var(--ink)",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12.5});
+  /* VERDE_SUAVE_AJUSTE: lo seleccionado se marca con verde suave (fondo claro + borde verde),
+     no con verde fuerte, para que la pantalla de ajuste se lea más tranquila. */
+  const chip=(on)=>({padding:"9px",borderRadius:9,border:"1px solid "+(on?"#2E7D52":"var(--line)"),
+    background:on?"#E4F1E9":"var(--card)",color:on?"#1F5E3D":"var(--ink)",fontWeight:on?800:700,fontFamily:"inherit",cursor:"pointer",fontSize:12.5});
 
   /* CRED_AMBAR: el crédito se resalta en ámbar para no confundirlo con el contado */
   const CRED_AMBAR={background:"#FBEFD6",color:"#8A5A00",borderRadius:6,padding:"0 5px",fontWeight:700};
@@ -23272,6 +23274,13 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
         const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFam(pid) && enNiv(pid));
         const famNom=(ajuste.familia&&(FAMILIAS_GRANO.find(f=>f.cod===ajuste.familia)||{}).desc)||"toda la línea";
         const nivNom=(ajuste.nivel&&(NIVELES_GRANO.find(nv=>nv.cod===ajuste.nivel)||{}).n)||"todos los niveles";
+        const campoNom=ajuste.campo==="costo"?"Costo":ajuste.campo==="basecosto"?"Base = Costo + %":"Base";
+        const vNum=num(ajuste.valor);
+        /* efecto del ajuste sobre un precio cualquiera (para el ejemplo) */
+        const aplicarA=(base)=>{ if(ajuste.campo==="basecosto") return baseDesdeCosto(base, vNum||0); const b=Number(base)||0; if(!(b>0)||vNum==null) return b; const delta=ajuste.modo==="pct"?b*(vNum/100):vNum; return Math.max(0, r4(b + ajuste.signo*delta)); };
+        let ejBase=0; for(const pid of objetivo){ const o=(marcas[pid].ofertas||[])[0]; if(o){ ejBase=ajuste.campo==="costo"?Number(o.costo):Number(o.precio_credito); if(ejBase>0) break; } }
+        if(!(ejBase>0)) ejBase=20;
+        const ejAfter=aplicarA(ejBase);
         return (
         <div style={{position:"fixed",inset:0,zIndex:3000,background:"var(--bg,#F3EFE6)",display:"flex",flexDirection:"column"}}>
           {/* cabecera fija */}
@@ -23324,6 +23333,27 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
             <input inputMode="decimal" value={ajuste.valor} onChange={e=>setAjuste(a=>({...a,valor:e.target.value}))}
               placeholder={ajuste.campo==="basecosto"?"% sobre el costo (ej. 12)":(ajuste.modo==="pct"?"Ej. 5 (=5%)":"Ej. 0,50")}
               style={{width:"100%",boxSizing:"border-box",padding:"13px",borderRadius:11,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:16,background:"var(--card)"}}/>
+
+            {/* EJEMPLO_IMPACTO: muestra el efecto del ajuste sobre un precio de ejemplo */}
+            <div style={{marginTop:12,background:"#E4F1E9",border:"1px solid #BFE0CC",borderRadius:11,padding:"10px 12px"}}>
+              <div className="meta" style={{fontSize:10,textTransform:"uppercase",letterSpacing:".03em",marginBottom:3}}>Ejemplo</div>
+              <div style={{fontSize:13}}>Un {campoNom==="Base = Costo + %"?"costo":campoNom.toLowerCase()} de <b>{money(ejBase)}</b> quedaría en <b style={{color:"#1F5E3D"}}>{money(ejAfter)}</b>.</div>
+            </div>
+
+            {/* Ver marcas: la lista de las que se van a ajustar */}
+            <button onClick={()=>setAjuste(a=>({...a,ver:!a.ver}))} className="mini-link" style={{fontSize:12.5,fontWeight:700,marginTop:12}}>{ajuste.ver?"Ocultar marcas":`Ver marcas (${objetivo.length})`}</button>
+            {ajuste.ver && (
+              <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:6}}>
+                {objetivo.length?objetivo.map(pid=>(
+                  <span key={pid} style={{fontSize:11.5,background:"var(--paper)",border:"1px solid var(--line)",borderRadius:8,padding:"4px 8px"}}>{marcas[pid].nombre}</span>
+                )):<span className="meta" style={{fontSize:12}}>Ninguna marca con esa familia/nivel.</span>}
+              </div>
+            )}
+
+            {/* RESUMEN_STICKY: resumen fijo de lo que se aplicará, siempre visible al pie del cuerpo */}
+            <div style={{position:"sticky",bottom:0,marginTop:16,background:"var(--card)",borderTop:"1px solid var(--line)",padding:"9px 2px 3px",fontSize:12}}>
+              <b>{objetivo.length} marca(s)</b> · {famNom} / {nivNom} · {campoNom}{ajuste.campo!=="basecosto"?(" "+(ajuste.signo===1?"subir":"bajar")):""} {ajuste.valor||"—"}{(ajuste.modo==="pct"||ajuste.campo==="basecosto")?"%":""}
+            </div>
           </div>
           {/* pie fijo */}
           <div style={{flexShrink:0,display:"flex",gap:10,padding:"12px 16px",borderTop:"1px solid var(--line)",background:"var(--card)",maxWidth:560,width:"100%",margin:"0 auto",boxSizing:"border-box"}}>
