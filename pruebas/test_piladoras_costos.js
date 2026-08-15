@@ -21,8 +21,8 @@ const prueba = (ok, msg) => { if (ok) bien++; else { mal++; console.error("✗ "
 
 /* ── Existe el componente y la pestaña ── */
 prueba(/function CostosPreciosPiladora\(\{provCod, provNombre, usuario, toast\}\)\{/.test(fl), "existe el componente CostosPreciosPiladora");
-prueba(/pestP==="costos"\?"on":""\} onClick=\{\(\)=>setPestP\("costos"\)\}>Costos y precios/.test(fl), "la ficha de la piladora tiene la pestaña «Costos y precios»");
-prueba(/\{pestP==="costos" && <CostosPreciosPiladora provCod=\{selCod\} provNombre=\{prov\.nombre\} usuario=\{usuario\} toast=\{toast\}\/>\}/.test(fl), "la pestaña monta el componente con la piladora seleccionada");
+prueba(/secP==="costos"\?"on":""\} onClick=\{\(\)=>setSecP\("costos"\)\}>Costos y precios/.test(fl), "la ficha de la piladora tiene la pestaña «Costos y precios»");
+prueba(/\{secP==="costos" && <CostosPreciosPiladora provCod=\{selCod\} provNombre=\{prov\.nombre\} usuario=\{usuario\} toast=\{toast\}\/>\}/.test(fl), "la pestaña monta el componente con la piladora seleccionada");
 
 /* ── TODO por piladora: la carga filtra por prov_cod ── */
 prueba(/from\("ofertas_piladora"\)[\s\S]{0,400}\.eq\("prov_cod",provCod\)/.test(fl), "las ofertas se cargan filtradas por prov_cod (una sola piladora)");
