@@ -41,7 +41,7 @@ prueba(/Margen \(base − costo, crédito\)/.test(fl), "se muestra el margen (ba
 
 /* ── Ajustar por grano: por prov_cod, salta las excluidas, en monto o % ── */
 prueba(/const aplicarAjuste=async\(\)=>\{/.test(fl), "existe «Ajustar por grano» (aplicarAjuste)");
-prueba(/const objetivo=Object\.keys\(marcas\)\.filter\(pid=>!excluidas\[pid\]\)/.test(fl), "el ajuste salta las marcas excluidas");
+prueba(/const objetivo=Object\.keys\(marcas\)\.filter\(pid=>!excluidas\[pid\]/.test(fl), "el ajuste salta las marcas excluidas");
 prueba(/ajuste\.modo==="pct"\? base\*\(v\/100\) : v/.test(fl), "el ajuste puede ser en % o en monto");
 prueba(/ajuste\.signo\*delta/.test(fl), "el ajuste puede subir (+) o bajar (−)");
 

@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"155", fecha:"15 ago 2026", desc:"Piladoras: cada marca ahora se pliega (se abre solo la que quieres ver) y, plegada, muestra de un vistazo el costo y la base a crédito, resaltados en ámbar. Hay un buscador de marcas dentro de la piladora. No cambia costo ni precio." };
+const VERSION = { n:"156", fecha:"15 ago 2026", desc:"Piladoras: al ajustar precios ya puedes limitar el cambio a una familia de grano (Grano corriente / largo 011 / Ferón), no solo a toda la línea. En la Ficha de la piladora se puede editar y guardar el RUC. No cambia costo ni precio." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8482,6 +8482,9 @@ function PiladorasWeb({ usuario }){
   const [tgSel,setTgSel]=useState(null);       // prodId con el modal de variedad de grano abierto
   const [qMarca,setQMarca]=useState("");       // buscador de marcas dentro de la piladora (uFuzzy)
   const [abiertas,setAbiertas]=useState({});   // prodId -> true: la marca está desplegada (detalle diferido)
+  const [rucWeb,setRucWeb]=useState("");       // RUC de la piladora abierta (proveedor_fichas.ruc)
+  const [rucCargado,setRucCargado]=useState(""); // valor guardado, para saber si cambió
+  const [rucGuardando,setRucGuardando]=useState(false);
   const [busca,setBusca]=useState("");
   const [edit,setEdit]=useState(null);         // ofertaId en edición
   const [form,setForm]=useState(null);
@@ -8505,6 +8508,30 @@ function PiladorasWeb({ usuario }){
       const rows=(data||[]).slice().sort((a,b)=>String(b.vigente_desde||"").localeCompare(String(a.vigente_desde||"")));
       setHistRows(rows);
     }catch(e){ setHistRows([]); }
+  };
+  /* RUC_CONDICIONES: leer el RUC guardado de la piladora abierta (proveedor_fichas.ruc) */
+  React.useEffect(()=>{
+    if(!selProv){ setRucWeb(""); setRucCargado(""); return; }
+    let vivo=true;
+    (async()=>{
+      try{ const {data}=await window.supa.from("proveedor_fichas").select("ruc").eq("prov_cod",selProv).limit(1);
+        const r=(data&&data[0]&&data[0].ruc)||"";
+        if(vivo){ setRucWeb(r); setRucCargado(r); }
+      }catch(e){ if(vivo){ setRucWeb(""); setRucCargado(""); } }
+    })();
+    return ()=>{ vivo=false; };
+  },[selProv]);
+  /* RUC_CONDICIONES: guardar el RUC en proveedor_fichas.ruc (upsert por prov_cod) */
+  const guardarRucWeb=async()=>{
+    if(!selProv) return;
+    setRucGuardando(true);
+    try{
+      const { error }=await window.supa.from("proveedor_fichas")
+        .upsert({prov_cod:selProv, ruc:(rucWeb||"").trim()||null, actualizado:new Date().toISOString()});
+      if(error){ setError("No se pudo guardar el RUC: "+error.message); }
+      else { setRucCargado((rucWeb||"").trim()); setError(""); }
+    }catch(e){ setError(String((e&&e.message)||e)); }
+    setRucGuardando(false);
   };
   /* Clasificar el producto por su variedad de grano: escribe productos.tipo_grano
      (el precio/costo NO cambia; es la etiqueta del grano). */
@@ -8623,8 +8650,10 @@ function PiladorasWeb({ usuario }){
     if(!ajuste) return;
     const v=num(ajuste.valor); if(v==null||v<=0){ setError("Escribe un valor mayor a 0"); return; }
     const marcas=granos[ajuste.linea]||{};
-    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid]);
-    if(!objetivo.length){ setError("No hay marcas para ajustar (todas excluidas)"); return; }
+    /* AJUSTE_POR_FAMILIA: si se eligió una familia de grano, solo se ajustan sus marcas */
+    const enFamilia=(pid)=> !ajuste.familia || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(0,3)===ajuste.familia;
+    const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFamilia(pid));
+    if(!objetivo.length){ setError("No hay marcas para ajustar (revisa la familia o las excluidas)"); return; }
     setGuardando(true);
     const aj=(x)=>{ const base=Number(x)||0; if(!(base>0)) return base; const delta=ajuste.modo==="pct"?base*(v/100):v; return Math.max(0,r4(base+ajuste.signo*delta)); };
     let err=0;
@@ -8712,13 +8741,24 @@ function PiladorasWeb({ usuario }){
       {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
 
       {/* FICHA_AGRUPA: la Ficha reúne los datos de la piladora; Representantes, Condiciones y Documentos se administran en la app móvil */}
-      {secW==="ficha" && (
+      {secW==="ficha" && (<>
         <div style={S.card}>
           <div style={{fontWeight:800,fontSize:15,marginBottom:6}}>🏭 {provNombre}</div>
           <div style={{...S.meta,marginBottom:6}}>{nOfertas} oferta(s) vigente(s) · {lineas.length} línea(s)</div>
           <div style={{...S.meta,lineHeight:1.5}}>Representantes, condiciones y documentos de esta piladora se agrupan y administran desde la app móvil (Freelance). Aquí trabajas sus costos y precios.</div>
         </div>
-      )}
+        {/* RUC_CONDICIONES: el RUC se edita aquí y se guarda en proveedor_fichas.ruc */}
+        <div style={S.card}>
+          <div style={{fontWeight:800,fontSize:14,marginBottom:8}}>Condiciones · RUC</div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input value={rucWeb} onChange={e=>setRucWeb(e.target.value)} inputMode="numeric" placeholder="RUC de la piladora"
+              style={{...S.inp,flex:1,minWidth:0,padding:"9px 11px",fontSize:14}}/>
+            <button onClick={guardarRucWeb} disabled={rucGuardando||(rucWeb||"").trim()===(rucCargado||"").trim()}
+              style={{...S.btn((rucGuardando||(rucWeb||"").trim()===(rucCargado||"").trim())?"#9DBBA9":"#2E7D52"),flexShrink:0}}>{rucGuardando?"Guardando…":"Guardar"}</button>
+          </div>
+          <div style={{...S.meta,fontSize:11,marginTop:6}}>Se guarda en la ficha de la piladora. El resto de condiciones (cupo, días de crédito, documentos) se administra en la app móvil.</div>
+        </div>
+      </>)}
 
       {secW==="costos" && (<>
       {!lineas.length && <div style={{...S.meta,padding:"16px 4px"}}>Esta piladora no tiene ofertas vigentes.</div>}
@@ -8858,15 +8898,25 @@ function PiladorasWeb({ usuario }){
 
       {ajuste && (()=>{
         const marcas=granos[ajuste.linea]||{};
-        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid]);
+        /* AJUSTE_POR_FAMILIA: el conteo respeta la familia elegida */
+        const enFam=(pid)=> !ajuste.familia || String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").slice(0,3)===ajuste.familia;
+        const objetivo=Object.keys(marcas).filter(pid=>!excluidas[pid] && enFam(pid));
+        const famNom=(ajuste.familia&&(FAMILIAS_GRANO.find(f=>f.cod===ajuste.familia)||{}).desc)||"toda la línea";
         return (
         <div onClick={()=>{ if(!guardando) setAjuste(null); }}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px 18px",maxWidth:420,width:"100%",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
             <h3 style={{margin:"0 0 6px"}}>Ajustar {ajuste.linea} · {provNombre}</h3>
-            <div style={{...S.meta,margin:"0 0 12px",lineHeight:1.45}}>
-              Aplica el mismo cambio a <b>todas las marcas de {ajuste.linea}</b> de esta piladora
+            <div style={{...S.meta,margin:"0 0 10px",lineHeight:1.45}}>
+              Aplica el mismo cambio a las marcas de <b>{famNom}</b> en esta piladora
               ({objetivo.length} de {Object.keys(marcas).length}; las excluidas se saltan). No toca otras piladoras.
+            </div>
+            {/* AJUSTE_POR_FAMILIA: elegir si el ajuste cubre toda la línea o solo una familia de grano */}
+            <div style={{display:"flex",gap:6,marginBottom:9,flexWrap:"wrap"}}>
+              <button onClick={()=>setAjuste(a=>({...a,familia:""}))} style={{...S.chip(!ajuste.familia),padding:"7px 10px"}}>Toda la línea</button>
+              {FAMILIAS_GRANO.map(f=>(
+                <button key={f.cod} onClick={()=>setAjuste(a=>({...a,familia:f.cod}))} style={{...S.chip(ajuste.familia===f.cod),padding:"7px 10px"}}>{f.desc}</button>
+              ))}
             </div>
             <div style={{display:"flex",gap:8,marginBottom:9}}>
               <button onClick={()=>setAjuste(a=>({...a,campo:"costo"}))} style={{flex:1,...S.chip(ajuste.campo==="costo")}}>Costo</button>
