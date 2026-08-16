@@ -315,6 +315,7 @@ const SECCIONES = [
      Ahora las cuatro rutas viejas caen en Precios vigentes, que muestra las
      ofertas de verdad y sólo deja mover el COSTO de una piladora. */
   { key:"preciosvig",   icon:"🏭", label:"Piladoras", sub:"Costos y base por piladora" },
+  { key:"tarifasfe",    icon:"🚛", label:"Tarifas de logística", sub:"Zonas, chóferes y estibadores" },
   { key:"documentos",   icon:"📑", label:"Documentos",           sub:"Custodia · cadena de documentos" },
   { key:"comunicacion", icon:"💬", label:"Mensajes",             sub:"Equipo y clientes informados" },
   { key:"auditoria",    icon:"🔎", label:"Auditoría",            sub:"Quién hizo qué y cuándo" },
@@ -393,7 +394,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"160", fecha:"15 ago 2026", desc:"Sistema Web al día: en el pedido se ven las DOS bases del producto (contado y crédito) sin adivinar. En Piladoras ya puedes crear una piladora nueva y ocultar/reactivar una existente (queda por confirmar la estructura de la base con Cowork)." };
+const VERSION = { n:"161", fecha:"16 ago 2026", desc:"Nuevo módulo «Tarifas de logística»: el freelance arma el cobro por zona (flete y estibada), la tarifa de flete de cada chofer y la estibada de cada estibador, todo en $/qq. Puede agregar chóferes (con su acceso) y estibadores, y ocultar/reactivar. Al editar nunca se pierde el historial." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -518,7 +519,7 @@ const TODAS_LAS_SECCIONES = SECCIONES.map(s => s.key);
    regla deja de funcionar en silencio. */
 const GRUPOS_MENU = [
   { titulo:"Principal",  keys:["dashboard"] },
-  { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","recepcion","calidad"] },
+  { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","recepcion","tarifasfe","calidad"] },
   { titulo:"Comercial",  keys:["clientes","catalogo","promos","emparejar","marcas","preciosvig","socio"] },
   { titulo:"Finanzas",   keys:["cobranza","pagos","comisiones","conciliacion"] },
   { titulo:"Gestión",    keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
@@ -9123,6 +9124,519 @@ function PiladorasWeb({ usuario }){
           </div>
         </div>);
       })()}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FE-01 · TARIFAS, CHÓFERES Y ESTIBADORES  (lo arma el freelance)
+   Alcance: docs/alcances/FE-01-tarifas-choferes-estibadores.md
+
+   El freelance arma la logística que consume la Fase 2 del pedido:
+     · Tarifas por zona (cobro al cliente): flete y estibada en $/qq.   [ancla FE01_TARIFAS_ZONA]
+     · Chóferes (usuarios rol=transportista): su tarifa de flete por zona.  [ancla FE01_CHOFERES]
+     · Estibadores (tabla estibadores): una sola tarifa de estibada.     [ancla FE01_ESTIBADORES]
+
+   VERSIONADO (regla FE-01, las tres pantallas): al editar NO se sobreescribe.
+     La fila vigente es la que tiene vigente_hasta IS NULL para el combo
+     (org + concepto + ámbito + zona_id/persona_id).
+       · si esa vigente ya es de HOY (vigente_desde = hoy) → se actualiza en sitio;
+       · si es de otro día → se cierra (vigente_hasta = hoy) y se inserta una nueva
+         con vigente_desde = hoy. Siempre queda historial.
+
+   BASE (confirmada por Cowork; Code no toca la base, solo escribe con el cliente):
+     tarifas_fe(tarifa_id PK sin default, org_id, concepto 'flete'|'estibada',
+                ambito 'zona'|'persona'|'general', zona_id, persona_id, valor_qq,
+                vigente_desde default hoy, vigente_hasta null=vigente, creado).
+     zonas(zona_id PK, org_id, nombre, ciudades text[], activo).
+     usuarios(... placa, capacidad_qq) para el chofer; alta vía cuentas-equipo.
+     estibadores(est_id PK sin default, org_id, nombre, cedula, telefono, activo).
+   ═══════════════════════════════════════════════════════════════════════════ */
+function TarifasFEWeb({ usuario }){
+  const S = {
+    card:{background:"#fff",border:"1px solid #E7E2D6",borderRadius:12,padding:"12px 14px",marginBottom:12},
+    meta:{color:"#8A8578",fontSize:12},
+    inp:{width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:8,border:"1px solid #D8D2C4",fontFamily:"inherit",fontSize:14},
+    inpQq:{width:96,boxSizing:"border-box",padding:"8px 9px",borderRadius:8,border:"1px solid #D8D2C4",fontFamily:"inherit",fontSize:14,textAlign:"right"},
+    btn:(bg,fg)=>({padding:"10px 12px",borderRadius:9,border:"none",background:bg,color:fg||"#fff",fontWeight:800,fontFamily:"inherit",cursor:"pointer",fontSize:13.5}),
+    tab:(on)=>({padding:"9px 14px",borderRadius:9,border:"1px solid "+(on?"#2E7D52":"#D8D2C4"),background:on?"#2E7D52":"#fff",color:on?"#fff":"#4a4a3a",fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13.5}),
+  };
+  const VERDE="#2E7D52", VERDE_OFF="#9DBBA9", ROJO="#B5613C";
+
+  const [tab,setTab]=useState("zonas");
+  const [orgId,setOrgId]=useState(null);
+  const [error,setError]=useState("");
+  const [aviso,setAviso]=useState("");
+
+  React.useEffect(()=>{ let v=true; (async()=>{
+    try{ const o=await orgActivaWeb(); if(v) setOrgId(o); }
+    catch(e){ if(v) setError("No se pudo leer la organización activa. Vuelve a entrar."); }
+  })(); return ()=>{v=false;}; },[]);
+
+  /* ── helpers ─────────────────────────────────────────────────────── */
+  const nuevoIdTF =()=>"TF-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,8).toUpperCase();
+  const nuevoIdEST=()=>"EST-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,8).toUpperCase();
+  const numQq=v=>{ const n=parseFloat(String(v==null?"":v).replace(",",".")); return isNaN(n)||n<0?null:n; };
+  const fmtQq=n=>{ const x=Number(n); return isNaN(x)?"—":("$"+x.toFixed(2)); };
+  const fmtF=s=>{ const t=String(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(t)) return "—"; const [y,m,d]=t.split("-"); return `${d}/${m}/${y}`; };
+
+  /* Guardado versionado de una tarifa (la regla FE-01, para las 3 pantallas). */
+  const guardarTarifa=async(combo,valorQq)=>{
+    if(!window.supa) throw new Error("Sin conexión con la base.");
+    const org=orgId||await orgActivaWeb();
+    const hoy=hoyECWeb();
+    let q=window.supa.from("tarifas_fe").select("tarifa_id,vigente_desde")
+      .eq("org_id",org).eq("concepto",combo.concepto).eq("ambito",combo.ambito).is("vigente_hasta",null);
+    q=(combo.zona_id==null)?q.is("zona_id",null):q.eq("zona_id",combo.zona_id);
+    q=(combo.persona_id==null)?q.is("persona_id",null):q.eq("persona_id",combo.persona_id);
+    const {data:vig,error:e1}=await q.limit(1);
+    if(e1) throw e1;
+    const actual=(vig||[])[0];
+    if(actual && String(actual.vigente_desde).slice(0,10)===hoy){
+      const {error}=await window.supa.from("tarifas_fe").update({valor_qq:valorQq}).eq("tarifa_id",actual.tarifa_id);
+      if(error) throw error;
+    } else {
+      if(actual){
+        const {error:e2}=await window.supa.from("tarifas_fe").update({vigente_hasta:hoy}).eq("tarifa_id",actual.tarifa_id);
+        if(e2) throw e2;
+      }
+      const {error:e3}=await window.supa.from("tarifas_fe").insert({
+        tarifa_id:nuevoIdTF(), org_id:org, concepto:combo.concepto, ambito:combo.ambito,
+        zona_id:combo.zona_id||null, persona_id:combo.persona_id||null,
+        valor_qq:valorQq, vigente_desde:hoy, vigente_hasta:null });
+      if(e3) throw e3;
+    }
+  };
+
+  const leerHistorial=async(combo)=>{
+    const org=orgId||await orgActivaWeb();
+    let q=window.supa.from("tarifas_fe").select("valor_qq,vigente_desde,vigente_hasta")
+      .eq("org_id",org).eq("concepto",combo.concepto).eq("ambito",combo.ambito);
+    q=(combo.zona_id==null)?q.is("zona_id",null):q.eq("zona_id",combo.zona_id);
+    q=(combo.persona_id==null)?q.is("persona_id",null):q.eq("persona_id",combo.persona_id);
+    const {data}=await q.order("vigente_desde",{ascending:false});
+    return data||[];
+  };
+
+  /* ── datos: zonas + tarifas vigentes por zona ────────────────────── */
+  const [zonas,setZonas]=useState(null);
+  const [tarZona,setTarZona]=useState({});   // { zona_id: { flete, estibada } }
+  const cargarZonas=React.useCallback(async()=>{
+    if(!window.supa){ setZonas([]); return; }
+    try{
+      const org=orgId||await orgActivaWeb();
+      const {data:zs}=await window.supa.from("zonas")
+        .select("zona_id,nombre,ciudades,activo").eq("org_id",org).eq("activo",true).order("nombre");
+      const {data:ts}=await window.supa.from("tarifas_fe")
+        .select("concepto,zona_id,valor_qq").eq("org_id",org).eq("ambito","zona").is("vigente_hasta",null);
+      const m={}; (ts||[]).forEach(t=>{ (m[t.zona_id]=m[t.zona_id]||{})[t.concepto]=Number(t.valor_qq); });
+      setZonas(zs||[]); setTarZona(m);
+    }catch(e){ setZonas([]); }
+  },[orgId]);
+
+  /* ── datos: chóferes (usuarios rol=transportista) + su flete por zona ── */
+  const [choferes,setChoferes]=useState(null);
+  const [tarChofer,setTarChofer]=useState({});   // { usr_id: { zona_id: valor } }
+  const cargarChoferes=React.useCallback(async()=>{
+    if(!window.supa){ setChoferes([]); return; }
+    try{
+      const org=orgId||await orgActivaWeb();
+      const {data:us}=await window.supa.from("usuarios")
+        .select("usr_id,nombre,cedula,telefono,email,placa,capacidad_qq,activo")
+        .eq("rol","transportista").eq("es_demo",false).order("nombre");
+      const {data:ts}=await window.supa.from("tarifas_fe")
+        .select("persona_id,zona_id,valor_qq").eq("org_id",org)
+        .eq("concepto","flete").eq("ambito","persona").is("vigente_hasta",null);
+      const m={}; (ts||[]).forEach(t=>{ (m[t.persona_id]=m[t.persona_id]||{})[t.zona_id]=Number(t.valor_qq); });
+      setChoferes(us||[]); setTarChofer(m);
+    }catch(e){ setChoferes([]); }
+  },[orgId]);
+
+  /* ── datos: estibadores + su tarifa única ────────────────────────── */
+  const [estibadores,setEstibadores]=useState(null);
+  const [tarEst,setTarEst]=useState({});   // { est_id: valor }
+  const cargarEstibadores=React.useCallback(async()=>{
+    if(!window.supa){ setEstibadores([]); return; }
+    try{
+      const org=orgId||await orgActivaWeb();
+      const {data:es}=await window.supa.from("estibadores")
+        .select("est_id,nombre,cedula,telefono,activo").eq("org_id",org).order("nombre");
+      const {data:ts}=await window.supa.from("tarifas_fe")
+        .select("persona_id,valor_qq").eq("org_id",org)
+        .eq("concepto","estibada").eq("ambito","persona").is("zona_id",null).is("vigente_hasta",null);
+      const m={}; (ts||[]).forEach(t=>{ m[t.persona_id]=Number(t.valor_qq); });
+      setEstibadores(es||[]); setTarEst(m);
+    }catch(e){ setEstibadores([]); }
+  },[orgId]);
+
+  React.useEffect(()=>{ if(orgId===null && window.supa) return;
+    cargarZonas(); cargarChoferes(); cargarEstibadores(); },[orgId]); // eslint-disable-line
+
+  /* ── estado de edición compartido (una fila a la vez) ────────────── */
+  const [editando,setEditando]=useState("");   // clave de la fila en edición
+  const [borrador,setBorrador]=useState({});    // { campo: valor } de la fila en edición
+  const [guardando,setGuardando]=useState("");  // clave guardándose
+  const [hist,setHist]=useState(null);          // { titulo, filas } modal historial
+
+  const abrirHist=async(titulo,combo)=>{
+    setHist({titulo,filas:null});
+    try{ const filas=await leerHistorial(combo); setHist({titulo,filas}); }
+    catch(e){ setHist({titulo,filas:[]}); }
+  };
+
+  /* ── alta de chofer (REUSA cuentas-equipo, como Cuentas del equipo) ── */
+  const llamarCuentas=async(cuerpo)=>{
+    if(!window.supa) throw new Error("Sin conexión con el servidor.");
+    const {data,error:e}=await window.supa.functions.invoke("cuentas-equipo",{body:cuerpo});
+    if(e){ let det=""; try{ det=(await e.context.json()).error||""; }catch(x){} throw new Error(det||e.message||"No se pudo completar."); }
+    if(data&&data.error) throw new Error(data.error);
+    return data;
+  };
+  const [chAltaOpen,setChAltaOpen]=useState(false);
+  const [chNombre,setChNombre]=useState(""),[chCedula,setChCedula]=useState(""),[chTel,setChTel]=useState("");
+  const [chCorreo,setChCorreo]=useState(""),[chPlaca,setChPlaca]=useState(""),[chCap,setChCap]=useState("");
+  const [chGuardando,setChGuardando]=useState(false);
+  const [reciente,setReciente]=useState(null);   // { nombre, correo, enlace }
+  const limpiarCh=()=>{ setChNombre("");setChCedula("");setChTel("");setChCorreo("");setChPlaca("");setChCap(""); };
+  const crearChofer=async()=>{
+    setError(""); setAviso("");
+    const nom=(chNombre||"").trim(), cor=(chCorreo||"").trim();
+    if(nom.length<3){ setError("Escribe el nombre completo del chofer."); return; }
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cor)){ setError("El correo del chofer no se ve bien (se usa para su acceso)."); return; }
+    const cap=numQq(chCap);
+    setChGuardando(true);
+    try{
+      const d=await llamarCuentas({ accion:"crear", nombre:nom, email:cor, rol:"transportista", telefono:(chTel||"").trim()||null });
+      /* placa/capacidad/cédula van en la ficha del usuario recién creado */
+      if(d&&d.usr_id){
+        const patch={};
+        if((chCedula||"").trim()) patch.cedula=(chCedula||"").trim();
+        if((chPlaca||"").trim())  patch.placa=(chPlaca||"").trim().toUpperCase();
+        if(cap!=null)             patch.capacidad_qq=cap;
+        if(Object.keys(patch).length){
+          const {error:eu}=await window.supa.from("usuarios").update(patch).eq("usr_id",d.usr_id);
+          if(eu) setAviso("El chofer se creó, pero no se pudo guardar placa/capacidad: "+eu.message);
+        }
+      }
+      setReciente({ nombre:nom, correo:cor, enlace:d&&d.enlace });
+      setChAltaOpen(false); limpiarCh(); cargarChoferes();
+    }catch(e){ setError(e.message||String(e)); }
+    setChGuardando(false);
+  };
+  const estadoChofer=async(u,ocultar)=>{
+    setError(""); setAviso("");
+    setGuardando("ch-est-"+u.usr_id);
+    try{
+      const {error}=await window.supa.from("usuarios").update({activo:!ocultar}).eq("usr_id",u.usr_id);
+      if(error) setError("No se pudo "+(ocultar?"ocultar":"reactivar")+" el chofer: "+error.message);
+      else { setAviso(u.nombre+(ocultar?" quedó oculto (no borra nada; se puede reactivar).":" quedó activo.")); cargarChoferes(); }
+    }catch(e){ setError(String(e&&e.message||e)); }
+    setGuardando("");
+  };
+
+  /* ── alta de estibador (insert directo en estibadores) ───────────── */
+  const [esAltaOpen,setEsAltaOpen]=useState(false);
+  const [esNombre,setEsNombre]=useState(""),[esCedula,setEsCedula]=useState(""),[esTel,setEsTel]=useState("");
+  const [esGuardando,setEsGuardando]=useState(false);
+  const limpiarEs=()=>{ setEsNombre("");setEsCedula("");setEsTel(""); };
+  const crearEstibador=async()=>{
+    setError(""); setAviso("");
+    const nom=(esNombre||"").trim();
+    if(nom.length<3){ setError("Escribe el nombre del estibador."); return; }
+    setEsGuardando(true);
+    try{
+      const org=orgId||await orgActivaWeb();
+      const {error}=await window.supa.from("estibadores").insert({
+        est_id:nuevoIdEST(), org_id:org, nombre:nom,
+        cedula:(esCedula||"").trim()||null, telefono:(esTel||"").trim()||null, activo:true });
+      if(error) setError("No se pudo crear el estibador (revisa permisos/estructura): "+error.message);
+      else { setEsAltaOpen(false); limpiarEs(); cargarEstibadores(); setAviso("Estibador agregado."); }
+    }catch(e){ setError(String(e&&e.message||e)); }
+    setEsGuardando(false);
+  };
+  const estadoEstibador=async(e0,ocultar)=>{
+    setError(""); setAviso("");
+    setGuardando("es-est-"+e0.est_id);
+    try{
+      const {error}=await window.supa.from("estibadores").update({activo:!ocultar}).eq("est_id",e0.est_id);
+      if(error) setError("No se pudo "+(ocultar?"ocultar":"reactivar")+" el estibador: "+error.message);
+      else { setAviso(e0.nombre+(ocultar?" quedó oculto.":" quedó activo.")); cargarEstibadores(); }
+    }catch(e){ setError(String(e&&e.message||e)); }
+    setGuardando("");
+  };
+
+  /* ── guardar una tarifa desde una fila (con feedback) ────────────── */
+  const guardarFila=async(clave,combo,valorTexto,despues)=>{
+    const val=numQq(valorTexto);
+    if(val==null){ setError("Escribe un valor válido en $/qq (por ejemplo 0.35)."); return; }
+    setError(""); setAviso(""); setGuardando(clave);
+    try{
+      await guardarTarifa(combo,val);
+      setAviso("Tarifa guardada."); setEditando(""); setBorrador({});
+      if(despues) await despues();
+    }catch(e){ setError("No se pudo guardar la tarifa: "+(e&&e.message||String(e))); }
+    setGuardando("");
+  };
+
+  const sinBase = window.supa ? false : true;
+
+  /* ═══════════════════════ RENDER ═══════════════════════ */
+  return (
+    <div style={{maxWidth:820,margin:"0 auto",padding:"8px 4px 40px"}}>
+      <h2 style={{margin:"6px 2px 4px"}}>Tarifas de logística</h2>
+      <div style={{...S.meta,margin:"0 2px 12px",lineHeight:1.45}}>
+        Lo que arma el freelance: el <b>cobro por zona</b> (flete y estibada), la tarifa de <b>cada chofer</b> y la de
+        <b> cada estibador</b>. Todo en <b>$/qq</b>. Al editar nunca se pierde el historial.
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <button style={S.tab(tab==="zonas")}      onClick={()=>{setTab("zonas");setEditando("");setError("");}}>📍 Zonas (cobro)</button>
+        <button style={S.tab(tab==="choferes")}   onClick={()=>{setTab("choferes");setEditando("");setError("");}}>🚛 Chóferes</button>
+        <button style={S.tab(tab==="estibadores")}onClick={()=>{setTab("estibadores");setEditando("");setError("");}}>💪 Estibadores</button>
+      </div>
+
+      {sinBase && <div style={{...S.card,color:ROJO}}>Esta pantalla trabaja con la base en línea. Entra con tu cuenta para armar las tarifas.</div>}
+      {error && <div style={{...S.card,borderColor:"#E3C4B7",color:ROJO,background:"#FBF2EE"}}>{error}</div>}
+      {aviso && <div style={{...S.card,borderColor:"#BFE0CC",color:VERDE,background:"#F0F8F3"}}>{aviso}</div>}
+
+      {/* ══════════════════ FE01_TARIFAS_ZONA ══════════════════ */}
+      {/* FE01_TARIFAS_ZONA · cobro al cliente: flete y estibada por zona ($/qq) */}
+      {tab==="zonas" && (
+        <div>
+          {zonas===null && <div style={{...S.meta,padding:"18px 4px"}}>Cargando zonas…</div>}
+          {zonas!==null && !zonas.length && <div style={{...S.meta,padding:"18px 4px"}}>No hay zonas activas en tu organización.</div>}
+          {(zonas||[]).map(z=>{
+            const cur=tarZona[z.zona_id]||{};
+            const cf="zf-"+z.zona_id, ce="ze-"+z.zona_id;
+            return (
+              <div key={z.zona_id} style={S.card}>
+                <div style={{fontWeight:800,fontSize:15,marginBottom:2}}>📍 {z.nombre}</div>
+                {Array.isArray(z.ciudades)&&z.ciudades.length>0 &&
+                  <div style={{...S.meta,marginBottom:9}}>{z.ciudades.join(" · ")}</div>}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {[["flete","Flete",cf],["estibada","Estibada",ce]].map(([concepto,etq,clave])=>{
+                    const combo={concepto,ambito:"zona",zona_id:z.zona_id,persona_id:null};
+                    const enEd=editando===clave;
+                    return (
+                      <div key={clave} style={{border:"1px solid #EFEADD",borderRadius:9,padding:"9px 10px"}}>
+                        <div style={{...S.meta,marginBottom:5}}>{etq} · $/qq</div>
+                        {!enEd && (
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+                            <b style={{fontSize:16}}>{cur[concepto]!=null?fmtQq(cur[concepto]):"—"}</b>
+                            <div style={{display:"flex",gap:6}}>
+                              <button style={{...S.btn("#fff",VERDE),border:"1px solid #BFE0CC",padding:"6px 10px"}}
+                                onClick={()=>{ setEditando(clave); setBorrador({v:cur[concepto]!=null?String(cur[concepto]):""}); setError(""); }}>Editar</button>
+                              <button style={{...S.btn("#fff","#666"),border:"1px solid #D8D2C4",padding:"6px 10px"}}
+                                onClick={()=>abrirHist(z.nombre+" · "+etq,combo)}>Historial</button>
+                            </div>
+                          </div>
+                        )}
+                        {enEd && (
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <input autoFocus inputMode="decimal" style={S.inpQq} value={borrador.v||""}
+                              onChange={e=>setBorrador({v:e.target.value})} placeholder="0.00"/>
+                            <button disabled={guardando===clave} style={S.btn(guardando===clave?VERDE_OFF:VERDE)}
+                              onClick={()=>guardarFila(clave,combo,borrador.v,cargarZonas)}>{guardando===clave?"…":"Guardar"}</button>
+                            <button style={{...S.btn("#fff","#666"),border:"1px solid #D8D2C4"}}
+                              onClick={()=>{ setEditando(""); setBorrador({}); }}>Cancelar</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ══════════════════ FE01_CHOFERES ══════════════════ */}
+      {/* FE01_CHOFERES · usuarios rol=transportista + su flete por zona */}
+      {tab==="choferes" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+            <button style={S.btn(chAltaOpen?"#fff":VERDE,chAltaOpen?"#333":"#fff")}
+              onClick={()=>{ setChAltaOpen(v=>!v); setError(""); setReciente(null); }}>{chAltaOpen?"Cancelar":"＋ Agregar chofer"}</button>
+          </div>
+          {chAltaOpen && (
+            <div style={S.card}>
+              <div style={{fontWeight:800,fontSize:14,marginBottom:8}}>Nuevo chofer</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <input style={S.inp} value={chNombre} onChange={e=>setChNombre(e.target.value)} placeholder="Nombre completo"/>
+                <input style={S.inp} value={chCedula} onChange={e=>setChCedula(e.target.value)} inputMode="numeric" placeholder="Cédula"/>
+                <input style={S.inp} value={chTel} onChange={e=>setChTel(e.target.value)} inputMode="tel" placeholder="Teléfono"/>
+                <input style={S.inp} value={chCorreo} onChange={e=>setChCorreo(e.target.value)} inputMode="email" placeholder="Correo (para su acceso)"/>
+                <input style={S.inp} value={chPlaca} onChange={e=>setChPlaca(e.target.value)} placeholder="Placa"/>
+                <input style={S.inp} value={chCap} onChange={e=>setChCap(e.target.value)} inputMode="decimal" placeholder="Capacidad (qq)"/>
+              </div>
+              <div style={{...S.meta,fontSize:11,margin:"8px 0 10px",lineHeight:1.45}}>
+                Se crea su cuenta de transportista y sale un <b>enlace de invitación</b> de un solo uso: el chofer lo abre y pone su propia clave.
+                Ninguna clave viaja por chat.
+              </div>
+              <button disabled={chGuardando} style={{...S.btn(chGuardando?VERDE_OFF:VERDE),width:"100%"}}
+                onClick={crearChofer}>{chGuardando?"Creando…":"Crear chofer y su acceso"}</button>
+            </div>
+          )}
+          {reciente && (
+            <div style={{...S.card,borderColor:"#BFE0CC",background:"#F0F8F3"}}>
+              <div style={{fontWeight:800,marginBottom:4}}>Cuenta creada · {reciente.nombre}</div>
+              <div style={{...S.meta,marginBottom:6}}>Envíale este enlace a {reciente.correo} para que entre y ponga su clave:</div>
+              {reciente.enlace
+                ? <div style={{wordBreak:"break-all",fontSize:12,background:"#fff",border:"1px solid #D8D2C4",borderRadius:8,padding:"8px 9px"}}>{reciente.enlace}</div>
+                : <div style={S.meta}>El servidor no devolvió el enlace; genéralo de nuevo desde «Cuentas del equipo».</div>}
+            </div>
+          )}
+
+          {choferes===null && <div style={{...S.meta,padding:"18px 4px"}}>Cargando chóferes…</div>}
+          {choferes!==null && !choferes.length && <div style={{...S.meta,padding:"18px 4px"}}>Aún no hay chóferes. Agrega el primero.</div>}
+          {(choferes||[]).map(u=>{
+            const abierto=editando==="ch-"+u.usr_id;
+            const mis=tarChofer[u.usr_id]||{};
+            return (
+              <div key={u.usr_id} style={{...S.card,opacity:u.activo===false?0.6:1}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:15}}>🚛 {u.nombre} {u.activo===false && <span style={{...S.meta,fontWeight:600}}>· oculto</span>}</div>
+                    <div style={S.meta}>{u.placa?("Placa "+u.placa):"Sin placa"} · {u.capacidad_qq?(u.capacidad_qq+" qq"):"sin capacidad"}{u.telefono?(" · "+u.telefono):""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button style={{...S.btn("#fff",VERDE),border:"1px solid #BFE0CC",padding:"7px 10px"}}
+                      onClick={()=>{ setEditando(abierto?"":"ch-"+u.usr_id); setError(""); }}>{abierto?"Cerrar":"Tarifa por zona"}</button>
+                    {u.activo===false
+                      ? <button disabled={guardando==="ch-est-"+u.usr_id} style={{...S.btn("#fff",VERDE),border:"1px solid #BFE0CC",padding:"7px 10px"}} onClick={()=>estadoChofer(u,false)}>Reactivar</button>
+                      : <button disabled={guardando==="ch-est-"+u.usr_id} style={{...S.btn("#fff",ROJO),border:"1px solid #E3C4B7",padding:"7px 10px"}} onClick={()=>estadoChofer(u,true)}>Ocultar</button>}
+                  </div>
+                </div>
+                {abierto && (
+                  <div style={{marginTop:10,borderTop:"1px solid #EFEADD",paddingTop:10}}>
+                    <div style={{...S.meta,marginBottom:8}}>Flete de <b>{u.nombre}</b> por zona ($/qq). Cada chofer con la suya.</div>
+                    {zonas===null && <div style={S.meta}>Cargando zonas…</div>}
+                    {zonas!==null && !zonas.length && <div style={S.meta}>No hay zonas activas.</div>}
+                    {(zonas||[]).map(z=>{
+                      const clave="chz-"+u.usr_id+"-"+z.zona_id;
+                      const combo={concepto:"flete",ambito:"persona",persona_id:u.usr_id,zona_id:z.zona_id};
+                      const enEd=editando===clave;
+                      return (
+                        <div key={z.zona_id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"6px 0",borderBottom:"1px dashed #EFEADD"}}>
+                          <div style={{fontSize:13.5}}>{z.nombre}</div>
+                          {!enEd && (
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <b>{mis[z.zona_id]!=null?fmtQq(mis[z.zona_id]):"—"}</b>
+                              <button style={{...S.btn("#fff",VERDE),border:"1px solid #BFE0CC",padding:"5px 9px"}}
+                                onClick={()=>{ setEditando(clave); setBorrador({v:mis[z.zona_id]!=null?String(mis[z.zona_id]):""}); setError(""); }}>Editar</button>
+                              <button style={{...S.btn("#fff","#666"),border:"1px solid #D8D2C4",padding:"5px 9px"}}
+                                onClick={()=>abrirHist(u.nombre+" · "+z.nombre+" · Flete",combo)}>Historial</button>
+                            </div>
+                          )}
+                          {enEd && (
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <input autoFocus inputMode="decimal" style={S.inpQq} value={borrador.v||""}
+                                onChange={e=>setBorrador({v:e.target.value})} placeholder="0.00"/>
+                              <button disabled={guardando===clave} style={S.btn(guardando===clave?VERDE_OFF:VERDE)}
+                                onClick={()=>guardarFila(clave,combo,borrador.v,cargarChoferes)}>{guardando===clave?"…":"Guardar"}</button>
+                              <button style={{...S.btn("#fff","#666"),border:"1px solid #D8D2C4"}}
+                                onClick={()=>{ setEditando("ch-"+u.usr_id); setBorrador({}); }}>Cancelar</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ══════════════════ FE01_ESTIBADORES ══════════════════ */}
+      {/* FE01_ESTIBADORES · tabla estibadores + tarifa única de estibada */}
+      {tab==="estibadores" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+            <button style={S.btn(esAltaOpen?"#fff":VERDE,esAltaOpen?"#333":"#fff")}
+              onClick={()=>{ setEsAltaOpen(v=>!v); setError(""); }}>{esAltaOpen?"Cancelar":"＋ Agregar estibador"}</button>
+          </div>
+          {esAltaOpen && (
+            <div style={S.card}>
+              <div style={{fontWeight:800,fontSize:14,marginBottom:8}}>Nuevo estibador</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <input style={{...S.inp,gridColumn:"1 / span 2"}} value={esNombre} onChange={e=>setEsNombre(e.target.value)} placeholder="Nombre completo"/>
+                <input style={S.inp} value={esCedula} onChange={e=>setEsCedula(e.target.value)} inputMode="numeric" placeholder="Cédula (opcional)"/>
+                <input style={S.inp} value={esTel} onChange={e=>setEsTel(e.target.value)} inputMode="tel" placeholder="Teléfono (opcional)"/>
+              </div>
+              <div style={{...S.meta,fontSize:11,margin:"8px 0 10px"}}>El estibador no entra a ninguna app; solo queda registrado para su pago.</div>
+              <button disabled={esGuardando} style={{...S.btn(esGuardando?VERDE_OFF:VERDE),width:"100%"}}
+                onClick={crearEstibador}>{esGuardando?"Guardando…":"Agregar estibador"}</button>
+            </div>
+          )}
+
+          {estibadores===null && <div style={{...S.meta,padding:"18px 4px"}}>Cargando estibadores…</div>}
+          {estibadores!==null && !estibadores.length && <div style={{...S.meta,padding:"18px 4px"}}>Aún no hay estibadores. Agrega el primero.</div>}
+          {(estibadores||[]).map(e0=>{
+            const clave="es-"+e0.est_id;
+            const combo={concepto:"estibada",ambito:"persona",persona_id:e0.est_id,zona_id:null};
+            const enEd=editando===clave;
+            const val=tarEst[e0.est_id];
+            return (
+              <div key={e0.est_id} style={{...S.card,opacity:e0.activo===false?0.6:1}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:15}}>💪 {e0.nombre} {e0.activo===false && <span style={{...S.meta,fontWeight:600}}>· oculto</span>}</div>
+                    <div style={S.meta}>Estibada única · {val!=null?fmtQq(val)+" /qq":"sin tarifa"}{e0.telefono?(" · "+e0.telefono):""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    {e0.activo===false
+                      ? <button disabled={guardando==="es-est-"+e0.est_id} style={{...S.btn("#fff",VERDE),border:"1px solid #BFE0CC",padding:"7px 10px"}} onClick={()=>estadoEstibador(e0,false)}>Reactivar</button>
+                      : <button disabled={guardando==="es-est-"+e0.est_id} style={{...S.btn("#fff",ROJO),border:"1px solid #E3C4B7",padding:"7px 10px"}} onClick={()=>estadoEstibador(e0,true)}>Ocultar</button>}
+                  </div>
+                </div>
+                <div style={{marginTop:10,borderTop:"1px solid #EFEADD",paddingTop:10,display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{...S.meta,flex:1}}>Tarifa de estibada ($/qq), igual para todas las zonas.</div>
+                  {!enEd && (
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <b style={{fontSize:16}}>{val!=null?fmtQq(val):"—"}</b>
+                      <button style={{...S.btn("#fff",VERDE),border:"1px solid #BFE0CC",padding:"6px 10px"}}
+                        onClick={()=>{ setEditando(clave); setBorrador({v:val!=null?String(val):""}); setError(""); }}>Editar</button>
+                      <button style={{...S.btn("#fff","#666"),border:"1px solid #D8D2C4",padding:"6px 10px"}}
+                        onClick={()=>abrirHist(e0.nombre+" · Estibada",combo)}>Historial</button>
+                    </div>
+                  )}
+                  {enEd && (
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <input autoFocus inputMode="decimal" style={S.inpQq} value={borrador.v||""}
+                        onChange={e=>setBorrador({v:e.target.value})} placeholder="0.00"/>
+                      <button disabled={guardando===clave} style={S.btn(guardando===clave?VERDE_OFF:VERDE)}
+                        onClick={()=>guardarFila(clave,combo,borrador.v,cargarEstibadores)}>{guardando===clave?"…":"Guardar"}</button>
+                      <button style={{...S.btn("#fff","#666"),border:"1px solid #D8D2C4"}}
+                        onClick={()=>{ setEditando(""); setBorrador({}); }}>Cancelar</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── modal de historial (compartido) ── */}
+      {hist && (
+        <div onClick={()=>setHist(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:60,padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,maxWidth:420,width:"100%",maxHeight:"80vh",overflowY:"auto",padding:"16px 18px"}}>
+            <div style={{fontWeight:800,fontSize:15,marginBottom:8}}>Historial · {hist.titulo}</div>
+            {hist.filas===null && <div style={S.meta}>Cargando…</div>}
+            {hist.filas!==null && !hist.filas.length && <div style={S.meta}>Sin historial todavía.</div>}
+            {(hist.filas||[]).map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",borderBottom:"1px solid #F0ECE1"}}>
+                <div style={{fontSize:13}}>{fmtF(f.vigente_desde)} → {f.vigente_hasta?fmtF(f.vigente_hasta):<b style={{color:VERDE}}>vigente</b>}</div>
+                <b>{fmtQq(f.valor_qq)}</b>
+              </div>
+            ))}
+            <button style={{...S.btn(VERDE),width:"100%",marginTop:12}} onClick={()=>setHist(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -20032,6 +20546,8 @@ function App() {
       case "preciosvig":  /* Costo + Base + "Ajustar por grano". El Catálogo (replicar / */
       case "propuestas":  /* histórico) queda igual. */
         return <PiladorasWeb usuario={sesion} />;
+      case "tarifasfe":
+        return <TarifasFEWeb usuario={sesion} />;
       case "documentos":
         return <CustodiaWeb usuario={sesion} />;
       case "auditoria":

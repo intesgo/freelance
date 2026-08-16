@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"160"/.test(web),"Sistema Web debe anunciar b160");
-prueba(/const CACHE = "freelance-v247"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"161"/.test(web),"Sistema Web debe anunciar b161");
+prueba(/const CACHE = "freelance-v248"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
