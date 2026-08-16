@@ -1582,7 +1582,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"52", fecha:"11 ago 2026", desc:"En el detalle de cada pedido ahora se ven la fecha de entrega y la nota para el chofer que se anotaron al crearlo." };
+const VERSION = { n:"53", fecha:"16 ago 2026", desc:"Pedido: ahora el flete y la estibada se cobran al cliente en $/qq, tomados de la tarifa de la zona (se pueden ajustar). En retiro de piladora van en 0. El resumen muestra Base + Flete + Estibada = Total. La comisión no cambia." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -1891,7 +1891,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, fleteCobroQq, estibadaCobroQq}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -1909,6 +1909,8 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
     const payload={cliente_id:cliId,proveedor_id:(prov&&prov.id)||null,condicion,
       ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null),retiro_bodega:!!retiro,
       asume_flete:retiro?null:(asumeFlete||"freelance"),asume_estibada:retiro?null:(asumeEstibada||"freelance"),
+      /* FE02_COBRO_PEDIDO: cobro al cliente en $/qq (0 en retiro) */
+      flete_cobro_qq: retiro?0:(Number(fleteCobroQq)||0), estibada_cobro_qq: retiro?0:(Number(estibadaCobroQq)||0),
       fecha_entrega: fechaEntrega||null, nota_chofer: (notaChofer&&notaChofer.trim())||null,
       items:items.map(it=>({prod_id:it.prod.prodId,pres_cod:it.prod.presCod,
         cantidad_presentacion:Number(it.cant),gratis_presentacion:Number(it.gratis)||0,
@@ -3284,6 +3286,11 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
   const [ubicMap,setUbicMap]=useState({});
   const [vivoPed,setVivoPed]=useState(null);
+  /* FE02_COBRO_PEDIDO · cobro de flete/estibada al cliente ($/qq) desde la tarifa por zona (FE-01); 0 en retiro */
+  const [zonasFE,setZonasFE]=useState([]);
+  const [tarZonaFE,setTarZonaFE]=useState({});
+  const [fleteCobroQq,setFleteCobroQq]=useState("");
+  const [estibadaCobroQq,setEstibadaCobroQq]=useState("");
 
   // bloqueo automático del cliente
   const motivos = cli ? motivosBloqueo(cli) : [];
@@ -3338,6 +3345,28 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     })();
     return ()=>{ activo=false; };
   },[]);
+
+  /* FE02_COBRO_PEDIDO · zonas + tarifas vigentes por zona (para el cobro al cliente) */
+  React.useEffect(()=>{
+    if(!window.SB) return;
+    let vivo=true;
+    (async ()=>{
+      try{
+        const [rz,rt]=await Promise.all([
+          window.SB.from("zonas").select("zona_id,nombre,ciudades,activo").eq("activo",true),
+          window.SB.from("tarifas_fe").select("concepto,zona_id,valor_qq").eq("ambito","zona").is("vigente_hasta",null),
+        ]);
+        if(!vivo) return;
+        const m={}; (((rt&&rt.data))||[]).forEach(t=>{ (m[t.zona_id]=m[t.zona_id]||{})[t.concepto]=Number(t.valor_qq); });
+        setZonasFE(((rz&&rz.data))||[]); setTarZonaFE(m);
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const normCiudadFE=(s)=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+  const zonaDeCiudadFE=(ciudad)=>{ const c=normCiudadFE(ciudad); if(!c) return null;
+    return (zonasFE||[]).find(z=>Array.isArray(z.ciudades)&&z.ciudades.some(x=>normCiudadFE(x)===c))||null; };
+
   React.useEffect(()=>{
     setRetiroBodegaPed(false);
     const lista = ubicMap[CLI_ID_DE[cli]] || [];
@@ -3345,6 +3374,14 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
     if(lista.length===1){ setUbicPed(lista[0]); return; }
     setUbicPed(lista.find(u=>u.principal) || null);
   },[cli, ubicMap]);
+  /* FE02_COBRO_PEDIDO · al elegir domicilio/dirección se prellena con la tarifa de la zona; en retiro va en 0 */
+  React.useEffect(()=>{
+    if(retiroBodegaPed){ setFleteCobroQq("0"); setEstibadaCobroQq("0"); return; }
+    const z=zonaDeCiudadFE(ubicPed&&ubicPed.ciudad);
+    const t=(z&&tarZonaFE[z.zona_id])||{};
+    setFleteCobroQq(t.flete!=null?String(t.flete):"");
+    setEstibadaCobroQq(t.estibada!=null?String(t.estibada):"");
+  },[retiroBodegaPed, ubicPed, tarZonaFE]);
   const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
   const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
   const CLIS_PED  = (vivoPed && vivoPed.clis && vivoPed.clis.length) ? vivoPed.clis : CLIENTES;
@@ -3359,6 +3396,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const totalFacturaCarrito = Math.round(carrito.reduce((s,it)=>s+(it.precio*it.cant),0)*100)/100;
   // Total en quintales: con la equivalencia REAL de la oferta, la misma que se graba
   const totalQuintalesCarrito = totalQuintalesDeCarrito(carrito);
+  /* FE02_COBRO_PEDIDO · desglose Base + Flete + Estibada = Total ($/qq × quintales) */
+  const fleteCobroTotal = (retiroBodegaPed?0:(Number(fleteCobroQq)||0))*totalQuintalesCarrito;
+  const estibadaCobroTotal = (retiroBodegaPed?0:(Number(estibadaCobroQq)||0))*totalQuintalesCarrito;
+  const totalConCobro = Math.round((totalFacturaCarrito + fleteCobroTotal + estibadaCobroTotal)*100)/100;
   const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id) : [];
   // Productos que ESE cliente ya compró antes (con este proveedor), según su historial.
   // Se ocultan los que ya están en el pedido para no elegirlos dos veces.
@@ -3607,6 +3648,23 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             </button>);
           })}
         </div>
+        {/* FE02_COBRO_PEDIDO: cobro al cliente en $/qq, tomado de la tarifa de la zona (ajustable); 0 en retiro */}
+        {!retiroBodegaPed ? (
+          <div style={{marginTop:12,padding:"11px 12px",border:"1.5px solid #d8ddd7",borderRadius:12,background:"#F7FAF8"}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:"#1E4D3A"}}>Cobro al cliente ($/qq){(()=>{const z=zonaDeCiudadFE(ubicPed&&ubicPed.ciudad);return z?(" · "+z.nombre):"";})()}</div>
+            <div style={{fontSize:11,color:"#6b7a70",margin:"1px 0 8px"}}>{zonaDeCiudadFE(ubicPed&&ubicPed.ciudad)?"Tomado de la tarifa de la zona; puedes ajustarlo.":"Sin zona para esa ciudad; escríbelo a mano."}</div>
+            <div style={{display:"flex",gap:8}}>
+              <label style={{flex:1,fontSize:11,fontWeight:700,color:"#6b7a70"}}>Flete $/qq
+                <input inputMode="decimal" value={fleteCobroQq} onChange={e=>setFleteCobroQq(e.target.value)} placeholder="0.00"
+                  style={{width:"100%",marginTop:3,padding:"9px 11px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} /></label>
+              <label style={{flex:1,fontSize:11,fontWeight:700,color:"#6b7a70"}}>Estibada $/qq
+                <input inputMode="decimal" value={estibadaCobroQq} onChange={e=>setEstibadaCobroQq(e.target.value)} placeholder="0.00"
+                  style={{width:"100%",marginTop:3,padding:"9px 11px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} /></label>
+            </div>
+          </div>
+        ) : (
+          <div style={{marginTop:12,fontSize:12,color:"#9a3412"}}>En retiro no se cobra flete ni estibada (van en 0).</div>
+        )}
         <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
         <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
           style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
@@ -3954,7 +4012,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             /* PROMO-03 · el regalo de más se frena antes de guardar nada. */
             const avisoRegalo = await revisarRegaloDePromo(items, (prov && prov.id)||null);
             if(avisoRegalo){ alert(avisoRegalo); return; }
-            guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).then(r=>{
+            guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed, fleteCobroQq, estibadaCobroQq}).then(r=>{
               if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
               else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
                 toast("⚠ El pedido quedó solo local: "+r.motivo);
@@ -4014,6 +4072,13 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
               <button className="ped-del" onClick={()=>setCarrito(carrito.filter(x=>x.id!==it.id))}>Quitar</button>
             </div>
           ))}
+          {/* FE02_COBRO_PEDIDO: desglose Base + Flete + Estibada = Total */}
+          <div style={{margin:"6px 0 2px",padding:"10px 12px",border:"1.5px solid #d8ddd7",borderRadius:12,background:"#F7FAF8"}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Base del pedido</span><b className="num" style={{color:"#1E4D3A"}}>{money(totalFacturaCarrito)}</b></div>
+            {fleteCobroTotal>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Flete ({totalQuintalesCarrito} qq × {money(Number(fleteCobroQq)||0)})</span><b className="num" style={{color:"#1E4D3A"}}>{money(fleteCobroTotal)}</b></div>}
+            {estibadaCobroTotal>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Estibada ({totalQuintalesCarrito} qq × {money(Number(estibadaCobroQq)||0)})</span><b className="num" style={{color:"#1E4D3A"}}>{money(estibadaCobroTotal)}</b></div>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5,paddingTop:5,borderTop:"1px solid #d8ddd7"}}><span style={{fontSize:14,fontWeight:800,color:"#1E4D3A"}}>Total del pedido</span><b className="num" style={{fontSize:16,fontWeight:800,color:"#1E4D3A"}}>{money(totalConCobro)}</b></div>
+          </div>
           <div className="ped-tot">
             <span>Comisión total del pedido</span>
             <b className="num">{money(totalComisionCarrito)}</b>
@@ -4028,7 +4093,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
               cli:(cli && cli.nombre) || cli || "—",
               detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
               cuando:"recién" }));
-            guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).then(r=>{
+            guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed, fleteCobroQq, estibadaCobroQq}).then(r=>{
               if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
               else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
                 toast("⚠ El pedido quedó solo local: "+r.motivo);
