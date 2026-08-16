@@ -1,7 +1,7 @@
 # FE-01 · Tarifas, Chóferes y Estibadores (lo arma el freelance)
 
-ESTADO: pendiente
-APPS: `sistema-web.html` (Sistema Web) y `freelance-completo.html` (App Freelance).
+ESTADO: publicado (Sistema Web · b162). La App Freelance quedó para una segunda entrega.
+APPS: `sistema-web.html` (Sistema Web). La App Freelance (`freelance-completo.html`) no se tocó en esta entrega.
 BASE: no crea tabla nueva. Escribe en la tabla existente `tarifas_fe` (y en `usuarios` /
 `estibadores` según el módulo). El freelance ya tiene permiso de escritura por ficha (RLS
 abierta a ficha). **No cambiar permisos.**
