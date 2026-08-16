@@ -394,7 +394,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"161", fecha:"16 ago 2026", desc:"Nuevo módulo «Tarifas de logística»: el freelance arma el cobro por zona (flete y estibada), la tarifa de flete de cada chofer y la estibada de cada estibador, todo en $/qq. Puede agregar chóferes (con su acceso) y estibadores, y ocultar/reactivar. Al editar nunca se pierde el historial." };
+const VERSION = { n:"162", fecha:"16 ago 2026", desc:"Pedido: ahora el flete y la estibada se cobran al cliente en $/qq, tomados de la tarifa de la zona (se pueden ajustar). En retiro de bodega van en 0. El resumen muestra Base + Flete + Estibada = Total. La comisión no cambia. (b161: módulo «Tarifas de logística».)" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5328,6 +5328,42 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     return () => { activo = false; };
   }, [cli && cli.id]);
 
+  /* FE02_COBRO_PEDIDO · cobro de flete y estibada al cliente ($/qq), tomado de las
+     tarifas por zona que arma el freelance (FE-01). En retiro va en 0. */
+  const [zonasFE, setZonasFE] = useState([]);
+  const [tarZonaFE, setTarZonaFE] = useState({});      // zona_id -> { flete, estibada }
+  const [fleteCobroQq, setFleteCobroQq] = useState("");
+  const [estibadaCobroQq, setEstibadaCobroQq] = useState("");
+  React.useEffect(() => {
+    if (!window.supa) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const [rz, rt] = await Promise.all([
+          window.supa.from("zonas").select("zona_id,nombre,ciudades,activo").eq("activo", true),
+          window.supa.from("tarifas_fe").select("concepto,zona_id,valor_qq").eq("ambito", "zona").is("vigente_hasta", null),
+        ]);
+        if (!vivo) return;
+        const m = {}; (((rt && rt.data)) || []).forEach(t => { (m[t.zona_id] = m[t.zona_id] || {})[t.concepto] = Number(t.valor_qq); });
+        setZonasFE(((rz && rz.data)) || []); setTarZonaFE(m);
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
+  const normCiudadFE = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const zonaDeCiudadFE = (ciudad) => {
+    const c = normCiudadFE(ciudad); if (!c) return null;
+    return (zonasFE || []).find(z => Array.isArray(z.ciudades) && z.ciudades.some(x => normCiudadFE(x) === c)) || null;
+  };
+  // Al elegir domicilio/dirección se prellena con la tarifa de la zona; en retiro va en 0.
+  React.useEffect(() => {
+    if (retiroBodega) { setFleteCobroQq("0"); setEstibadaCobroQq("0"); return; }
+    const z = zonaDeCiudadFE(ubicPed && ubicPed.ciudad);
+    const t = (z && tarZonaFE[z.zona_id]) || {};
+    setFleteCobroQq(t.flete != null ? String(t.flete) : "");
+    setEstibadaCobroQq(t.estibada != null ? String(t.estibada) : "");
+  }, [retiroBodega, ubicPed, tarZonaFE]);
+
   const base = !prod ? 0
     : tipo==="P1" ? prod.baseContado
     : tipo==="P2" ? prod.baseCredito
@@ -5371,6 +5407,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
 
   const disponibleCupo = cli ? Math.max(0, cli.cupo - cli.usado) : 0;
   const totalCarrito = carrito.reduce((s,it)=>s+it.total,0);
+  /* FE02_COBRO_PEDIDO · totales del cobro de flete/estibada ($/qq × quintales del pedido) */
+  const zonaPedFE = retiroBodega ? null : zonaDeCiudadFE(ubicPed && ubicPed.ciudad);
+  const totalQqPedido = carrito.reduce((s,l)=>s+((Number(l.cant)||0)*(Number(l.equiv)||1)),0);
+  const fleteCobroTotal = (retiroBodega?0:(Number(fleteCobroQq)||0))*totalQqPedido;
+  const estibadaCobroTotal = (retiroBodega?0:(Number(estibadaCobroQq)||0))*totalQqPedido;
+  const totalConCobro = Math.round((totalCarrito + fleteCobroTotal + estibadaCobroTotal)*100)/100;
   const esCredito = tipo==="P2" || (tipo==="P3" && condP3==="credito") || tipo==="P5";
   const exponeCupo = esCredito ? totalLinea : 0;
   const excedeCupo = cli && !cli.bloqueado && esCredito && (cli.usado + totalCarrito + exponeCupo > cli.cupo);
@@ -5538,6 +5580,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       const payload={cliente_id:cli.id,proveedor_id:provCod,condicion,
         ubicacion_id:retiroBodega?null:((ubicPed&&ubicPed.ubic_id)||null),retiro_bodega:!!retiroBodega,
         asume_flete:retiroBodega?null:asumeFlete,asume_estibada:retiroBodega?null:asumeEstibada,
+        /* FE02_COBRO_PEDIDO: cobro al cliente en $/qq (0 en retiro) */
+        flete_cobro_qq: retiroBodega?0:(Number(fleteCobroQq)||0),
+        estibada_cobro_qq: retiroBodega?0:(Number(estibadaCobroQq)||0),
         fecha_entrega: fechaEntrega||null, nota_chofer: (notaChofer&&notaChofer.trim())||null,
         items:items.map(it=>({prod_id:it.prodId,pres_cod:it.presCod,
           cantidad_presentacion:Number(it.cant),gratis_presentacion:Number(it.gratis)||0,
@@ -6057,9 +6102,13 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                 <span style={{ fontSize:14, color:COLOR.muted }}>Comisión total</span>
                 <span className="num" style={{ fontSize:15, fontWeight:700, color:COLOR.text }}>{money(carrito.reduce((s,l)=>s+l.comision,0))}</span>
               </div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              {/* FE02_COBRO_PEDIDO: desglose Base + Flete + Estibada = Total */}
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:13, color:COLOR.muted }}>Base del pedido</span><span className="num" style={{ fontSize:14, color:COLOR.text }}>{money(totalCarrito)}</span></div>
+              {fleteCobroTotal>0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:13, color:COLOR.muted }}>Flete ({totalQqPedido} qq × {money(Number(fleteCobroQq)||0)})</span><span className="num" style={{ fontSize:14, color:COLOR.text }}>{money(fleteCobroTotal)}</span></div>}
+              {estibadaCobroTotal>0 && <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:13, color:COLOR.muted }}>Estibada ({totalQqPedido} qq × {money(Number(estibadaCobroQq)||0)})</span><span className="num" style={{ fontSize:14, color:COLOR.text }}>{money(estibadaCobroTotal)}</span></div>}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:6, paddingTop:6, borderTop:`1px solid ${COLOR.border}` }}>
                 <span style={{ fontSize:17, fontWeight:800, color:COLOR.tealDark }}>Total del pedido</span>
-                <span className="num" style={{ fontSize:21, fontWeight:800, color:COLOR.tealDark }}>{money(totalCarrito)}</span>
+                <span className="num" style={{ fontSize:21, fontWeight:800, color:COLOR.tealDark }}>{money(totalConCobro)}</span>
               </div>
             </div>
           </div>
@@ -6140,7 +6189,23 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                     <div style={{ display:"flex", gap:8 }}>{segBtn(asumeFlete==="freelance","Freelance",()=>setAsumeFlete("freelance"))}{segBtn(asumeFlete==="cliente","Cliente",()=>setAsumeFlete("cliente"))}</div>
                     <label style={{...lblM, marginTop:16}}>¿Quién asume la estibada?</label>
                     <div style={{ display:"flex", gap:8 }}>{segBtn(asumeEstibada==="freelance","Freelance",()=>setAsumeEstibada("freelance"))}{segBtn(asumeEstibada==="cliente","Cliente",()=>setAsumeEstibada("cliente"))}</div>
+                    {/* FE02_COBRO_PEDIDO: cobro al cliente en $/qq, tomado de la tarifa de la zona (ajustable) */}
+                    <div style={{ marginTop:16, padding:"12px 14px", border:`1px solid ${COLOR.border}`, borderRadius:12, background:"#faf8f2" }}>
+                      <div style={{ fontSize:12.5, fontWeight:800, color:COLOR.tealDark }}>Cobro al cliente ($/qq){zonaPedFE?(" · "+zonaPedFE.nombre):""}</div>
+                      <div style={{ fontSize:11, color:COLOR.muted, marginBottom:8 }}>{zonaPedFE?"Tomado de la tarifa de la zona; puedes ajustarlo.":"Sin zona para la ciudad de entrega; escribe el cobro a mano."}</div>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <div style={{ flex:1 }}>
+                          <label style={{ fontSize:11, color:COLOR.muted }}>Flete $/qq</label>
+                          <input inputMode="decimal" value={fleteCobroQq} onChange={e=>setFleteCobroQq(e.target.value)} placeholder="0.00" style={{ width:"100%", boxSizing:"border-box", padding:"9px 11px", borderRadius:10, border:`1px solid ${COLOR.border}`, fontSize:14 }}/>
+                        </div>
+                        <div style={{ flex:1 }}>
+                          <label style={{ fontSize:11, color:COLOR.muted }}>Estibada $/qq</label>
+                          <input inputMode="decimal" value={estibadaCobroQq} onChange={e=>setEstibadaCobroQq(e.target.value)} placeholder="0.00" style={{ width:"100%", boxSizing:"border-box", padding:"9px 11px", borderRadius:10, border:`1px solid ${COLOR.border}`, fontSize:14 }}/>
+                        </div>
+                      </div>
+                    </div>
                   </React.Fragment>)}
+                  {retiroBodega && <p style={{ fontSize:12, color:COLOR.muted, marginTop:12 }}>En retiro no se cobra flete ni estibada (van en 0).</p>}
                   <label style={{...lblM, marginTop:16}}>Fecha deseada de entrega</label>
                   <input type="date" value={fechaEntrega} onChange={e=>setFechaEntrega(e.target.value)} style={{ width:"100%", padding:"11px 13px", borderRadius:10, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none" }} />
                   <label style={{...lblM, marginTop:16}}>Nota para el chofer</label>

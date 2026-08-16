@@ -329,8 +329,9 @@ async function bateria(js, ruidoso) {
   /* ── La pantalla de verdad ──
      En socio-comercial el total SE PINTA (tarjeta «Cantidad» del resumen), así
      que se arma el pedido tocando la app y se LEE el número.
-     En Comisionista el total se calcula pero HOY NO SE PINTA en ninguna
-     pantalla: se deja constancia de eso, que es el hueco real de esa app. */
+     En Comisionista, desde FE-02, el total en quintales YA se pinta: el desglose
+     del pedido (Base + Flete + Estibada = Total) muestra los qq del flete/estibada
+     ($/qq × quintales), pasando `totalQuintalesCarrito` a la hoja «Pedido en curso». */
   if (esSocio) {
     pintar(m);
     await esperar(400);
@@ -353,8 +354,8 @@ async function bateria(js, ruidoso) {
       + (pasos ? " → " + pasos : ""),
       !pasos && /52 qq/.test(txt) && !/58 qq/.test(txt));
   } else {
-    comprobar("en Comisionista el total en quintales se calcula pero HOY NO SE PINTA en ninguna pantalla",
-      /totalQuintalesCarrito/.test(jsx) && (jsx.split("totalQuintalesCarrito").length - 1) === 1);
+    comprobar("en Comisionista el total en quintales ahora SÍ se usa en pantalla (desglose FE-02)",
+      /totalQuintalesCarrito/.test(jsx) && (jsx.split("totalQuintalesCarrito").length - 1) >= 2);
   }
 
   return { ok, mal, fallos };

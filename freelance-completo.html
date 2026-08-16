@@ -3124,7 +3124,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia, fleteCobroQq, estibadaCobroQq}){
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -3144,6 +3144,9 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
       ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null), retiro_bodega:!!retiro,
       asume_flete:retiro?null:(asumeFlete||"freelance"),
       asume_estibada:retiro?null:(asumeEstibada||"freelance"),
+      /* FE02_COBRO_PEDIDO: cobro al cliente en $/qq (0 en retiro) */
+      flete_cobro_qq: retiro?0:(Number(fleteCobroQq)||0),
+      estibada_cobro_qq: retiro?0:(Number(estibadaCobroQq)||0),
       fecha_entrega: fechaEntrega||null,
       nota_chofer: (notaChofer&&notaChofer.trim())||null,
       items:items.map(it=>({
@@ -5947,7 +5950,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"448", fecha:"15 ago 2026", desc:"Pedido: los botones de tipo de precio (P1 Crédito, P2 Contado) ahora muestran su precio base para no adivinar. Se corrigió un nombre interno que tenía P1 y P2 al revés. No cambia cómo se cobra: solo se ve más claro." };
+const VERSION = { n:"449", fecha:"16 ago 2026", desc:"Pedido: ahora el flete y la estibada se cobran al cliente en $/qq, tomados de la tarifa de la zona (se pueden ajustar). En retiro de piladora van en 0. El resumen muestra Base + Flete + Estibada = Total. La comisión no cambia." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6306,6 +6309,11 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const [asumeEstibadaPed,setAsumeEstibadaPed]=useState("freelance");// quién asume la estibada en este pedido
   const [fechaEntregaPed,setFechaEntregaPed]=useState("");         // fecha de entrega (opcional) → payload registrar_pedido_atomico
   const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
+  /* FE02_COBRO_PEDIDO · cobro de flete/estibada al cliente ($/qq) desde la tarifa por zona (FE-01); 0 en retiro */
+  const [zonasFE,setZonasFE]=useState([]);
+  const [tarZonaFE,setTarZonaFE]=useState({});
+  const [fleteCobroQq,setFleteCobroQq]=useState("");
+  const [estibadaCobroQq,setEstibadaCobroQq]=useState("");
   const [verEntrega,setVerEntrega]=useState(false);               // segunda pantalla: "Detalles de entrega"
   const [ubicMap,setUbicMap]=useState({});         // cli_id -> [ubicaciones]
   const [favAbierto,setFavAbierto]=useState(false);   // panel de recompra del cliente
@@ -6370,6 +6378,34 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
     })();
     return ()=>{ activo=false; };
   },[]);
+
+  /* FE02_COBRO_PEDIDO · zonas + tarifas vigentes por zona (para el cobro al cliente) */
+  React.useEffect(()=>{
+    if(!window.SB) return;
+    let vivo=true;
+    (async ()=>{
+      try{
+        const [rz,rt]=await Promise.all([
+          window.SB.from("zonas").select("zona_id,nombre,ciudades,activo").eq("activo",true),
+          window.SB.from("tarifas_fe").select("concepto,zona_id,valor_qq").eq("ambito","zona").is("vigente_hasta",null),
+        ]);
+        if(!vivo) return;
+        const m={}; (((rt&&rt.data))||[]).forEach(t=>{ (m[t.zona_id]=m[t.zona_id]||{})[t.concepto]=Number(t.valor_qq); });
+        setZonasFE(((rz&&rz.data))||[]); setTarZonaFE(m);
+      }catch(e){}
+    })();
+    return ()=>{ vivo=false; };
+  },[]);
+  const normCiudadFE=(s)=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+  const zonaDeCiudadFE=(ciudad)=>{ const c=normCiudadFE(ciudad); if(!c) return null;
+    return (zonasFE||[]).find(z=>Array.isArray(z.ciudades)&&z.ciudades.some(x=>normCiudadFE(x)===c))||null; };
+  React.useEffect(()=>{
+    if(retiroBodegaPed){ setFleteCobroQq("0"); setEstibadaCobroQq("0"); return; }
+    const z=zonaDeCiudadFE(ubicPed&&ubicPed.ciudad);
+    const t=(z&&tarZonaFE[z.zona_id])||{};
+    setFleteCobroQq(t.flete!=null?String(t.flete):"");
+    setEstibadaCobroQq(t.estibada!=null?String(t.estibada):"");
+  },[retiroBodegaPed, ubicPed, tarZonaFE]);
   const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
   const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
   const CLIS_PED  = (vivoPed && vivoPed.clis && vivoPed.clis.length) ? vivoPed.clis : CLIENTES;
@@ -6451,7 +6487,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       if(onEditarPedido) onEditarPedido({pedId:pedIdEdit, carrito:carritoFinal});
       return;
     }
-    if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:carritoFinal, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed});
+    if(onGuardarPedido) onGuardarPedido({cli, prov, carrito:carritoFinal, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed, fleteCobroQq, estibadaCobroQq});
   };
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
@@ -6693,6 +6729,23 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
             </button>);
           })}
         </div>
+        {/* FE02_COBRO_PEDIDO: cobro al cliente en $/qq, tomado de la tarifa de la zona (ajustable); 0 en retiro */}
+        {!retiroBodegaPed ? (
+          <div style={{marginTop:12,padding:"11px 12px",border:"1.5px solid #d8ddd7",borderRadius:12,background:"#F7FAF8"}}>
+            <div style={{fontSize:12.5,fontWeight:800,color:"#1E4D3A"}}>Cobro al cliente ($/qq){(()=>{const z=zonaDeCiudadFE(ubicPed&&ubicPed.ciudad);return z?(" · "+z.nombre):"";})()}</div>
+            <div style={{fontSize:11,color:"#6b7a70",margin:"1px 0 8px"}}>{zonaDeCiudadFE(ubicPed&&ubicPed.ciudad)?"Tomado de la tarifa de la zona; puedes ajustarlo.":"Sin zona para esa ciudad; escríbelo a mano."}</div>
+            <div style={{display:"flex",gap:8}}>
+              <label style={{flex:1,fontSize:11,fontWeight:700,color:"#6b7a70"}}>Flete $/qq
+                <input inputMode="decimal" value={fleteCobroQq} onChange={e=>setFleteCobroQq(e.target.value)} placeholder="0.00"
+                  style={{width:"100%",marginTop:3,padding:"9px 11px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} /></label>
+              <label style={{flex:1,fontSize:11,fontWeight:700,color:"#6b7a70"}}>Estibada $/qq
+                <input inputMode="decimal" value={estibadaCobroQq} onChange={e=>setEstibadaCobroQq(e.target.value)} placeholder="0.00"
+                  style={{width:"100%",marginTop:3,padding:"9px 11px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} /></label>
+            </div>
+          </div>
+        ) : (
+          <div style={{marginTop:12,fontSize:12,color:"#9a3412"}}>En retiro no se cobra flete ni estibada (van en 0).</div>
+        )}
         <div style={{fontSize:12.5,fontWeight:700,color:"var(--field)",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
         <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
           style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
@@ -7700,6 +7753,22 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
               <div className="tv num">{money(totalComisionCarrito)}</div>
             </div>
           )}
+
+          {/* FE02_COBRO_PEDIDO: desglose Base + Flete + Estibada = Total */}
+          {carrito.length>0 && (()=>{
+            const baseCobro=carrito.reduce((s,l)=>s+l.total,0);
+            const qqCobro=carrito.reduce((s,l)=>s+(Number(l.qq)||0),0);
+            const fleteCobroTotal=(retiroBodegaPed?0:(Number(fleteCobroQq)||0))*qqCobro;
+            const estibadaCobroTotal=(retiroBodegaPed?0:(Number(estibadaCobroQq)||0))*qqCobro;
+            const totalConCobro=Math.round((baseCobro+fleteCobroTotal+estibadaCobroTotal)*100)/100;
+            return (
+            <div style={{margin:"8px 0",padding:"10px 12px",border:"1.5px solid #d8ddd7",borderRadius:12,background:"#F7FAF8"}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Base del pedido</span><b className="num" style={{color:"#1E4D3A"}}>{money(baseCobro)}</b></div>
+              {fleteCobroTotal>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Flete ({qqCobro} qq × {money(Number(fleteCobroQq)||0)})</span><b className="num" style={{color:"#1E4D3A"}}>{money(fleteCobroTotal)}</b></div>}
+              {estibadaCobroTotal>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Estibada ({qqCobro} qq × {money(Number(estibadaCobroQq)||0)})</span><b className="num" style={{color:"#1E4D3A"}}>{money(estibadaCobroTotal)}</b></div>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5,paddingTop:5,borderTop:"1px solid #d8ddd7"}}><span style={{fontSize:14,fontWeight:800,color:"#1E4D3A"}}>Total del pedido</span><b className="num" style={{fontSize:16,fontWeight:800,color:"#1E4D3A"}}>{money(totalConCobro)}</b></div>
+            </div>);
+          })()}
 
           {carrito.some(x=>x.ajustar) && (
             <div style={{background:"#FBEDE7",border:"1px solid var(--clay)",borderRadius:10,padding:"9px 11px",margin:"8px 0"}}>
@@ -25497,7 +25566,7 @@ function App({usuario, onSalir}){
     }catch(e){ registrarError("pedido.editar",e,{toast:show}); return false; }
   };
 
-  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer})=>{
+  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, fleteCobroQq, estibadaCobroQq})=>{
     /* PROMO-03 · el regalo de más se frena ANTES de guardar nada, ni siquiera
        en el teléfono. El vendedor ve cuánto concede la promoción y el pedido
        se queda tal como está para que lo corrija. Devuelve false: quien llama
@@ -25540,7 +25609,7 @@ function App({usuario, onSalir}){
     /* FASE 4 · Etapa 4: si hay sesión y cliente/productos reales, el pedido TAMBIÉN nace
        en la base (pedidos + pedido_items; el trigger lo audita solo). Si algo es demo o
        no hay sesión, guardarPedidoEnBase lo detecta y el flujo local sigue como siempre. */
-    const payload={cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia};
+    const payload={cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia, fleteCobroQq, estibadaCobroQq};
     const r=await guardarPedidoEnBase(payload);
     if(r.ok){ setPedidos(prev=>prev.map(p=>p.offlineId===idempotencia?{...p,sync:"ok",id:r.pedId}:p)); show("✓ Pedido "+r.pedId+" guardado en la base"); }
     else if(["sin_conexion","error"].includes(r.motivo)){
