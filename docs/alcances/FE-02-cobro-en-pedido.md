@@ -1,6 +1,6 @@
 # FE-02 · Cobro del flete/estibada en el pedido (arregla el retiro)
 
-ESTADO: pendiente
+ESTADO: publicado
 APPS: `freelance-completo.html`, `Comisionista.html`, `socio-comercial.html`, `sistema-web.html`
   (toma de pedidos en las cuatro).
 BASE: ya aplicada por Cowork (migración `fe02_cobro_flete_estibada_en_pedido`). **Code no toca la base.**
