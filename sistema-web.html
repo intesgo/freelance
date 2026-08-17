@@ -394,7 +394,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"164", fecha:"17 ago 2026", desc:"Al anular un despacho, si el viaje tiene un pago ya realizado, sale un aviso claro y no se anula (la plata ya salió; se resuelve con la contadora). Si no, los pagos del viaje quedan anulados. (b163: pagos de flete y estibada.)" };
+const VERSION = { n:"165", fecha:"17 ago 2026", desc:"Mensajes más claros: al pagar un flete/estibada o al asignar el estibador de una ruta, si algo falla ahora sale un aviso en palabras (no el error técnico). No cambia cómo se paga ni cómo se despacha. (b164: anulación de pagos al anular el viaje.)" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -3516,7 +3516,16 @@ function TrazabilidadWeb({ usuario }) {
       /* FE03_ESTIBADOR_RUTA · el estibador se asigna ANTES de despachar. Si se
          invierte el orden, la estibada nacería sin persona a quien pagarle. */
       if (!dEst) { toast("Elige el estibador (para el pago de estibada)."); return; }
-      const rEst = await correrRpc("asignar_estibador_ruta", { p_ruta_id: despachar.id, p_estibador_id: dEst.id });
+      /* FE-03.1 · mensajes claros de asignar_estibador_ruta (como DESP_ERR/ANUL_VIAJE_ERR) */
+      const EST_ERR = {
+        ESTIBADOR_NO_ENCONTRADO: "Ese estibador no existe en el sistema.",
+        ESTIBADOR_OBLIGATORIO:   "Elige el estibador de la ruta.",
+        RUTA_NO_ENCONTRADA:      "No se encontró la ruta.",
+        RUTA_YA_DESPACHADA:      "Esta ruta ya salió: el estibador ya no se puede cambiar.",
+        ROL_NO_AUTORIZADO:       "No tienes permiso para asignar el estibador.",
+        SIN_SESION:              "Tu sesión terminó. Vuelve a entrar para continuar.",
+      };
+      const rEst = await correrRpc("asignar_estibador_ruta", { p_ruta_id: despachar.id, p_estibador_id: dEst.id }, EST_ERR);
       if (!rEst.ok) return;
       const salida = new Date(dDia + "T" + (dHora||"08:00") + ":00").toISOString();
       const opId = crypto.randomUUID();
@@ -16925,7 +16934,19 @@ function PagosFeVivos({ usuario }) {
     if (!window.confirm("¿Marcar como pagado?\n\n" + ((CONCEPTO_FE[f.concepto]||{}).t || f.concepto) + " · " + f.persona + " · " + fmtMontoFE(f.monto) + "\nGuía " + (f.guia_id||"—"))) return;
     setPagando(f.pago_id); setError("");
     const { error:e } = await window.supa.rpc("pagar_fe", { p_pago_id: f.pago_id });
-    if (e) { setError("No se pudo pagar: " + e.message); setPagando(""); return; }
+    if (e) {
+      /* FE-03.1 · mismo patrón que Logística: sacar el código y traducirlo, no el
+         error crudo de Postgres. Son los códigos que de verdad levanta pagar_fe. */
+      const cod = String((e && e.message) || "").trim().split(":")[0].split(/\s+/)[0];
+      const PAGO_ERR = {
+        PAGO_NO_ENCONTRADO: "Ese pago ya no existe.",
+        PAGO_NO_LISTO:      "Este pago todavía no está firme: no se puede pagar.",
+        ROL_NO_AUTORIZADO:  "No tienes permiso para pagar. Solo Financiera, el freelance o el administrador.",
+        SIN_SESION:         "Tu sesión terminó. Vuelve a entrar para continuar.",
+      };
+      setError("⚠ " + (PAGO_ERR[cod] || "No se pudo pagar. Revisa tu señal e intenta de nuevo."));
+      setPagando(""); return;
+    }
     await cargar(); setPagando("");
   };
 
