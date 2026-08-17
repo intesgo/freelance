@@ -540,7 +540,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"35", fecha:"17 ago 2026", desc:"«Pagos por transporte» ahora muestra tus fletes reales por viaje y guía, con su estado (por cobrar / cobrado). Sin sesión, sigue el ejemplo de siempre." };
+const VERSION = { n:"36", fecha:"17 ago 2026", desc:"El flete ahora se cobra al entregar: mientras no cierres la parada, sale como «Se cobra al entregar» (no es un problema) y arriba ves cuánto se cobra al confirmar las entregas. Al confirmar, pasa a «Por cobrar»." };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -3500,16 +3500,26 @@ function SecPagos({ chofer }){
   const money = m => (m==null || isNaN(Number(m))) ? "—" : "$"+(Math.round(Number(m)*100)/100).toFixed(2);
   const porCobrar = vivo.filter((f)=>f.estado==="firme").reduce((a,f)=>a+(Number(f.monto)||0),0);
   const cobrado   = vivo.filter((f)=>f.estado==="pagado").reduce((a,f)=>a+(Number(f.monto)||0),0);
+  /* FE05_FLETE_PROVISIONAL · el flete nace 'provisional' y se firma al cerrar la
+     parada: no es un error, es que todavía no entregas. Se muestra aparte, no
+     como «por cobrar». */
+  const enEspera  = vivo.filter((f)=>f.estado==="provisional").reduce((a,f)=>a+(Number(f.monto)||0),0);
   return (<>
     <div className="ruta-hero"><div className="rh-dest">Resumen de fletes</div>
       <div className="rh-stats">
         <div className="rh-stat"><div className="v num">{dineroUSD(porCobrar)}</div><div className="l">por cobrar</div></div>
         <div className="rh-stat"><div className="v num">{dineroUSD(cobrado)}</div><div className="l">ya cobrado</div></div>
       </div></div>
+    {enEspera>0 && (
+      <div style={{background:"#EEF1F5",color:"var(--muted)",borderRadius:10,padding:"9px 12px",fontSize:12.5,margin:"0 0 12px",lineHeight:1.4}}>
+        <b style={{color:"var(--ink)"}}>{dineroUSD(enEspera)}</b> se cobran cuando confirmes las entregas.
+      </div>
+    )}
     <div className="sect-h">Detalle por guía</div>
     {vivo.map((f,i)=>{
       const pagado = f.estado==="pagado";
       const falta  = f.estado==="pendiente_tarifa";
+      const espera = f.estado==="provisional";
       return (
         <div key={f.pago_id||i} className="pago-row">
           <div className="pago-info"><div className="pago-ruta">Viaje {f.viaje_id||"—"}</div>
@@ -3517,6 +3527,7 @@ function SecPagos({ chofer }){
           <div className="pago-der"><div className="pago-monto num">{money(f.monto)}</div>
             {pagado ? <span className="badge-est be-ok">Cobrado</span>
               : falta ? <span className="badge-est be-nov">Falta tarifa</span>
+              : espera ? <span className="badge-est" style={{background:"#EEF1F5",color:"var(--muted)"}}>Se cobra al entregar</span>
               : <span className="badge-est be-parcial">Por cobrar</span>}</div>
         </div>
       );
