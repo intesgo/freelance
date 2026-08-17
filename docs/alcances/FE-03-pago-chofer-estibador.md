@@ -1,6 +1,6 @@
 # FE-03 · Pagos de flete y estibada (tabla `pagos_fe`)
 
-ESTADO: pendiente de publicar
+ESTADO: publicado (Sistema Web b163 · Transportista v35)
 APPS: `sistema-web.html` (Logística y Pagos), `transportista-app.html` (Pagos por transporte).
 BASE: ya aplicada por Cowork. Code NO toca la base. Verificado el 17/08/2026 contra producción:
 la tabla `pagos_fe`, el RPC `pagar_fe(p_pago_id text)`, el RPC `asignar_estibador_ruta(p_ruta_id
