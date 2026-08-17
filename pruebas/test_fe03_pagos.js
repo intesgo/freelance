@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* FE-03 · Pagos de flete y estibada (pagos_fe). Vigila que Logística asigne el
    estibador ANTES de despachar, que Financiera lea pagos_fe y pague por RPC, y que
-   la app del chofer lea SOLO sus fletes. Atado a b166 / v253. */
+   la app del chofer lea SOLO sus fletes. Atado a b167 / v254. */
 const fs=require("fs"),path=require("path");
 const raiz=path.join(__dirname,"..");
 const web=fs.readFileSync(path.join(raiz,"sistema-web.html"),"utf8");
@@ -10,9 +10,9 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"166"/.test(web),"Sistema Web debe anunciar b166");
+ok(/const VERSION = \{ n:"167"/.test(web),"Sistema Web debe anunciar b167");
 ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
-ok(/const CACHE = "freelance-v253"/.test(sw),"la caché debe renovarse a v253");
+ok(/const CACHE = "freelance-v254"/.test(sw),"la caché debe renovarse a v254");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");
@@ -28,6 +28,14 @@ ok(/Se cobra al entregar/.test(tr),"el chofer ve el flete provisional como «Se 
 ok(/se cobran cuando confirmes las entregas/.test(tr),"el chofer ve el total en espera con su motivo");
 ok(/estado==="provisional"/.test(tr),"la app del chofer distingue el estado provisional");
 ok(/el flete y la estibada esperan a que se confirme la entrega/.test(web),"el módulo Pagos dice que AMBOS esperan la entrega (no solo la estibada)");
+
+/* ── FE-06 · aviso de guías sin cerrar (solo lectura; no molesta si está limpio) ── */
+ok(/FE06_GUIAS_SIN_CERRAR/.test(web),"ancla FE06_GUIAS_SIN_CERRAR (Logística · Despacho)");
+ok(/const FE06_DIAS_AVISO = 3;/.test(web),"el umbral de días es una constante con nombre");
+ok(/fuenteLog === "vivo" && guiasAviso && guiasAviso\.length > 0/.test(web),"el aviso solo se pinta en vivo y si hay filas (no molesta vacío)");
+ok(/from\("viajes"\)[\s\S]{0,220}\.in\("estado", \["despachado"\]\)/.test(web),"lee los viajes despachados para el aviso");
+ok(/hoyECWeb\(new Date\(iso\)\)/.test(web),"cuenta los días con la fecha de Ecuador, no el reloj del navegador");
+ok(!/from\("viajes"\)[\s\S]{0,80}\.(insert|update|delete)\(/.test(web),"el aviso NO escribe en viajes (solo lee)");
 
 /* ── anclas ── */
 ok(/FE03_ESTIBADOR_RUTA/.test(web),"ancla FE03_ESTIBADOR_RUTA (Logística)");
