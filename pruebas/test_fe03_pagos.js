@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* FE-03 · Pagos de flete y estibada (pagos_fe). Vigila que Logística asigne el
    estibador ANTES de despachar, que Financiera lea pagos_fe y pague por RPC, y que
-   la app del chofer lea SOLO sus fletes. Atado a b165 / v252. */
+   la app del chofer lea SOLO sus fletes. Atado a b166 / v253. */
 const fs=require("fs"),path=require("path");
 const raiz=path.join(__dirname,"..");
 const web=fs.readFileSync(path.join(raiz,"sistema-web.html"),"utf8");
@@ -10,9 +10,9 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"165"/.test(web),"Sistema Web debe anunciar b165");
-ok(/const VERSION = \{ n:"35"/.test(tr),"la app del transportista debe anunciar v35");
-ok(/const CACHE = "freelance-v252"/.test(sw),"la caché debe renovarse a v252");
+ok(/const VERSION = \{ n:"166"/.test(web),"Sistema Web debe anunciar b166");
+ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
+ok(/const CACHE = "freelance-v253"/.test(sw),"la caché debe renovarse a v253");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");
@@ -22,6 +22,12 @@ ok(!/No se pudo pagar: " \+ e\.message/.test(web),"al pagar NO se muestra el err
 ok(/PAGO_NO_LISTO:/.test(web),"pagar traduce el código PAGO_NO_LISTO");
 ok(/ESTIBADOR_NO_ENCONTRADO:/.test(web),"asignar_estibador_ruta traduce sus códigos (EST_ERR)");
 ok(/asignar_estibador_ruta", \{ p_ruta_id: despachar\.id, p_estibador_id: dEst\.id \}, EST_ERR\)/.test(web),"asignar_estibador_ruta recibe su diccionario EST_ERR");
+
+/* ── FE-05.1 · el flete nace 'provisional' y se explica, no alarma ── */
+ok(/Se cobra al entregar/.test(tr),"el chofer ve el flete provisional como «Se cobra al entregar»");
+ok(/se cobran cuando confirmes las entregas/.test(tr),"el chofer ve el total en espera con su motivo");
+ok(/estado==="provisional"/.test(tr),"la app del chofer distingue el estado provisional");
+ok(/el flete y la estibada esperan a que se confirme la entrega/.test(web),"el módulo Pagos dice que AMBOS esperan la entrega (no solo la estibada)");
 
 /* ── anclas ── */
 ok(/FE03_ESTIBADOR_RUTA/.test(web),"ancla FE03_ESTIBADOR_RUTA (Logística)");
