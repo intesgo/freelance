@@ -394,7 +394,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"162", fecha:"16 ago 2026", desc:"Pedido: ahora el flete y la estibada se cobran al cliente en $/qq, tomados de la tarifa de la zona (se pueden ajustar). En retiro de bodega van en 0. El resumen muestra Base + Flete + Estibada = Total. La comisión no cambia. (b161: módulo «Tarifas de logística».)" };
+const VERSION = { n:"163", fecha:"17 ago 2026", desc:"Pagos de flete y estibada: al despachar se elige el estibador (obligatorio) y nacen solos los pagos del viaje. En «Pagos», la contadora ve los pagos reales por viaje/guía y marca pagados los que están firmes. El chofer ve sus fletes en su app. (b162: cobro de flete/estibada al cliente.)" };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1516,6 +1516,20 @@ const LOG_ESTADOS = { facturado:{t:"Por armar",c:"#f5a623"}, armando:{t:"Armando
 // Estados separados: el armado de la ruta y el despacho/viaje van en carriles distintos
 const LOG_ESTADOS_ARMADO = { armada:{t:"Armada",c:"#f5a623"}, ordenada:{t:"Ordenada",c:"#3b82f6"}, despachada:{t:"Despachada",c:"#22c55e"} };
 const LOG_ESTADOS_DESPACHO = { programado:{t:"Programado",c:"#f5a623"}, cargando:{t:"Cargando",c:"#3b82f6"}, en_camino:{t:"En camino",c:"#8b5cf6"}, entregado:{t:"Entregado",c:"#22c55e"} };
+/* FE03 · pagos_fe: etiquetas/colores de estado y formatos ($), compartidos por
+   Logística (panel del viaje) y Financiera (PagosFeVivos). */
+const PAGO_FE_ESTADO = {
+  firme:            { t:"Por pagar",         c:"#2E7D52", bg:"#E7F3EC" },
+  provisional:      { t:"Esperando entrega", c:"#B45309", bg:"#FFF7ED" },
+  pagado:           { t:"Pagado",            c:"#3a8262", bg:"#eaf4ee" },
+  pendiente_tarifa: { t:"Falta tarifa",      c:"#B5613C", bg:"#FBF2EE" },
+  anulado:          { t:"Anulado",           c:"#6b7280", bg:"#f0f2f5" },
+};
+const CONCEPTO_FE = { flete:{ t:"Flete", ic:"🚚" }, estibada:{ t:"Estibada", ic:"💪" } };
+/* valor_qq / monto pueden venir nulos (pendiente_tarifa): se muestra «—», nunca
+   $0,00, para no hacer creer que ese trabajo no vale nada. */
+const fmtMontoFE = (m) => (m==null || isNaN(Number(m))) ? "—" : "$"+Number(m).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtQqUnitFE = (v) => (v==null || isNaN(Number(v))) ? "—" : "$"+Number(v).toFixed(2);
 // Pedidos facturados que entran a logística
 const LOG_PEDIDOS_INI = [
   { id:"PED-0405", cli:"Víveres Doña Rosa", zona:"Norte", sc:"José Tipán",
@@ -3186,6 +3200,47 @@ function TrazabilidadWeb({ usuario }) {
   const [dPlaca, setDPlaca] = useState("");
   const [dDia, setDDia] = useState(hoyECWeb());
   const [dHora, setDHora] = useState("08:00");
+  /* FE03_ESTIBADOR_RUTA · estibador del despacho (obligatorio: sin él no nace el
+     pago de estibada). Se alimenta de la tabla `estibadores` (activo, no demo). */
+  const [estCat, setEstCat] = useState([]);
+  const [dEst, setDEst] = useState(null);
+  const [dEstTxt, setDEstTxt] = useState("");
+  useEffect(() => {
+    if (!window.supa) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const org = await orgActivaWeb();
+        const { data } = await window.supa.from("estibadores")
+          .select("est_id,nombre,cedula,telefono").eq("org_id", org)
+          .eq("activo", true).eq("es_demo", false).order("nombre");
+        if (vivo) setEstCat((data || []).map(e => ({ id:e.est_id, nombre:e.nombre, cedula:e.cedula||"", telefono:e.telefono||"" })));
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
+  /* FE03_PAGOS_VIAJE · panel SOLO LECTURA de los pagos que nacieron de un viaje.
+     El nombre de la persona no está en pagos_fe: flete → usuarios.nombre por
+     usr_id; estibada → estibadores.nombre por est_id. */
+  const [pagosViaje, setPagosViaje] = useState(null);   // { viajeId, filas } | null
+  const resolverNombresFE = async (filas) => {
+    const usrIds = [...new Set((filas||[]).filter(f=>f.concepto==="flete").map(f=>f.persona_id).filter(Boolean))];
+    const estIds = [...new Set((filas||[]).filter(f=>f.concepto==="estibada").map(f=>f.persona_id).filter(Boolean))];
+    const nom = {};
+    if (usrIds.length) { const { data } = await window.supa.from("usuarios").select("usr_id,nombre").in("usr_id", usrIds); (data||[]).forEach(u=>nom["u:"+u.usr_id]=u.nombre); }
+    if (estIds.length) { const { data } = await window.supa.from("estibadores").select("est_id,nombre").in("est_id", estIds); (data||[]).forEach(e=>nom["e:"+e.est_id]=e.nombre); }
+    return (filas||[]).map(f => ({ ...f, persona: nom[(f.concepto==="flete"?"u:":"e:")+f.persona_id] || f.persona_id || "—" }));
+  };
+  const abrirPagosViaje = async (viajeId) => {
+    if (!viajeId) return;
+    setPagosViaje({ viajeId, filas: null });
+    if (!window.supa) { setPagosViaje({ viajeId, filas: [] }); return; }
+    const { data, error } = await window.supa.from("pagos_fe")
+      .select("pago_id,guia_id,ped_id,concepto,persona_id,qq_base,valor_qq,monto,estado")
+      .eq("viaje_id", viajeId).eq("es_demo", false).order("concepto");
+    if (error) { setPagosViaje({ viajeId, filas: [] }); return; }
+    setPagosViaje({ viajeId, filas: await resolverNombresFE(data || []) });
+  };
   const [anulaDesp, setAnulaDesp] = useState(null);
   const [novedades, setNovedades] = useState(()=>[...NOVEDADES_INI]);
   const [nvNueva, setNvNueva] = useState(null);
@@ -3409,7 +3464,7 @@ function TrazabilidadWeb({ usuario }) {
     rutas.forEach(r => { const n = parseInt((r.viajeId||"").replace("VJ-",""))||0; if(n>max) max=n; });
     return "VJ-" + String(max+1).padStart(5,"0");
   };
-  const abrirDespacho = (r) => { setDTr(null); setDTrTxt(""); setDNuevoTr(null); setDPlaca(""); setDDia(hoyECWeb()); setDHora("08:00"); setDespachar(r); };
+  const abrirDespacho = (r) => { setDTr(null); setDTrTxt(""); setDNuevoTr(null); setDPlaca(""); setDEst(null); setDEstTxt(""); setDDia(hoyECWeb()); setDHora("08:00"); setDespachar(r); };
   const crearTrDespacho = () => {
     if (!dNuevoTr || !dNuevoTr.nombre.trim() || !dNuevoTr.cedula.trim()) { toast("Nombre y cédula del transportista."); return; }
     if (trCat.some(t=>t.cedula===dNuevoTr.cedula.trim())) { toast("Ya existe un transportista con esa cédula."); return; }
@@ -3458,6 +3513,11 @@ function TrazabilidadWeb({ usuario }) {
         alert("⚠ EL DESPACHO NO SE GUARDÓ\n\nLos transportistas que ves son de demostración. Entra con tu cuenta para despachar de verdad.");
         return;
       }
+      /* FE03_ESTIBADOR_RUTA · el estibador se asigna ANTES de despachar. Si se
+         invierte el orden, la estibada nacería sin persona a quien pagarle. */
+      if (!dEst) { toast("Elige el estibador (para el pago de estibada)."); return; }
+      const rEst = await correrRpc("asignar_estibador_ruta", { p_ruta_id: despachar.id, p_estibador_id: dEst.id });
+      if (!rEst.ok) return;
       const salida = new Date(dDia + "T" + (dHora||"08:00") + ":00").toISOString();
       const opId = crypto.randomUUID();
       const r = await correrRpc("despachar_ruta", {
@@ -3473,6 +3533,7 @@ function TrazabilidadWeb({ usuario }) {
       await recargarRutas();
       toast(`Despacho guardado. Nació el viaje ${vj} · ${r.data && r.data.guias} guía(s) para el chofer.`);
       setDespachar(null);
+      abrirPagosViaje(vj);   /* FE03_PAGOS_VIAJE · muestra los pagos que nacieron del viaje */
       return;
     }
 
@@ -3600,8 +3661,12 @@ function TrazabilidadWeb({ usuario }) {
                         return <span style={{color:COLOR.green, fontWeight:700, fontSize:12.5}}>✓ Completo</span>;
                       })()}</td>
                       <td style={td}><span style={chip(ed.c)}>{ed.t}</span></td>
-                      <td style={td}>{anulable && !soloLectura &&
-                        <button style={{...btn("#fdecec","#b91c1c"), padding:"6px 10px", fontSize:12}} onClick={()=>setAnulaDesp({rutaId:r.id, viajeId:r.viajeId||null, motivo:"", opId:crypto.randomUUID()})}>Anular despacho</button>}</td>
+                      <td style={td}><div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+                        {/* FE03_PAGOS_VIAJE · abre el panel (solo lectura) de los pagos del viaje */}
+                        {r.viajeId && <button style={{...btn(COLOR.tealLight, COLOR.tealDark), padding:"6px 10px", fontSize:12}} onClick={()=>abrirPagosViaje(r.viajeId)}>💵 Pagos</button>}
+                        {anulable && !soloLectura &&
+                        <button style={{...btn("#fdecec","#b91c1c"), padding:"6px 10px", fontSize:12}} onClick={()=>setAnulaDesp({rutaId:r.id, viajeId:r.viajeId||null, motivo:"", opId:crypto.randomUUID()})}>Anular despacho</button>}
+                      </div></td>
                     </tr>
                   );
                 })}</tbody>
@@ -3841,6 +3906,16 @@ function TrazabilidadWeb({ usuario }) {
               );
             })()}
 
+            {/* FE03_ESTIBADOR_RUTA · estibador obligatorio; alimenta el pago de estibada */}
+            <label style={{ fontSize:12, fontWeight:700, display:"block", margin:"14px 0 6px" }}>Estibador * (para el pago de estibada)</label>
+            <BuscadorPredictivo cat="estibadores" items={estCat} value={dEstTxt}
+              placeholder="Escribe para buscar…"
+              label={e=> e.cedula ? (e.nombre + " · " + e.cedula) : e.nombre}
+              onText={t=>{ setDEstTxt(t); if(t==="") setDEst(null); }}
+              onPick={e=>{ setDEst(e); setDEstTxt(e.nombre); }} />
+            {dEst && <p style={{ fontSize:11.5, color:COLOR.teal, margin:"4px 0 0" }}>✓ {dEst.nombre}{dEst.cedula ? " · cédula "+dEst.cedula : ""}</p>}
+            {!estCat.length && <p style={{ fontSize:11.5, color:COLOR.orange, margin:"6px 0 0" }}>No hay estibadores activos. Créalos en «Tarifas de logística».</p>}
+
             <div style={{ display:"flex", gap:12, marginBottom:16 }}>
               <div style={{ flex:1 }}><label style={{ fontSize:12, fontWeight:700, display:"block", marginBottom:6 }}>Día de despacho</label>
                 <input type="date" value={dDia} onChange={e=>setDDia(e.target.value)} style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14 }} /></div>
@@ -3850,7 +3925,43 @@ function TrazabilidadWeb({ usuario }) {
 
             <div style={{ display:"flex", justifyContent:"space-between" }}>
               <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setDespachar(null)}>Cancelar</button>
-              <button disabled={rpcOn} style={{ ...btn(COLOR.green), opacity:rpcOn?.6:1 }} onClick={guardarDespacho}>Despachar ✓ · nace {proximoViaje()}</button>
+              {/* FE03_ESTIBADOR_RUTA · sin estibador no se puede despachar (modo vivo) */}
+              <button disabled={rpcOn || (fuenteLog==="vivo" && !dEst)} style={{ ...btn(COLOR.green), opacity:(rpcOn || (fuenteLog==="vivo" && !dEst))?.55:1, cursor:(rpcOn || (fuenteLog==="vivo" && !dEst))?"not-allowed":"pointer" }} onClick={guardarDespacho}>Despachar ✓ · nace {proximoViaje()}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FE03_PAGOS_VIAJE · panel SOLO LECTURA con los pagos que nacieron del viaje */}
+      {pagosViaje && (
+        <div onClick={()=>setPagosViaje(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:61, padding:20 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:640, maxWidth:"100%", maxHeight:"90vh", overflowY:"auto", padding:"20px 22px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+              <h2 style={{ fontSize:17, fontWeight:800, margin:0 }}>Pagos del viaje <span className="num">{pagosViaje.viajeId}</span></h2>
+              <button onClick={()=>setPagosViaje(null)} style={{ border:"none", background:"none", fontSize:22, color:COLOR.muted, cursor:"pointer" }}>×</button>
+            </div>
+            <p style={{ fontSize:12, color:COLOR.muted, margin:"0 0 12px" }}>Nacieron solos al despachar, una fila por guía y concepto. Aquí no se paga; el pago se hace en «Pagos».</p>
+            {pagosViaje.filas===null && <div style={{ padding:"18px 4px", color:COLOR.muted }}>Cargando pagos…</div>}
+            {pagosViaje.filas!==null && !pagosViaje.filas.length && <div style={{ padding:"18px 4px", color:COLOR.muted }}>Este viaje aún no tiene pagos registrados.</div>}
+            {pagosViaje.filas!==null && pagosViaje.filas.length>0 && (
+              <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1.1fr 1.4fr .7fr .8fr .9fr 1fr", background:"#f7f9fb", padding:"9px 12px", fontSize:11, fontWeight:700, color:COLOR.muted }}>
+                  <span>Guía</span><span>Persona</span><span>qq</span><span>$/qq</span><span>Monto</span><span>Estado</span>
+                </div>
+                {pagosViaje.filas.map(f => { const e = PAGO_FE_ESTADO[f.estado] || {t:f.estado,c:COLOR.muted,bg:"#f0f2f5"}; const co = CONCEPTO_FE[f.concepto] || {t:f.concepto,ic:""}; return (
+                  <div key={f.pago_id} style={{ display:"grid", gridTemplateColumns:"1.1fr 1.4fr .7fr .8fr .9fr 1fr", padding:"10px 12px", fontSize:12.5, borderTop:`1px solid ${COLOR.border}`, alignItems:"center" }}>
+                    <span className="num">{f.guia_id || "—"}</span>
+                    <span>{co.ic} {f.persona} <span style={{ color:COLOR.muted }}>· {co.t}</span></span>
+                    <span className="num">{f.qq_base!=null ? f.qq_base : "—"}</span>
+                    <span className="num">{fmtQqUnitFE(f.valor_qq)}</span>
+                    <span className="num" style={{ fontWeight:700 }}>{fmtMontoFE(f.monto)}</span>
+                    <span><span style={{ background:e.bg, color:e.c, borderRadius:7, padding:"3px 9px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{e.t}</span></span>
+                  </div>
+                ); })}
+              </div>
+            )}
+            <div style={{ display:"flex", justifyContent:"flex-end", marginTop:14 }}>
+              <button style={btn(COLOR.teal)} onClick={()=>setPagosViaje(null)}>Cerrar</button>
             </div>
           </div>
         </div>
@@ -16775,6 +16886,112 @@ function EstibadaFletesWeb({ usuario }) {
 }
 
 // ── Pagos (web): salidas a transportistas, estibadores y comisionistas. Control de lo que sale ──
+/* FE03_PAGOS_FINANCIERA · pagos de flete/estibada REALES desde pagos_fe.
+   Va montado ARRIBA del módulo Pagos (la contadora ve «pagos», no «recepcion»).
+   Lee pagos_fe (es_demo=false), agrupa por viaje → guía, paga solo los `firme`
+   por RPC pagar_fe. NUNCA inserta/actualiza directo. */
+function PagosFeVivos({ usuario }) {
+  const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const soloLectura = usuario && usuario.rol === "Administrador de Plataforma";
+  const [filas, setFilas] = useState(null);      // null = cargando
+  const [error, setError] = useState("");
+  const [filtro, setFiltro] = useState("todos"); // todos | firme | provisional | pagado | pendiente_tarifa
+  const [pagando, setPagando] = useState("");
+
+  const cargar = React.useCallback(async () => {
+    if (!window.supa) { setFilas([]); return; }
+    setError("");
+    try {
+      const org = await orgActivaWeb();
+      const { data, error:e } = await window.supa.from("pagos_fe")
+        .select("pago_id,viaje_id,guia_id,ped_id,concepto,persona_id,qq_base,valor_qq,monto,estado")
+        .eq("org_id", org).eq("es_demo", false).order("viaje_id", { ascending:false });
+      if (e) { setError("No se pudieron leer los pagos: " + e.message); setFilas([]); return; }
+      const usrIds = [...new Set((data||[]).filter(f=>f.concepto==="flete").map(f=>f.persona_id).filter(Boolean))];
+      const estIds = [...new Set((data||[]).filter(f=>f.concepto==="estibada").map(f=>f.persona_id).filter(Boolean))];
+      const nom = {};
+      if (usrIds.length) { const { data:u } = await window.supa.from("usuarios").select("usr_id,nombre").in("usr_id", usrIds); (u||[]).forEach(x=>nom["u:"+x.usr_id]=x.nombre); }
+      if (estIds.length) { const { data:s } = await window.supa.from("estibadores").select("est_id,nombre").in("est_id", estIds); (s||[]).forEach(x=>nom["e:"+x.est_id]=x.nombre); }
+      setFilas((data||[]).map(f => ({ ...f, persona: nom[(f.concepto==="flete"?"u:":"e:")+f.persona_id] || f.persona_id || "—" })));
+    } catch (err) { setError(String(err && err.message || err)); setFilas([]); }
+  }, []);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  /* supabase-js no lanza excepción en error de base: la devuelve en r.error. */
+  const pagar = async (f) => {
+    if (f.estado !== "firme" || soloLectura) return;
+    if (!window.confirm("¿Marcar como pagado?\n\n" + ((CONCEPTO_FE[f.concepto]||{}).t || f.concepto) + " · " + f.persona + " · " + fmtMontoFE(f.monto) + "\nGuía " + (f.guia_id||"—"))) return;
+    setPagando(f.pago_id); setError("");
+    const { error:e } = await window.supa.rpc("pagar_fe", { p_pago_id: f.pago_id });
+    if (e) { setError("No se pudo pagar: " + e.message); setPagando(""); return; }
+    await cargar(); setPagando("");
+  };
+
+  const tot = { firme:0, provisional:0, pagado:0, pendiente_tarifa:0 };
+  (filas||[]).forEach(f => { if (tot[f.estado]!=null && f.monto!=null) tot[f.estado] += Number(f.monto)||0; });
+  const visibles = (filas||[]).filter(f => filtro==="todos" ? true : f.estado===filtro);
+  const porViaje = {};
+  visibles.forEach(f => { (porViaje[f.viaje_id||"—"] = porViaje[f.viaje_id||"—"] || []).push(f); });
+  const viajes = Object.keys(porViaje);
+
+  const cardTot = (lab, val, col) => (
+    <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"14px 16px" }}>
+      <p style={{ fontSize:11, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3, margin:0 }}>{lab}</p>
+      <p className="num" style={{ fontSize:21, fontWeight:800, color:col, margin:"4px 0 0" }}>{money(val)}</p>
+    </div>
+  );
+
+  return (
+    <div style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:16, padding:"18px 20px", marginBottom:22 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:4, flexWrap:"wrap" }}>
+        <h3 style={{ fontSize:16, fontWeight:800, margin:0 }}>💵 Pagos de flete y estibada</h3>
+        <button onClick={cargar} style={{ border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, borderRadius:8, padding:"6px 12px", fontSize:12.5, fontWeight:700, cursor:"pointer" }}>↻ Actualizar</button>
+      </div>
+      <p style={{ fontSize:12, color:COLOR.muted, margin:"0 0 14px" }}>Nacen solos cuando el camión sale, una fila por guía. El botón <b>Pagar</b> solo sale en los <b>firmes</b>; la estibada espera a que se confirme la entrega.</p>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:12, marginBottom:16 }}>
+        {cardTot("Por pagar", tot.firme, COLOR.tealDark)}
+        {cardTot("Esperando entrega", tot.provisional, COLOR.orange)}
+        {cardTot("Pagado", tot.pagado, COLOR.teal)}
+        {cardTot("Falta tarifa", tot.pendiente_tarifa, COLOR.red)}
+      </div>
+
+      <div style={{ display:"flex", gap:7, marginBottom:14, flexWrap:"wrap" }}>
+        {[["todos","Todos"],["firme","Por pagar"],["provisional","Esperando entrega"],["pagado","Pagado"],["pendiente_tarifa","Falta tarifa"]].map(([k,t]) => (
+          <button key={k} onClick={()=>setFiltro(k)} style={{ padding:"7px 13px", borderRadius:999, cursor:"pointer", fontSize:12.5, fontWeight:600, border:`1px solid ${filtro===k?COLOR.teal:COLOR.border}`, background: filtro===k?COLOR.tealLight:"#fff", color: filtro===k?COLOR.tealDark:COLOR.text }}>{t}</button>
+        ))}
+      </div>
+
+      {error && <div style={{ background:"#FBF2EE", border:"1px solid #E3C4B7", color:"#B5613C", borderRadius:9, padding:"10px 12px", fontSize:12.5, marginBottom:12 }}>{error}</div>}
+      {filas===null && <div style={{ padding:"18px 4px", color:COLOR.muted }}>Cargando pagos…</div>}
+      {filas!==null && !window.supa && <div style={{ padding:"18px 4px", color:COLOR.muted }}>Esta lista trabaja con la base en línea. Entra con tu cuenta para ver los pagos reales.</div>}
+      {filas!==null && window.supa && !viajes.length && <div style={{ padding:"18px 4px", color:COLOR.muted }}>No hay pagos {filtro!=="todos" ? "en este estado" : "todavía"}. Nacen al despachar un viaje.</div>}
+
+      {viajes.map(vj => (
+        <div key={vj} style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden", marginBottom:12 }}>
+          <div style={{ background:"#f7f9fb", padding:"9px 13px", fontWeight:700, fontSize:13 }}>Viaje <span className="num">{vj}</span> <span style={{ color:COLOR.muted, fontWeight:400 }}>· {porViaje[vj].length} pago(s)</span></div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr .6fr .7fr .9fr 1fr .9fr", background:"#fff", padding:"8px 13px", fontSize:11, fontWeight:700, color:COLOR.muted, borderTop:`1px solid ${COLOR.border}` }}>
+            <span>Guía</span><span>Persona</span><span>qq</span><span>$/qq</span><span>Monto</span><span>Estado</span><span></span>
+          </div>
+          {porViaje[vj].map(f => { const e = PAGO_FE_ESTADO[f.estado] || {t:f.estado,c:COLOR.muted,bg:"#f0f2f5"}; const co = CONCEPTO_FE[f.concepto] || {t:f.concepto,ic:""}; return (
+            <div key={f.pago_id} style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr .6fr .7fr .9fr 1fr .9fr", padding:"10px 13px", fontSize:12.5, borderTop:`1px solid ${COLOR.border}`, alignItems:"center" }}>
+              <span className="num">{f.guia_id || "—"}</span>
+              <span>{co.ic} {f.persona} <span style={{ color:COLOR.muted }}>· {co.t}</span></span>
+              <span className="num">{f.qq_base!=null ? f.qq_base : "—"}</span>
+              <span className="num">{fmtQqUnitFE(f.valor_qq)}</span>
+              <span className="num" style={{ fontWeight:700 }}>{fmtMontoFE(f.monto)}</span>
+              <span><span style={{ background:e.bg, color:e.c, borderRadius:7, padding:"3px 9px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{e.t}</span></span>
+              <span>{f.estado==="firme" && !soloLectura
+                ? <button disabled={pagando===f.pago_id} onClick={()=>pagar(f)} style={{ background:COLOR.green, color:"#fff", border:"none", borderRadius:8, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", opacity:pagando===f.pago_id?.6:1 }}>{pagando===f.pago_id ? "…" : "Pagar 💵"}</button>
+                : null}</span>
+            </div>
+          ); })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PagosWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
@@ -16833,6 +17050,8 @@ function PagosWeb({ usuario }) {
 
   return (
     <div style={{ padding:"22px 28px 40px" }}>
+      {/* FE03_PAGOS_FINANCIERA · pagos reales (pagos_fe) arriba; abajo, los del demo */}
+      <PagosFeVivos usuario={usuario} />
       {/* Tarjetas de control */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14, marginBottom:22 }}>
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"16px 18px" }}>

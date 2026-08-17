@@ -115,6 +115,7 @@ const PLAN = [
   { arnes:"test_web_al_dia.js",       que:"Sistema Web: dos bases en el pedido, crear y ocultar piladora", apps:[null] },
   { arnes:"test_fe01_tarifas.js",     que:"FE-01: tarifas por zona, chóferes y estibadores (versionado)", apps:[null] },
   { arnes:"test_fe02_cobro.js",       que:"FE-02: cobro de flete/estibada en el pedido (las 4 apps)", apps:[null] },
+  { arnes:"test_fe03_pagos.js",       que:"FE-03: pagos de flete/estibada (pagos_fe, estibador, chofer)", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
      la regresión normal y no deben quedar omitidos por falta de una variable. */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },
