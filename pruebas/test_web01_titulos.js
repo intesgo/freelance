@@ -2,7 +2,7 @@
 /* WEB-01 · un solo título por pantalla. Cada pantalla mostraba su nombre dos veces
    (la cabecera y un <h1> interno). Se quitan los 11 internos: deben quedar solo 3
    <h1> (cabecera, ingreso, historial de cliente), y la cabecera pinta el icono.
-   Atado a b168. */
+   Atado a b169. */
 const fs=require("fs"),path=require("path");
 const web=fs.readFileSync(path.join(__dirname,"..","sistema-web.html"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
@@ -16,8 +16,7 @@ ok(/function Header\(\{ titulo, sub, accion, ayuda, icon \}\)/.test(web), "la ca
 ok(/<Header icon=\{actualOk\.icon\}/.test(web), "el icono de la sección se pasa a la cabecera");
 ok(/\{icon \? icon \+ " " : ""\}\{titulo\}/.test(web), "la cabecera pinta el icono antes del título");
 
-/* al fusionar la campana de recepcion no se perdió su video */
-ok(/recepcion: \{ video:"recepcion", lineas:\[/.test(web), "la ayuda de recepcion conserva su video al fusionarse");
+/* (la comprobación de la ayuda de recepcion se retiró en WEB-02: ese módulo ya no existe) */
 
 if(m){console.error(`WEB01-TITULOS: ${b} ✓ · ${m} ✗`);process.exit(1);}
 console.log(`WEB01-TITULOS: ${b} ✓ · 0 ✗`);
