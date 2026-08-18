@@ -80,7 +80,7 @@ const CARGOS = {
   admin: orden,
   freelance: orden.filter((k) => k !== "admin" && k !== "empresas"),
   contadora: ["dashboard", "clientes", "cobranza", "pagos", "comisiones", "conciliacion", "reportes", "auditoria"],
-  operadora: ["dashboard", "clientes", "pedidos", "trazabilidad", "recepcion", "calidad", "cobranza",
+  operadora: ["dashboard", "clientes", "pedidos", "trazabilidad", "calidad", "cobranza",
               "conciliacion", "documentos", "comunicacion", "reportes", "emparejar"],
 };
 for (const [cargo, permitidas] of Object.entries(CARGOS)) {
