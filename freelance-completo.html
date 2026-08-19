@@ -5972,7 +5972,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"452", fecha:"19 ago 2026", desc:"Inicio: la app ocupa todo el ancho del teléfono (antes se veía angosta con franjas verdes a los lados en teléfonos grandes). Y el panel «Total a recibir» muestra el mes real (Ecuador) con su corte, en vez de un mes fijo." };
+const VERSION = { n:"453", fecha:"19 ago 2026", desc:"Diagnóstico temporal: al final del menú lateral (☰) aparece una línea con los anchos que ve el teléfono (iw/sw/dpr/cw/shell) para dar con el ancho de la pantalla de inicio. Se retira en la próxima versión." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -25187,6 +25187,34 @@ function Cotizacion({ toast }){
   );
 }
 
+// DIAGNÓSTICO TEMPORAL — RETIRAR EN v454
+/* Sonda de ancho: solo lectura, sin efectos ni llamadas a la base. Muestra los
+   anchos que ve el teléfono para saber si el viewport viene inflado. Va al final
+   del menú lateral, en letra chica. Se retira completo en v454. */
+function SondaAnchoTMP(){
+  const [d,setD]=React.useState(null);
+  React.useEffect(()=>{
+    const leer=()=>{
+      const s=document.querySelector(".shell");
+      const shellW=s?Math.round(s.getBoundingClientRect().width):0;
+      setD({ iw:window.innerWidth, sw:(window.screen&&window.screen.width)||0,
+              dpr:Math.round((window.devicePixelRatio||0)*100)/100,
+              cw:document.documentElement.clientWidth, shell:shellW });
+    };
+    leer();
+    window.addEventListener("resize",leer);
+    return ()=>window.removeEventListener("resize",leer);
+  },[]);
+  if(!d) return null;
+  return (
+    <div style={{fontFamily:"monospace",fontSize:9.5,lineHeight:1.5,color:"var(--muted)",
+      background:"rgba(0,0,0,.04)",borderRadius:8,padding:"8px 10px",marginTop:12,wordBreak:"break-word"}}>
+      🩺 diagnóstico (temporal): iw={d.iw} · sw={d.sw} · dpr={d.dpr} · cw={d.cw} · shell={d.shell}px
+    </div>
+  );
+}
+// FIN DIAGNÓSTICO TEMPORAL
+
 function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
@@ -25912,6 +25940,8 @@ function App({usuario, onSalir}){
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
               Versión {VERSION.fecha} b{VERSION.n} · {VERSION.desc}</div>
+            {/* DIAGNÓSTICO TEMPORAL — RETIRAR EN v454 */}
+            <SondaAnchoTMP/>
           </div>
         </div>
       </div>
