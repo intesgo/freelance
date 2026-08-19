@@ -89,6 +89,15 @@
      560px, y muchos teléfonos grandes/plegables caían en la columna angosta. */
   :root{--appw:100%}
   @media(min-width:768px){ :root{--appw:480px} }
+  /* b454 · Blindaje contra viewport inflado. Si el navegador tiene activo
+     "Sitio para computadoras", la PWA hereda un viewport falso (p. ej. 980px)
+     sobre un teléfono de 384px reales: el @media de arriba creería que es un
+     escritorio y encajonaría la app en 480px con franjas verdes. Cuando el
+     JS detecta ese caso marca <html class="vw-inflado"> y aquí forzamos
+     --appw:100% (mayor especificidad que el @media), así el shell y TODOS sus
+     overlays (barra, cajón, hojas, botón de voz) vuelven al ancho completo.
+     Solo ancho: no toca fuentes ni tamaños de componentes. */
+  :root.vw-inflado{--appw:100%}
   .num{font-family:'Space Grotesk',sans-serif;font-feature-settings:"tnum" 1;letter-spacing:-.01em}
   button{font-family:inherit;cursor:pointer;border:none;background:none}
   input,select,textarea{font-family:inherit;font-size:16px}
@@ -1774,6 +1783,24 @@ var uFuzzy=function(){"use strict";const e=(e,t)=>e>t?1:t>e?-1:0,t=1/0,l=e=>e.re
 </script>
 <script type="text/babel">
 const {useState} = React;
+
+/* b454 · Blindaje contra viewport inflado ("Sitio para computadoras").
+   Si el navegador infla el viewport (innerWidth > 700) sobre un teléfono
+   físicamente pequeño (screen.width < 700), marca <html class="vw-inflado">
+   para que el CSS devuelva la app al ancho completo (--appw:100%). Se revisa
+   al arrancar y en cada cambio de tamaño/orientación. Solo lectura del ancho;
+   sin efectos, sin llamadas a la base, sin tocar permisos. */
+(function blindajeAnchoInflado(){
+  const raiz = document.documentElement;
+  const revisar = () => {
+    const anchoPantalla = (window.screen && window.screen.width) || window.innerWidth;
+    const inflado = window.innerWidth > 700 && anchoPantalla < 700;
+    raiz.classList.toggle("vw-inflado", inflado);
+  };
+  revisar();
+  window.addEventListener("resize", revisar);
+  window.addEventListener("orientationchange", revisar);
+})();
 
 /* ══ RUNTIME OPERATIVO · fecha Ecuador, errores visibles y cola durable ══ */
 const ZONA_HORARIA_EC="America/Guayaquil";
@@ -5972,7 +5999,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"453", fecha:"19 ago 2026", desc:"Diagnóstico temporal: al final del menú lateral (☰) aparece una línea con los anchos que ve el teléfono (iw/sw/dpr/cw/shell) para dar con el ancho de la pantalla de inicio. Se retira en la próxima versión." };
+const VERSION = { n:"454", fecha:"19 ago 2026", desc:"Se retiró la línea de diagnóstico del menú. Y ahora, si el navegador tiene activo «Sitio para computadoras», la app igual se ve a todo el ancho del teléfono en vez de una columna angosta con franjas a los lados." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -25187,34 +25214,6 @@ function Cotizacion({ toast }){
   );
 }
 
-// DIAGNÓSTICO TEMPORAL — RETIRAR EN v454
-/* Sonda de ancho: solo lectura, sin efectos ni llamadas a la base. Muestra los
-   anchos que ve el teléfono para saber si el viewport viene inflado. Va al final
-   del menú lateral, en letra chica. Se retira completo en v454. */
-function SondaAnchoTMP(){
-  const [d,setD]=React.useState(null);
-  React.useEffect(()=>{
-    const leer=()=>{
-      const s=document.querySelector(".shell");
-      const shellW=s?Math.round(s.getBoundingClientRect().width):0;
-      setD({ iw:window.innerWidth, sw:(window.screen&&window.screen.width)||0,
-              dpr:Math.round((window.devicePixelRatio||0)*100)/100,
-              cw:document.documentElement.clientWidth, shell:shellW });
-    };
-    leer();
-    window.addEventListener("resize",leer);
-    return ()=>window.removeEventListener("resize",leer);
-  },[]);
-  if(!d) return null;
-  return (
-    <div style={{fontFamily:"monospace",fontSize:9.5,lineHeight:1.5,color:"var(--muted)",
-      background:"rgba(0,0,0,.04)",borderRadius:8,padding:"8px 10px",marginTop:12,wordBreak:"break-word"}}>
-      🩺 diagnóstico (temporal): iw={d.iw} · sw={d.sw} · dpr={d.dpr} · cw={d.cw} · shell={d.shell}px
-    </div>
-  );
-}
-// FIN DIAGNÓSTICO TEMPORAL
-
 function App({usuario, onSalir}){
   const [tab,setTab]=useState("inicio");
   const [menuAbierto,setMenuAbierto]=useState(false); // menú lateral (drawer)
@@ -25940,8 +25939,6 @@ function App({usuario, onSalir}){
             </button>
             <div style={{textAlign:"center",fontSize:10.5,color:"var(--muted)",padding:"10px 0 2px",opacity:.8}}>
               Versión {VERSION.fecha} b{VERSION.n} · {VERSION.desc}</div>
-            {/* DIAGNÓSTICO TEMPORAL — RETIRAR EN v454 */}
-            <SondaAnchoTMP/>
           </div>
         </div>
       </div>
