@@ -51,7 +51,9 @@ recibir» y el grid de 6 accesos):
 ## Preferencia recordada
 
 - Abierta/cerrada se guarda **local** en `localStorage` (`freelance_porvisitar_abierto_v1`).
-  Nunca en la base. Estado inicial de un usuario nuevo: **desplegada**.
+  Nunca en la base. Estado inicial de un usuario nuevo: **PLEGADA** (v456; corrige la
+  decisión de v455, que arrancaba desplegada). Si el vendedor la deja abierta, la próxima
+  vez aparece abierta. El chevron ⌄ queda visible (única pista de que la lista existe).
 
 ## Cómo verificar
 
