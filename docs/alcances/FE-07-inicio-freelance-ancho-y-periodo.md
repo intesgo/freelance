@@ -63,6 +63,22 @@ Ecuador) y el corte = último día del mes anterior (mismo patrón que antes).
   alineada. A 768: columna centrada de 480 (tablet/escritorio).
 - La tarjeta «Total a recibir» debe decir el MES actual y el corte del mes anterior.
 
+## Seguimiento (v453–v454): causa raíz del ancho + blindaje
+
+La causa real del ancho angosto **no era del código**: el navegador tenía activo
+«Sitio para computadoras» para intesgo.app; la PWA heredó esa preferencia y **infló
+el viewport a ~980px** sobre un teléfono de 384px. El `@media(min-width:768px)`
+creía que era escritorio y encajonaba el shell en 480px con franjas.
+
+- **v453:** sonda temporal de diagnóstico en el menú (☰) — ya **retirada** en v454.
+- **v454 · Blindaje:** al arrancar y en cada `resize`/`orientationchange`, si
+  `window.innerWidth > 700 && window.screen.width < 700` (viewport inflado sobre
+  teléfono pequeño), se marca `<html class="vw-inflado">` y el CSS
+  `:root.vw-inflado{--appw:100%}` devuelve el shell **y todos sus overlays** (barra,
+  cajón, hojas, botón de voz) al ancho completo. Solo ancho; no toca fuentes ni
+  componentes. Un tablet/escritorio real (screen ≥700) conserva la columna de 480.
+- **No se tocó** el `max-width:480px` del shell ni el `<meta viewport>` (ambos correctos).
+
 ## Trampas conocidas
 
 - Los overlays fijos comparten `--appw`: si se agrega uno nuevo, usar `var(--appw)`,
