@@ -286,6 +286,22 @@
   .visita-leyenda{display:flex;flex-direction:column;gap:6px;margin-top:14px;font-size:11.5px;color:var(--muted)}
   .visita-leyenda span{display:flex;align-items:center;gap:8px}
   .visita-leyenda .sem{width:11px;height:11px;box-shadow:none}
+  /* b455 · "Por visitar" plegable. La barra de encabezado reusa .alerta-visita. */
+  .pv-cab{min-height:44px;cursor:pointer}
+  .pv-chevron{font-size:20px;color:#B79235;flex-shrink:0;transition:transform .2s ease}
+  .pv-chevron.abierto{transform:rotate(180deg)}
+  .pv-lista{margin:2px 0 14px;border:1px solid #E8C98A;border-top:none;border-radius:0 0 14px 14px;
+    background:#FCF6E8;padding:2px 14px 4px}
+  .pv-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid rgba(184,146,53,.22)}
+  .pv-row:last-child{border-bottom:none}
+  .pv-row .pv-info{flex:1;min-width:0}
+  .pv-nombre{font-size:13.5px;font-weight:700;color:var(--field);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pv-ctx{font-size:11.5px;color:#9A7B2E;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pv-cta{flex-shrink:0;background:var(--field);color:#fff;border:none;border-radius:9px;
+    padding:8px 12px;font-size:12px;font-weight:700;font-family:inherit;white-space:nowrap}
+  .pv-cta:active{opacity:.85}
+  .pv-vertodos{display:block;width:100%;text-align:center;background:none;border:none;font-family:inherit;
+    font-size:12.5px;font-weight:700;color:#9A7B2E;padding:10px 0 6px;cursor:pointer}
   /* solicitudes al proveedor */
   .sol-op{display:flex;align-items:center;gap:12px;width:100%;background:var(--card);
     border:1px solid var(--line);border-radius:13px;padding:13px;margin-bottom:10px}
@@ -1824,6 +1840,22 @@ function periodoRecibirEC(){
   const finMesAnterior=new Date(Date.UTC(y, m-1, 0));    /* día 0 del mes actual = último día del mes anterior */
   return { mes: MESES_EC[m-1], corte: `${finMesAnterior.getUTCDate()} ${MESES_EC_CORTO[finMesAnterior.getUTCMonth()]}` };
 }
+/* b455 · Días transcurridos desde una fecha "DD mmm YYYY" (p. ej. "22 may 2026"),
+   contados en zona Ecuador. Devuelve null si la fecha no viene o no se entiende
+   (nunca inventa un número). Reutiliza MESES_EC_CORTO. */
+function diasDesdeFechaEC(fechaStr){
+  if(!fechaStr) return null;
+  const m = String(fechaStr).trim().match(/^(\d{1,2})\s+([A-Za-zÁÉÍÓÚáéíóú]{3,})\s+(\d{4})$/);
+  if(!m) return null;
+  const mesIdx = MESES_EC_CORTO.indexOf(m[2].slice(0,3).toLowerCase());
+  if(mesIdx < 0) return null;
+  const compra = Date.UTC(Number(m[3]), mesIdx, Number(m[1]));
+  const p = partesFechaEC();
+  const hoy = Date.UTC(Number(p.year), Number(p.month)-1, Number(p.day));
+  const dias = Math.round((hoy - compra) / 86400000);
+  return dias >= 0 ? dias : null;
+}
+const PV_ABIERTO_KEY = "freelance_porvisitar_abierto_v1";  /* preferencia local: lista desplegada/plegada */
 let ORG_ACTIVA_MEM={uid:null,org:null};
 async function orgActivaActual(){
   if(!window.SB||!window.SB.auth) throw new Error("Sin conexión con la organización activa.");
@@ -4731,9 +4763,15 @@ function AdjuntoChatApp({ ruta, tipo, dur, mio }){
         display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:5}}>📷</div>;
 }
 
-function Inicio({go, irCliente, irProducto, irFactura}){
+function Inicio({go, irCliente, irProducto, irFactura, irPedidoCliente}){
   const [verVisitas,setVerVisitas]=useState(false);
   useModal(verVisitas, React.useCallback(()=>setVerVisitas(false),[]));
+  /* b455 · "Por visitar" plegable. La preferencia (abierta/cerrada) se recuerda
+     LOCALMENTE por dispositivo (nunca en la base). Nunca tocada => abierta. */
+  const [visitasAbierto,setVisitasAbierto]=useState(()=>{
+    try{ const v=localStorage.getItem(PV_ABIERTO_KEY); return v===null ? true : v==="1"; }catch(e){ return true; }
+  });
+  const toggleVisitas=()=>setVisitasAbierto(a=>{ const n=!a; try{ localStorage.setItem(PV_ABIERTO_KEY, n?"1":"0"); }catch(e){} return n; });
   const [qGlobal,setQGlobal]=useState("");
   /* el botón atrás cierra primero la búsqueda y el panel de visitas */
   useRetroceso(()=>{
@@ -4881,16 +4919,54 @@ function Inicio({go, irCliente, irProducto, irFactura}){
       </div>
     </div>
 
-    {porVisitar.length>0 && (
-      <button className={"alerta-visita"+(nRojo>0?" inicio-urgente":"")} style={{padding:"11px 14px",marginTop:10}} onClick={()=>setVerVisitas(true)}>
+    {/* b455 · "Por visitar" plegable. Encabezado tocable (idéntico al banner de
+        hoy) + hasta 3 renglones con acción directa. Sin clientes: barra sin
+        flecha con aviso. Misma fuente (porVisitar); zona y última compra salen
+        de FICHA_CLIENTE. Nada nuevo en la base. */}
+    {porVisitar.length===0 ? (
+      <div className="alerta-visita" style={{padding:"11px 14px",marginTop:10}} aria-label="Sin visitas pendientes">
+        <span className="av-ic"><Ico n="ruta" c="#C2603A" s={19}/></span>
+        <div style={{flex:1,textAlign:"left",minWidth:0}}>
+          <div className="av-t" style={{fontSize:13.5}}>Por visitar</div>
+          <div className="av-s" style={{fontSize:11.5}}>Sin visitas pendientes hoy</div>
+        </div>
+      </div>
+    ) : (<>
+      <button className={"alerta-visita pv-cab"+(nRojo>0?" inicio-urgente":"")} style={{padding:"11px 14px",marginTop:10,marginBottom:visitasAbierto?0:14}}
+        onClick={toggleVisitas} aria-expanded={visitasAbierto}>
         <span className="av-ic"><Ico n="ruta" c="#C2603A" s={19}/></span>
         <div style={{flex:1,textAlign:"left",minWidth:0}}>
           <div className="av-t" style={{fontSize:13.5}}>Por visitar · {porVisitar.length} próximos a pedir</div>
           <div className="av-s" style={{fontSize:11.5}}>{nRojo>0?`${nRojo} urgente(s) por quedarse sin stock`:"Se acercan a su recompra"}</div>
         </div>
-        <span className="av-arrow">›</span>
+        <span className={"pv-chevron"+(visitasAbierto?" abierto":"")}>⌄</span>
       </button>
-    )}
+      {visitasAbierto && (
+        <div className="pv-lista">
+          {porVisitar.slice(0,3).map((x,i)=>{
+            const f=(typeof FICHA_CLIENTE!=="undefined" && FICHA_CLIENTE[x.cli]) || {};
+            const dias = x.nivel!=="rojo" ? diasDesdeFechaEC(f.ultimaCompra) : null;
+            const ctxDato = x.nivel==="rojo" ? "sin stock" : (dias==null ? null : `última compra hace ${dias} ${dias===1?"día":"días"}`);
+            const ctx = [f.zona?("zona "+f.zona):null, ctxDato].filter(Boolean).join(" · ");
+            return (
+              <div className="pv-row" key={i}>
+                <span className={"sem "+x.nivel} style={{width:11,height:11,boxShadow:"none"}}></span>
+                <div className="pv-info">
+                  <div className="pv-nombre">{x.cli}</div>
+                  {ctx && <div className="pv-ctx">{ctx}</div>}
+                </div>
+                <button className="pv-cta" onClick={()=>{ irPedidoCliente ? irPedidoCliente(x.cli) : go("pedido"); }}>Tomar pedido</button>
+              </div>
+            );
+          })}
+          {porVisitar.length>1 && (
+            <button className="pv-vertodos" onClick={()=>setVerVisitas(true)}>
+              {porVisitar.length>3 ? `Ver todos (${porVisitar.length}) ›` : "Ver todos ›"}
+            </button>
+          )}
+        </div>
+      )}
+    </>)}
 
     {/* tablero de trabajo 3×2: todo a un toque, sin scroll */}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:12}}>
@@ -5999,7 +6075,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"454", fecha:"19 ago 2026", desc:"Se retiró la línea de diagnóstico del menú. Y ahora, si el navegador tiene activo «Sitio para computadoras», la app igual se ve a todo el ancho del teléfono en vez de una columna angosta con franjas a los lados." };
+const VERSION = { n:"455", fecha:"19 ago 2026", desc:"«Por visitar» ahora es una lista plegable: se abre y muestra hasta 3 clientes con botón «Tomar pedido» directo (con el cliente ya puesto) y «Ver todos». Recuerda si la dejas abierta o cerrada. La barra plegada se ve igual que antes." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -25706,6 +25782,7 @@ function App({usuario, onSalir}){
       {tab==="inicio" && <Inicio go={navegar}
           irCliente={(c)=>{ setCliFicha(c); navegar("clientes"); }}
           irProducto={(p)=>{ setProdInicial(p); navegar("pedido"); }}
+          irPedidoCliente={(c)=>{ setCliInicial(c); navegar("pedido"); }}
           irFactura={(f)=>{ setCarteraCliente(f.cli); navegar("cartera"); }}/>}
         {tab==="pedido" && <Pedido toast={show} prodInicial={prodInicial} onConsumir={()=>setProdInicial(null)}
           cliInicial={cliInicial} onConsumirCli={()=>setCliInicial(null)}
