@@ -124,6 +124,9 @@ const PLAN = [
   /* PED_TESTS_PARIDAD · blindaje de comportamiento app↔web (no regex): cada uno
      rompe el código a propósito (mutante) y exige que la prueba se caiga. */
   { arnes:"test_paridad_canon.js",    que:"PED P3-8: canon P1=Crédito/P2=Contado idéntico en los 4 canales (mapa efectivo)", apps:[null] },
+  { arnes:"test_paridad_conv_web.js", que:"PED P3-8: la edición web convierte presentación→quintal (arroba 0,25) antes de guardar", apps:[null] },
+  { arnes:"test_paridad_piso_web.js", que:"PED P3-8: el piso de P5 bloquea bajo costo+margen en la web (render real)", apps:[null] },
+  { arnes:"test_paridad_cupo_web.js", que:"PED P3-8: el cupo en la web (contado no consume; crédito excedido va a autorizar, no bloquea)", apps:[null] },
   { arnes:"test_paridad_piso_app.js", que:"PED P3-8: el piso de P5 en la app freelance (bloquea bajo costo+margen)", apps:[null] },
   { arnes:"test_paridad_cupo_app.js", que:"PED P3-8: el cupo en la app (contado no consume; crédito excedido va a autorizar, no bloquea)", apps:[null] },
   { arnes:"ARNES_SECCIONES_WEB.js",   que:"PED P3-8: cada sección del Sistema Web renderiza de verdad (caza ReferenceError de alcance)", apps:[null] },
