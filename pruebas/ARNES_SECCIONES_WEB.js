@@ -49,7 +49,21 @@ vm.runInContext(`
   };
 `,ctx);
 
-const SECCIONES=process.argv.slice(2);
+/* PED_TESTS_PARIDAD · lista por defecto de secciones del Sistema Web.
+   Este arnés estaba HUÉRFANO (no lo llamaba pruebas.js): renderiza cada sección
+   con React de verdad y caza los ReferenceError de alcance que los arneses con
+   sustitutos no ven. Ahora corre en el plan con esta lista (todas las que
+   renderizan limpias solo con {usuario}; se dejan fuera las que exigen props
+   puntuales —TrazabilidadWeb, DibujoProductoWeb— y reventarían por falta de dato,
+   no por un bug). Si se le pasan secciones por la línea de comandos, manda esa lista. */
+const SECCIONES_POR_DEFECTO = [
+  "PortadaWeb", "PedidosWeb", "ClientesWeb", "CatalogoWeb", "PreciosWeb",
+  "PromocionesWeb", "PiladorasWeb", "TarifasFEWeb", "ComisionesWeb", "PagosWeb",
+  "CobranzaWeb", "ReportesWeb", "ResumenDiaWeb", "SolicitudesWeb", "CuentasWeb",
+  "ConfiguracionWeb", "NotificacionesWeb", "AvisosWeb", "ComunicacionWeb",
+  "AuditoriaWeb", "EmparejarWeb", "CustodiaWeb", "ConciliacionWeb", "SocioWeb",
+];
+const SECCIONES = process.argv.slice(2).length ? process.argv.slice(2) : SECCIONES_POR_DEFECTO;
 let ok=0, fallo=0;
 for(const s of SECCIONES){
   try{
