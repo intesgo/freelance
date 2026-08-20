@@ -31,19 +31,24 @@ ok(/const requiereAutorizacion = \(esP5 && !esFreelanceWeb\) \|\| excedeCupo;/.t
 ok(/carrito\.filter\(it=>it\.credito\)\.reduce/.test(app), "app · el cupo cuenta solo líneas a crédito (referencia)");
 ok(/const requiereAutorizacion = esP5 \|\| excedeCupo;/.test(app), "app · exceso de cupo → autorización (no bloquea)");
 
-/* ── B · PISO de P5 = BASE/costo de la oferta, SIN flete/estibada ── */
-ok(/const pisoUnidad = Math\.round\(costoUnidad \* 100\) \/ 100;/.test(web),
-  "web · el piso de P5 es el costo de la oferta (sin flete/estibada)");
+/* ── B · PISO de P5 = BASE de la oferta según la condición, SIN flete/estibada.
+   Igual que el servidor (v_base): crédito→baseCredito (respaldo a contado);
+   contado→baseContado. ── */
+ok(/const baseP5 = prod \? \(esCredito \? \(Number\(prod\.baseCredito\)\|\|Number\(prod\.baseContado\)\|\|0\) : \(Number\(prod\.baseContado\)\|\|0\)\) : 0;/.test(web),
+  "web · el piso de P5 es la base de la oferta según la condición (no un costo único)");
+ok(/const pisoUnidad = Math\.round\(baseP5 \* 100\) \/ 100;/.test(web),
+  "web · pisoUnidad se calcula desde baseP5");
 ok(!/costoUnidad \+ \(fletePiso \+ estibadaPiso\)/.test(web),
   "web · el piso YA NO suma flete/estibada (no doble-cuenta)");
 ok(/const bajoPiso = pisoConocido && esFreelanceWeb/.test(web), "web · se conserva el bloqueo bajoPiso para P5");
 
-/* ── B · PISO de P5 en la APP (antes NO existía) ── */
-ok(/const pisoP5 = prod \? \(Number\(prod\.costo\)\|\|0\) : 0;/.test(app), "app · piso de P5 = costo de la oferta");
-ok(/const bajoPisoP5 = tipo==="P5" && pisoP5>0 && precio!=="" && precioNum>0 && precioNum < pisoP5;/.test(app),
-  "app · bloquea P5 por debajo del costo de la piladora");
+/* ── B · PISO de P5 en la APP (base según condición) ── */
+ok(/const baseP5 = prod \? \(esCredito \? \(Number\(prod\.baseCredito\)\|\|Number\(prod\.baseContado\)\|\|0\) : \(Number\(prod\.baseContado\)\|\|0\)\) : 0;/.test(app),
+  "app · piso de P5 = base de la oferta según la condición");
+ok(/const bajoPisoP5 = tipo==="P5" && baseP5>0 && precio!=="" && precioNum>0 && precioNum < baseP5;/.test(app),
+  "app · bloquea P5 por debajo de la base de la oferta");
 ok(/const valido = cli && prov && prod &&[\s\S]{0,140}&& !bajoPisoP5/.test(app),
-  "app · valido incluye !bajoPisoP5 (P5 bajo costo NO se puede armar)");
+  "app · valido incluye !bajoPisoP5 (P5 bajo la base NO se puede armar)");
 ok(/P5 sigue yendo a autorización/.test(app) || /esP5 \|\| excedeCupo/.test(app),
   "app · P5 (válido) sigue yendo a autorización");
 
