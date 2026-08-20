@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"170", fecha:"19 ago 2026", desc:"Corrección crítica al EDITAR un pedido en la web: si agregas un producto en arrobas o sacos, ahora se convierte bien a quintales (antes guardaba cantidades y precios inflados). Queda igual que en la app del celular." };
+const VERSION = { n:"171", fecha:"20 ago 2026", desc:"Tipo de precio unificado: P1 = Crédito y P2 = Contado, igual que la app y el resto de roles (la web los tenía al revés). El precio y la comisión no cambian; solo se corrige el rótulo y las etiquetas." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1228,9 +1228,12 @@ const CLIENTES_WEB = [
 ];
 
 // Tipos de precio (mismo esquema que las apps)
+/* PED_CANON_P1P2 · Canon único: P1 = Crédito, P2 = Contado (igual que app, comisionista
+   y socio). La web estaba invertida. NO cambia precio ni comisión: el servidor usa
+   "condicion", no P1/P2; esto solo alinea el rótulo tipo_precio y las etiquetas. */
 const TIPOS_PRECIO_WEB = [
-  { id:"P1", nombre:"Contado",            desc:"Base de contado" },
-  { id:"P2", nombre:"Crédito",            desc:"Base de crédito" },
+  { id:"P1", nombre:"Crédito",            desc:"Base de crédito" },
+  { id:"P2", nombre:"Contado",            desc:"Base de contado" },
   { id:"P3", nombre:"Promoción vendedor", desc:"Armas producto gratis" },
   { id:"P4", nombre:"Promoción freelance",desc:"Promo de la lista · las gratis las paga el freelance" },
   { id:"P6", nombre:"Promoción proveedor",desc:"Promo de la piladora · las gratis las paga el proveedor" },
@@ -5433,7 +5436,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [provTexto, setProvTexto] = useState("");
   const [prodTexto, setProdTexto] = useState("");
   const [prod, setProd] = useState(null);
-  const [tipo, setTipo] = useState("P2");
+  const [tipo, setTipo] = useState("P1");  /* PED_CANON_P1P2: default Crédito = P1 */
   const [cant, setCant] = useState("");
   const [precio, setPrecio] = useState("");
   const [gratis, setGratis] = useState("");
@@ -5569,8 +5572,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   }, [retiroBodega, ubicPed, tarZonaFE]);
 
   const base = !prod ? 0
-    : tipo==="P1" ? prod.baseContado
-    : tipo==="P2" ? prod.baseCredito
+    : tipo==="P1" ? prod.baseCredito   /* PED_CANON_P1P2: P1 = Crédito */
+    : tipo==="P2" ? prod.baseContado   /* PED_CANON_P1P2: P2 = Contado */
     : tipo==="P3" ? (condP3==="credito"?prod.baseCredito:prod.baseContado)
     : tipo==="P4" ? (promoF?promoF.base:0)
     : tipo==="P6" ? (promoP?promoP.base:0)
@@ -5617,7 +5620,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const fleteCobroTotal = (retiroBodega?0:(Number(fleteCobroQq)||0))*totalQqPedido;
   const estibadaCobroTotal = (retiroBodega?0:(Number(estibadaCobroQq)||0))*totalQqPedido;
   const totalConCobro = Math.round((totalCarrito + fleteCobroTotal + estibadaCobroTotal)*100)/100;
-  const esCredito = tipo==="P2" || (tipo==="P3" && condP3==="credito") || tipo==="P5";
+  const esCredito = tipo==="P1" || (tipo==="P3" && condP3==="credito") || tipo==="P5";  /* PED_CANON_P1P2: P1 = Crédito */
   const exponeCupo = esCredito ? totalLinea : 0;
   const excedeCupo = cli && !cli.bloqueado && esCredito && (cli.usado + totalCarrito + exponeCupo > cli.cupo);
 
@@ -5691,7 +5694,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     setEditItems(arr => [...arr, { itemId:null, prodId: prod.prodId||prod.id, descripcion: prod.nombre,
       presCod:prod.presCod||null,promoId:null,condicion:"contado",equiv:Number(prod.equiv)||1,
       cantidad: 1, precio: Number(prod.baseContado)||Number(prod.baseCredito)||0,
-      tipoPrecio:"P1",gratis:0,comision:0,borrar:false,nuevo:true }]);
+      tipoPrecio:"P2",gratis:0,comision:0,borrar:false,nuevo:true }]);  /* PED_CANON_P1P2: línea de contado = P2 (coherente con condicion:"contado") */
     setEditTexto("");
   };
   const editTotal = editItems.filter(it=>!it.borrar).reduce((s,it)=> s + (Number(it.cantidad)||0)*(Number(it.precio)||0), 0);
@@ -5710,7 +5713,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         const cat=PRODS_PED.find(p=>(p.prodId||p.id)===it.prodId && (!it.presCod||p.presCod===it.presCod))||it;
         return {item_id:it.itemId||null,prod_id:it.prodId,pres_cod:it.presCod||cat.presCod,
           cantidad_qq:Number(it.cantidad),precio_qq:Number(it.precio),gratis_qq:Number(it.gratis)||0,
-          tipo_precio:it.tipoPrecio||"P1",condicion:it.condicion||"contado",promo_id:it.promoId||null,
+          tipo_precio:it.tipoPrecio||"P2",condicion:it.condicion||"contado",promo_id:it.promoId||null,  /* PED_CANON_P1P2: fallback contado = P2 */
           comision_propuesta:(it.tipoPrecio==="P5")?(Number(it.comision)||0):null};
       });
       const opId="EDI-"+editPed+"-"+Date.now().toString(36).toUpperCase();
@@ -5723,7 +5726,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     setEditGuardando(false);
   };
 
-  const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P2"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };
+  const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P1"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };  /* PED_CANON_P1P2: default Crédito = P1 (igual que app y comisionista) */
   const abrir = () => { setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null); setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
   const volver = () => { setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null); setVista("lista"); setAviso(""); };
   // Repetir el último pedido: fija la piladora y arma el carrito con esos productos a precio vigente (presentación Quintal)
@@ -5743,12 +5746,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       nuevas.push({ id: Date.now()+i, prod: cat.nombre, prodId: cat.prodId||cat.id, presCod:cat.presCod||it.pres_cod||null,
         promoId:it.promo_id||null,prov: cat.prov, provCod: cat.provCod,
         ic: cat.ic, unidad: cat.unidad, equiv: Number(cat.equiv)||1, cant: cantN, precio: precioN, gratis:0,
-        cond:"Crédito", credito:true, tipo:"P2", tipoNombre:"Crédito", comision, total: Math.round(precioN*cantN*100)/100, requiere:false });
+        cond:"Crédito", credito:true, tipo:"P1", tipoNombre:"Crédito", comision, total: Math.round(precioN*cantN*100)/100, requiere:false });  /* PED_CANON_P1P2: crédito = P1 */
     });
     if (nuevas.length) { setCarrito(prev => [...prev, ...nuevas]); setAviso(""); }
     else setAviso("Los productos del último pedido ya no están en el catálogo vigente.");
   };
-  const elegirProd = (p) => { setProd(p); setProdTexto(p.nombre); setTipo("P2"); setPrecio(""); setPromoF(null); setPromoP(null); };
+  const elegirProd = (p) => { setProd(p); setProdTexto(p.nombre); setTipo("P1"); setPrecio(""); setPromoF(null); setPromoP(null); };  /* PED_CANON_P1P2: default Crédito = P1 */
 
   const agregarLinea = () => {
     if (!valido) { setAviso("Revisa los campos: precio bajo base, cupo excedido o faltan datos."); return; }
@@ -5832,7 +5835,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   /* ── #4 · Editar un pedido DENTRO de la pantalla de armado ─────────────── */
   const construirLineaDesdeItem = (it, meta) => {
     const cat = PRODS_PED.find(p => (p.prodId||p.id) === it.prod_id) || {};
-    const tipo = it.tipo_precio || "P2";
+    const tipo = it.tipo_precio || "P1";  /* PED_CANON_P1P2: fallback habitual = Crédito = P1 (solo si falta el dato; el crédito real sale de condicion) */
     const cant = Number(it.cantidad_qq)||0, precio = Number(it.precio_usd)||0;
     return {
       id: it.item_id || ("N"+Date.now()+Math.floor(Math.random()*1000)), itemId: it.item_id || null,
@@ -5881,7 +5884,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           cantidad_qq:Math.round((Number(l.cant)||0)*eq*100)/100,
           precio_qq:Math.round(((Number(l.precio)||0)/eq)*100)/100,
           gratis_qq:Math.round((Number(l.gratis)||0)*eq*100)/100,
-          tipo_precio:l.tipo||"P2",condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,
+          tipo_precio:l.tipo||"P1",condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,  /* PED_CANON_P1P2: fallback habitual = P1 (el crédito real sale de condicion) */
           comision_propuesta:l.tipo==="P5"?(Number(l.comision)||0):null};
       });
       const opId="WEB-EDI-"+editandoPed+"-"+Date.now().toString(36).toUpperCase();
