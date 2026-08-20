@@ -2857,6 +2857,7 @@ const PRESENTACIONES = PRODUCTOS
            El contado suele ser un poco más barato que el crédito. */
         costo: pr.costo != null ? pr.costo : Math.round(pr.baseCredito*0.885*100)/100,
         costoContado: pr.costoContado != null ? pr.costoContado : Math.round(pr.baseCredito*0.870*100)/100,
+        margenMin: pr.margenMin != null ? pr.margenMin : 8,   /* PED_PISO_P5_V2: margen mínimo % (demo: 8%) */
         costosOper: pr.costosOper != null ? pr.costosOper : Math.round(pr.baseCredito*0.045*100)/100,
         /* precios adicionales (demo): promoción del proveedor y precio especial autorizado */
         promoProv: pr.promoProv != null ? pr.promoProv : Math.round(pr.baseContado*0.965*100)/100,
@@ -3008,6 +3009,8 @@ function construirCatalogoPedido(provs, ofertas, prods, presenTbl, promoTbl){
       marca:nom, nombre:nom+" · "+o.presentacion, unidad:o.presentacion, foto:fotoPres, diasCredito:30,
       baseContado:r2(pc), baseCredito:r2(pk),
       costo:o.costo!=null?r2(Number(o.costo)):null,
+      costoContado:o.costo_contado!=null?r2(Number(o.costo_contado)):(o.costo!=null?r2(Number(o.costo)):null),   /* PED_PISO_P5_V2: costo a contado (piso P5 contado) */
+      margenMin:Number(o.margen_min)||0,   /* PED_PISO_P5_V2: margen mínimo % de la oferta (si falta, 0) */
       promosFreelance:prom.freelance, promosProveedor:prom.proveedor };
   });
   const pres=Object.keys(porClave).map(k=>porClave[k]);
@@ -6077,7 +6080,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"459", fecha:"20 ago 2026", desc:"Ajuste del piso del precio especial (P5): el mínimo es la base de la oferta según la condición (contado o crédito), igual que valida el servidor. El exceso de cupo sigue quedando «por autorizar»." };
+const VERSION = { n:"460", fecha:"20 ago 2026", desc:"Precio especial (P5): ahora eliges la condición (contado o crédito) como en una línea normal, y el piso pasa a ser el costo de la piladora más su margen mínimo (ya no la base de venta). Bajo ese piso no se puede armar el pedido, igual en la app y en el sistema web." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -6478,7 +6481,7 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
         const [{ data:provs }, { data:ofertas }, { data:prods }, { data:clis }, { data:ubics }, { data:promos }, { data:tramos }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("ofertas_piladora")
-            .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
+            .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,margen_min,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
             .limit(4000),
           window.SB.from("productos").select("prod_id,nombre,marca,linea").eq("estado","activo").limit(500),
           window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
@@ -6680,14 +6683,18 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
   const comisionTotal = Math.round((comisionBruta - costoGratis)*100)/100;
   const comisionPromedio = cantN>0 ? Math.round((comisionTotal/cantN)*100)/100 : 0;
 
-  const esCredito = tipo==="P1" || ((tipo==="P3"||tipo==="P4") && condP3==="credito");
-  /* PED_PISO_P5 · El piso del precio especial (P5) es la BASE de venta de la
-     oferta según la CONDICIÓN de la línea, igual que el servidor (v_base):
-     crédito → baseCredito (con respaldo a contado); contado → baseContado.
-     El flete/estibada NO entran (se cobran aparte, fe02). P5 sigue yendo a
-     autorización; si el precio queda bajo la base, NO se puede armar. */
-  const baseP5 = prod ? (esCredito ? (Number(prod.baseCredito)||Number(prod.baseContado)||0) : (Number(prod.baseContado)||0)) : 0;
-  const bajoPisoP5 = tipo==="P5" && baseP5>0 && precio!=="" && precioNum>0 && precioNum < baseP5;
+  const esCredito = tipo==="P1" || ((tipo==="P3"||tipo==="P4"||tipo==="P5") && condP3==="credito");   /* PED_PISO_P5_V2: el P5 toma la condición ELEGIDA (no fija) */
+  /* PED_PISO_P5_V2 · El piso del precio especial (P5) NO es la base de venta: es el
+     COSTO de la piladora según la CONDICIÓN ELEGIDA × (1 + margen_min/100). La base
+     (baseContado/baseCredito) es el precio NORMAL; el P5 baja desde ahí, pero nunca por
+     debajo de costo+margen_min. Costo por condición: crédito → costo; contado →
+     costoContado. margen_min de la oferta (si falta, 0). El flete/estibada NO entran
+     (se cobran aparte, fe02). P5 sigue yendo a autorización; bajo el piso NO se puede armar. */
+  const margenMinP5 = prod ? (Number(prod.margenMin)||0) : 0;
+  const pisoContadoP5 = prod ? Math.round((Number(prod.costoContado)||Number(prod.costo)||0) * (1 + margenMinP5/100) * 100)/100 : 0;
+  const pisoCreditoP5 = prod ? Math.round((Number(prod.costo)||0) * (1 + margenMinP5/100) * 100)/100 : 0;
+  const pisoUnidadP5 = tipo==="P5" ? (esCredito ? pisoCreditoP5 : pisoContadoP5) : 0;
+  const bajoPisoP5 = tipo==="P5" && pisoUnidadP5>0 && precio!=="" && precioNum>0 && precioNum < pisoUnidadP5;
   const ficha = cli ? FICHA_CLIENTE[cli] : null;
   const cupoTotal = ficha ? (ficha.cupo||0) : 0;
   const deudaActual = ficha ? (ficha.debe||0) : 0;
@@ -7560,13 +7567,13 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
       })()}
 
       {/* b327 · SPLIT 2 columnas: foto | cantidad+precio (réplica Comisionista b149) */}
-      <div className={"pedido-split"+((tipo==="P3"||tipo==="P4"||esP6||(bajoBase&&!sinBasePromo))?" split-alto":"")}>
+      <div className={"pedido-split"+((tipo==="P3"||tipo==="P4"||esP6||esP5||(bajoBase&&!sinBasePromo))?" split-alto":"")}>
         <div className="ps-izq">
           <div className="ps-foto">
             <img src={fotoPed || sacoSVG(prod.linea, prod.unidad)} alt={prod.nombre} />
           </div>
         </div>
-        <div className={"ps-controles"+((tipo==="P3"||tipo==="P4"||esP6)?" tiene-extra":"")+((bajoBase&&!sinBasePromo)?" tiene-aviso":"")}>
+        <div className={"ps-controles"+((tipo==="P3"||tipo==="P4"||esP6||esP5)?" tiene-extra":"")+((bajoBase&&!sinBasePromo)?" tiene-aviso":"")}>
       <div className="tarjeta-pedido">
         <div className="tp-titulo"><span className="tp-ic">📦</span>Cantidad{prod?" · "+prod.unidad:""}</div>
         <div className="precio-row">
@@ -7595,9 +7602,19 @@ function Pedido({toast, prodInicial, onConsumir, onGuardarPedido, cliInicial, on
 
         {bajoBase && !sinBasePromo &&
           <div className="hint err">No puedes vender bajo tu base ({money(base)}). Usa Precio especial (P5).</div>}
-        {/* PED_PISO_P5 · el precio especial no puede bajar de la base de la oferta (según la condición) */}
+        {/* PED_PISO_P5_V2 · el precio especial no puede bajar del piso = costo(condición) × (1 + margen_min/100) */}
         {bajoPisoP5 &&
-          <div className="hint err">El precio especial no puede bajar de la base de la oferta ({money(baseP5)}). Sube el precio para continuar.</div>}
+          <div className="hint err">El precio especial no puede bajar del piso ({money(pisoUnidadP5)}) — costo de la piladora + margen mínimo, según la condición. Sube el precio para continuar.</div>}
+
+        {/* PED_PISO_P5_V2 · la condición del P5 la elige el usuario (define el piso: contado→costoContado, crédito→costo) */}
+        {tipo==="P5" && (
+          <div className="tp-extra"><label>Condición del precio especial · define el piso</label>
+            <div className="seg">
+              <button className={condP3==="contado"?"on":""} onClick={()=>{setCondP3("contado");}}>Contado<br/>piso {money(pisoContadoP5)}</button>
+              <button className={condP3==="credito"?"on":""} onClick={()=>{setCondP3("credito");}}>Crédito<br/>piso {money(pisoCreditoP5)}</button>
+            </div>
+          </div>
+        )}
 
         {tipo==="P3" && (<>
           <div className="tp-extra"><label>Condición · define el piso</label>
