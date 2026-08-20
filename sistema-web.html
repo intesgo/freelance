@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"174", fecha:"20 ago 2026", desc:"Precio especial (P5): ahora eliges la condición (contado o crédito) como en una línea normal, y el piso pasa a ser el costo de la piladora más su margen mínimo (ya no la base de venta). Bajo ese piso no se puede armar el pedido, igual en la app y en el sistema web." };
+const VERSION = { n:"175", fecha:"20 ago 2026", desc:"Limpieza interna (sin cambio visible): se quitó un editor de pedido viejo que había quedado sin uso. La edición de pedidos sigue igual, con el botón ✏️ que abre el armador en modo edición." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5247,11 +5247,11 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [fuentePed, setFuentePed] = useState("demo");
   const [itemsPorPed, setItemsPorPed] = useState({});   // ped_id → [items crudos] (para editar)
   const [pedMeta, setPedMeta] = useState({});           // ped_id → { provCod, cond, editable… }
-  const [editPed, setEditPed] = useState(null);         // ped_id que se está editando (o null)
-  const [editItems, setEditItems] = useState([]);       // copia de trabajo de los ítems
-  const [editTexto, setEditTexto] = useState("");       // buscador para agregar producto
-  const [editGuardando, setEditGuardando] = useState(false);
-  const [editError, setEditError] = useState("");
+  /* PED_WEB_EDITOR_UNICO · aquí vivía el estado del editor de pedido VIEJO
+     (editPed/editItems/editTexto/editGuardando/editError). Se eliminó: quedó
+     inalcanzable cuando el editor pasó a la vista Armar (abrirEdicionArmar /
+     guardarCambiosPedido, botón ✏️). itemsPorPed y pedMeta se quedan: los usa
+     el editor nuevo. */
   const [ordCampo, setOrdCampo] = useState("fecha");   // columna de orden (#2)
   const [ordDir, setOrdDir] = useState("desc");        // asc | desc · por defecto fecha desc
   const [editandoPed, setEditandoPed] = useState(null);   // ped_id que se edita en la pantalla de armado (#4)
@@ -5676,59 +5676,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   };
   const flechaOrden = (campo) => ordCampo === campo ? (ordDir === "asc" ? " ▲" : " ▼") : "";
 
-  /* ── AJU-001-R2 · edición atómica antes de facturar ─────────────────────
-     La pantalla arma la propuesta; el servidor recalcula catálogo/comisión y
-     actualiza, agrega o quita todas las líneas dentro de una transacción. */
-  const abrirEdicion = (pedId) => {
-    const items = (itemsPorPed[pedId] || []).map(x => ({
-      ...(PRODS_PED.find(p=>(p.prodId||p.id)===x.prod_id && (!x.pres_cod||p.presCod===x.pres_cod))||{}),
-      itemId: x.item_id, prodId: x.prod_id, descripcion: x.descripcion || x.prod_id,
-      cantidad: Number(x.cantidad_qq)||0, precio: Number(x.precio_usd)||0,
-      presCod:x.pres_cod||null,promoId:x.promo_id||null,condicion:x.condicion||null,
-      tipoPrecio: x.tipo_precio || null, gratis: Number(x.gratis_qq)||0,
-      comision:Number(x.comision_usd)||0,borrar:false,nuevo:false,
-    }));
-    setEditPed(pedId); setEditItems(items); setEditTexto(""); setEditError("");
-  };
-  const cerrarEdicion = () => { setEditPed(null); setEditItems([]); setEditTexto(""); setEditError(""); };
-  const editSet = (idx, campo, val) => setEditItems(arr => arr.map((it,i)=> i===idx ? { ...it, [campo]:val } : it));
-  const editQuitar = (idx) => setEditItems(arr => arr.map((it,i)=> i===idx ? { ...it, borrar: !it.borrar } : it));
-  const editAgregar = (prod) => {
-    if (!prod) return;
-    setEditItems(arr => [...arr, { itemId:null, prodId: prod.prodId||prod.id, descripcion: prod.nombre,
-      presCod:prod.presCod||null,promoId:null,condicion:"contado",equiv:Number(prod.equiv)||1,
-      cantidad: 1, precio: Number(prod.baseContado)||Number(prod.baseCredito)||0,
-      tipoPrecio:"P2",gratis:0,comision:0,borrar:false,nuevo:true }]);  /* PED_CANON_P1P2: línea de contado = P2 (coherente con condicion:"contado") */
-    setEditTexto("");
-  };
-  const editTotal = editItems.filter(it=>!it.borrar).reduce((s,it)=> s + (Number(it.cantidad)||0)*(Number(it.precio)||0), 0);
-  const guardarEdicion = async () => {
-    setEditError("");
-    const vivos = editItems.filter(it => !it.borrar);
-    if (vivos.length === 0) { setEditError("El pedido no puede quedar sin productos. Si quieres anularlo, hazlo desde su gestión."); return; }
-    for (const it of vivos) {
-      if (!(Number(it.cantidad) > 0)) { setEditError("Todas las cantidades deben ser mayores a 0."); return; }
-      if (!(Number(it.precio) > 0)) { setEditError("Todos los precios deben ser mayores a 0."); return; }
-    }
-    if (!window.supa) { setEditError("Sin conexión con el servidor."); return; }
-    setEditGuardando(true);
-    try {
-      const payload=vivos.map(it=>{
-        const cat=PRODS_PED.find(p=>(p.prodId||p.id)===it.prodId && (!it.presCod||p.presCod===it.presCod))||it;
-        return {item_id:it.itemId||null,prod_id:it.prodId,pres_cod:it.presCod||cat.presCod,
-          cantidad_qq:Number(it.cantidad),precio_qq:Number(it.precio),gratis_qq:Number(it.gratis)||0,
-          tipo_precio:it.tipoPrecio||"P2",condicion:it.condicion||"contado",promo_id:it.promoId||null,  /* PED_CANON_P1P2: fallback contado = P2 */
-          comision_propuesta:(it.tipoPrecio==="P5")?(Number(it.comision)||0):null};
-      });
-      const opId="EDI-"+editPed+"-"+Date.now().toString(36).toUpperCase();
-      const {error}=await window.supa.rpc("editar_pedido_atomico",{p_ped:editPed,p_items:payload,p_op_id:opId});
-      if(error) throw new Error(error.message);
-      cerrarEdicion();
-      setAviso("Pedido actualizado.");
-      await cargarPedidosVivos();
-    } catch (e) { setEditError("No se pudo guardar: " + (e.message||"error")); }
-    setEditGuardando(false);
-  };
+  /* PED_WEB_EDITOR_UNICO · aquí vivía el editor de pedido VIEJO (AJU-001-R2):
+     abrirEdicion / cerrarEdicion / editSet / editQuitar / editAgregar / editTotal /
+     guardarEdicion, que abrían un modal aparte. Quedó inalcanzable: nadie llamaba a
+     abrirEdicion. El editor VIVO es la vista Armar (abrirEdicionArmar /
+     guardarCambiosPedido, botón ✏️), que también edita atómicamente vía
+     editar_pedido_atomico. Se eliminó el clúster muerto para que haya un solo editor. */
 
   const resetLinea = () => { setProvSel(null); setProvTexto(""); setProd(null); setProdTexto(""); setTipo("P1"); setCant(""); setPrecio(""); setGratis(""); setCondP3("contado"); setPromoF(null); setPromoP(null); setComProp(""); setMotivo(""); };  /* PED_CANON_P1P2: default Crédito = P1 (igual que app y comisionista) */
   const abrir = () => { setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null); setCli(null); setCliTexto(""); setCarrito([]); resetLinea(); setAviso(""); setVista("armar"); };
@@ -6075,57 +6028,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         </div>
         )}
 
-        {/* ── MODAL EDITAR PEDIDO (#6) ── */}
-        {editPed && (()=>{ const m = pedMeta[editPed] || {};
-          const editProds = PRODS_PED.filter(p => p.provCod === m.provCod || p.prov === m.prov);
-          return (
-          <div onClick={cerrarEdicion} style={{ position:"fixed", inset:0, background:"rgba(20,30,40,.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:16, zIndex:1000 }}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:COLOR.card, borderRadius:16, padding:"22px 24px", maxWidth:640, width:"100%", maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 50px rgba(0,0,0,.25)" }}>
-              <p style={{ fontSize:16, fontWeight:800, color:COLOR.text, margin:"0 0 2px" }}>Editar pedido {editPed}</p>
-              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 16px" }}>{m.razon || m.cli || ""} · {m.prov || ""} · {m.cond || ""}</p>
-
-              {editItems.map((it,idx)=>(
-                <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 76px 90px 70px", gap:8, alignItems:"center", padding:"9px 0", borderTop: idx>0?`1px solid ${COLOR.border}`:"none", opacity: it.borrar?.45:1 }}>
-                  <div style={{ minWidth:0 }}>
-                    <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0, textDecoration: it.borrar?"line-through":"none" }}>{it.descripcion}{it.nuevo && <span style={{ fontSize:10, color:COLOR.tealDark, fontWeight:700 }}> · nuevo</span>}</p>
-                  </div>
-                  <div>
-                    <input type="number" value={it.cantidad} disabled={it.borrar} min="0" onChange={e=>editSet(idx,"cantidad",e.target.value)}
-                      style={{ width:"100%", boxSizing:"border-box", padding:"7px 8px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
-                    <span style={{ fontSize:9.5, color:COLOR.muted }}>qq</span>
-                  </div>
-                  <div>
-                    <input type="number" value={it.precio} disabled={it.borrar} min="0" step="0.01" onChange={e=>editSet(idx,"precio",e.target.value)}
-                      style={{ width:"100%", boxSizing:"border-box", padding:"7px 8px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, textAlign:"right" }} />
-                    <span style={{ fontSize:9.5, color:COLOR.muted }}>$/qq</span>
-                  </div>
-                  <button onClick={()=>editQuitar(idx)} style={{ border:"none", background:"transparent", color: it.borrar?COLOR.teal:COLOR.red, fontSize:12, fontWeight:700, cursor:"pointer" }}>{it.borrar?"Deshacer":"Quitar"}</button>
-                </div>
-              ))}
-
-              <div style={{ marginTop:14 }}>
-                <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>Agregar producto{m.prov?(" de "+m.prov):""}</label>
-                <div style={{ marginTop:6 }}>
-                  <BuscadorPredictivo cat="productos" items={editProds} value={editTexto}
-                    placeholder="Buscar producto…" label={p=>(p.ic?p.ic+"  ":"")+p.nombre} sub={p=>p.linea}
-                    onText={setEditTexto} onPick={editAgregar} />
-                </div>
-              </div>
-
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:16, paddingTop:14, borderTop:`1px solid ${COLOR.border}` }}>
-                <span style={{ fontSize:12.5, color:COLOR.muted }}>Total del pedido</span>
-                <span className="num" style={{ fontSize:17, fontWeight:800, color:COLOR.teal }}>{money(editTotal)}</span>
-              </div>
-
-              {editError && <div style={{ marginTop:12, background:"#FDECEA", color:"#b3271e", borderRadius:9, padding:"9px 12px", fontSize:12.5, fontWeight:600 }}>⚠ {editError}</div>}
-
-              <div style={{ display:"flex", gap:10, marginTop:16 }}>
-                <button onClick={cerrarEdicion} disabled={editGuardando} style={{ flex:1, padding:"11px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, fontSize:13.5, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
-                <button onClick={guardarEdicion} disabled={editGuardando} style={{ flex:1, padding:"11px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:13.5, fontWeight:800, cursor: editGuardando?"wait":"pointer" }}>{editGuardando?"Guardando…":"Guardar cambios"}</button>
-              </div>
-            </div>
-          </div>
-          ); })()}
+        {/* PED_WEB_EDITOR_UNICO · aquí estaba el MODAL del editor viejo (editPed && …).
+           Se eliminó: la edición de pedido vive ahora en la vista Armar (botón ✏️). */}
       </div>
     );
   }

@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"174"/.test(web),"Sistema Web debe anunciar b174");
-prueba(/const CACHE = "freelance-v269"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"175"/.test(web),"Sistema Web debe anunciar b175");
+prueba(/const CACHE = "freelance-v270"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -41,6 +41,12 @@ prueba(/&& !bajoPiso;/.test(web),"un precio por debajo del piso debe invalidar e
 prueba(/const pisoUnidad = esP5 \? \(esCredito \? pisoCreditoP5 : pisoContadoP5\) : 0;/.test(web),"el piso del precio especial se elige por condición (costo × margen mínimo)");
 prueba(/pisoCreditoP5 = prod \? Math\.round\(\(Number\(prod\.costo\)\|\|0\) \* \(1 \+ margenMinP5\/100\)/.test(web),"el piso de crédito sale de costo × (1 + margen_min/100)");
 prueba(/margenMin: Number\(o\.margen_min\) \|\| 0/.test(web),"la oferta debe traer su margen_min para el piso");
+
+/* ── PED_WEB_EDITOR_UNICO · un solo editor de pedido en la web (se quitó el modal viejo) ── */
+prueba(/PED_WEB_EDITOR_UNICO/.test(web),"queda el ancla del editor único");
+prueba(!/const abrirEdicion = \(pedId\)/.test(web) && !/const guardarEdicion = async/.test(web),"el editor de pedido viejo (abrirEdicion/guardarEdicion) ya no existe");
+prueba(!/\{editPed && \(\(\)=>\{/.test(web),"el modal del editor viejo ya no se renderiza");
+prueba(/const abrirEdicionArmar = /.test(web)&&/const guardarCambiosPedido = /.test(web),"el editor vivo (vista Armar) sigue presente");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
