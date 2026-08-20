@@ -120,6 +120,7 @@ const PLAN = [
   { arnes:"test_web02_retiro.js",     que:"WEB-02: retiro del módulo Fletes y estibada (sin rastro, EF_* intactas)", apps:[null] },
   { arnes:"test_canon_p1p2.js",       que:"PED P1-3: canon P1=Crédito, P2=Contado en app, web, comisionista y socio", apps:[null] },
   { arnes:"test_p1_4_cupo_p5.js",     que:"PED P1-4: cupo solo crédito + exceso a autorización + piso de P5 (app y web)", apps:[null] },
+  { arnes:"test_ped_p2_6.js",         que:"PED P2-6: una tarjeta por pedido, detalle con todas las líneas, condición real y búsqueda por proveedor", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
      la regresión normal y no deben quedar omitidos por falta de una variable. */
   { arnes:"test_cuentas.js",         que:"las cuentas del equipo",               apps:[null] },
