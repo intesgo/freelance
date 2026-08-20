@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"169", fecha:"17 ago 2026", desc:"Se retiró el módulo «Fletes y estibada», que ya estaba reemplazado y mostraba datos de mentira: los viajes se ven en Logística, los pagos reales en Pagos, y las tarifas en Tarifas de logística. Nada de plata cambió. (b168: un solo título por pantalla.)" };
+const VERSION = { n:"170", fecha:"19 ago 2026", desc:"Corrección crítica al EDITAR un pedido en la web: si agregas un producto en arrobas o sacos, ahora se convierte bien a quintales (antes guardaba cantidades y precios inflados). Queda igual que en la app del celular." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5868,10 +5868,22 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     if (!window.supa) { setAviso("Sin conexión con el servidor."); return; }
     setAviso("Guardando…");
     try {
-      const payload=vivos.map(l=>({item_id:l.itemId||null,prod_id:l.prodId,pres_cod:l.presCod,
-        cantidad_qq:Number(l.cant),precio_qq:Number(l.precio),gratis_qq:Number(l.gratis)||0,
-        tipo_precio:l.tipo||"P2",condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,
-        comision_propuesta:l.tipo==="P5"?(Number(l.comision)||0):null}));
+      /* PED_FIX_CONV_WEB · La web guardaba cantidad_qq/precio_qq CRUDOS (en la
+         presentación elegida) y la base los tomaba como quintales: 50 arrobas
+         quedaban como 50 qq en vez de 12,5, y el precio/qq salía mal. Se replica
+         la conversión de la app (freelance-completo, guardarEdicionPedido):
+         cantidad_qq = cant × equiv · precio_qq = precio ÷ equiv · gratis_qq = gratis × equiv.
+         Las líneas existentes se cargan ya en qq (equiv 1), así que no cambian;
+         solo se convierten las que están en una presentación distinta de Quintal. */
+      const payload=vivos.map(l=>{
+        const eq=Number(l.equiv)||1;
+        return {item_id:l.itemId||null,prod_id:l.prodId,pres_cod:l.presCod,
+          cantidad_qq:Math.round((Number(l.cant)||0)*eq*100)/100,
+          precio_qq:Math.round(((Number(l.precio)||0)/eq)*100)/100,
+          gratis_qq:Math.round((Number(l.gratis)||0)*eq*100)/100,
+          tipo_precio:l.tipo||"P2",condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,
+          comision_propuesta:l.tipo==="P5"?(Number(l.comision)||0):null};
+      });
       const opId="WEB-EDI-"+editandoPed+"-"+Date.now().toString(36).toUpperCase();
       const {error}=await window.supa.rpc("editar_pedido_atomico",{p_ped:editandoPed,p_items:payload,p_op_id:opId});
       if(error) throw new Error(error.message);
