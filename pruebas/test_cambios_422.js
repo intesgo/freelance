@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo (sin cambios en esta entrega) ── */
-prueba(/const VERSION = \{ n:"458"/.test(app),"Freelance debe anunciar v458");
+prueba(/const VERSION = \{ n:"459"/.test(app),"Freelance debe anunciar v459");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"172"/.test(web),"Sistema Web debe anunciar b172");
-prueba(/const CACHE = "freelance-v266"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"173"/.test(web),"Sistema Web debe anunciar b173");
+prueba(/const CACHE = "freelance-v267"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -38,7 +38,7 @@ prueba(/fecha_entrega/.test(web)&&/nota_chofer/.test(web),"deben enviarse fecha 
 prueba(/const requiereAutorizacion = \(esP5 && !esFreelanceWeb\)/.test(web),"el freelance ya no se autoriza a sí mismo el precio especial");
 prueba(/const bajoPiso = /.test(web)&&/precioNum < pisoUnidad/.test(web),"debe calcularse si el precio queda por debajo del piso");
 prueba(/&& !bajoPiso;/.test(web),"un precio por debajo del piso debe invalidar el pedido");
-prueba(/const pisoUnidad = Math\.round\(costoUnidad \* 100\) \/ 100;/.test(web),"el piso del precio especial es el costo de la oferta (sin flete/estibada)");
+prueba(/const pisoUnidad = Math\.round\(baseP5 \* 100\) \/ 100;/.test(web),"el piso del precio especial es la base de la oferta según la condición (sin flete/estibada)");
 prueba(/costo: Number\(o\.costo\) \|\| Number\(o\.costo_contado\)/.test(web),"la oferta debe traer su costo para el piso");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
