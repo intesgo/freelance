@@ -6080,7 +6080,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"460", fecha:"20 ago 2026", desc:"Precio especial (P5): ahora eliges la condición (contado o crédito) como en una línea normal, y el piso pasa a ser el costo de la piladora más su margen mínimo (ya no la base de venta). Bajo ese piso no se puede armar el pedido, igual en la app y en el sistema web." };
+const VERSION = { n:"461", fecha:"20 ago 2026", desc:"Arreglos del pedido: al guardar un pedido con varios productos ahora sale UNA sola tarjeta (no una por producto), y su detalle muestra TODAS las líneas con su cantidad y precio. La condición (contado/crédito) se toma del valor real de la línea. La búsqueda de pedidos por proveedor ahora encuentra por palabras sueltas (ej.: «molinos litoral» encuentra «Molinos del Litoral»)." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11326,7 +11326,11 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
          entregaron); solo aparecen si el filtro es "Anulado". */
       if(pestana==="entregados" && p.estado==="Anulado" && estado!=="Anulado") return false;
       const t=norm(q);
-      const txtOk = t==="" || t.split(/\s+/).filter(Boolean).every(w=>norm(p.cli).includes(w)) || norm(p.prov).includes(t);
+      /* PED_BUSCA_PROV · el proveedor también se busca por palabras sueltas (AND), igual
+         que el cliente: "molinos litoral" debe encontrar "Molinos del Litoral". Antes el
+         proveedor comparaba la frase completa y no cazaba nombres con palabras intercaladas. */
+      const palabras = t.split(/\s+/).filter(Boolean);
+      const txtOk = t==="" || palabras.every(w=>norm(p.cli).includes(w)) || palabras.every(w=>norm(p.prov).includes(w));
       const estOk = estado==="Todos" || p.estado===estado;
       const fechaOk = (!desde || p.fecha>=desde) && (!hasta || p.fecha<=hasta);
       return txtOk && estOk && fechaOk;
@@ -11982,14 +11986,34 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast, onEd
           <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".03em",marginBottom:7}}>
             <span>Producto</span><span style={{textAlign:"right"}}>Cant.</span><span style={{textAlign:"right"}}>Precio / Total</span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"start",padding:"2px 0"}}>
-            <span style={{minWidth:0,fontSize:13,fontWeight:600,lineHeight:1.3}}>{(p.prod||"").replace(" · "," ")}</span>
-            <span className="num" style={{textAlign:"right",fontSize:13,whiteSpace:"nowrap"}}>{p.cant} qq</span>
-            <span style={{textAlign:"right",whiteSpace:"nowrap"}}>
-              <span className="num" style={{display:"block",fontSize:14,fontWeight:800}}>{money(monto)}</span>
-              <span className="meta" style={{fontSize:10.5}}>{money(p.precio)} c/u</span>
-            </span>
-          </div>
+          {/* PED_DETALLE_LINEAS · TODAS las líneas del pedido (producto, cantidad, precio),
+              no solo la primera con la cantidad total y un precio promedio. Si por algún
+              motivo no viniera el desglose, cae a la línea resumen de siempre. */}
+          {Array.isArray(p.lineas) && p.lineas.length ? (
+            p.lineas.map((l,i)=>{
+              const q = l.qq!=null ? l.qq : (l.salio!=null ? l.salio : (Number(l.pedido)||0));
+              const pr = Number(l.precio)||0;
+              return (
+                <div key={i} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"start",padding:"2px 0"}}>
+                  <span style={{minWidth:0,fontSize:13,fontWeight:600,lineHeight:1.3}}>{(l.nombre||"").replace(" · "," ")}</span>
+                  <span className="num" style={{textAlign:"right",fontSize:13,whiteSpace:"nowrap"}}>{q} qq</span>
+                  <span style={{textAlign:"right",whiteSpace:"nowrap"}}>
+                    <span className="num" style={{display:"block",fontSize:14,fontWeight:800}}>{money(Math.round(q*pr*100)/100)}</span>
+                    <span className="meta" style={{fontSize:10.5}}>{money(pr)} c/u</span>
+                  </span>
+                </div>
+              );
+            })
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"start",padding:"2px 0"}}>
+              <span style={{minWidth:0,fontSize:13,fontWeight:600,lineHeight:1.3}}>{(p.prod||"").replace(" · "," ")}</span>
+              <span className="num" style={{textAlign:"right",fontSize:13,whiteSpace:"nowrap"}}>{p.cant} qq</span>
+              <span style={{textAlign:"right",whiteSpace:"nowrap"}}>
+                <span className="num" style={{display:"block",fontSize:14,fontWeight:800}}>{money(monto)}</span>
+                <span className="meta" style={{fontSize:10.5}}>{money(p.precio)} c/u</span>
+              </span>
+            </div>
+          )}
         </div>
 
         {/* totales */}
@@ -18865,8 +18889,12 @@ async function vivoPedidos(){
         provCod:p.prov_cod||"", pagoProv:p.pago_prov||"", pagoHabitual:habProv[p.prov_cod]||"",
         /* lo pedido, y si salió corto, cuánto faltó */
         pedidoQq, faltante: Math.round((pedidoQq - cant)*100)/100,
+        /* PED_DETALLE_LINEAS · cada línea lleva su cantidad efectiva (qq: lo despachado
+           si ya salió, si no lo pedido) y su precio, para que el detalle muestre TODAS
+           las líneas del pedido y no solo la primera con un promedio. */
         lineas: its.map(i=>({ nombre:i.descripcion, pedido:Number(i.cantidad_qq||0),
-          salio: i.despachado_qq==null ? null : Number(i.despachado_qq) })),
+          salio: i.despachado_qq==null ? null : Number(i.despachado_qq),
+          qq: qqDe(i), precio: Number(i.precio_usd||0) })),
         /* primitivos para armar la línea de tiempo a demanda en el detalle
            (ver lineaDePedido): el paso numérico y la fecha de creación. */
         etapaLinea:m.linea, creado:p.creado,
@@ -25736,38 +25764,56 @@ function App({usuario, onSalir}){
     const fechaISO=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,"0")}-${dd}`;
     const quien=usuario?.nombre || "Freelance";
     const idempotencia="PD-O"+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase();
-    const nuevos=carrito.map((it,i)=>{
-      const credito = it.tipoNombre && /créd/i.test(it.tipoNombre);
-      return {
-        id:Date.now()+i, offlineId:idempotencia,
-        cli:(cli && cli.nombre)||cli||"—", prov: prov?prov.nombre:"—", fecha:fechaISO,
-        prod:it.prodNombre, cant:it.cant, precio:it.precio,
-        cond: credito?"Crédito":"Contado",
-        comision: it.requiere?0:it.comisionTotal,
-        estado: it.requiere?"Esperando aprobación":"Enviado al proveedor",
-        etapa: it.requiere?1:2,
-        sync:"pend",
-        linea:[
-          {t:"Pedido ingresado", f:fechaCorta, st:"ok", d:`Tomado por ${quien}`},
-          {t:"Acuerdo de comisión", f:fechaCorta, st:"ok", d: it.requiere?"Comisión propuesta · por confirmar":"Comisión "+money(it.comisionTotal)},
-          {t:"Aprobación del freelance", f: it.requiere?"En espera":fechaCorta, st: it.requiere?"now":"ok", d: it.requiere?"Pendiente de aprobar el acuerdo":"Aprobado"},
-          {t:"Aprobación de crédito", f: credito?"En espera":"No aplica", st: credito?"wait":"ok", d: credito?"Cupo del cliente por validar":"Venta de contado"},
-          {t:"Enviado al proveedor", f: it.requiere?"—":fechaCorta, st: it.requiere?"wait":"now", d: it.requiere?"":"Esperando aceptación y fecha de despacho"},
-          {t:"Facturado", f:"—", st:"wait", d:""},
-          {t:"Despachado", f:"—", st:"wait", d:""},
-          {t:"Entregado", f:"—", st:"wait", d:""},
-          {t:"Cobrado y validado", f:"—", st:"wait", d:""},
-          {t:"Comisión liberada", f:"—", st:"wait", d:""},
-        ],
-      };
-    });
-    setPedidos(prev=>[...nuevos, ...prev]); // los nuevos arriba
+    /* PED_OPTIMISTA · UNA sola tarjeta por pedido (no una por producto). La base
+       guarda el pedido agrupado (una cabecera + N ítems); el estado local tiene que
+       reflejar lo mismo, si no salen tarjetas repetidas del mismo pedido hasta el
+       próximo refresco. Se agrega igual que vivoPedidos: producto guía + total + N líneas. */
+    /* PED_COND_REAL · la condición del pedido sale del VALOR real (it.credito), no del
+       texto del nombre: una línea a crédito por promo (P3/P4) podía etiquetarse "Contado".
+       Igual que la base: el pedido es a crédito si ALGUNA línea es a crédito. */
+    const credito = carrito.some(it=>!!it.credito);
+    const requiere = carrito.some(it=>!!it.requiere);
+    const totalCant = carrito.reduce((s,it)=>s+(Number(it.cant)||0),0);
+    const importe = carrito.reduce((s,it)=>s+(Number(it.precio)||0)*(Number(it.cant)||0),0);
+    const precioProm = totalCant ? Math.round((importe/totalCant)*100)/100 : 0;
+    const comisionTot = carrito.reduce((s,it)=>s+(it.requiere?0:(Number(it.comisionTotal)||0)),0);
+    const prodGuia = carrito.length ? (carrito[0].prodNombre + (carrito.length>1 ? " y "+(carrito.length-1)+" más" : "")) : "Sin detalle";
+    const nuevo={
+      id:Date.now(), offlineId:idempotencia,
+      cli:(cli && cli.nombre)||cli||"—", prov: prov?prov.nombre:"—", fecha:fechaISO,
+      prod:prodGuia, cant:totalCant, precio:precioProm,
+      cond: credito?"Crédito":"Contado",
+      comision: comisionTot,
+      estado: requiere?"Esperando aprobación":"Enviado al proveedor",
+      etapa: requiere?1:2,
+      sync:"pend",
+      /* el desglose real: una entrada por línea del carrito, para que el detalle
+         (PED_DETALLE_LINEAS) muestre todos los productos con su cantidad y precio */
+      lineas: carrito.map(it=>({ nombre:it.prodNombre, pedido:Number(it.cant)||0, salio:null,
+        qq:Number(it.cant)||0, precio:Number(it.precio)||0 })),
+      linea:[
+        {t:"Pedido ingresado", f:fechaCorta, st:"ok", d:`Tomado por ${quien}`},
+        {t:"Acuerdo de comisión", f:fechaCorta, st:"ok", d: requiere?"Comisión propuesta · por confirmar":"Comisión "+money(comisionTot)},
+        {t:"Aprobación del freelance", f: requiere?"En espera":fechaCorta, st: requiere?"now":"ok", d: requiere?"Pendiente de aprobar el acuerdo":"Aprobado"},
+        {t:"Aprobación de crédito", f: credito?"En espera":"No aplica", st: credito?"wait":"ok", d: credito?"Cupo del cliente por validar":"Venta de contado"},
+        {t:"Enviado al proveedor", f: requiere?"—":fechaCorta, st: requiere?"wait":"now", d: requiere?"":"Esperando aceptación y fecha de despacho"},
+        {t:"Facturado", f:"—", st:"wait", d:""},
+        {t:"Despachado", f:"—", st:"wait", d:""},
+        {t:"Entregado", f:"—", st:"wait", d:""},
+        {t:"Cobrado y validado", f:"—", st:"wait", d:""},
+        {t:"Comisión liberada", f:"—", st:"wait", d:""},
+      ],
+    };
+    setPedidos(prev=>[nuevo, ...prev]); // el nuevo arriba
     /* FASE 4 · Etapa 4: si hay sesión y cliente/productos reales, el pedido TAMBIÉN nace
        en la base (pedidos + pedido_items; el trigger lo audita solo). Si algo es demo o
        no hay sesión, guardarPedidoEnBase lo detecta y el flujo local sigue como siempre. */
     const payload={cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, idempotencia, fleteCobroQq, estibadaCobroQq};
     const r=await guardarPedidoEnBase(payload);
-    if(r.ok){ setPedidos(prev=>prev.map(p=>p.offlineId===idempotencia?{...p,sync:"ok",id:r.pedId}:p)); show("✓ Pedido "+r.pedId+" guardado en la base"); }
+    if(r.ok){ setPedidos(prev=>prev.map(p=>p.offlineId===idempotencia?{...p,sync:"ok",id:r.pedId}:p)); show("✓ Pedido "+r.pedId+" guardado en la base");
+      /* PED_OPTIMISTA · la base ya lo tiene agrupado: recargamos para que la tarjeta y su
+         detalle salgan de la fuente real (con todas las líneas y su precio). */
+      recargarPedidos(); }
     else if(["sin_conexion","error"].includes(r.motivo)){
       try{
         await encolarPedidoOffline(payload); await refrescarPendientesOffline();
