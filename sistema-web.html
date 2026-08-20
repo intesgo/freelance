@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"173", fecha:"20 ago 2026", desc:"Ajuste del piso del precio especial (P5): el mínimo es la base de la oferta según la condición (contado o crédito), igual que valida el servidor. El cupo de crédito y el «por autorizar» quedan como en la app." };
+const VERSION = { n:"174", fecha:"20 ago 2026", desc:"Precio especial (P5): ahora eliges la condición (contado o crédito) como en una línea normal, y el piso pasa a ser el costo de la piladora más su margen mínimo (ya no la base de venta). Bajo ese piso no se puede armar el pedido, igual en la app y en el sistema web." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5359,7 +5359,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       try {
         const [{ data: prods }, { data: ofertas }, { data: provs }, { data: presFotos }] = await Promise.all([
           window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
-          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado, precio_contado, precio_credito").limit(4000),
+          window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado, margen_min, precio_contado, precio_credito").limit(4000),
           window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
           // Fotos reales por presentación (Quintal, Arroba…). Solo las que tienen foto, para no pesar.
           window.supa.from("presentaciones").select("prod_id, presentacion_cod, foto").not("foto", "is", null).limit(4000),
@@ -5388,7 +5388,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               ic: "🌾", foto: fotoPres[o.prod_id + "|" + (o.pres_cod || "")] || null,
               unidad: pres, equiv: Number(o.equiv_qq) || 1,
               baseContado: contado, baseCredito: credito,
-              costo: Number(o.costo) || Number(o.costo_contado) || 0,   // costo real de la oferta (para el piso del precio especial)
+              costo: Number(o.costo) || Number(o.costo_contado) || 0,          // costo a CRÉDITO de la oferta (piso P5 crédito)
+              costoContado: Number(o.costo_contado) || Number(o.costo) || 0,   // costo a CONTADO de la oferta (piso P5 contado)
+              margenMin: Number(o.margen_min) || 0,                            // margen mínimo % de la oferta (si falta, 0)
               promos: [], promosProv: [],   // sin promos reales (tabla de promociones vacía por ahora)
             });
           });
@@ -5601,7 +5603,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const fleteCobroTotal = (retiroBodega?0:(Number(fleteCobroQq)||0))*totalQqPedido;
   const estibadaCobroTotal = (retiroBodega?0:(Number(estibadaCobroQq)||0))*totalQqPedido;
   const totalConCobro = Math.round((totalCarrito + fleteCobroTotal + estibadaCobroTotal)*100)/100;
-  const esCredito = tipo==="P1" || (tipo==="P3" && condP3==="credito") || tipo==="P5";  /* PED_CANON_P1P2: P1 = Crédito */
+  const esCredito = tipo==="P1" || ((tipo==="P3"||tipo==="P5") && condP3==="credito");  /* PED_CANON_P1P2: P1 = Crédito · PED_PISO_P5_V2: el P5 toma la condición ELEGIDA (no fija) */
   /* PED_CUPO_WEB · El cupo cuenta SOLO las líneas a CRÉDITO del carrito (excluye
      contado y P5), igual que la app. El exceso NO bloquea: pasa a autorización. */
   const creditoEnCarritoWeb = carrito.filter(it=>it.credito && it.tipo!=="P5").reduce((s,it)=>s+(Number(it.total)||0),0);
@@ -5613,14 +5615,17 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
      armar y queda «por autorizar». */
   const requiereAutorizacion = (esP5 && !esFreelanceWeb) || excedeCupo;
 
-  /* PED_PISO_P5 · El piso del precio especial (P5) es la BASE de venta de la
-     oferta según la CONDICIÓN de la línea, igual que el servidor (v_base):
-     crédito → precio_credito (con respaldo a contado); contado → precio_contado.
-     El flete/estibada NO entran (van aparte, fe02). En la web el P5 va a crédito
-     (esCredito lo incluye), así que su piso es la base de crédito. */
-  const baseP5 = prod ? (esCredito ? (Number(prod.baseCredito)||Number(prod.baseContado)||0) : (Number(prod.baseContado)||0)) : 0;
-  const pisoUnidad = Math.round(baseP5 * 100) / 100;
-  const pisoConocido = esP5 && baseP5 > 0;
+  /* PED_PISO_P5_V2 · El piso del precio especial (P5) NO es la base de venta: es el
+     COSTO de la piladora según la CONDICIÓN ELEGIDA × (1 + margen_min/100). La base
+     (precio_contado/credito) es el precio NORMAL; el P5 baja desde ahí, pero nunca por
+     debajo de costo+margen_min. Costo por condición: crédito → costo; contado →
+     costoContado. margen_min de la oferta (si falta, 0). El flete/estibada NO entran
+     (van aparte, fe02). */
+  const margenMinP5 = prod ? (Number(prod.margenMin)||0) : 0;
+  const pisoContadoP5 = prod ? Math.round((Number(prod.costoContado)||Number(prod.costo)||0) * (1 + margenMinP5/100) * 100) / 100 : 0;
+  const pisoCreditoP5 = prod ? Math.round((Number(prod.costo)||0) * (1 + margenMinP5/100) * 100) / 100 : 0;
+  const pisoUnidad = esP5 ? (esCredito ? pisoCreditoP5 : pisoContadoP5) : 0;
+  const pisoConocido = esP5 && pisoUnidad > 0;
   const bajoPiso = pisoConocido && esFreelanceWeb && precio !== "" && precioNum > 0 && precioNum < pisoUnidad;
 
   const baseLista = esP5 || (tipo==="P4" ? !!promoF : (tipo==="P6" ? !!promoP : true));
@@ -6278,7 +6283,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               </div>
               {bajoBase && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"10px 0 0" }}>⚠ El precio está bajo la base. No se permite (salvo precio especial P5).</p>}
               {excedeCupo && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"8px 0 0" }}>⚠ Excede el cupo de crédito disponible del cliente.</p>}
-              {bajoPiso && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"8px 0 0" }}>⚠ Precio especial por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo + flete + estibada). Necesita autorización del proveedor (aún no disponible): sube el precio para continuar.</p>}
+              {bajoPiso && <p style={{ fontSize:12, color:COLOR.red, fontWeight:600, margin:"8px 0 0" }}>⚠ Precio especial por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo de la piladora + margen mínimo, según la condición). Necesita autorización del proveedor (aún no disponible): sube el precio para continuar.</p>}
             </div>
           )}
         </div>
@@ -6485,6 +6490,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                   )}
                   {esP5 && (
                     <React.Fragment>
+                      {/* PED_PISO_P5_V2 · La condición del P5 la elige el usuario (piso = costo+margen según condición) */}
+                      <label style={{...lblM, marginTop:16}}>Condición del precio especial</label>
+                      <div style={{ display:"flex", gap:8 }}>{segBtn(condP3==="contado","Contado · piso "+money(pisoContadoP5),()=>{setCondP3("contado");})}{segBtn(condP3==="credito","Crédito · piso "+money(pisoCreditoP5),()=>{setCondP3("credito");})}</div>
                       <label style={{...lblM, marginTop:16}}>Comisión propuesta / {prod.unidad}</label>
                       <input type="number" value={comProp} onChange={e=>setComProp(e.target.value)} placeholder="0.00" style={{ width:"100%", padding:"11px 13px", borderRadius:10, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none" }} />
                       <label style={{...lblM, marginTop:16}}>Motivo del precio especial</label>
@@ -6496,7 +6504,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                     {sugerido>0 && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{color:COLOR.muted}}>Precio sugerido{cli&&cli.canal?" ("+cli.canal+")":""}</span><b className="num">{money(sugerido)}</b></div>}
                     <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0", borderTop:`1px solid ${COLOR.border}`, marginTop:4, paddingTop:8 }}><span style={{fontWeight:700}}>Tu comisión{precio!==""?" con "+money(parseFloat(String(precio).replace(",","."))||0):""}</span><b className="num" style={{ color: comisionTotal>=0?COLOR.tealDark:COLOR.red }}>{money(comisionTotal)}</b></div>
                     {requiereAutorizacion && <p style={{ fontSize:11.5, color:"#7a4fb0", fontWeight:600, marginTop:6 }}>● Requiere autorización del freelance (precio especial).</p>}
-                    {bajoPiso && <p style={{ fontSize:11.5, color:COLOR.red, fontWeight:700, marginTop:6 }}>● El precio ({money(precioNum)}) queda por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (base de la oferta según la condición). Necesita autorización del proveedor, aún no disponible: sube el precio para continuar.</p>}
+                    {bajoPiso && <p style={{ fontSize:11.5, color:COLOR.red, fontWeight:700, marginTop:6 }}>● El precio ({money(precioNum)}) queda por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo de la piladora + margen mínimo, según la condición). Necesita autorización del proveedor, aún no disponible: sube el precio para continuar.</p>}
                   </div>
                   <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:10 }}>La cantidad y el precio se ponen en la fila de abajo, al cerrar este cuadro.</p>
                 </div>

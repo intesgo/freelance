@@ -416,7 +416,7 @@ async function bateria(js, ruidoso) {
 const MUTANTES = [
   ["el pedido vuelve a leer la tabla `precios`",
     `window.SB.from("ofertas_piladora")
-            .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")`,
+            .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,margen_min,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")`,
     `window.SB.from("precios")
             .select("prod_id,base_contado,base_credito")`],
   /* el ancla lleva la línea de abajo pegada: «if(o.activo === false) return;»
