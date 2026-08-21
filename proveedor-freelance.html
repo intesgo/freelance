@@ -1272,7 +1272,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"67", fecha:"10 ago 2026", desc:"Cambio transaccional de presentación y ajustes internos separados de las notas fiscales." };
+const VERSION = { n:"68", fecha:"21 ago 2026", desc:"Seguridad: aprobar o rechazar una solicitud ahora pasa por la función de la base que valida quién puede resolverla (antes se escribía la tabla directo). No cambia lo que ves ni cómo se usa; el rechazo sigue pidiendo motivo. La devolución sigue igual." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1725,9 +1725,14 @@ async function guardarFactura(pedId, numero, lineas){
 /* la respuesta a una solicitud queda guardada con su motivo y su fecha */
 async function responderSolicitud(solId, estado, motivo){
   try{
-    const { error } = await window.SB.from("solicitudes")
-      .update({ estado, motivo_resp:motivo||null, resuelto_en:new Date().toISOString() })
-      .eq("sol_id", solId);
+    /* SOLIC_RPC · antes era UPDATE directo a la tabla (cualquier autenticado de la org
+       resolvía lo que no le tocaba). Ahora va por el RPC, que valida rol y destino. La
+       devolución se sigue ruteando aparte (resolverDevolucion, en aprobar/rechazar). */
+    const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                 : ("RSL-"+solId+"-"+Date.now());
+    const { error } = await window.SB.rpc("responder_solicitud", {
+      p_sol_id: solId, p_aprueba: estado === "aprobada",
+      p_motivo: motivo || null, p_op_id: opId });
     return !error;
   }catch(e){ return false; }
 }

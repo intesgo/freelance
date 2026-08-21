@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"176", fecha:"21 ago 2026", desc:"Al guardar un pedido ahora se registra desde qué app salió (web), para poder ver el origen de cada pedido. Sin cambios en lo que ves en pantalla." };
+const VERSION = { n:"177", fecha:"21 ago 2026", desc:"Seguridad: aprobar o rechazar una solicitud ahora pasa por la función de la base que valida quién puede resolverla (antes se escribía la tabla directo). Anular pedido sigue por su propia función. No cambia lo que ves ni cómo se usa; el rechazo sigue pidiendo motivo." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -14080,10 +14080,23 @@ function SolicitudesWeb({ usuario }) {
   /* la decisión también viaja a la base cuando la fuente es viva */
   const decidirEnBase = (id, estado, motivo) => {
     if (fuenteSol !== "vivo") return;
-    window.supa.from("solicitudes")
-      .update({ estado, motivo_resp: motivo, resuelto_en: new Date().toISOString() })
-      .eq("sol_id", id)
-      .then(({ error }) => { if (error) toast("⚠ No se guardó en la base: " + (error.message || "sin permiso")); });
+    /* SOLIC_RPC · antes era UPDATE directo a la tabla (cualquier autenticado de la org
+       resolvía lo que no le tocaba). Ahora se rutea por tipo: anular_pedido va por su RPC
+       y el resto por responder_solicitud; ambos validan rol y destino en la base. La web
+       solo resuelve solicitudes ENTRANTES (destino freelance); las devoluciones se elevan
+       al proveedor y no se resuelven desde aquí. */
+    const sol = solics.find(s => s.id === id);
+    const tipo = sol && sol.tipo;
+    const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                 : ("RSL-"+id+"-"+Date.now());
+    const p = (tipo === "anular_pedido")
+      ? window.supa.rpc("resolver_anulacion_pedido", {
+          p_sol_id: id, p_aprueba: estado === "aprobada",
+          p_respuesta: motivo || null, p_op_id: opId })
+      : window.supa.rpc("responder_solicitud", {
+          p_sol_id: id, p_aprueba: estado === "aprobada",
+          p_motivo: motivo || null, p_op_id: opId });
+    p.then(({ error }) => { if (error) toast("⚠ No se guardó en la base: " + (error.message || "sin permiso")); });
   };
 
   const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none", boxSizing:"border-box" };
