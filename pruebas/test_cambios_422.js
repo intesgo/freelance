@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"177"/.test(web),"Sistema Web debe anunciar b177");
-prueba(/const CACHE = "freelance-v272"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"178"/.test(web),"Sistema Web debe anunciar b178");
+prueba(/const CACHE = "freelance-v273"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -47,6 +47,15 @@ prueba(/PED_WEB_EDITOR_UNICO/.test(web),"queda el ancla del editor único");
 prueba(!/const abrirEdicion = \(pedId\)/.test(web) && !/const guardarEdicion = async/.test(web),"el editor de pedido viejo (abrirEdicion/guardarEdicion) ya no existe");
 prueba(!/\{editPed && \(\(\)=>\{/.test(web),"el modal del editor viejo ya no se renderiza");
 prueba(/const abrirEdicionArmar = /.test(web)&&/const guardarCambiosPedido = /.test(web),"el editor vivo (vista Armar) sigue presente");
+
+/* ── PED_SIN_FALLBACK_DEMO · sin fallback demo en vivo, sin pedido fantasma, fecha real ── */
+prueba(/PED_SIN_FALLBACK_DEMO/.test(web),"queda el ancla PED_SIN_FALLBACK_DEMO");
+prueba(/\(clientesReales \|\| \[\]\)/.test(web),"en vivo los clientes NO caen a demo (clientesReales || [])");
+prueba(/\(prodsReales \|\| \[\]\)/.test(web),"en vivo los productos NO caen a demo (prodsReales || [])");
+prueba(/if \(!exito && !MODO_DEMO_WEB\)/.test(web),"sin sesión/conexión en vivo NO se pinta la tarjeta (guarda solo con éxito del RPC)");
+prueba(/fecha: fechaHoy,/.test(web)&&/const fechaHoy = hoyECWeb\(\);/.test(web),"la fecha del pedido nuevo es hoy (hoyECWeb), no una fija");
+prueba(!/estado: l\.requiere[\s\S]{0,40}fecha:"2026-06-13"/.test(web),"ya no queda la fecha fija 2026-06-13 en la creación del pedido");
+prueba(/disabled=\{carrito\.length===0 \|\| fuentesConError\}/.test(web),"«Subir pedido» se deshabilita si las fuentes no cargaron");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

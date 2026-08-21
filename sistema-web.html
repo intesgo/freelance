@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"177", fecha:"21 ago 2026", desc:"Seguridad: aprobar o rechazar una solicitud ahora pasa por la función de la base que valida quién puede resolverla (antes se escribía la tabla directo). Anular pedido sigue por su propia función. No cambia lo que ves ni cómo se usa; el rechazo sigue pidiendo motivo." };
+const VERSION = { n:"178", fecha:"21 ago 2026", desc:"Pedidos más confiables: la fecha del pedido es la de hoy (ya no una fija); si los clientes o productos no cargan, se avisa y se ofrece Reintentar en vez de mostrar datos de demostración; y sin conexión o sin sesión ya no aparece un pedido «fantasma» como si se hubiera guardado (esta pantalla no guarda sin conexión)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5316,37 +5316,55 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [tzSel, setTzSel] = useState(null);        // { v, g } elegido
   const [aviso, setAviso] = useState("");
 
-  // Clientes reales desde Supabase (con respaldo demo si no cargan)
+  /* PED_SIN_FALLBACK_DEMO · en modo VIVO (sin ?demo=1) los clientes y los productos
+     salen SOLO de la base. Si la carga real falla o viene vacía, NO se sustituye por
+     datos demo: se marca el error, se ofrece «Reintentar» y se deshabilita Guardar.
+     Los arreglos demo (CLIENTES_WEB / PRODUCTOS_WEB) solo se usan en MODO_DEMO_WEB. */
+  const [errClientes, setErrClientes] = useState(null);
+  const [errProds, setErrProds] = useState(null);
+  const [recargaFuentes, setRecargaFuentes] = useState(0);
+  const reintentarFuentes = () => setRecargaFuentes(x => x + 1);
+
+  // Clientes reales desde Supabase (en vivo: sin respaldo demo)
   const [clientesReales, setClientesReales] = useState(null);
   React.useEffect(() => {
     if (!window.supa) return;
+    let vivo = true;
+    setErrClientes(null);
     (async () => {
       try {
-        const { data } = await window.supa.from("clientes")
+        const { data, error } = await window.supa.from("clientes")
           .select("cli_id, nombre, razon_social, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal, estado_cliente")
           .eq("activo", true).order("nombre");
+        if (!vivo) return;
+        if (error) throw new Error(error.message || "sin permiso o sin conexión");
         if (data && data.length > 0) {
           const reales = data.map(c => ({
             id: c.cli_id, nombre: c.nombre, razonSocial: c.razon_social, ruc: c.ruc,
             vendedor: c.sub_id || "", condicionPago: c.condicion_pago || "", cupo: c.cupo||0,
             usado: c.usado||0, bloqueado: !!c.bloqueado, canal: c.canal || "", estadoCliente: c.estado_cliente || "",
           }));
-          setClientesReales(reales);
+          setClientesReales(reales); setErrClientes(null);
           // AQUÍ VIVIÓ UN DEFECTO (b138): un setPedidos que recorría los pedidos
-          // con su índice y les pegaba el nombre de `reales[i]` — nació para
-          // adornar los pedidos de demostración con los primeros clientes del
-          // maestro, pero pisaba también los reales. Como el maestro llega en su
-          // propia carga (y puede ganar la carrera), PD-0011 aparecía a nombre del
-          // primer cliente alfabético en vez del suyo. NO se adorna: el nombre
-          // correcto ya lo trae la carga en vivo cruzando por `cli_id`, y los
-          // pedidos demo traen el suyo con su sello DEMO.
-        } else { setClientesReales([]); }
-      } catch (e) { setClientesReales([]); }
+          // con su índice y les pegaba el nombre de `reales[i]`. NO se adorna: el
+          // nombre correcto ya lo trae la carga en vivo cruzando por `cli_id`.
+        } else {
+          setClientesReales([]);
+          if (!MODO_DEMO_WEB) setErrClientes("No se pudieron cargar los clientes (la lista vino vacía).");
+        }
+      } catch (e) {
+        if (!vivo) return;
+        setClientesReales([]);
+        if (!MODO_DEMO_WEB) setErrClientes("No se pudieron cargar los clientes: " + ((e&&e.message)||"error de conexión") + ".");
+      }
     })();
-  }, []);
-  // Fuente de clientes: reales si cargaron, demo si no
+    return () => { vivo = false; };
+  }, [recargaFuentes]);
+  // Fuente de clientes: en vivo SOLO reales (sin caer a demo); en demo, reales o demo.
   // Los clientes "Oculto" no aparecen en los selectores de pedido (#4)
-  const CLIENTES = ((clientesReales && clientesReales.length > 0) ? clientesReales : CLIENTES_WEB)
+  const CLIENTES = (MODO_DEMO_WEB
+      ? ((clientesReales && clientesReales.length > 0) ? clientesReales : CLIENTES_WEB)
+      : (clientesReales || []))          /* PED_SIN_FALLBACK_DEMO */
     .filter(c => c.estadoCliente !== "OCULTO");
 
   // Catálogo por PILADORA desde las ofertas vigentes (igual que la app del freelance).
@@ -5355,6 +5373,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [prodsReales, setProdsReales] = useState(null);
   React.useEffect(() => {
     if (!window.supa) return;
+    let vivo = true;
+    setErrProds(null);
     (async () => {
       try {
         const [{ data: prods }, { data: ofertas }, { data: provs }, { data: presFotos }] = await Promise.all([
@@ -5395,13 +5415,26 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             });
           });
           catalogo.sort((a,b) => a.nombre.localeCompare(b.nombre));
-          if (catalogo.length) { setProdsReales(catalogo); return; }
+          if (!vivo) return;
+          if (catalogo.length) { setProdsReales(catalogo); setErrProds(null); return; }
         }
+        if (!vivo) return;
         setProdsReales([]);
-      } catch (e) { setProdsReales([]); }
+        if (!MODO_DEMO_WEB) setErrProds("No se pudieron cargar los productos/ofertas (la lista vino vacía).");
+      } catch (e) {
+        if (!vivo) return;
+        setProdsReales([]);
+        if (!MODO_DEMO_WEB) setErrProds("No se pudieron cargar los productos/ofertas: " + ((e&&e.message)||"error de conexión") + ".");
+      }
     })();
-  }, []);
-  const PRODS_PED = (prodsReales && prodsReales.length > 0) ? prodsReales : PRODUCTOS_WEB;
+    return () => { vivo = false; };
+  }, [recargaFuentes]);
+  // En vivo SOLO reales (sin caer a demo); en demo, reales o demo.
+  const PRODS_PED = MODO_DEMO_WEB
+    ? ((prodsReales && prodsReales.length > 0) ? prodsReales : PRODUCTOS_WEB)
+    : (prodsReales || []);          /* PED_SIN_FALLBACK_DEMO */
+  /* en vivo, con las fuentes reales caídas no se puede armar ni guardar un pedido */
+  const fuentesConError = !MODO_DEMO_WEB && (!!errClientes || !!errProds);   /* PED_SIN_FALLBACK_DEMO */
 
   /* Piso del precio especial: tarifas vigentes de flete/estibada ($/qq) desde la base. */
   const [tarifaFleteQq, setTarifaFleteQq] = useState(0);
@@ -5765,18 +5798,31 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const subirPedido = async () => {
     if (!cli) { setAviso("Elige un cliente."); return; }
     if (carrito.length===0) { setAviso("Agrega al menos un producto al pedido."); return; }
+    if (fuentesConError) { setAviso("No se puede guardar: los clientes o los productos no cargaron. Toca «Reintentar» arriba."); return; }
     setAviso("Guardando…");
     const res = await guardarPedidoOficina();
-    // Si la base rechazó de verdad (no es demo/sin sesión), no seguimos.
-    if (res && !res.ok && !["cliente_demo","producto_demo","sin_sesion","sin_conexion"].includes(String(res.motivo||""))) {
-      setAviso("No se pudo guardar en la base: " + res.motivo + ". Revisa e intenta de nuevo.");
+    const exito = !!(res && res.ok);
+    /* PED_SIN_FALLBACK_DEMO · SIN PEDIDO FANTASMA: en vivo la tarjeta SOLO se pinta si el
+       RPC confirmó éxito. La web NO tiene cola offline (a diferencia de la app del campo):
+       sin sesión o sin conexión el pedido NO queda guardado, así que no se puede aparentar
+       que sí. En modo demo (sin base) se conserva la simulación local de siempre. */
+    if (!exito && !MODO_DEMO_WEB) {
+      const m = String((res && res.motivo) || "error");
+      const detalle = (m === "sin_conexion")
+          ? "Sin conexión con el servidor. El pedido NO quedó guardado (esta pantalla no guarda sin conexión): revisa tu internet e intenta de nuevo."
+        : (m === "sin_sesion")
+          ? "Tu sesión expiró. El pedido NO quedó guardado: vuelve a entrar e intenta de nuevo."
+          : ("No se pudo guardar en la base: " + m + ". Revisa e intenta de nuevo.");
+      setAviso("⚠ No se guardó. " + detalle);
       return;
     }
-    setAviso("");
+    /* fecha REAL (zona America/Guayaquil), no una fecha fija: la tarjeta local usa hoy y,
+       tras recargar, la fecha real del pedido devuelto por el RPC. */
+    const fechaHoy = hoyECWeb();
     const nuevos = carrito.map((l,i) => ({
       id: (res && res.pedId) ? (res.pedId+"·"+(i+1)) : (2000 + pedidos.length + i + Math.floor(Math.random()*90)),
       cli: cli.nombre, prod: l.prod, prov: l.prov, cant: l.cant, unidad: l.unidad, precio: l.precio, cond: l.cond,
-      estado: l.requiere ? "Por autorizar (precio especial)" : "Esperando aprobación", fecha:"2026-06-13",
+      estado: l.requiere ? "Por autorizar (precio especial)" : "Esperando aprobación", fecha: fechaHoy,
     }));
     // Nacimiento automático: cada línea con precio especial genera SOLA su solicitud
     nuevos.filter(n => n.estado.startsWith("Por autorizar")).forEach(n => {
@@ -5788,6 +5834,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     setPedidos(prev => [...nuevos, ...prev]);
     setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
     setVista("lista");
+    setAviso(exito && res.pedId ? ("✓ Pedido " + res.pedId + " guardado.") : "");
+    /* TRAS ÉXITO: recargar para que la tarjeta y su fecha salgan de la base (fuente real). */
+    if (exito) cargarPedidosVivos();
   };
 
   /* ── #4 · Editar un pedido DENTRO de la pantalla de armado ─────────────── */
@@ -6061,6 +6110,20 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
 
   return (
     <div style={{ padding:"12px 28px 40px" }}>
+      {/* PED_SIN_FALLBACK_DEMO · en vivo, si los clientes o los productos no cargaron,
+          se avisa CUÁL fuente falló, se ofrece Reintentar y NO se muestran datos demo.
+          El botón Guardar queda deshabilitado hasta que las fuentes carguen. */}
+      {fuentesConError && (
+        <div style={{ background:"#FDECEA", border:"1px solid #f5c4c4", borderRadius:14, padding:"14px 16px", marginBottom:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+          <div style={{ flex:"1 1 260px", minWidth:0 }}>
+            <p style={{ margin:0, fontSize:14, fontWeight:800, color:"#b3271e" }}>⚠ No se pudieron cargar los datos del pedido</p>
+            {errClientes && <p style={{ margin:"4px 0 0", fontSize:12.5, color:"#8a2e26" }}>{errClientes}</p>}
+            {errProds && <p style={{ margin:"4px 0 0", fontSize:12.5, color:"#8a2e26" }}>{errProds}</p>}
+            <p style={{ margin:"6px 0 0", fontSize:11.5, color:COLOR.muted }}>No se usan datos de demostración: corrige la conexión o los permisos y reintenta.</p>
+          </div>
+          <button onClick={reintentarFuentes} style={{ border:"none", borderRadius:10, background:COLOR.teal, color:"#fff", fontSize:13.5, fontWeight:800, padding:"11px 18px", cursor:"pointer", flexShrink:0 }}>Reintentar</button>
+        </div>
+      )}
       {/* ══ CABECERA · cliente + proveedor + acciones ══ */}
       <div style={{ display:"flex", alignItems:"center", gap:18, background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:16, padding:"14px 18px", marginBottom:16, flexWrap:"wrap" }}>
         <div style={{ width:46, height:46, borderRadius:12, border:`1.5px solid ${COLOR.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Icono name="user" size={23}/></div>
@@ -6243,7 +6306,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           {aviso && <p style={{ fontSize:12.5, color:COLOR.red, fontWeight:600, marginTop:12 }}>{aviso}</p>}
           {editandoPed
             ? <button onClick={guardarCambiosPedido} disabled={carrito.length===0} style={{ width:"100%", marginTop:14, padding:"15px", borderRadius:14, border:"none", background: carrito.length?(COLOR.cta||"#17492e"):"#bcc6cf", color:"#fff", fontSize:16, fontWeight:700, cursor: carrito.length?"pointer":"not-allowed" }}>Guardar cambios · {carrito.length} producto{carrito.length===1?"":"s"}</button>
-            : <button onClick={subirPedido} disabled={carrito.length===0} style={{ width:"100%", marginTop:14, padding:"15px", borderRadius:14, border:"none", background: carrito.length?(COLOR.cta||"#17492e"):"#bcc6cf", color:"#fff", fontSize:16, fontWeight:700, cursor: carrito.length?"pointer":"not-allowed" }}>Subir pedido · {carrito.length} producto{carrito.length===1?"":"s"}</button>}
+            : <button onClick={subirPedido} disabled={carrito.length===0 || fuentesConError} style={{ width:"100%", marginTop:14, padding:"15px", borderRadius:14, border:"none", background: (carrito.length && !fuentesConError)?(COLOR.cta||"#17492e"):"#bcc6cf", color:"#fff", fontSize:16, fontWeight:700, cursor: (carrito.length && !fuentesConError)?"pointer":"not-allowed" }}>Subir pedido · {carrito.length} producto{carrito.length===1?"":"s"}</button>}   {/* PED_SIN_FALLBACK_DEMO */}
 
           {cli && !cli.bloqueado && esCredito && (Number(cli.cupo)||0)>0 && (()=>{
             const cupoTotal = Number(cli.cupo)||0;
