@@ -6081,7 +6081,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"462", fecha:"21 ago 2026", desc:"Al guardar un pedido ahora se registra desde qué app salió (freelance, comisionista, socio o web), para poder ver el origen de cada pedido. Sin cambios en lo que ves en pantalla." };
+const VERSION = { n:"463", fecha:"21 ago 2026", desc:"Seguridad: aprobar o rechazar una solicitud ahora pasa por la función de la base que valida quién puede resolverla (antes se escribía la tabla directo). No cambia lo que ves ni cómo se usa; el rechazo sigue pidiendo motivo." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -19165,10 +19165,15 @@ async function responderSolicitud(solId, estado, motivo, tipoRaw){
         p_respuesta: motivo || null, p_op_id: opId });
       return { ok: !error, motivo: error ? (error.message||"No se pudo resolver") : "" };
     }
-    const { error } = await window.SB.from("solicitudes")
-      .update({ estado, motivo_resp:motivo||null, resuelto_en:new Date().toISOString() })
-      .eq("sol_id", solId);
-    return { ok: !error, motivo: error ? (error.message||"No se pudo guardar") : "" };
+    /* SOLIC_RPC · antes se hacía UPDATE directo a la tabla (cualquier autenticado
+       de la org podía resolver lo que no le tocaba). Ahora va por el RPC, que valida
+       rol y destino: solo quien corresponde resuelve. El rechazo sigue exigiendo motivo. */
+    const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                 : ("RSL-"+solId+"-"+Date.now());
+    const { error } = await window.SB.rpc("responder_solicitud", {
+      p_sol_id: solId, p_aprueba: estado === "aprobada",
+      p_motivo: motivo || null, p_op_id: opId });
+    return { ok: !error, motivo: error ? (error.message||"No se pudo responder") : "" };
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 

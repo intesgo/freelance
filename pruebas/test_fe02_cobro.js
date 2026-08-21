@@ -26,11 +26,11 @@ for(const a of APPS){
 }
 
 /* versión y caché de las apps tocadas */
-ok(/const VERSION = \{ n:"462"/.test(L("freelance-completo.html")),"Freelance debe anunciar v462");
+ok(/const VERSION = \{ n:"463"/.test(L("freelance-completo.html")),"Freelance debe anunciar v463");
 ok(/const VERSION = \{ n:"187"/.test(L("Comisionista.html")),"Comisionista debe anunciar v187");
 ok(/const VERSION = \{ n:"55"/.test(L("socio-comercial.html")),"Socio debe anunciar v55");
-ok(/const VERSION = \{ n:"176"/.test(L("sistema-web.html")),"Sistema Web debe anunciar b176");
-ok(/const CACHE = "freelance-v271"/.test(sw),"la caché debe renovarse a v271");
+ok(/const VERSION = \{ n:"177"/.test(L("sistema-web.html")),"Sistema Web debe anunciar b177");
+ok(/const CACHE = "freelance-v272"/.test(sw),"la caché debe renovarse a v272");
 
 if(m){console.error(`FE02-COBRO: ${b} ✓ · ${m} ✗`);process.exit(1);}
 console.log(`FE02-COBRO: ${b} ✓ · 0 ✗`);

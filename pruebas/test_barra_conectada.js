@@ -84,7 +84,11 @@ function montar(conDatos){
   };
   w.SB={ auth:{ getSession:async()=>(conDatos?{data:{session:{user:{id:"auth-demo",email:"usuario@example.invalid"}}}}:{data:{session:null}}),
       onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}) },
-    from:(n)=>tabla(n), rpc:async(nombre)=>nombre==="mi_org_activa"?{data:"ORG-001",error:null}:{data:null,error:null},
+    from:(n)=>tabla(n),
+    /* SOLIC_RPC · resolver una solicitud ahora va por rpc("responder_solicitud",…),
+       no por UPDATE directo: se anotan las llamadas para poder comprobarlas. */
+    rpc:async(nombre,args)=>{ if(nombre==="mi_org_activa") return {data:"ORG-001",error:null};
+      escrituras.push({t:"rpc",op:nombre,f:args||{}}); return {data:null,error:null}; },
     channel:()=>({ on(){return this;}, subscribe(){return this;} }), removeChannel:()=>{},
     functions:{ invoke:async()=>({data:{enviados:0},error:null}) },
     storage:{ from:()=>({ upload:async()=>({}), createSignedUrl:async()=>({data:null}) }) } };
@@ -209,11 +213,11 @@ const guionResumen=(tab)=>`(async()=>{
     })()`, m.ctx);
     const res=JSON.parse(r);
     const e=m.escrituras;
-    const upd=e.find(x=>x.t==="solicitudes"&&x.op==="update");
+    const sol=e.find(x=>x.t==="rpc"&&x.op==="responder_solicitud");
     const ups=e.find(x=>x.t==="agenda_actividades"&&x.op==="upsert");
     const ins=e.find(x=>x.t==="novedades"&&x.op==="insert");
-    comprobar("aprobar una solicitud la guarda en la base", !!upd && upd.f.estado==="aprobada" && !!upd.f.resuelto_en);
-    comprobar("la respuesta escrita queda con la solicitud", !!upd && upd.f.motivo_resp==="Respuesta de prueba");
+    comprobar("aprobar una solicitud la resuelve por el RPC (no UPDATE directo)", !!sol && sol.f.p_sol_id==="SOL-DEMO-01" && sol.f.p_aprueba===true);
+    comprobar("la respuesta (motivo) viaja al RPC con la solicitud", !!sol && sol.f.p_motivo==="Respuesta de prueba");
     comprobar("completar una sugerencia la vuelve actividad guardada", !!ups && ups.f.act_id==="SG-MOV-DEMO-01" && ups.f.estado==="completada");
     comprobar("la actividad se guarda a nombre de quien la hace", !!ups && ups.f.usr_id==="USR-DEMO-01");
     comprobar("un reclamo nuevo se inserta en novedades", !!ins && ins.f.origen==="comercial" && ins.f.estado==="enviada");

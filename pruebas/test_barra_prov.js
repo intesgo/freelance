@@ -147,7 +147,9 @@ const guion=(lab)=>`(async()=>{
       return JSON.stringify({a:a,b:b});
     })()`, m.ctx);
     const fac=m.llamadas.find(x=>x.nombre==="facturar_pedido");
-    const sol=m.escrituras.find(x=>x.t==="solicitudes"&&x.op==="update");
+    /* SOLIC_RPC · rechazar una solicitud ahora va por rpc("responder_solicitud",…),
+       no por UPDATE directo: se busca la llamada, no la escritura de tabla. */
+    const sol=m.llamadas.find(x=>x.nombre==="responder_solicitud");
     comprobar("facturar va en UNA sola llamada, con el número y las cantidades",
       !!fac && fac.args.p_ped==="PD-0010" && fac.args.p_factura==="001-001-0004999" &&
       Array.isArray(fac.args.p_lineas) && fac.args.p_lineas.length===2);
@@ -155,9 +157,9 @@ const guion=(lab)=>`(async()=>{
       !!fac && fac.args.p_lineas[0].item_id==="PD-0010-I1" && fac.args.p_lineas[0].despachado_qq===80);
     comprobar("y NO se escribe el pedido por fuera de esa llamada",
       !m.escrituras.some(x=>x.t==="pedidos"&&x.op==="update"));
-    comprobar("rechazar una solicitud guarda el motivo",
-      !!sol && sol.f.estado==="rechazada" && sol.f.motivo_resp==="No hay cupo este mes");
-    comprobar("con su fecha de resolución", !!sol && !!sol.f.resuelto_en);
+    comprobar("rechazar una solicitud manda el motivo al RPC (aprueba=false)",
+      !!sol && sol.args.p_sol_id==="SL-0003" && sol.args.p_aprueba===false && sol.args.p_motivo==="No hay cupo este mes");
+    comprobar("y va con su idempotencia (op_id) para no duplicar", !!sol && !!sol.args.p_op_id);
     const res=JSON.parse(r);
     comprobar("las dos escrituras responden que sí", res.a && res.a.ok===true && res.b===true);
   }
