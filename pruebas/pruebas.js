@@ -123,6 +123,7 @@ const PLAN = [
   { arnes:"test_ped_p2_6.js",         que:"PED P2-6: una tarjeta por pedido, detalle con todas las líneas, condición real y búsqueda por proveedor", apps:[null] },
   { arnes:"test_origen_canal.js",     que:"PED P2-7: cada app manda su origen_canal al crear el pedido (freelance/comisionista/socio/web)", apps:[null] },
   { arnes:"test_solic_rpc.js",        que:"SOLIC: resolver una solicitud pasa por el RPC responder_solicitud, no por UPDATE directo (3 apps)", apps:[null] },
+  { arnes:"test_web_sin_fallback.js", que:"WEB 1A: en vivo sin datos demo, sin pedido fantasma sin sesión, y fecha real (no fija)", apps:[null] },
   /* PED_TESTS_PARIDAD · blindaje de comportamiento app↔web (no regex): cada uno
      rompe el código a propósito (mutante) y exige que la prueba se caiga. */
   { arnes:"test_paridad_canon.js",    que:"PED P3-8: canon P1=Crédito/P2=Contado idéntico en los 4 canales (mapa efectivo)", apps:[null] },
