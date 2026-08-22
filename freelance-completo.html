@@ -6085,7 +6085,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"464", fecha:"21 ago 2026", desc:"Cupo de crédito real: el «usado» del cliente ahora se calcula con su cartera pendiente (lo que debe de facturas por cobrar), no con datos de ejemplo ni con una columna en cero. El cupo disponible = cupo del cliente − lo que debe. Hoy la cartera real está vacía, así que el disponible es el cupo completo hasta que haya facturas." };
+const VERSION = { n:"465", fecha:"22 ago 2026", desc:"Al editar un pedido, si un producto en presentación distinta de Quintal no tiene su equivalencia en quintales, ya NO se guarda con cantidades crudas: se detiene y avisa con el producto y la presentación. Así no se graban cantidades equivocadas por un dato faltante del catálogo." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -25743,6 +25743,11 @@ function App({usuario, onSalir}){
     if(!items.length){ alert("El pedido no puede quedar sin productos.\n\nPara dejarlo en cero, usa «Anular pedido»."); return false; }
     const avisoRegalo = await revisarRegaloDePromo(items, null);
     if(avisoRegalo){ alert(avisoRegalo); return false; }
+    /* PED_EQUIV_OBLIGATORIA · una presentación que NO es Quintal exige su equivalencia
+       real (>0). Sin ella (0/null/NaN) NO se envía cantidad cruda a la base: se detiene
+       y se avisa con producto y presentación. Las líneas en quintales van con 1. */
+    const sinEquiv = items.find(it => { const u=String(it.prod.unidad||"").toLowerCase(); const esQuintal=u.includes("quintal")||u==="qq"; return !esQuintal && !(Number(it.prod.equiv)>0); });
+    if(sinEquiv){ alert("⚠ NO SE GUARDÓ EL CAMBIO\n\n«"+(sinEquiv.prodNombre||(sinEquiv.prod&&sinEquiv.prod.nombre)||"Producto")+"» en presentación «"+((sinEquiv.prod&&sinEquiv.prod.unidad)||"—")+"» no tiene equivalencia en quintales. Corrige el catálogo antes de guardar (no se envían cantidades crudas)."); return false; }
     const p_items=items.map(it=>{
       const eq=Number(it.prod.equiv)||1;
       return {
