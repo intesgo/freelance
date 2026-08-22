@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo ── */
-prueba(/const VERSION = \{ n:"465"/.test(app),"Freelance debe anunciar v465");
+prueba(/const VERSION = \{ n:"466"/.test(app),"Freelance debe anunciar v466");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"181"/.test(web),"Sistema Web debe anunciar b181");
-prueba(/const CACHE = "freelance-v276"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v277"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -81,6 +81,15 @@ prueba(/const cantNum = numDecWeb\(cant\)/.test(web)&&!/const cantNum = parseInt
 prueba(/function equivDePresentacionWeb\(/.test(web),"web · existe equivDePresentacionWeb (no se enmascara la equivalencia faltante a 1)");
 prueba(/equiv: equivDePresentacionWeb\(o\.equiv_qq, pres\)/.test(web)&&!/unidad: pres, equiv: Number\(o\.equiv_qq\) \|\| 1/.test(web),"web · el catálogo del armador ya no hace Number(equiv_qq)||1 (una presentación no-Quintal sin equivalencia queda inválida)");
 prueba(/equiv: equivDePresentacionWeb\(prod\.equiv, prod\.unidad\)/.test(web),"web · agregarLinea conserva el equiv real (no lo re-enmascara a 1)");
+
+/* ── PED_OPTIMISTA_QQ · la tarjeta optimista de la app se expresa en quintales ── */
+const comi=fs.readFileSync(path.join(raiz,"Comisionista.html"),"utf8");
+prueba(/PED_OPTIMISTA_QQ/.test(app)&&/PED_OPTIMISTA_QQ/.test(comi),"queda el ancla PED_OPTIMISTA_QQ en freelance y comisionista");
+prueba(/const qqLinea = Math\.round\(\(Number\(it\.cant\)\|\|0\)\*eq\*100\)\/100/.test(app),"freelance · la línea optimista convierte cant×equiv a quintales");
+prueba(/const precioQqLinea = Math\.round\(\(\(Number\(it\.precio\)\|\|0\)\/eq\)\*100\)\/100/.test(app),"freelance · el precio optimista sale de precio÷equiv ($/qq)");
+prueba(/const totalCant = lineasQq\.reduce\(\(s,l\)=>s\+\(Number\(l\.qq\)\|\|0\),0\)/.test(app),"freelance · el total de la tarjeta suma quintales, no la presentación cruda");
+prueba(!/const totalCant = carrito\.reduce\(\(s,it\)=>s\+\(Number\(it\.cant\)\|\|0\),0\)/.test(app),"freelance · ya no se suma la cantidad cruda en la tarjeta optimista");
+prueba(/prod:it\.prodNombre\|\|it\.prod, cant:qqLinea, precio:precioQqLinea/.test(comi),"comisionista · la tarjeta optimista usa qqLinea y precioQqLinea (no it.cant/it.precio crudos)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

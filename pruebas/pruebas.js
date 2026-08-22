@@ -126,6 +126,7 @@ const PLAN = [
   { arnes:"test_web_sin_fallback.js", que:"WEB 1A: en vivo sin datos demo, sin pedido fantasma sin sesión, y fecha real (no fija)", apps:[null] },
   { arnes:"test_estados_paridad_web.js", que:"WEB 2C: editar el pedido en la web con los mismos estados que la app (incluye enviado_proveedor; facturado no), recarga tras éxito y no confía en el optimista", apps:[null] },
   { arnes:"test_equiv_obligatoria.js", que:"WEB 2D: una presentación no-Quintal sin equivalencia no deja guardar (nombra producto y presentación); tipo_precio se deriva de la condición; la cantidad admite decimales", apps:[null] },
+  { arnes:"test_optimista_qq.js", que:"APP T3: la tarjeta optimista al guardar se muestra en quintales (50 arrobas → 12,5 qq a $40/qq; el dinero no cambia) en freelance y comisionista", apps:[null] },
   /* PED_TESTS_PARIDAD · blindaje de comportamiento app↔web (no regex): cada uno
      rompe el código a propósito (mutante) y exige que la prueba se caiga. */
   { arnes:"test_paridad_canon.js",    que:"PED P3-8: canon P1=Crédito/P2=Contado idéntico en los 4 canales (mapa efectivo)", apps:[null] },
