@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"181"/.test(web),"Sistema Web debe anunciar b181");
-prueba(/const CACHE = "freelance-v277"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"182"/.test(web),"Sistema Web debe anunciar b182");
+prueba(/const CACHE = "freelance-v278"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -90,6 +90,13 @@ prueba(/const precioQqLinea = Math\.round\(\(\(Number\(it\.precio\)\|\|0\)\/eq\)
 prueba(/const totalCant = lineasQq\.reduce\(\(s,l\)=>s\+\(Number\(l\.qq\)\|\|0\),0\)/.test(app),"freelance · el total de la tarjeta suma quintales, no la presentación cruda");
 prueba(!/const totalCant = carrito\.reduce\(\(s,it\)=>s\+\(Number\(it\.cant\)\|\|0\),0\)/.test(app),"freelance · ya no se suma la cantidad cruda en la tarjeta optimista");
 prueba(/prod:it\.prodNombre\|\|it\.prod, cant:qqLinea, precio:precioQqLinea/.test(comi),"comisionista · la tarjeta optimista usa qqLinea y precioQqLinea (no it.cant/it.precio crudos)");
+
+/* ── PED_P0_2_AGRUPAR_WEB · la lista de pedidos de la web es un acordeón (una cabecera por pedido) ── */
+prueba(/PED_P0_2_AGRUPAR_WEB/.test(web),"queda el ancla PED_P0_2_AGRUPAR_WEB en la web");
+prueba(/className="ped-cabecera"/.test(web)&&/className="ped-detalle"/.test(web),"web · la lista renderiza cabecera por pedido (ped-cabecera) y detalle desplegable (ped-detalle)");
+prueba(/const \[pedAbierto, setPedAbierto\] = useState\(null\)/.test(web),"web · hay un estado de acordeón (pedAbierto) para desplegar/plegar el pedido");
+prueba(/const prodGuia = nLineas \? \(\(its\[0\]\.descripcion \|\| its\[0\]\.prod_id\)/.test(web),"web · cargarPedidosVivos arma una fila por pedido con prodGuia + totalQq + lineas");
+prueba(!/\(porPed\[pd\.ped_id\]\|\|\[\]\)\.forEach\(\(x,i\) => filas\.push/.test(web),"web · ya no se hace filas.push por ítem (lista aplanada)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

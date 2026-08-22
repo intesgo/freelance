@@ -44,8 +44,8 @@ const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1
 
 /* ── Cuántas comprobaciones se esperan. Se declara ANTES de correr para que
       una que se borre sin querer no pase inadvertida. ── */
-const ESPERADAS = 8;
-const MUTANTES_ESPERADOS = 3;
+const ESPERADAS = 10;
+const MUTANTES_ESPERADOS = 4;
 
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 60));
 const cuenta  = (s, sub) => s.split(sub).length - 1;
@@ -71,11 +71,12 @@ const CLIENTES_BD = [
 
 /* Los PEDIDOS, con el cliente ANIDADO (como en producción). En orden de
    `creado` descendente: PD-0011 (04/08) primero, PED-D1 (24/07) después.
-   PD-0011 · CLI-036 · natural · contado · una línea.
-   PED-D1  · CLI-D1  · demo    · crédito · DOS líneas, mismo cliente.        */
+   PD-0011 · CLI-036 · natural · contado · esperando aprobación · TRES líneas
+     (el caso obligatorio de P0-2: 3 productos → 1 cabecera, editable, no demo).
+   PED-D1  · CLI-D1  · demo    · crédito · ingresado · DOS líneas, mismo cliente. */
 const PEDIDOS_BD = [
   { ped_id:"PD-0011", cli_id:"CLI-036", sub_id:"USR-7", prov_cod:"PROV-1", ciudad:"Quito",
-    estado:"ingresado", estado_comercial:"ingresado", estado_logistico:null, factura:null,
+    estado:"esperando_aprobacion", estado_comercial:"esperando_aprobacion", estado_logistico:null, factura:null,
     condicion:"contado", creado:"2026-08-04T10:00:00", es_demo:false,
     clientes:{ nombre:"Supermercado Castillo", razon_social:"Pedro Rodrigo Castillo Rosero", tipo:"Natural" },
     proveedores:{ nombre:"Piladora Uno" } },
@@ -86,9 +87,14 @@ const PEDIDOS_BD = [
     proveedores:{ nombre:"Piladora Dos" } },
 ];
 
+/* PD-0011 tiene TRES líneas (250·20,5 + 100·20 + 50·15 = 400 qq · $7.875,00). */
 const PEDIDO_ITEMS_BD = [
   { item_id:"IT-1", ped_id:"PD-0011", prod_id:"P-ARROCILLO", descripcion:"Arrocillo Especial · qq",
     cantidad_qq:250, precio_usd:20.5, tipo_precio:"P2", gratis_qq:0 },
+  { item_id:"IT-1b", ped_id:"PD-0011", prod_id:"P-FLOR", descripcion:"Arroz Flor · qq",
+    cantidad_qq:100, precio_usd:20, tipo_precio:"P2", gratis_qq:0 },
+  { item_id:"IT-1c", ped_id:"PD-0011", prod_id:"P-VITALOTA", descripcion:"Arroz Vitalota · qq",
+    cantidad_qq:50, precio_usd:15, tipo_precio:"P2", gratis_qq:0 },
   { item_id:"IT-2", ped_id:"PED-D1",  prod_id:"P-CAPIRONA", descripcion:"Arroz Super Capirona · qq",
     cantidad_qq:10, precio_usd:40, tipo_precio:"P2", gratis_qq:0 },
   { item_id:"IT-3", ped_id:"PED-D1",  prod_id:"P-CHIFA", descripcion:"Arroz Chifa Economico · qq",
@@ -163,6 +169,21 @@ function montar(js) {
 
   vm.runInContext(`
     window.__texto = function(){ return (window.__c && window.__c.textContent) || ""; };
+    /* PED_P0_2_AGRUPAR_WEB · helpers del acordeón: contar cabeceras y botones editar,
+       desplegar una cabecera por su texto, y leer el detalle desplegado. */
+    window.__nCab = function(){ return window.__c.querySelectorAll(".ped-cabecera").length; };
+    window.__nEditar = function(){ return window.__c.querySelectorAll('button[title="Editar pedido"]').length; };
+    window.__clickCab = function(sub){
+      var cs = window.__c.querySelectorAll(".ped-cabecera");
+      for (var i=0;i<cs.length;i++){ if ((cs[i].textContent||"").indexOf(sub) >= 0){
+        cs[i].dispatchEvent(new window.MouseEvent("click",{bubbles:true})); return true; } }
+      return false;
+    };
+    window.__detalleTxt = function(){
+      var ds = window.__c.querySelectorAll(".ped-detalle"); var t = "";
+      for (var i=0;i<ds.length;i++) t += (ds[i].textContent||"") + " | ";
+      return t;
+    };
     window.__pintar = function(){
       window.__c = document.createElement("div");
       document.body.appendChild(window.__c);
@@ -191,39 +212,53 @@ async function bateria(js, ruidoso) {
   corre(m, `ReactDOM.flushSync(function(){})`);
   const txt = corre(m, `window.__texto()`);
   const bajo = txt.toLowerCase();
+  const nCab = corre(m, `window.__nCab()`);
+  const nEditar = corre(m, `window.__nEditar()`);
 
-  /* 1 · salen los tres renglones (una fila por producto) */
-  comprobar("salen los tres renglones, uno por producto",
-    txt.indexOf("Arrocillo Especial") >= 0 && txt.indexOf("Arroz Super Capirona") >= 0 &&
-    txt.indexOf("Arroz Chifa Economico") >= 0);
+  /* 1 · PED_P0_2_AGRUPAR_WEB · UNA cabecera por pedido: 2 pedidos → 2 cabeceras
+     (NO 5 renglones, uno por producto). */
+  comprobar("hay una cabecera por pedido: 2 cabeceras (no 5 renglones por producto)",
+    nCab === 2);
 
-  /* 2 · el pedido del 04/08 sale a nombre de SU cliente: «Pedro Castillo» */
-  comprobar("el pedido del 04/08 dice «Pedro Castillo» (su cliente, no la posición)",
+  /* 2 · el contador cuenta PEDIDOS, no productos: «2 pedidos · 1 por revisar»
+     (PD-0011 espera aprobación; el demo está ingresado). */
+  comprobar("el contador dice «2 pedidos» y «1 por revisar» (cuenta pedidos, no productos)",
+    txt.indexOf("2 pedidos") >= 0 && txt.indexOf("1 por revisar") >= 0);
+
+  /* 3 · UN solo botón editar (el pedido editable no-demo); el demo no ofrece editar */
+  comprobar("hay un solo botón editar (1 pedido editable no-demo)",
+    nEditar === 1);
+
+  /* 4 · plegado, los productos 2.º y 3.º de PD-0011 NO se ven (no está aplanado) */
+  comprobar("plegado, «Arroz Vitalota» (3.ª línea) NO aparece: el detalle está oculto",
+    txt.indexOf("Arroz Vitalota") < 0);
+
+  /* 5 · al desplegar PD-0011, su detalle muestra sus TRES líneas */
+  corre(m, `window.__clickCab("Pedro Castillo")`);
+  corre(m, `ReactDOM.flushSync(function(){})`);
+  const det = corre(m, `window.__detalleTxt()`);
+  comprobar("al desplegar PD-0011 el detalle muestra sus 3 líneas (Arrocillo, Flor, Vitalota)",
+    det.indexOf("Arrocillo Especial") >= 0 && det.indexOf("Arroz Flor") >= 0 && det.indexOf("Arroz Vitalota") >= 0);
+
+  /* 6 · la cabecera del 04/08 sale a nombre de SU cliente: «Pedro Castillo» */
+  comprobar("la cabecera del 04/08 dice «Pedro Castillo» (su cliente, no la posición)",
     txt.indexOf("04/08/2026") >= 0 && txt.indexOf("Pedro Castillo") >= 0);
 
-  /* 3 · el primer cliente alfabético del maestro NO se cuela en ningún pedido */
+  /* 7 · el primer cliente alfabético del maestro NO se cuela en ningún pedido */
   comprobar("«Abad Mendieta» no aparece en ninguna parte (no es cliente de ningún pedido)",
     bajo.indexOf("abad mendieta") < 0);
 
-  /* 4 · el segundo cliente alfabético tampoco */
+  /* 8 · el segundo cliente alfabético tampoco */
   comprobar("«Alba Donoso» no aparece en ninguna parte (no es cliente de ningún pedido)",
     bajo.indexOf("alba donoso") < 0);
 
-  /* 5 · las dos líneas del pedido demo salen a nombre del MISMO cliente */
-  comprobar("las dos líneas del pedido demo salen a nombre del mismo cliente («Tienda Demo El Ensayo S.A.»)",
-    cuenta(txt, "Tienda Demo El Ensayo S.A.") >= 2);
+  /* 9 · el total en quintales de PD-0011 en su cabecera: 250+100+50 = 400 qq */
+  comprobar("la cabecera de PD-0011 muestra 400 qq (suma de sus 3 líneas)",
+    txt.indexOf("400 qq") >= 0);
 
-  /* 6 · la cantidad de la línea de PD-0011: 250 qq (no se le suma nada) */
-  comprobar("la cantidad de PD-0011 es 250 qq",
-    txt.indexOf("250 qq") >= 0);
-
-  /* 7 · el total de la línea de PD-0011: 250 × 20,5 = $5.125,00 */
-  comprobar("el total de PD-0011 es $5.125,00 (250 × 20,5)",
-    txt.indexOf("$5.125,00") >= 0);
-
-  /* 8 · el pedido demo va rotulado DEMO */
-  comprobar("el pedido de demostración va rotulado DEMO",
-    txt.indexOf("DEMO") >= 0);
+  /* 10 · el total en dinero de PD-0011: 250·20,5 + 100·20 + 50·15 = $7.875,00 */
+  comprobar("la cabecera de PD-0011 muestra $7.875,00 (suma del importe de sus 3 líneas)",
+    txt.indexOf("$7.875,00") >= 0);
 
   /* la lista solo LEE: nada debió intentar escribirse en la base */
   if (m.escrituras.length > 0) { mal++; fallos.push("la lista intentó escribir en la base"); }
@@ -236,12 +271,35 @@ const MUTANTES = [
   ["repone el `setPedidos` por posición después de `setClientesReales(reales)`",
    `setClientesReales(reales);`,
    `setClientesReales(reales); setPedidos(prev => prev.map((ped, i) => reales[i] ? { ...ped, cli: reales[i].nombre, razon: reales[i].razonSocial || ped.razon } : ped));`],
-  ["TONTA · le suma 1 a la cantidad de la línea",
-   `cant: Number(x.cantidad_qq)||0,`,
-   `cant: (Number(x.cantidad_qq)||0)+1,`],
-  ["borra la razón social de la fila (razon: null)",
-   `razon: (pd.clientes && pd.clientes.razon_social) || null,`,
-   `razon: null,`],
+  ["TONTA · le suma 1 al total de quintales del pedido",
+   `its.reduce((s,x)=>s+(Number(x.cantidad_qq)||0),0)`,
+   `its.reduce((s,x)=>s+(Number(x.cantidad_qq)||0),1)`],
+  ["borra la razón social del pedido (const razon = null)",
+   `const razon = (pd.clientes && pd.clientes.razon_social) || null;`,
+   `const razon = null;`],
+  ["PED_P0_2_AGRUPAR_WEB · vuelve a UNA FILA POR PRODUCTO (filas.push por ítem)",
+`          filas.push({
+            id: pd.ped_id, pedId: pd.ped_id,
+            cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
+            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
+            demo: !!pd.es_demo, editable: editable(pd),
+            totalQq, nLineas, prodGuia, importe,
+            /* compat con el orden (valorOrden) y la trazabilidad, que leen prod/cant/unidad/precio */
+            prod: prodGuia, cant: totalQq, unidad:"qq", precio: totalQq ? Math.round((importe/totalQq)*100)/100 : 0,
+            lineas: its.map(x=>({ prod: x.descripcion || x.prod_id, presCod: x.pres_cod || null,
+              qq: Number(x.cantidad_qq)||0, precio: Number(x.precio_usd)||0,
+              cond: x.condicion==="contado"?"Contado":x.condicion==="credito"?"Crédito":condTxt,
+              tipo: x.tipo_precio || null })),
+          });`,
+`          its.forEach((mx,mk)=>filas.push({
+            id: pd.ped_id + (its.length>1?("·"+(mk+1)):""), pedId: pd.ped_id,
+            cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
+            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
+            demo: !!pd.es_demo, editable: editable(pd),
+            totalQq: Number(mx.cantidad_qq)||0, nLineas:1, prodGuia: mx.descripcion||mx.prod_id, importe:(Number(mx.cantidad_qq)||0)*(Number(mx.precio_usd)||0),
+            prod: mx.descripcion||mx.prod_id, cant: Number(mx.cantidad_qq)||0, unidad:"qq", precio: Number(mx.precio_usd)||0,
+            lineas: [{ prod: mx.descripcion||mx.prod_id, presCod: mx.pres_cod||null, qq:Number(mx.cantidad_qq)||0, precio:Number(mx.precio_usd)||0, cond:condTxt, tipo:mx.tipo_precio||null }],
+          }));`],
 ];
 
 (async () => {
