@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo ── */
-prueba(/const VERSION = \{ n:"466"/.test(app),"Freelance debe anunciar v466");
+prueba(/const VERSION = \{ n:"467"/.test(app),"Freelance debe anunciar v467");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"182"/.test(web),"Sistema Web debe anunciar b182");
-prueba(/const CACHE = "freelance-v278"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v279"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -97,6 +97,14 @@ prueba(/className="ped-cabecera"/.test(web)&&/className="ped-detalle"/.test(web)
 prueba(/const \[pedAbierto, setPedAbierto\] = useState\(null\)/.test(web),"web · hay un estado de acordeón (pedAbierto) para desplegar/plegar el pedido");
 prueba(/const prodGuia = nLineas \? \(\(its\[0\]\.descripcion \|\| its\[0\]\.prod_id\)/.test(web),"web · cargarPedidosVivos arma una fila por pedido con prodGuia + totalQq + lineas");
 prueba(!/\(porPed\[pd\.ped_id\]\|\|\[\]\)\.forEach\(\(x,i\) => filas\.push/.test(web),"web · ya no se hace filas.push por ítem (lista aplanada)");
+
+/* ── PED_MONTO_SUMA_LINEAS · el monto del pedido es la suma de las líneas, no cant × promedio ── */
+const comi2=fs.readFileSync(path.join(raiz,"Comisionista.html"),"utf8");
+const socio=fs.readFileSync(path.join(raiz,"socio-comercial.html"),"utf8");
+prueba(/PED_MONTO_SUMA_LINEAS/.test(app)&&/PED_MONTO_SUMA_LINEAS/.test(comi2)&&/PED_MONTO_SUMA_LINEAS/.test(socio),"queda el ancla PED_MONTO_SUMA_LINEAS en freelance, comisionista y socio");
+prueba(/function montoDePedido\(p\)\{/.test(app),"freelance · existe la función montoDePedido (suma de líneas)");
+prueba(/const monto=montoDePedido\(p\);/.test(app)&&!/const monto=p\.cant\*p\.precio;/.test(app),"freelance · el monto del pedido usa montoDePedido, ya no cant × precio promedio");
+prueba(/importe: Math\.round\(importe\*100\)\/100,/.test(app)&&/importe: Math\.round\(importe\*100\)\/100,/.test(comi2)&&/importe: Math\.round\(importe\*100\)\/100,/.test(socio),"los tres apps exponen el importe exacto del pedido (Σ qq×precio)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

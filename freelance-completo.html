@@ -4900,7 +4900,7 @@ function Inicio({go, irCliente, irProducto, irFactura, irPedidoCliente}){
                 alignItems:"center",justifyContent:"center",flexShrink:0}}><Ico n="pedidos" c="#7C5CBF" s={17}/></span>
               <span style={{flex:1,minWidth:0}}>
                 <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
-                <span className="meta" style={{fontSize:10.5}}>{p.cant} qq · {money(p.cant*p.precio)}</span>
+                <span className="meta" style={{fontSize:10.5}}>{p.cant} qq · {money(montoDePedido(p))}</span>
               </span>
               <span style={{color:"var(--muted)",fontSize:15,flexShrink:0}}>›</span>
             </button>
@@ -6085,7 +6085,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"466", fecha:"22 ago 2026", desc:"La tarjeta que aparece al instante de guardar un pedido ahora muestra las cantidades y el precio en quintales (con la equivalencia real de cada presentación), no en la presentación cruda: 50 arrobas a $10 se ven como 12,5 qq a $40 (el total en dinero es el mismo). Antes se veía «50 qq a $10» por un momento hasta recargar." };
+const VERSION = { n:"467", fecha:"22 ago 2026", desc:"El «Monto del pedido» ahora es la SUMA exacta de sus líneas, no la cantidad × un precio promedio. Antes, un pedido con precios distintos por línea perdía unos centavos (p. ej. mostraba $3.107,35 en vez de $3.107,50). Ahora el total de la ficha coincide al centavo con la suma de sus productos." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11628,7 +11628,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
 
     <Deslizable pag={pagina} total={totalPag} onPag={setPagina}>
     {visibles.map(p=>{
-      const monto=p.cant*p.precio;
+      const monto=montoDePedido(p);
       const fechaCorta=(()=>{ const d=new Date(p.fecha+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
         return isNaN(d)?p.fecha:`${d.getDate()} ${ms[d.getMonth()]}`; })();
       const abrir=(comoVer)=>{ setVerComo(comoVer); setSel(p.id); };
@@ -11858,7 +11858,7 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast, onEd
      la arman aquí a demanda con lineaDePedido, para no cargarla en la lista. */
   const linea = p.linea || lineaDePedido(p);
   const cumplidos = linea.filter(x=>x.st==="ok").length;
-  const monto=p.cant*p.precio;
+  const monto=montoDePedido(p);
   const fmt=f=>{ const d=new Date(f+"T00:00:00"); const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     return isNaN(d)?f:`${d.getDate()} ${ms[d.getMonth()]} ${d.getFullYear()}`; };
   /* Aprobar es escribir en el sistema: solo con datos de verdad. En la
@@ -18852,6 +18852,17 @@ function lineaDePedido(p){
     d: (i===5 && p && p.factura) ? ("Factura "+p.factura) : "",
   }));
 }
+/* PED_MONTO_SUMA_LINEAS · el monto de un pedido es la SUMA de sus líneas
+   (Σ round(qq×precio, 2)), NO cantidad × precio promedio: el promedio redondeado
+   pierde centavos (72,5 qq × 42,86 = 3.107,35 en vez de 3.107,50). Prioridad: si el
+   pedido trae `lineas`, se suman al centavo (coincide con el detalle); si trae `importe`
+   exacto, se usa; si no, cae al cant×precio de siempre (tarjetas sin detalle). */
+function montoDePedido(p){
+  if (p && Array.isArray(p.lineas) && p.lineas.length)
+    return Math.round(p.lineas.reduce((s,l)=>s + Math.round((Number(l.qq)||0)*(Number(l.precio)||0)*100)/100, 0)*100)/100;
+  if (p && p.importe != null) return Math.round((Number(p.importe)||0)*100)/100;
+  return Math.round((Number(p&&p.cant)||0)*(Number(p&&p.precio)||0)*100)/100;
+}
 async function vivoPedidos(){
   try{
     await cargarArranque();
@@ -18890,6 +18901,7 @@ async function vivoPedidos(){
         fecha:soloDia(p.creado),
         prod: its.length ? (its[0].descripcion + (its.length>1 ? " y "+(its.length-1)+" más" : "")) : "Sin detalle",
         cant, precio: cant ? Number((importe/cant).toFixed(2)) : 0,
+        importe: Math.round(importe*100)/100,   /* PED_MONTO_SUMA_LINEAS · importe exacto (Σ qq×precio), no el promedio */
         cond: p.condicion==="contado" ? "Contado" : "Crédito",
         comision: c ? Number(c.monto||0) : 0,
         /* Estimada: suma de la comisión de las líneas. Mientras el pedido está
