@@ -78,6 +78,9 @@ prueba(/tipo_precio:l\.tipo\|\|\(l\.credito\?"P1":"P2"\)/.test(web),"web · el f
 prueba(!/tipo_precio:l\.tipo\|\|"P1"/.test(web),"web · ya no se fuerza tipo_precio P1 fijo al guardar la edición");
 prueba(/const tipo = it\.tipo_precio \|\| \(it\.condicion==="contado" \? "P2" : "P1"\);/.test(web),"web · al cargar la edición el tipo también sale de la condición real");
 prueba(/const cantNum = numDecWeb\(cant\)/.test(web)&&!/const cantNum = parseInt\(cant\)/.test(web),"web · la cantidad admite decimales (numDecWeb), no parseInt que trunca 12,5");
+prueba(/function equivDePresentacionWeb\(/.test(web),"web · existe equivDePresentacionWeb (no se enmascara la equivalencia faltante a 1)");
+prueba(/equiv: equivDePresentacionWeb\(o\.equiv_qq, pres\)/.test(web)&&!/unidad: pres, equiv: Number\(o\.equiv_qq\) \|\| 1/.test(web),"web · el catálogo del armador ya no hace Number(equiv_qq)||1 (una presentación no-Quintal sin equivalencia queda inválida)");
+prueba(/equiv: equivDePresentacionWeb\(prod\.equiv, prod\.unidad\)/.test(web),"web · agregarLinea conserva el equiv real (no lo re-enmascara a 1)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

@@ -19,6 +19,13 @@ conversión qq, cupo vivo, estados de edición).
 - Versión v465.
 
 ### sistema-web.html
+- **Saneo del catálogo (hallazgo §9, corregido):** el armador construía cada presentación
+  con `equiv: Number(o.equiv_qq) || 1` (PRODS_PED, ~L5423) y `agregarLinea` repetía
+  `Number(prod.equiv)||1` (~L5769): una equivalencia 0/null se convertía en 1 **antes** de
+  llegar al guard, así que en el pedido NUEVO el bloqueo nunca disparaba. Se agregó el helper
+  a nivel de módulo `equivDePresentacionWeb(rawEquiv, unidad)`: respeta el equiv válido (>0),
+  da 1 solo al Quintal, y deja 0 a cualquier otra presentación sin equivalencia — para que el
+  guardado la RECHACE. Sin esto, el resto de la 2D era letra muerta en el camino de alta.
 - Helper `equivInvalidaWeb(l)` + `avisoSinEquiv(l)` (~L5812): una presentación no-Quintal
   con `equiv` inválido corta el guardado.
   - `subirPedido` (nuevo pedido): `carrito.find(equivInvalidaWeb)` → avisa y no llama al RPC.

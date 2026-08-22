@@ -116,6 +116,15 @@ function hoyECWeb(fecha=new Date()){
     .formatToParts(fecha).forEach(x=>{if(x.type!=="literal")p[x.type]=x.value;});
   return `${p.year}-${p.month}-${p.day}`;
 }
+/* PED_EQUIV_OBLIGATORIA · la equivalencia de una presentación: si viene válida (>0)
+   se respeta; si falta (0/null/NaN) NO se enmascara a 1 en silencio — solo el Quintal
+   (1:1) vale 1, cualquier otra presentación queda en 0 para que el guardado la RECHACE
+   (antes `Number(equiv_qq)||1` trataba una equivalencia ausente como 1 qq crudo). */
+function equivDePresentacionWeb(rawEquiv, unidad){
+  const n = Number(rawEquiv);
+  if (n > 0) return n;
+  return /quintal|qq/i.test(String(unidad||"")) ? 1 : 0;
+}
 let ORG_ACTIVA_WEB={uid:null,org:null};
 async function orgActivaWeb(){
   if(!window.supa||!window.supa.auth) throw new Error("Sin conexión con la organización activa.");
@@ -5420,7 +5429,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               linea: lineaProd[o.prod_id] || "Arroz",
               prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
               ic: "🌾", foto: fotoPres[o.prod_id + "|" + (o.pres_cod || "")] || null,
-              unidad: pres, equiv: Number(o.equiv_qq) || 1,
+              unidad: pres, equiv: equivDePresentacionWeb(o.equiv_qq, pres),   /* PED_EQUIV_OBLIGATORIA: no enmascarar a 1 una equivalencia faltante en presentación no-Quintal */
               baseContado: contado, baseCredito: credito,
               costo: Number(o.costo) || Number(o.costo_contado) || 0,          // costo a CRÉDITO de la oferta (piso P5 crédito)
               costoContado: Number(o.costo_contado) || Number(o.costo) || 0,   // costo a CONTADO de la oferta (piso P5 contado)
@@ -5766,7 +5775,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       id: Date.now(),
       prod: prod.nombre, prodId: prod.prodId || prod.id, presCod:prod.presCod||null,
       prov: prod.prov, provCod: prod.provCod || "",
-      ic: prod.ic, unidad: prod.unidad, equiv: Number(prod.equiv)||1,
+      ic: prod.ic, unidad: prod.unidad, equiv: equivDePresentacionWeb(prod.equiv, prod.unidad),   /* PED_EQUIV_OBLIGATORIA: conserva el equiv real (0 si falta en no-Quintal) para que el guardado lo rechace */
       cant: cantNum, precio: precioNum, gratis: (tipo==="P3" ? (parseInt(gratis)||0) : 0),
       cond: esCredito ? "Crédito" : "Contado", credito: esCredito,
       tipo, tipoNombre: TIPOS_PRECIO_WEB.find(t=>t.id===tipo).nombre,
