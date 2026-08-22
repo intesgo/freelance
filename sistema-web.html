@@ -402,7 +402,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"181", fecha:"22 ago 2026", desc:"Pedidos más seguros: si un producto en presentación distinta de Quintal no trae su equivalencia en quintales, el pedido ya NO se guarda con cantidades crudas (avisa con producto y presentación). Cuando falta el tipo de precio se toma según la condición real (crédito o contado), sin forzar uno que la contradiga. Y la cantidad admite fracciones de quintal (12,5) sin recortarse a 12." };
+const VERSION = { n:"182", fecha:"22 ago 2026", desc:"La lista de Pedidos ahora muestra UNA tarjeta por pedido (no una fila por producto). Cada tarjeta trae el cliente, el código, el total en quintales, el estado y un solo botón para editar; al tocarla se despliega su detalle con todos sus productos (nombre, cantidad en quintales y precio). El contador, el orden y «por revisar» cuentan pedidos, no productos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5266,6 +5266,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [editandoPed, setEditandoPed] = useState(null);   // ped_id que se edita en la pantalla de armado (#4)
   const [itemsOriginales, setItemsOriginales] = useState([]);  // ítems como estaban al abrir (para borrar los quitados)
   const [lineaEdit, setLineaEdit] = useState(null);       // id de la línea del carrito que se está editando
+  const [pedAbierto, setPedAbierto] = useState(null);     // PED_P0_2_AGRUPAR_WEB · ped_id cuyo detalle (acordeón) está desplegado
   const cargarPedidosVivos = React.useCallback(async () => {
     if (!window.supa || !window.supa.auth) return;
     {
@@ -5293,25 +5294,36 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         const editable = (pd) => ["ingresado","esperando_aprobacion","enviado_proveedor"].includes(pd.estado_comercial || pd.estado);
         const meta = {};
         const filas = [];
+        /* PED_P0_2_AGRUPAR_WEB · UNA fila por PEDIDO (no por producto), como la app freelance
+           (vivoPedidos): cada fila es la cabecera del acordeón (cliente · código · total en
+           quintales · estado · un solo botón editar) y lleva `lineas` con sus productos para
+           el detalle desplegable. Antes se hacía filas.push por ítem y la lista salía aplanada. */
         p.forEach(pd => {
-          meta[pd.ped_id] = { pedId:pd.ped_id, cliId:pd.cli_id, provCod:pd.prov_cod, prov:(pd.proveedores&&pd.proveedores.nombre)||pd.prov_cod||"—",
-            cli:(pd.clientes&&pd.clientes.nombre)||pd.cli_id, razon:(pd.clientes&&pd.clientes.razon_social)||null,
-            cond: pd.condicion==="contado"?"Contado":"Crédito", editable:editable(pd) };
-          (porPed[pd.ped_id]||[]).forEach((x,i) => filas.push({
-            id: pd.ped_id + ((porPed[pd.ped_id].length>1) ? ("·"+(i+1)) : ""),
-            pedId: pd.ped_id,
-            cli: (pd.clientes && pd.clientes.nombre) || pd.cli_id,          // nombre comercial · llave para cruzar con guías
-            razon: (pd.clientes && pd.clientes.razon_social) || null,       // razón social
-            tipoCli: (pd.clientes && pd.clientes.tipo) || null,            // Natural / Empresa (para mostrar el nombre)
-            prod: x.descripcion || x.prod_id,
-            prov: (pd.proveedores && pd.proveedores.nombre) || pd.prov_cod || "—",
-            cant: Number(x.cantidad_qq)||0, unidad:"qq",
-            precio: Number(x.precio_usd)||0,
-            cond: pd.condicion==="contado" ? "Contado" : "Crédito",
-            estado: ESTADO_LINDO[pd.estado_comercial || pd.estado] || pd.estado || "—",
-            fecha: String(pd.creado||"").slice(0,10),
+          const its = porPed[pd.ped_id] || [];
+          const cliNom = (pd.clientes && pd.clientes.nombre) || pd.cli_id;
+          const provNom = (pd.proveedores && pd.proveedores.nombre) || pd.prov_cod || "—";
+          const condTxt = pd.condicion==="contado" ? "Contado" : "Crédito";
+          const estadoTxt = ESTADO_LINDO[pd.estado_comercial || pd.estado] || pd.estado || "—";
+          const razon = (pd.clientes && pd.clientes.razon_social) || null;
+          meta[pd.ped_id] = { pedId:pd.ped_id, cliId:pd.cli_id, provCod:pd.prov_cod, prov:provNom,
+            cli:cliNom, razon:razon, cond: condTxt, editable:editable(pd) };
+          const totalQq = Math.round(its.reduce((s,x)=>s+(Number(x.cantidad_qq)||0),0)*100)/100;
+          const importe = Math.round(its.reduce((s,x)=>s+(Number(x.cantidad_qq)||0)*(Number(x.precio_usd)||0),0)*100)/100;
+          const nLineas = its.length;
+          const prodGuia = nLineas ? ((its[0].descripcion || its[0].prod_id) + (nLineas>1 ? " y "+(nLineas-1)+" más" : "")) : "Sin detalle";
+          filas.push({
+            id: pd.ped_id, pedId: pd.ped_id,
+            cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
+            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
             demo: !!pd.es_demo, editable: editable(pd),
-          }));
+            totalQq, nLineas, prodGuia, importe,
+            /* compat con el orden (valorOrden) y la trazabilidad, que leen prod/cant/unidad/precio */
+            prod: prodGuia, cant: totalQq, unidad:"qq", precio: totalQq ? Math.round((importe/totalQq)*100)/100 : 0,
+            lineas: its.map(x=>({ prod: x.descripcion || x.prod_id, presCod: x.pres_cod || null,
+              qq: Number(x.cantidad_qq)||0, precio: Number(x.precio_usd)||0,
+              cond: x.condicion==="contado"?"Contado":x.condicion==="credito"?"Crédito":condTxt,
+              tipo: x.tipo_precio || null })),
+          });
         });
         if (!filas.length) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); return; }
         setPedidos(filas);
@@ -5719,8 +5731,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     .replace(/·\s*@/g, "· @");
   /* Ordenamiento de la tabla (#2) · por defecto fecha, más reciente primero */
   const valorOrden = (p) => ({
-    fecha: p.fecha || "", cliente: nombreClientePedido(p).toLowerCase(), producto: (p.prod||"").toLowerCase(),
-    cant: Number(p.cant)||0, total: (Number(p.cant)||0)*(Number(p.precio)||0),
+    fecha: p.fecha || "", cliente: nombreClientePedido(p).toLowerCase(), producto: (p.prodGuia||p.prod||"").toLowerCase(),
+    cant: Number(p.totalQq!=null?p.totalQq:p.cant)||0, total: Number(p.importe!=null?p.importe:(Number(p.cant)||0)*(Number(p.precio)||0))||0,
     cond: (p.cond||"").toLowerCase(), estado: (p.estado||"").toLowerCase(),
   }[ordCampo]);
   const pedidosOrdenados = [...pedidos].sort((a,b) => {
@@ -5854,19 +5866,38 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     /* fecha REAL (zona America/Guayaquil), no una fecha fija: la tarjeta local usa hoy y,
        tras recargar, la fecha real del pedido devuelto por el RPC. */
     const fechaHoy = hoyECWeb();
-    const nuevos = carrito.map((l,i) => ({
-      id: (res && res.pedId) ? (res.pedId+"·"+(i+1)) : (2000 + pedidos.length + i + Math.floor(Math.random()*90)),
-      cli: cli.nombre, prod: l.prod, prov: l.prov, cant: l.cant, unidad: l.unidad, precio: l.precio, cond: l.cond,
-      estado: l.requiere ? "Por autorizar (precio especial)" : "Esperando aprobación", fecha: fechaHoy,
-    }));
+    /* PED_P0_2_AGRUPAR_WEB · UNA fila por pedido (no una por producto con «·i»): la tarjeta
+       optimista tiene la misma forma que las de cargarPedidosVivos (cabecera + líneas en qq).
+       Como enseguida se llama cargarPedidosVivos (tras éxito), esta tarjeta es de puente y no
+       debe verse repetida por producto. */
+    const equivL = l => Number(l.equiv)>0 ? Number(l.equiv) : 1;
+    const pedIdOptim = (res && res.pedId) || ("W-" + Date.now().toString(36).toUpperCase());
+    const totalQqOptim = Math.round(carrito.reduce((s,l)=>s+(Number(l.cant)||0)*equivL(l),0)*100)/100;
+    const importeOptim = Math.round(carrito.reduce((s,l)=>s+(Number(l.precio)||0)*(Number(l.cant)||0),0)*100)/100;  // el dinero se conserva
+    const requiereOptim = carrito.some(l => l.requiere);
+    const prodGuiaOptim = carrito.length ? (carrito[0].prod + (carrito.length>1 ? " y "+(carrito.length-1)+" más" : "")) : "Sin detalle";
+    const nuevo = {
+      id: pedIdOptim, pedId: (res && res.pedId) || null,
+      cli: cli.nombre, razon: (cli && cli.razon_social) || null, tipoCli: (cli && cli.tipo) || null,
+      prov: (carrito[0] && carrito[0].prov) || "—",
+      cond: carrito.some(l=>l.credito) ? "Crédito" : "Contado",
+      estado: requiereOptim ? "Por autorizar (precio especial)" : "Esperando aprobación",
+      fecha: fechaHoy, demo: false, editable: false,
+      totalQq: totalQqOptim, nLineas: carrito.length, prodGuia: prodGuiaOptim, importe: importeOptim,
+      prod: prodGuiaOptim, cant: totalQqOptim, unidad:"qq", precio: totalQqOptim ? Math.round((importeOptim/totalQqOptim)*100)/100 : 0,
+      lineas: carrito.map(l=>({ prod: l.prod, presCod: l.presCod || null,
+        qq: Math.round((Number(l.cant)||0)*equivL(l)*100)/100,
+        precio: Math.round(((Number(l.precio)||0)/equivL(l))*100)/100,
+        cond: l.credito ? "Crédito" : "Contado", tipo: l.tipo || null })),
+    };
     // Nacimiento automático: cada línea con precio especial genera SOLA su solicitud
-    nuevos.filter(n => n.estado.startsWith("Por autorizar")).forEach(n => {
+    carrito.filter(l => l.requiere).forEach(l => {
       const sId = "SL-" + String(Math.max(0, ...SOLIC_INI.map(x=>parseInt(x.id.split("-")[1])||0)) + 1).padStart(4,"0");
-      SOLIC_INI.unshift({ id:sId, dir:"entrante", tipo:"precio", de:usuario.nombre||usuario.rol, para:null, cliente:n.cli,
-        detalle:"Pedido #"+n.id+" · "+n.prod+" a "+money(n.precio)+" (precio especial)", fecha:hoyECWeb(), estado:"pendiente", resp:null });
-      auditar(usuario, "Solicitudes", "Solicitud nacida del pedido · 💲 Precio especial", sId, n.cli+" · pedido #"+n.id);
+      SOLIC_INI.unshift({ id:sId, dir:"entrante", tipo:"precio", de:usuario.nombre||usuario.rol, para:null, cliente:cli.nombre,
+        detalle:"Pedido #"+pedIdOptim+" · "+l.prod+" a "+money(l.precio)+" (precio especial)", fecha:hoyECWeb(), estado:"pendiente", resp:null });
+      auditar(usuario, "Solicitudes", "Solicitud nacida del pedido · 💲 Precio especial", sId, cli.nombre+" · pedido #"+pedIdOptim);
     });
-    setPedidos(prev => [...nuevos, ...prev]);
+    setPedidos(prev => [nuevo, ...prev]);
     setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
     setVista("lista");
     setAviso(exito && res.pedId ? ("✓ Pedido " + res.pedId + " guardado.") : "");
@@ -6079,32 +6110,59 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidos.length} pedidos · {pedidos.filter(p=>p.estado.startsWith("Esperando")||p.estado.startsWith("Por autorizar")).length} por revisar</p>
           <button onClick={abrir} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700 }}>+ Nuevo pedido</button>
         </div>
+        {/* PED_P0_2_AGRUPAR_WEB · ACORDEÓN: una CABECERA por pedido; ningún producto hace de
+           encabezado. Al tocar la cabecera se despliega/pliega su detalle con sus líneas
+           (nombre a la izquierda; cantidad qq y precio a la derecha). */}
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
           {(() => {
-            const GC = ".62fr 2fr 1.25fr .48fr .8fr .5fr .9fr 54px";   // Cliente ancho (nombre completo), Editar angosto
+            const GC = ".62fr 2fr 1.25fr .55fr .8fr .5fr .9fr 54px";   // Cliente ancho, Editar angosto · Producto = guía
             const th = (campo, txt, extra) => (
               <span onClick={()=>clicOrden(campo)} style={{ cursor:"pointer", userSelect:"none", whiteSpace:"nowrap", ...(extra||{}) }}>{txt}{flechaOrden(campo)}</span>
             );
             return (<>
           <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("producto","Producto")}{th("cant","Cant.")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
+            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("producto","Productos")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
           </div>
           {usarPaginacion(pedidosOrdenados, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
+            const abierto = pedAbierto === p.pedId;
+            const nLin = p.nLineas != null ? p.nLineas : (p.lineas ? p.lineas.length : 1);
             return (
-              <div key={p.id} style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"13px 18px", borderTop: i>0 ? `1px solid ${COLOR.border}` : "none", alignItems:"center", fontSize:13 }}>
-                <span className="num" style={{ color:COLOR.muted, fontSize:12, whiteSpace:"nowrap" }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
-                <span style={{ fontWeight:700, color:COLOR.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></span>
-                <span style={{ color:COLOR.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{abreviarPres(p.prod)}</span>
-                <span className="num" style={{ whiteSpace:"nowrap" }}>{p.cant} {p.unidad||"qq"}</span>
-                <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(p.cant*p.precio)}</span>
-                <span style={{ color:COLOR.muted }}>{p.cond}</span>
-                <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
-                <span style={{ textAlign:"right" }}>
-                  {p.editable && p.pedId && !p.demo && (
-                    <button onClick={()=>abrirEdicionArmar(p.pedId)} title="Editar pedido"
-                      style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:14, cursor:"pointer", padding:0 }}>✏️</button>
-                  )}
-                </span>
+              <div key={p.id} style={{ borderTop: i>0 ? `1px solid ${COLOR.border}` : "none" }}>
+                {/* CABECERA del pedido (clic = desplegar/plegar) */}
+                <div className="ped-cabecera" onClick={()=>setPedAbierto(a => a===p.pedId ? null : p.pedId)}
+                  style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"13px 18px", alignItems:"center", fontSize:13, cursor:"pointer", background: abierto ? "#F7FAFC" : "transparent" }}>
+                  <span className="num" style={{ color:COLOR.muted, fontSize:12, whiteSpace:"nowrap" }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
+                  <span style={{ fontWeight:700, color:COLOR.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></span>
+                  <span style={{ color:COLOR.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    <span style={{ color:COLOR.tealDark, fontWeight:700, marginRight:6 }}>{abierto ? "▾" : "▸"}</span>
+                    {abreviarPres(p.prodGuia || p.prod)}{nLin>1 && <span style={{ fontSize:11, color:COLOR.muted }}> · {nLin} líneas</span>}
+                  </span>
+                  <span className="num" style={{ whiteSpace:"nowrap" }}>{p.totalQq != null ? p.totalQq : p.cant} qq</span>
+                  <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(p.importe != null ? p.importe : p.cant*p.precio)}</span>
+                  <span style={{ color:COLOR.muted }}>{p.cond}</span>
+                  <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
+                  <span style={{ textAlign:"right" }}>
+                    {p.editable && p.pedId && !p.demo && (
+                      <button onClick={(e)=>{ e.stopPropagation(); abrirEdicionArmar(p.pedId); }} title="Editar pedido"
+                        style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:14, cursor:"pointer", padding:0 }}>✏️</button>
+                    )}
+                  </span>
+                </div>
+                {/* DETALLE desplegable · las líneas del pedido en quintales */}
+                {abierto && (
+                  <div className="ped-detalle" style={{ padding:"4px 18px 14px 18px", background:"#F7FAFC", borderTop:`1px dashed ${COLOR.border}` }}>
+                    {(p.lineas || []).map((l, k) => (
+                      <div key={k} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"8px 4px", borderBottom: k < (p.lineas.length-1) ? `1px solid ${COLOR.border}` : "none" }}>
+                        <span style={{ color:COLOR.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{abreviarPres(l.prod)}{l.cond && <span style={{ fontSize:11, color:COLOR.muted, marginLeft:6 }}>· {l.cond}</span>}</span>
+                        <span className="num" style={{ whiteSpace:"nowrap", color:COLOR.muted }}>
+                          <span style={{ marginRight:14 }}>{Math.round((Number(l.qq)||0)*100)/100} qq</span>
+                          <span style={{ fontWeight:700, color:COLOR.text }}>{money(l.precio)}/qq</span>
+                        </span>
+                      </div>
+                    ))}
+                    {(!p.lineas || !p.lineas.length) && <p style={{ margin:"6px 0", fontSize:12.5, color:COLOR.muted }}>Sin líneas para mostrar.</p>}
+                  </div>
+                )}
               </div>
             );
           })}
