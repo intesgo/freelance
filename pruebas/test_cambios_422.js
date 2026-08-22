@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"185"/.test(web),"Sistema Web debe anunciar b185");
-prueba(/const CACHE = "freelance-v282"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"186"/.test(web),"Sistema Web debe anunciar b186");
+prueba(/const CACHE = "freelance-v283"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -31,7 +31,7 @@ prueba(/setAsumeFlete\("cliente"\)/.test(web)&&/setAsumeEstibada\("cliente"\)/.t
 prueba(/setTipo\(t\.id\)/.test(web)&&/TIPOS_PRECIO_WEB\.map/.test(web),"el tipo de precio P1–P6 debe estar en el modal");
 prueba(/Precio de venta/.test(web),"debe mantenerse el Precio de venta");
 prueba(/Resumen del pedido/.test(web)&&/overflowY:"auto"/.test(web),"el resumen debe existir y desplazarse (scroll)");
-prueba(/name="home"/.test(web),"Cancelar e Inicio deben estar en la cabecera");
+prueba(/onClick=\{volver\}/.test(web),"la cabecera del pedido conserva el botón Cancelar (Inicio se quitó · DISENO_SUBIR_PEDIDO)");
 prueba(/fecha_entrega/.test(web)&&/nota_chofer/.test(web),"deben enviarse fecha de entrega y nota para el chofer");
 
 /* ── PED_PISO_P5_V2 · Precio especial (P5): piso = costo(condición) × (1 + margen_min/100), sin flete/estibada (fe02) ── */
@@ -139,6 +139,18 @@ prueba(/function Dashboard\(\{ navegar \}\)/.test(web),"la función Dashboard NO
   prueba(!emoji.test(sinComentarios(rd)),"ResumenDiaWeb ya no tiene emojis renderizados (usa <Ico>)");
   prueba(/"banknote"/.test(rd) && /"shield"/.test(rd) && /name=\{ic\}/.test(rd),"las 4 tarjetas de plata pasan icono vectorial al molde (<Ico name={ic}/>)");
   prueba(/name=\{a\.ic\}/.test(rd) && /name="chevronRight"/.test(rd),"los pendientes usan icono vectorial (a.ic) y chevron vectorial a la derecha");
+}
+
+/* ── DISENO_SUBIR_PEDIDO · la vista «armar» del pedido migrada al molde ERP (solo estilo) ── */
+prueba((web.match(/DISENO_SUBIR_PEDIDO/g)||[]).length >= 2,"queda el ancla DISENO_SUBIR_PEDIDO en la vista armar");
+{ const pw = web.slice(web.indexOf("function PedidosWeb"), web.indexOf("// ── Catálogo (web):"));
+  prueba(!/<Icono /.test(pw),"PedidosWeb ya no usa el set de iconos VIEJO (<Icono>): todo pasó a <Ico> Lucide");
+  prueba(!/window\.dispatchEvent\(new CustomEvent\("nav-inicio"\)\)/.test(pw),"el botón «Inicio» se quitó de la cabecera del pedido");
+  prueba(/const chipEntrega = /.test(pw) && /chipEntrega\(!retiroBodega, "truck"/.test(pw),"«¿Dónde lo recibe?» usa chips con icono (truck/warehouse)");
+  prueba(/name="plus"/.test(pw) && /name="send"/.test(pw) && /name="trash"/.test(pw) && /name="creditCard"/.test(pw),"Agregar/Subir/Borrar/Cupo usan iconos vectoriales del molde");
+  prueba(/name="lock"/.test(pw) && /name="star"/.test(pw),"cliente bloqueado usa lock y Favoritos usa star (sin emojis)");
+  /* iconos nuevos declarados en el set ICONS (fuera del slice de PedidosWeb) */
+  prueba(/warehouse:|repeat:|tag:|plus:|trash:|send:|lock:|chevronUp:|chevronDown:/.test(web),"el set ICONS incluye los iconos nuevos de la vista armar");
 }
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
