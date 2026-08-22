@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"182"/.test(web),"Sistema Web debe anunciar b182");
-prueba(/const CACHE = "freelance-v279"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"183"/.test(web),"Sistema Web debe anunciar b183");
+prueba(/const CACHE = "freelance-v280"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -105,6 +105,14 @@ prueba(/PED_MONTO_SUMA_LINEAS/.test(app)&&/PED_MONTO_SUMA_LINEAS/.test(comi2)&&/
 prueba(/function montoDePedido\(p\)\{/.test(app),"freelance · existe la función montoDePedido (suma de líneas)");
 prueba(/const monto=montoDePedido\(p\);/.test(app)&&!/const monto=p\.cant\*p\.precio;/.test(app),"freelance · el monto del pedido usa montoDePedido, ya no cant × precio promedio");
 prueba(/importe: Math\.round\(importe\*100\)\/100,/.test(app)&&/importe: Math\.round\(importe\*100\)\/100,/.test(comi2)&&/importe: Math\.round\(importe\*100\)\/100,/.test(socio),"los tres apps exponen el importe exacto del pedido (Σ qq×precio)");
+
+/* ── DISENO_BASE_ERP · molde ERP del Sistema Web: iconos vectoriales, paleta y fuente únicas ── */
+prueba(/DISENO_BASE_ERP/.test(web),"queda el ancla DISENO_BASE_ERP en la web");
+prueba(/cta:"#17492e", fieldGreen:"#f6f8f3", fieldMaiz:"#fdf3df"/.test(web),"la paleta define cta, fieldGreen y fieldMaiz (ningún color suelto)");
+prueba(!/background:"#f6f8f3"/.test(web)&&!/background:"#fdf3df"/.test(web),"«Subir pedido» ya no usa fondos hardcodeados (#f6f8f3/#fdf3df), sino tokens de COLOR");
+prueba(!/fontFamily:"'Space Grotesk','Inter',sans-serif"/.test(web),"ninguna pantalla declara tipografía propia (Space Grotesk inline reemplazado por FUENTE)");
+prueba(/settings:|building:|briefcase:|scale:|trendingUp:/.test(web) && /home:|inbox:|beaker:|package:/.test(web),"el set ICONS incluye los iconos vectoriales del menú (Lucide inline)");
+prueba(/<Ico name=\{s\.ic\}/.test(web),"el menú lateral pinta iconos vectoriales (<Ico name={s.ic}/>), no emojis");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
