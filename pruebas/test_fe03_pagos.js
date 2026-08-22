@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* FE-03 · Pagos de flete y estibada (pagos_fe). Vigila que Logística asigne el
    estibador ANTES de despachar, que Financiera lea pagos_fe y pague por RPC, y que
-   la app del chofer lea SOLO sus fletes. Atado a b178 / v273. */
+   la app del chofer lea SOLO sus fletes. Atado a b179 / v274. */
 const fs=require("fs"),path=require("path");
 const raiz=path.join(__dirname,"..");
 const web=fs.readFileSync(path.join(raiz,"sistema-web.html"),"utf8");
@@ -10,9 +10,9 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"178"/.test(web),"Sistema Web debe anunciar b178");
+ok(/const VERSION = \{ n:"179"/.test(web),"Sistema Web debe anunciar b179");
 ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
-ok(/const CACHE = "freelance-v273"/.test(sw),"la caché debe renovarse a v273");
+ok(/const CACHE = "freelance-v274"/.test(sw),"la caché debe renovarse a v274");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");
