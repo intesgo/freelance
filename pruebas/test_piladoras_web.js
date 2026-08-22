@@ -21,7 +21,7 @@ const prueba = (ok, msg) => { if (ok) bien++; else { mal++; console.error("✗ "
 /* ── El módulo existe y está enrutado ── */
 prueba(/function PiladorasWeb\(\{ usuario \}\)\{/.test(web), "existe el módulo PiladorasWeb");
 prueba(/return <PiladorasWeb usuario=\{sesion\} \/>;/.test(web), "el menú «Piladoras» (preciosvig) enruta a PiladorasWeb");
-prueba(/key:"preciosvig",\s*icon:"🏭", label:"Piladoras"/.test(web), "el módulo se llama «Piladoras» en el menú");
+prueba(/key:"preciosvig",\s*ic:"[a-zA-Z]+",\s*icon:"🏭", label:"Piladoras"/.test(web), "el módulo se llama «Piladoras» en el menú");  /* DISENO_BASE_ERP · cada sección lleva ahora ic:"<vectorial>" antes del emoji */
 
 /* ── Fusiona "Precios vigentes" pero preserva lo demás ── */
 prueba(/function PreciosWeb\(\{ usuario \}\) \{/.test(web), "PreciosWeb sigue definido (no se rompe test_precios_ofertas)");

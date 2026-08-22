@@ -10,14 +10,14 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"182"/.test(web),"Sistema Web debe anunciar b182");
-ok(/const CACHE = "freelance-v279"/.test(sw),"la caché debe renovarse a v279");
+ok(/const VERSION = \{ n:"183"/.test(web),"Sistema Web debe anunciar b183");
+ok(/const CACHE = "freelance-v280"/.test(sw),"la caché debe renovarse a v280");
 
 /* ── el módulo existe y está enrutado ── */
 ok(/function TarifasFEWeb\(\{ usuario \}\)\{/.test(web),"existe el módulo TarifasFEWeb");
 ok(/case "tarifasfe":/.test(web) && /return <TarifasFEWeb usuario=\{sesion\} \/>;/.test(web),
   "el menú «Tarifas de logística» (tarifasfe) enruta a TarifasFEWeb");
-ok(/key:"tarifasfe",\s*icon:"[^"]*",\s*label:"Tarifas de logística"/.test(web),"la sección tarifasfe está en SECCIONES");
+ok(/key:"tarifasfe",\s*ic:"[a-zA-Z]+",\s*icon:"[^"]*",\s*label:"Tarifas de logística"/.test(web),"la sección tarifasfe está en SECCIONES");  /* DISENO_BASE_ERP · ic:"<vectorial>" antes del emoji */
 
 /* ── las tres anclas del alcance ── */
 ok(/FE01_TARIFAS_ZONA/.test(web),"ancla FE01_TARIFAS_ZONA (cobro por zona)");

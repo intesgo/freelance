@@ -33,7 +33,9 @@ const comprobar = (t, c) => { if (c) { ok++; console.log("  ✓ " + t); } else {
 /* ── Lectura estática: las tres piezas del menú ────────────────────── */
 const bloqueSec = html.slice(html.indexOf("const SECCIONES = ["), html.indexOf("const TODAS_LAS_SECCIONES"));
 const SEC = {}, orden = [];
-for (const m of bloqueSec.matchAll(/key:"([a-z]+)",\s*icon:"([^"]*)",\s*label:"([^"]*)"/g)) {
+/* DISENO_BASE_ERP · cada sección lleva ahora `ic:"<nombre vectorial>"` (Lucide) antes del
+   emoji `icon`. El arnés lee el icono vectorial (para el Sidebar) y la etiqueta. */
+for (const m of bloqueSec.matchAll(/key:"([a-z]+)",\s*ic:"([a-zA-Z]+)",\s*icon:"[^"]*",\s*label:"([^"]*)"/g)) {
   SEC[m[1]] = { ic: m[2], lab: m[3] }; orden.push(m[1]);
 }
 const bloqueGr = html.slice(html.indexOf("const GRUPOS_MENU = ["), html.indexOf("// ── Empresas"));
@@ -109,9 +111,9 @@ function pintar(cargo, permitidas) {
   w.XLSX = null;
   const ctx = dom.getInternalVMContext();
   vm.runInContext(R.react(), ctx); vm.runInContext(R.reactDom(), ctx); vm.runInContext(js, ctx);
-  /* El Sidebar lee s.icon y s.label, no s.ic/s.lab: pasarle la forma
-     equivocada hacía que no pintara ningún nombre. */
-  const permitidasJSON = JSON.stringify(permitidas.map((k) => ({ key: k, icon: SEC[k].ic, label: SEC[k].lab })));
+  /* DISENO_BASE_ERP · el Sidebar lee s.ic (icono vectorial Lucide) y s.label. Se le pasa la
+     sección con su nombre de icono y su etiqueta, como en producción. */
+  const permitidasJSON = JSON.stringify(permitidas.map((k) => ({ key: k, ic: SEC[k].ic, label: SEC[k].lab })));
   vm.runInContext(`
     window.__c = document.createElement("div"); document.body.appendChild(window.__c);
     ReactDOM.flushSync(function(){
