@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"183"/.test(web),"Sistema Web debe anunciar b183");
-prueba(/const CACHE = "freelance-v280"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"184"/.test(web),"Sistema Web debe anunciar b184");
+prueba(/const CACHE = "freelance-v281"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -113,6 +113,17 @@ prueba(!/background:"#f6f8f3"/.test(web)&&!/background:"#fdf3df"/.test(web),"«S
 prueba(!/fontFamily:"'Space Grotesk','Inter',sans-serif"/.test(web),"ninguna pantalla declara tipografía propia (Space Grotesk inline reemplazado por FUENTE)");
 prueba(/settings:|building:|briefcase:|scale:|trendingUp:/.test(web) && /home:|inbox:|beaker:|package:/.test(web),"el set ICONS incluye los iconos vectoriales del menú (Lucide inline)");
 prueba(/<Ico name=\{s\.ic\}/.test(web),"el menú lateral pinta iconos vectoriales (<Ico name={s.ic}/>), no emojis");
+
+/* ── DISENO_CLIENTES_ERP · la pantalla Clientes rediseñada a la línea ERP (solo estilo) ── */
+prueba((web.match(/DISENO_CLIENTES_ERP/g)||[]).length >= 2,"queda el ancla DISENO_CLIENTES_ERP en ClientesWeb y FichaCliente");
+{ const cw = web.slice(web.indexOf("function ClientesWeb"), web.indexOf("function DashboardCliente"));
+  const fc = web.slice(web.indexOf("function FichaCliente"), web.indexOf("function ModalAgregarVinculo"));
+  const emoji = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{25CF}✅✓✕]/u;
+  const sinComentarios = s => s.replace(/\/\*[\s\S]*?\*\//g,"");
+  prueba(!emoji.test(sinComentarios(cw)),"ClientesWeb ya no tiene emojis renderizados (usa <Ico>)");
+  prueba(!emoji.test(sinComentarios(fc)),"FichaCliente ya no tiene emojis renderizados (usa <Ico>)");
+  prueba(/"calendar"/.test(cw)&&/"userCheck"/.test(cw)&&/"creditCard"/.test(cw)&&/dato\(/.test(cw),"ClientesWeb usa iconos vectoriales del molde en las tarjetitas (calendar/userCheck/creditCard vía dato())");
+}
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

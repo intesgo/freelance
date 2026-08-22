@@ -8,8 +8,8 @@
    · El sello de fuente («Datos vivos…») y las tres tarjetas de conteo
      (Clientes · A crédito · Bloqueados) acompañan SOLO al buscador. En la
      ficha estorban y NO deben aparecer.
-   · Arriba: «← Buscar otro cliente», el nombre grande con la razón social
-     debajo y el chip «● Activo» / «● Bloqueado».
+   · Arriba: «Buscar otro cliente», el nombre grande con la razón social
+     debajo y el chip «Activo» / «Bloqueado».
    · La franja del veredicto es BINARIA: verde «Se le puede vender» («Sin
      bloqueos, sin vencidos y con cupo») o roja «No se le puede vender» con
      el motivo real: «Bloqueado», «Con vencidos» o «Sin cupo disponible».
@@ -260,7 +260,7 @@ async function bateria(js, ruidoso) {
     return corre(m, `window.__texto()`);
   };
   const volver = async () => {
-    corre(m, `window.__tocar("button", "← Buscar otro cliente")`);
+    corre(m, `window.__tocar("button", "Buscar otro cliente")`);
     await esperar(40);
     corre(m, `ReactDOM.flushSync(function(){})`);
     return corre(m, `window.__texto()`);
@@ -278,16 +278,16 @@ async function bateria(js, ruidoso) {
 
   /* ── B) LA FICHA DE PEDRO (el camino verde de la maqueta) ── */
   const txtPedro = await abrir("castillo", "Pedro Castillo");
-  comprobar("elegirlo abre la ficha, con su «← Buscar otro cliente»",
-    txtPedro.indexOf("← Buscar otro cliente") >= 0);
+  comprobar("elegirlo abre la ficha, con su «Buscar otro cliente»",
+    txtPedro.indexOf("Buscar otro cliente") >= 0);
   comprobar("EN LA FICHA EL SELLO DE FUENTE YA NO ESTÁ (lo pidió el PO)",
     txtPedro.indexOf("Datos vivos") < 0 && txtPedro.indexOf("Demo local") < 0);
   comprobar("Y LAS TRES TARJETAS DE CONTEO TAMPOCO",
     txtPedro.indexOf("A crédito") < 0 && txtPedro.indexOf("Bloqueados") < 0);
   comprobar("el nombre grande y la razón social debajo, como en la maqueta",
     txtPedro.indexOf("Pedro Rodrigo Castillo Rosero") >= 0 && txtPedro.indexOf("Supermercado Castillo") >= 0);
-  comprobar("el chip de estado dice «● Activo»",
-    txtPedro.indexOf("● Activo") >= 0);
+  comprobar("el chip de estado dice «Activo»",
+    txtPedro.indexOf("Activo") >= 0);
   comprobar("la franja del veredicto en verde: «Se le puede vender»",
     txtPedro.indexOf("Se le puede vender") >= 0 && txtPedro.indexOf("No se le puede vender") < 0);
   comprobar("y dice por qué: «Sin bloqueos, sin vencidos y con cupo»",
@@ -322,14 +322,14 @@ async function bateria(js, ruidoso) {
 
   /* ── C) VOLVER: el buscador recupera su sello y sus conteos ── */
   const txtVuelta = await volver();
-  comprobar("«← Buscar otro cliente» regresa al buscador con el sello y los conteos",
+  comprobar("«Buscar otro cliente» regresa al buscador con el sello y los conteos",
     txtVuelta.indexOf("Datos vivos") >= 0 && txtVuelta.indexOf("A crédito") >= 0 &&
     txtVuelta.indexOf("Se le puede vender") < 0);
 
   /* ── D) EL BLOQUEADO ── */
   const txtVera = await abrir("vera", "Almacenes Vera S.A.");
-  comprobar("el chip de estado dice «● Bloqueado»",
-    txtVera.indexOf("● Bloqueado") >= 0);
+  comprobar("el chip de estado dice «Bloqueado»",
+    txtVera.indexOf("Bloqueado") >= 0);
   comprobar("la franja va en rojo: «No se le puede vender» · «Bloqueado: Cheque protestado»",
     txtVera.indexOf("No se le puede vender") >= 0 && txtVera.indexOf("Bloqueado: Cheque protestado") >= 0);
   await volver();
