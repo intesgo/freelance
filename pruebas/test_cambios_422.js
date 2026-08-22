@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"184"/.test(web),"Sistema Web debe anunciar b184");
-prueba(/const CACHE = "freelance-v281"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"185"/.test(web),"Sistema Web debe anunciar b185");
+prueba(/const CACHE = "freelance-v282"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -123,6 +123,22 @@ prueba((web.match(/DISENO_CLIENTES_ERP/g)||[]).length >= 2,"queda el ancla DISEN
   prueba(!emoji.test(sinComentarios(cw)),"ClientesWeb ya no tiene emojis renderizados (usa <Ico>)");
   prueba(!emoji.test(sinComentarios(fc)),"FichaCliente ya no tiene emojis renderizados (usa <Ico>)");
   prueba(/"calendar"/.test(cw)&&/"userCheck"/.test(cw)&&/"creditCard"/.test(cw)&&/dato\(/.test(cw),"ClientesWeb usa iconos vectoriales del molde en las tarjetitas (calendar/userCheck/creditCard vía dato())");
+}
+
+/* ── DISENO_DASHBOARD_CIERRE · Portada de 2 pestañas (sin «Indicadores») + Resumen del día ERP ── */
+prueba((web.match(/DISENO_DASHBOARD_CIERRE/g)||[]).length >= 2,"queda el ancla DISENO_DASHBOARD_CIERRE en la Portada y el Resumen del día");
+prueba(/\[\["tablero","home","Tablero"\],\["resumen","calendar","Resumen del día"\]\]/.test(web),"la Portada deja solo 2 pestañas (Tablero y Resumen del día) con icono vectorial");
+prueba(!/pTab==="indicadores"/.test(web) && !/\{pTab==="indicadores" && <Dashboard/.test(web),"la pestaña «Indicadores» ya no se renderiza en la Portada (el Dashboard viejo queda sin ruta de acceso)");
+prueba(/function Dashboard\(\{ navegar \}\)/.test(web),"la función Dashboard NO se borra (se reaprovecha luego en el Tablero)");
+{ const rd = web.slice(web.indexOf("function ResumenDiaWeb"), web.indexOf("// ── COMUNICACIÓN"));
+  /* el mismo detector de emojis que Clientes, PERO sin el bloque de flechas (←-⇿):
+     «Logística → Novedades» y otros usan → legítimo, que no es un emoji a convertir. */
+  const emoji = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{25CF}✅✓✕]/u;
+  /* quita comentarios de bloque y de línea (las cenefas «──» viven en comentarios //) */
+  const sinComentarios = s => s.replace(/\/\*[\s\S]*?\*\//g,"").replace(/(^|[^:])\/\/[^\n]*/g,"$1");
+  prueba(!emoji.test(sinComentarios(rd)),"ResumenDiaWeb ya no tiene emojis renderizados (usa <Ico>)");
+  prueba(/"banknote"/.test(rd) && /"shield"/.test(rd) && /name=\{ic\}/.test(rd),"las 4 tarjetas de plata pasan icono vectorial al molde (<Ico name={ic}/>)");
+  prueba(/name=\{a\.ic\}/.test(rd) && /name="chevronRight"/.test(rd),"los pendientes usan icono vectorial (a.ic) y chevron vectorial a la derecha");
 }
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
