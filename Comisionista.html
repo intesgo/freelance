@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"188", fecha:"21 ago 2026", desc:"Cupo de crédito real: el «usado» del cliente ahora se calcula con su cartera pendiente (lo que debe de facturas por cobrar), no con datos de ejemplo ni con una columna en cero. El cupo disponible = cupo del cliente − lo que debe. Hoy la cartera real está vacía, así que el disponible es el cupo completo hasta que haya facturas." };
+const VERSION = { n:"189", fecha:"22 ago 2026", desc:"La tarjeta que aparece al instante de guardar un pedido ahora muestra la cantidad y el precio en quintales (con la equivalencia real de la presentación), no en la presentación cruda. El total en dinero es el mismo; antes se veía la cantidad en arrobas/sacos como si fueran quintales hasta recargar." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -13492,12 +13492,20 @@ function App({usuario}){
     const fechaISO=`${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,"0")}-${dd}`;
     const quien="Carlos Andrade";
     const nomCli=(cli && cli.nombre) || cli || "—";
+    /* PED_OPTIMISTA_QQ · la tarjeta optimista se expresa en QUINTALES, con la MISMA
+       equivalencia por línea que usa guardarPedidoEnBase (it.prod.equiv). Antes mostraba
+       la cantidad y el precio en la presentación cruda (50 arrobas a $10 se veían como
+       "50 qq a $10") hasta que la lista se recargaba de la base. El dinero no cambia. */
+    const equivLinea = it => (it && it.prod && Number(it.prod.equiv)>0) ? Number(it.prod.equiv) : 1;
     const nuevos=carrito.map((it,i)=>{
       const credito = it.tipoNombre && /créd/i.test(it.tipoNombre);
+      const eq = equivLinea(it);
+      const qqLinea = Math.round((Number(it.cant)||0)*eq*100)/100;
+      const precioQqLinea = Math.round(((Number(it.precio)||0)/eq)*100)/100;
       return {
         id:Date.now()+i,
         cli:nomCli, prov: prov?prov.nombre:"—", fecha:fechaISO,
-        prod:it.prodNombre||it.prod, cant:it.cant, precio:it.precio,
+        prod:it.prodNombre||it.prod, cant:qqLinea, precio:precioQqLinea,
         cond: credito?"Crédito":"Contado",
         comision: it.requiere?0:it.comisionTotal,
         estado: it.requiere?"Esperando aprobación":"Enviado al proveedor",

@@ -11,7 +11,7 @@ let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
 ok(/const VERSION = \{ n:"181"/.test(web),"Sistema Web debe anunciar b181");
-ok(/const CACHE = "freelance-v276"/.test(sw),"la caché debe renovarse a v276");
+ok(/const CACHE = "freelance-v277"/.test(sw),"la caché debe renovarse a v277");
 
 /* ── el módulo existe y está enrutado ── */
 ok(/function TarifasFEWeb\(\{ usuario \}\)\{/.test(web),"existe el módulo TarifasFEWeb");
