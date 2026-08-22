@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo (sin cambios en esta entrega) ── */
-prueba(/const VERSION = \{ n:"463"/.test(app),"Freelance debe anunciar v463");
+prueba(/const VERSION = \{ n:"464"/.test(app),"Freelance debe anunciar v464");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"178"/.test(web),"Sistema Web debe anunciar b178");
-prueba(/const CACHE = "freelance-v273"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"179"/.test(web),"Sistema Web debe anunciar b179");
+prueba(/const CACHE = "freelance-v274"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -56,6 +56,13 @@ prueba(/if \(!exito && !MODO_DEMO_WEB\)/.test(web),"sin sesión/conexión en viv
 prueba(/fecha: fechaHoy,/.test(web)&&/const fechaHoy = hoyECWeb\(\);/.test(web),"la fecha del pedido nuevo es hoy (hoyECWeb), no una fija");
 prueba(!/estado: l\.requiere[\s\S]{0,40}fecha:"2026-06-13"/.test(web),"ya no queda la fecha fija 2026-06-13 en la creación del pedido");
 prueba(/disabled=\{carrito\.length===0 \|\| fuentesConError\}/.test(web),"«Subir pedido» se deshabilita si las fuentes no cargaron");
+
+/* ── PED_CUPO_VIVO_PARIDAD · cupo real (clientes.cupo + cartera pendiente), no FICHA/clientes.usado ── */
+prueba(/PED_CUPO_VIVO_PARIDAD/.test(web)&&/PED_CUPO_VIVO_PARIDAD/.test(app),"queda el ancla PED_CUPO_VIVO_PARIDAD en web y app");
+prueba(/usado: Math\.round\(\(usadoPorCli\[c\.cli_id\]\|\|0\)\*100\)\/100/.test(web),"web · el usado sale de la suma de cartera por cli_id, no de clientes.usado");
+prueba(!/usado: c\.usado\|\|0/.test(web),"web · ya no se usa clientes.usado (columna en 0)");
+prueba(/estado ?=== ?"pendiente" && m\.es_demo ?=== ?false/.test(web)&&/estado ?=== ?"pendiente" && m\.es_demo ?=== ?false/.test(app),"solo cuenta cartera PENDIENTE y no demo (web y app)");
+prueba(/const ficha = cli \? \(vivoPed \? \(FICHA_VIVA_PED\[cli\]\|\|null\) : FICHA_CLIENTE\[cli\]\) : null;/.test(app),"app · en vivo el cupo sale de FICHA_VIVA_PED; FICHA_CLIENTE solo en demo");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"187", fecha:"21 ago 2026", desc:"Al guardar un pedido ahora se registra desde qué app salió (comisionista), para poder ver el origen de cada pedido. Sin cambios en lo que ves en pantalla." };
+const VERSION = { n:"188", fecha:"21 ago 2026", desc:"Cupo de crédito real: el «usado» del cliente ahora se calcula con su cartera pendiente (lo que debe de facturas por cobrar), no con datos de ejemplo ni con una columna en cero. El cupo disponible = cupo del cliente − lo que debe. Hoy la cartera real está vacía, así que el disponible es el cupo completo hasta que haya facturas." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4749,6 +4749,9 @@ function construirCatalogoPedido(provs, ofertas, prods, presenTbl, promoTbl){
 
 /* nombre del cliente → su código real. Lo llena el módulo Pedido al cargar. */
 const CLI_ID_DE = {};
+/* PED_CUPO_VIVO_PARIDAD · ficha de cupo REAL del armador, por nombre de cliente:
+   cupo = clientes.cupo · debe = suma de cartera pendiente (no demo). En modo demo manda FICHA_CLIENTE. */
+let FICHA_VIVA_PED = {};
 
 /* ═══ PROMO-03 · EL TOPE DEL REGALO LO DICE LA BASE, NO LA APP ═══════════════
    Decisión del Product Owner (06/08/2026): si el vendedor pone más regalo del
@@ -5200,14 +5203,16 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
            `v_ofertas_vigentes`: esa vista corta con CURRENT_DATE, que es el día del
            servidor, no el del teléfono. La vigencia se filtra en construirCatalogoPedido
            con la fecha local. Y `precios` ya no se consulta: el precio es el de la oferta. */
-        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:clis }, { data:ubics }, { data:promos }, { data:tramos }] = await Promise.all([
+        const [{ data:provs }, { data:ofertas }, { data:prods }, { data:clis }, { data:ubics }, { data:cart }, { data:promos }, { data:tramos }] = await Promise.all([
           window.SB.from("proveedores").select("prov_cod,nombre").eq("es_demo",false).order("nombre"),
           window.SB.from("ofertas_piladora")
             .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,margen_min,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
             .limit(4000),
           window.SB.from("productos").select("prod_id,nombre,marca,linea,foto").eq("estado","activo").limit(500),
-          window.SB.from("clientes").select("cli_id,nombre,razon_social").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
+          window.SB.from("clientes").select("cli_id,nombre,razon_social,cupo,plazo,bloqueado,motivo_bloqueo").eq("es_demo",false).eq("activo",true).eq("bloqueado",false).order("nombre").limit(1000),
           window.SB.from("ubicaciones_cliente").select("ubic_id,cli_id,nombre,principal,ciudad,direccion").eq("activo",true).limit(3000),
+          /* PED_CUPO_VIVO_PARIDAD · cartera para el "usado" real (suma de lo PENDIENTE, no demo) */
+          window.SB.from("cartera_cliente").select("cli_id,monto,estado,es_demo").limit(5000),
           /* PROMO-04 · las promociones se traen CRUDAS y se filtran en
              construirCatalogoPedido: quién entra y quién no lo decide un solo
              sitio, con la fecha del teléfono. */
@@ -5222,6 +5227,12 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         if(!cat.pres.length) return;
         (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
         cat.clis = (clis||[]).map(c=>c.nombre);
+        /* PED_CUPO_VIVO_PARIDAD · usado real por cliente = suma de cartera PENDIENTE (no demo); cupo = clientes.cupo. */
+        const usadoPorCli = {};
+        (cart||[]).forEach(m=>{ if(m && m.estado==="pendiente" && m.es_demo===false) usadoPorCli[m.cli_id]=(usadoPorCli[m.cli_id]||0)+(Number(m.monto)||0); });
+        const fviva = {};
+        (clis||[]).forEach(c=>{ fviva[c.nombre]={ cupo:Number(c.cupo)||0, debe:Math.round((usadoPorCli[c.cli_id]||0)*100)/100, diasCredito:Number(c.plazo)||0, bloqueado:!!c.bloqueado, motivo:c.motivo_bloqueo||"" }; });
+        FICHA_VIVA_PED = fviva;
         setVivoPed(cat);
         const mapU={}; (ubics||[]).forEach(u=>{ (mapU[u.cli_id]=mapU[u.cli_id]||[]).push(u); }); setUbicMap(mapU);
       }catch(e){}
@@ -5364,7 +5375,9 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const comisionPromedio = cantN>0 ? Math.round((comisionTotal/cantN)*100)/100 : 0;
 
   // ── Control de cupo de crédito ──
-  const fichaCli = cli ? FICHA_CLIENTE[cli] : null;
+  /* PED_CUPO_VIVO_PARIDAD · en vivo el cupo/usado salen de la ficha REAL (clientes.cupo +
+     suma de cartera pendiente); FICHA_CLIENTE solo en modo demo (sin datos vivos). */
+  const fichaCli = cli ? (vivoPed ? (FICHA_VIVA_PED[cli]||null) : FICHA_CLIENTE[cli]) : null;
   const esCredito = tipo==="P1" || (tipo==="P3" && condP3==="credito"); // P1=crédito; contado (P2) no consume cupo
   const cupoTotal = fichaCli ? (fichaCli.cupo||0) : 0;
   const deudaActual = fichaCli ? (fichaCli.debe||0) : 0;

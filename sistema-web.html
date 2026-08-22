@@ -393,7 +393,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"178", fecha:"21 ago 2026", desc:"Pedidos más confiables: la fecha del pedido es la de hoy (ya no una fija); si los clientes o productos no cargan, se avisa y se ofrece Reintentar en vez de mostrar datos de demostración; y sin conexión o sin sesión ya no aparece un pedido «fantasma» como si se hubiera guardado (esta pantalla no guarda sin conexión)." };
+const VERSION = { n:"179", fecha:"21 ago 2026", desc:"Cupo de crédito real: el «usado» del cliente ahora se calcula con su cartera pendiente (lo que debe de facturas por cobrar), no con datos de ejemplo ni con una columna en cero. El cupo disponible = cupo del cliente − lo que debe. Hoy la cartera real está vacía, así que el disponible es el cupo completo hasta que haya facturas." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5333,16 +5333,27 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     setErrClientes(null);
     (async () => {
       try {
-        const { data, error } = await window.supa.from("clientes")
-          .select("cli_id, nombre, razon_social, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal, estado_cliente")
-          .eq("activo", true).order("nombre");
+        const [{ data, error }, resCart] = await Promise.all([
+          window.supa.from("clientes")
+            .select("cli_id, nombre, razon_social, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal, estado_cliente")
+            .eq("activo", true).order("nombre"),
+          /* PED_CUPO_VIVO_PARIDAD · el "usado" real es la suma de la cartera PENDIENTE (no demo)
+             por cliente, homologado con las apps. La columna clientes.usado no se usa (está en 0
+             para todos porque nadie la actualiza): la deuda nace al facturar, en cartera_cliente. */
+          window.supa.from("cartera_cliente").select("cli_id, monto, estado, es_demo").limit(5000),
+        ]);
         if (!vivo) return;
         if (error) throw new Error(error.message || "sin permiso o sin conexión");
+        const usadoPorCli = {};
+        ((resCart && resCart.data) || []).forEach(m => {
+          if (m && m.estado === "pendiente" && m.es_demo === false) usadoPorCli[m.cli_id] = (usadoPorCli[m.cli_id]||0) + (Number(m.monto)||0);
+        });
         if (data && data.length > 0) {
           const reales = data.map(c => ({
             id: c.cli_id, nombre: c.nombre, razonSocial: c.razon_social, ruc: c.ruc,
             vendedor: c.sub_id || "", condicionPago: c.condicion_pago || "", cupo: c.cupo||0,
-            usado: c.usado||0, bloqueado: !!c.bloqueado, canal: c.canal || "", estadoCliente: c.estado_cliente || "",
+            usado: Math.round((usadoPorCli[c.cli_id]||0)*100)/100,   /* PED_CUPO_VIVO_PARIDAD · usado real de cartera (no clientes.usado) */
+            bloqueado: !!c.bloqueado, canal: c.canal || "", estadoCliente: c.estado_cliente || "",
           }));
           setClientesReales(reales); setErrClientes(null);
           // AQUÍ VIVIÓ UN DEFECTO (b138): un setPedidos que recorría los pedidos
