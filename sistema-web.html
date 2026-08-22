@@ -116,6 +116,15 @@ function hoyECWeb(fecha=new Date()){
     .formatToParts(fecha).forEach(x=>{if(x.type!=="literal")p[x.type]=x.value;});
   return `${p.year}-${p.month}-${p.day}`;
 }
+/* PED_EQUIV_OBLIGATORIA · la equivalencia de una presentación: si viene válida (>0)
+   se respeta; si falta (0/null/NaN) NO se enmascara a 1 en silencio — solo el Quintal
+   (1:1) vale 1, cualquier otra presentación queda en 0 para que el guardado la RECHACE
+   (antes `Number(equiv_qq)||1` trataba una equivalencia ausente como 1 qq crudo). */
+function equivDePresentacionWeb(rawEquiv, unidad){
+  const n = Number(rawEquiv);
+  if (n > 0) return n;
+  return /quintal|qq/i.test(String(unidad||"")) ? 1 : 0;
+}
 let ORG_ACTIVA_WEB={uid:null,org:null};
 async function orgActivaWeb(){
   if(!window.supa||!window.supa.auth) throw new Error("Sin conexión con la organización activa.");
@@ -393,7 +402,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"180", fecha:"22 ago 2026", desc:"Editar el pedido desde el Sistema Web ahora se permite en los mismos estados que en la app y que la base: ingresado, esperando aprobación y también «enviado al proveedor». Antes la web dejaba de permitir la edición un paso antes que la app; ahora los dos canales van a la par. A partir de «facturado» ya no se edita, como siempre." };
+const VERSION = { n:"181", fecha:"22 ago 2026", desc:"Pedidos más seguros: si un producto en presentación distinta de Quintal no trae su equivalencia en quintales, el pedido ya NO se guarda con cantidades crudas (avisa con producto y presentación). Cuando falta el tipo de precio se toma según la condición real (crédito o contado), sin forzar uno que la contradiga. Y la cantidad admite fracciones de quintal (12,5) sin recortarse a 12." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5420,7 +5429,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
               linea: lineaProd[o.prod_id] || "Arroz",
               prov: nombreProv[o.prov_cod] || o.prov_cod, provCod: o.prov_cod,
               ic: "🌾", foto: fotoPres[o.prod_id + "|" + (o.pres_cod || "")] || null,
-              unidad: pres, equiv: Number(o.equiv_qq) || 1,
+              unidad: pres, equiv: equivDePresentacionWeb(o.equiv_qq, pres),   /* PED_EQUIV_OBLIGATORIA: no enmascarar a 1 una equivalencia faltante en presentación no-Quintal */
               baseContado: contado, baseCredito: credito,
               costo: Number(o.costo) || Number(o.costo_contado) || 0,          // costo a CRÉDITO de la oferta (piso P5 crédito)
               costoContado: Number(o.costo_contado) || Number(o.costo) || 0,   // costo a CONTADO de la oferta (piso P5 contado)
@@ -5627,7 +5636,10 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     : tipo==="P4" ? (promoF?promoF.base:0)
     : tipo==="P6" ? (promoP?promoP.base:0)
     : 0;
-  const cantNum = parseInt(cant)||0;
+  /* PED_EQUIV_OBLIGATORIA · cantidad DECIMAL segura: el quintal admite fracciones
+     (12,5 qq). parseInt truncaba 12,5 → 12. Se acepta coma o punto. */
+  const numDecWeb = (v) => { const n = parseFloat(String(v==null?"":v).replace(",",".")); return Number.isFinite(n) ? n : 0; };
+  const cantNum = numDecWeb(cant);
   const precioNum = parseFloat(precio)||0;
   const dif = (prod && precio!=="") ? Math.round((precioNum-base)*100)/100 : 0;
   const bajoBase = tipo!=="P5" && prod && precio!=="" && precioNum < base;
@@ -5763,7 +5775,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       id: Date.now(),
       prod: prod.nombre, prodId: prod.prodId || prod.id, presCod:prod.presCod||null,
       prov: prod.prov, provCod: prod.provCod || "",
-      ic: prod.ic, unidad: prod.unidad, equiv: Number(prod.equiv)||1,
+      ic: prod.ic, unidad: prod.unidad, equiv: equivDePresentacionWeb(prod.equiv, prod.unidad),   /* PED_EQUIV_OBLIGATORIA: conserva el equiv real (0 si falta en no-Quintal) para que el guardado lo rechace */
       cant: cantNum, precio: precioNum, gratis: (tipo==="P3" ? (parseInt(gratis)||0) : 0),
       cond: esCredito ? "Crédito" : "Contado", credito: esCredito,
       tipo, tipoNombre: TIPOS_PRECIO_WEB.find(t=>t.id===tipo).nombre,
@@ -5809,10 +5821,19 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     } catch (e) { registrarErrorWeb("pedido.guardar",e); return { ok:false, motivo:(e&&e.message)||"error" }; }
   };
 
+  /* PED_EQUIV_OBLIGATORIA · una presentación que NO es Quintal exige su equivalencia
+     real (>0). Sin ella (0/null/NaN) NO se guarda ni se envían cantidades crudas: se
+     detiene y se avisa con producto y presentación. Las líneas históricas ya en
+     quintales (unidad "qq"/"Quintal") van con equivalencia 1. */
+  const equivInvalidaWeb = (l) => { const u=String((l&&l.unidad)||"").toLowerCase(); const esQuintal=u.includes("quintal")||u==="qq"; return !esQuintal && !(Number(l&&l.equiv)>0); };
+  const avisoSinEquiv = (l) => "No se puede guardar: «"+((l&&l.prod)||"producto")+"» en presentación «"+((l&&l.unidad)||"—")+"» no tiene equivalencia en quintales. Corrige el catálogo antes de guardar.";
+
   const subirPedido = async () => {
     if (!cli) { setAviso("Elige un cliente."); return; }
     if (carrito.length===0) { setAviso("Agrega al menos un producto al pedido."); return; }
     if (fuentesConError) { setAviso("No se puede guardar: los clientes o los productos no cargaron. Toca «Reintentar» arriba."); return; }
+    const malaEquiv = carrito.find(equivInvalidaWeb);
+    if (malaEquiv) { setAviso("⚠ "+avisoSinEquiv(malaEquiv)); return; }   /* PED_EQUIV_OBLIGATORIA */
     setAviso("Guardando…");
     const res = await guardarPedidoOficina();
     const exito = !!(res && res.ok);
@@ -5856,7 +5877,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   /* ── #4 · Editar un pedido DENTRO de la pantalla de armado ─────────────── */
   const construirLineaDesdeItem = (it, meta) => {
     const cat = PRODS_PED.find(p => (p.prodId||p.id) === it.prod_id) || {};
-    const tipo = it.tipo_precio || "P1";  /* PED_CANON_P1P2: fallback habitual = Crédito = P1 (solo si falta el dato; el crédito real sale de condicion) */
+    const tipo = it.tipo_precio || (it.condicion==="contado" ? "P2" : "P1");  /* PED_CANON_P1P2 · PED_EQUIV_OBLIGATORIA: si falta tipo_precio se deriva de la condición real (contado⇒P2, crédito⇒P1); nunca un fijo que contradiga la condición */
     const cant = Number(it.cantidad_qq)||0, precio = Number(it.precio_usd)||0;
     return {
       id: it.item_id || ("N"+Date.now()+Math.floor(Math.random()*1000)), itemId: it.item_id || null,
@@ -5889,6 +5910,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     if (!editandoPed) return;
     const vivos = carrito.filter(l => (Number(l.cant)>0) && (Number(l.precio)>0));
     if (vivos.length === 0) { setAviso("El pedido no puede quedar sin productos válidos (cantidad y precio > 0)."); return; }
+    const malaEquiv = vivos.find(equivInvalidaWeb);
+    if (malaEquiv) { setAviso("⚠ "+avisoSinEquiv(malaEquiv)); return; }   /* PED_EQUIV_OBLIGATORIA */
     if (!window.supa) { setAviso("Sin conexión con el servidor."); return; }
     setAviso("Guardando…");
     try {
@@ -5905,7 +5928,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           cantidad_qq:Math.round((Number(l.cant)||0)*eq*100)/100,
           precio_qq:Math.round(((Number(l.precio)||0)/eq)*100)/100,
           gratis_qq:Math.round((Number(l.gratis)||0)*eq*100)/100,
-          tipo_precio:l.tipo||"P1",condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,  /* PED_CANON_P1P2: fallback habitual = P1 (el crédito real sale de condicion) */
+          tipo_precio:l.tipo||(l.credito?"P1":"P2"),condicion:l.credito?"credito":"contado",promo_id:l.promoId||null,  /* PED_CANON_P1P2 · PED_EQUIV_OBLIGATORIA: si falta tipo_precio se deriva de la condición real (crédito⇒P1, contado⇒P2); nunca un fijo que contradiga la condición */
           comision_propuesta:l.tipo==="P5"?(Number(l.comision)||0):null};
       });
       const opId="WEB-EDI-"+editandoPed+"-"+Date.now().toString(36).toUpperCase();

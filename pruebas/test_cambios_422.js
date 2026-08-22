@@ -6,8 +6,8 @@ const web=fs.readFileSync(path.join(raiz,"sistema-web.html"),"utf8");
 const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
-/* ── freelance-completo (sin cambios en esta entrega) ── */
-prueba(/const VERSION = \{ n:"464"/.test(app),"Freelance debe anunciar v464");
+/* ── freelance-completo ── */
+prueba(/const VERSION = \{ n:"465"/.test(app),"Freelance debe anunciar v465");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"180"/.test(web),"Sistema Web debe anunciar b180");
-prueba(/const CACHE = "freelance-v275"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"181"/.test(web),"Sistema Web debe anunciar b181");
+prueba(/const CACHE = "freelance-v276"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -68,6 +68,19 @@ prueba(/const ficha = cli \? \(vivoPed \? \(FICHA_VIVA_PED\[cli\]\|\|null\) : FI
 prueba(/PED_ESTADOS_PARIDAD/.test(web),"queda el ancla PED_ESTADOS_PARIDAD en la web");
 prueba(/\["ingresado","esperando_aprobacion","enviado_proveedor"\]\.includes\(pd\.estado_comercial \|\| pd\.estado\)/.test(web),"web · editable incluye enviado_proveedor (paridad con la app)");
 prueba(!/\["ingresado","esperando_aprobacion"\]\.includes\(pd\.estado_comercial \|\| pd\.estado\)/.test(web),"web · ya no queda el editable viejo sin enviado_proveedor");
+
+/* ── PED_EQUIV_OBLIGATORIA · equiv obligatoria (no-Quintal), tipo_precio por condición, cantidad decimal ── */
+prueba(/PED_EQUIV_OBLIGATORIA/.test(web)&&/PED_EQUIV_OBLIGATORIA/.test(app),"queda el ancla PED_EQUIV_OBLIGATORIA en web y app");
+prueba(/const equivInvalidaWeb = /.test(web),"web · existe el chequeo de equivalencia obligatoria para presentaciones no-Quintal");
+prueba(/const malaEquiv = carrito\.find\(equivInvalidaWeb\)/.test(web)&&/const malaEquiv = vivos\.find\(equivInvalidaWeb\)/.test(web),"web · el nuevo pedido y la edición cortan el guardado si falta la equivalencia");
+prueba(/const sinEquiv = items\.find\(it => \{ const u=String\(it\.prod\.unidad/.test(app),"freelance · el guardado de edición corta si una presentación no-Quintal no tiene equivalencia");
+prueba(/tipo_precio:l\.tipo\|\|\(l\.credito\?"P1":"P2"\)/.test(web),"web · el fallback de tipo_precio sale de la condición (crédito⇒P1, contado⇒P2)");
+prueba(!/tipo_precio:l\.tipo\|\|"P1"/.test(web),"web · ya no se fuerza tipo_precio P1 fijo al guardar la edición");
+prueba(/const tipo = it\.tipo_precio \|\| \(it\.condicion==="contado" \? "P2" : "P1"\);/.test(web),"web · al cargar la edición el tipo también sale de la condición real");
+prueba(/const cantNum = numDecWeb\(cant\)/.test(web)&&!/const cantNum = parseInt\(cant\)/.test(web),"web · la cantidad admite decimales (numDecWeb), no parseInt que trunca 12,5");
+prueba(/function equivDePresentacionWeb\(/.test(web),"web · existe equivDePresentacionWeb (no se enmascara la equivalencia faltante a 1)");
+prueba(/equiv: equivDePresentacionWeb\(o\.equiv_qq, pres\)/.test(web)&&!/unidad: pres, equiv: Number\(o\.equiv_qq\) \|\| 1/.test(web),"web · el catálogo del armador ya no hace Number(equiv_qq)||1 (una presentación no-Quintal sin equivalencia queda inválida)");
+prueba(/equiv: equivDePresentacionWeb\(prod\.equiv, prod\.unidad\)/.test(web),"web · agregarLinea conserva el equiv real (no lo re-enmascara a 1)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
