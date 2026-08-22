@@ -11,7 +11,7 @@ const probar = (ok, mensaje) => {
 };
 
 probar(/const VERSION = \{ n:"467"/.test(app), "la aplicación debe anunciar v467");
-probar(/const CACHE = "freelance-v280"/.test(sw), "el service worker debe renovar la caché a v280");
+probar(/const CACHE = "freelance-v281"/.test(sw), "el service worker debe renovar la caché a v281");
 
 probar(/className="busc-grande proveedor-destacado"/.test(app), "el buscador de proveedor debe estar resaltado");
 probar(/items=\{PROVS_PED\} sinLabel value=\{prov\} multiPalabra/.test(app), "el proveedor debe buscar por palabras sueltas");
