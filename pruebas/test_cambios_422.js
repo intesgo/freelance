@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"179"/.test(web),"Sistema Web debe anunciar b179");
-prueba(/const CACHE = "freelance-v274"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"180"/.test(web),"Sistema Web debe anunciar b180");
+prueba(/const CACHE = "freelance-v275"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -63,6 +63,11 @@ prueba(/usado: Math\.round\(\(usadoPorCli\[c\.cli_id\]\|\|0\)\*100\)\/100/.test(
 prueba(!/usado: c\.usado\|\|0/.test(web),"web · ya no se usa clientes.usado (columna en 0)");
 prueba(/estado ?=== ?"pendiente" && m\.es_demo ?=== ?false/.test(web)&&/estado ?=== ?"pendiente" && m\.es_demo ?=== ?false/.test(app),"solo cuenta cartera PENDIENTE y no demo (web y app)");
 prueba(/const ficha = cli \? \(vivoPed \? \(FICHA_VIVA_PED\[cli\]\|\|null\) : FICHA_CLIENTE\[cli\]\) : null;/.test(app),"app · en vivo el cupo sale de FICHA_VIVA_PED; FICHA_CLIENTE solo en demo");
+
+/* ── PED_ESTADOS_PARIDAD · la web edita en los mismos estados que la app y el RPC ── */
+prueba(/PED_ESTADOS_PARIDAD/.test(web),"queda el ancla PED_ESTADOS_PARIDAD en la web");
+prueba(/\["ingresado","esperando_aprobacion","enviado_proveedor"\]\.includes\(pd\.estado_comercial \|\| pd\.estado\)/.test(web),"web · editable incluye enviado_proveedor (paridad con la app)");
+prueba(!/\["ingresado","esperando_aprobacion"\]\.includes\(pd\.estado_comercial \|\| pd\.estado\)/.test(web),"web · ya no queda el editable viejo sin enviado_proveedor");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
