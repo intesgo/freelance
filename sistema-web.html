@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"195", fecha:"23 ago 2026", desc:"Pedidos ahora tiene 5 pestañas: Pendientes · En camino · Entregados · Anulados · 🔍 Trazabilidad, cada una con su número. La lista se filtra por estado (arranca en Pendientes). Además, en Logística al «Escoger pedidos» ya no aparecen los pedidos que el cliente retira en bodega (no van en la ruta). Es presentación: no cambia columnas, el modal, el orden ni el servidor." };
+const VERSION = { n:"196", fecha:"23 ago 2026", desc:"Cerramos la integridad del nombre del cliente en las pantallas que faltaban: Cobranza/cartera, Solicitudes y las Guías de Logística (viajes en curso, novedades y avisos). Persona natural → primer nombre + apellido en MAYÚSCULAS (ej. «DORA DIAZ»); empresa → su razón social. Una sola regla para todos, la misma de siempre. Es solo presentación." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2670,7 +2670,7 @@ function TrazabilidadWeb({ usuario }) {
         const { data: s } = await window.supa.auth.getSession();
         if (!s || !s.session) return;
         const { data, error } = await window.supa.from("viajes")
-          .select("viaje_id,ruta_nombre,transportista_id,placa,capacidad_qq,estado,salida,es_demo,usuarios(nombre),viaje_guias(guia_id,ped_id,orden_entrega,qq,estado_entrega,entregado_qq,entregado_en,receptor,clientes(nombre))")
+          .select("viaje_id,ruta_nombre,transportista_id,placa,capacidad_qq,estado,salida,es_demo,usuarios(nombre),viaje_guias(guia_id,ped_id,orden_entrega,qq,estado_entrega,entregado_qq,entregado_en,receptor,clientes(nombre,razon_social,tipo))")   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
           .order("salida", { ascending: false }).limit(100);
         if (error || !data || !data.length) return;
 
@@ -2691,7 +2691,7 @@ function TrazabilidadWeb({ usuario }) {
           placa: v.placa || "—", estado: v.estado || "—",
           salida: (v.salida || "").slice(0, 10), demo: !!v.es_demo,
           guias: (v.viaje_guias || []).sort((a, b) => (a.orden_entrega || 0) - (b.orden_entrega || 0)).map(g => ({
-            id: g.guia_id, cliente: (g.clientes && g.clientes.nombre) || "—", ped: g.ped_id || "—",
+            id: g.guia_id, cliente: (g.clientes && g.clientes.nombre) || "—", razon: (g.clientes && g.clientes.razon_social) || null, tipoCli: (g.clientes && g.clientes.tipo) || null, ped: g.ped_id || "—",
             qq: Number(g.qq) || 0, estado: g.estado_entrega || "—",
             entregado: g.entregado_en ? g.entregado_en.slice(0, 16).replace("T", " ") : null,
             receptor: g.receptor || null,
@@ -2718,7 +2718,7 @@ function TrazabilidadWeb({ usuario }) {
       try {
         const { data:vjs, error } = await window.supa.from("viajes")
           .select("viaje_id,ruta_nombre,salida,creado,estado,usuarios(nombre)," +
-                  "viaje_guias(guia_id,estado_entrega,clientes(nombre))")
+                  "viaje_guias(guia_id,estado_entrega,clientes(nombre,razon_social,tipo))")   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
           .eq("es_demo", false).in("estado", ["despachado"]);
         if (error || !vjs) { if (vivo) setGuiasAviso([]); return; }
         const hoy = hoyECWeb();
@@ -2735,7 +2735,7 @@ function TrazabilidadWeb({ usuario }) {
           const chofer = (v.usuarios && v.usuarios.nombre) || v.viaje_id;
           (v.viaje_guias || []).forEach(g => {
             if (g.estado_entrega !== "pendiente") return;
-            abiertas.push({ guia_id:g.guia_id, cliente:(g.clientes && g.clientes.nombre) || g.guia_id, chofer, dias });
+            abiertas.push({ guia_id:g.guia_id, cliente:(g.clientes && g.clientes.nombre) || g.guia_id, razon:(g.clientes && g.clientes.razon_social)||null, tipoCli:(g.clientes && g.clientes.tipo)||null, chofer, dias });
           });
         });
         if (!abiertas.length) { if (vivo) setGuiasAviso([]); return; }
@@ -2823,7 +2823,7 @@ function TrazabilidadWeb({ usuario }) {
             <div key={g.id} style={{ borderTop:"1px solid #eef6f0", marginTop:7, paddingTop:7 }}>
               <div style={{ display:"flex", justifyContent:"space-between", gap:8, fontSize:12.5,
                 color:COLOR.text, flexWrap:"wrap" }}>
-                <span><b className="num">{g.id}</b> · {g.cliente} · pedido {g.ped} · <b className="num">{g.qq} qq</b></span>
+                <span><b className="num">{g.id}</b> · {nombreClientePedido({cli:g.cliente,razon:g.razon,tipoCli:g.tipoCli})} · pedido {g.ped} · <b className="num">{g.qq} qq</b></span>
                 <span style={{ color: g.estado==="entregado" ? "#1e8449"
                   : g.estado==="novedad" ? "#c0392b" : g.estado==="parcial" ? "#b45309" : COLOR.muted, fontWeight:600 }}>
                   {g.estado}{g.entregado ? " · " + g.entregado + (g.receptor ? " · recibió " + g.receptor : "") : ""}</span>
@@ -3552,6 +3552,7 @@ function TrazabilidadWeb({ usuario }) {
     return {
       id: n.nov_id, viajeId: n.viaje_id || "—", guia: n.guia_id || "—",
       cliente: (n.clientes && n.clientes.nombre) || n.cli_id || "—",
+      razon: (n.clientes && n.clientes.razon_social) || null, tipoCli: (n.clientes && n.clientes.tipo) || null,   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
       prov: (n.proveedores && n.proveedores.nombre) || n.prov_cod || "—",
       tipo: n.tipo || "Novedad", detalle: n.detalle || "", cambios: null,
       foto: n.foto_url ? { quien: nombreReporta, origen: n.origen || "App", data: n.foto_url } : null,
@@ -3568,7 +3569,7 @@ function TrazabilidadWeb({ usuario }) {
     if (!s || !s.session) { setEstadoNov("sin_sesion"); return []; }
     const { data, error } = await window.supa.from("novedades")
       .select("nov_id,viaje_id,guia_id,cli_id,tipo,detalle,foto_url,reporto,estado,creado,origen,prov_cod," +
-              "respuesta,resuelto_en,resuelto_por,es_demo,clientes(nombre),proveedores(nombre),usuarios(nombre)")
+              "respuesta,resuelto_en,resuelto_por,es_demo,clientes(nombre,razon_social,tipo),proveedores(nombre),usuarios(nombre)")   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
       .eq("es_demo", false).order("creado", { ascending:false }).limit(300);
     if (error) { setEstadoNov("error"); toast("⚠ No se pudieron traer las novedades: " + (error.message||"")); return []; }
     const mapped = (data || []).map(mapNovViva);
@@ -3650,7 +3651,7 @@ function TrazabilidadWeb({ usuario }) {
     const f = hoyECWeb();
     const nId = "NV-" + String(Math.max(0, ...novedades.map(x=>parseInt(x.id.split("-")[1])||0)) + 1).padStart(4,"0");
     const regNv = {
-      id:nId, viajeId:n.viajeId, guia:n.guia, cliente:g.cliente||"—", prov:g.prov,
+      id:nId, viajeId:n.viajeId, guia:n.guia, cliente:g.cliente||"—", razon:g.razon||null, tipoCli:g.tipoCli||null, prov:g.prov,
       tipo:n.tipo, detalle:n.detalle.trim(),
       cambios: n.tipo==="Cambio de cantidad" ? n.cambios.map(c=>({ ...c, entregado:parseFloat(c.entregado)||0 })) : null,
       foto: n.foto ? { quien:usuario.nombre||usuario.rol, origen:"Sistema web", data:n.foto } : null,
@@ -3714,7 +3715,7 @@ function TrazabilidadWeb({ usuario }) {
             return (
               <div key={n.id} style={{ display:"grid", gridTemplateColumns:GN, gap:10, alignItems:"center", padding:"11px 16px", borderTop: i>0?`1px solid ${COLOR.border}`:"none", opacity:n.estado==="anulada"?0.55:1 }}>
                 <div><p className="num" style={{ fontSize:12.5, fontWeight:800, margin:0 }}>{n.id}</p><p className="num" style={{ fontSize:10.5, color:COLOR.muted, margin:0 }}>{n.fecha}</p></div>
-                <div><p style={{ fontSize:12.5, fontWeight:700, margin:0 }}>{n.cliente}</p><p className="num" style={{ fontSize:10.5, color:COLOR.muted, margin:0 }}>{n.viajeId} · {n.guia}</p></div>
+                <div><p style={{ fontSize:12.5, fontWeight:700, margin:0 }}>{nombreClientePedido({cli:n.cliente, razon:n.razon, tipoCli:n.tipoCli})}</p><p className="num" style={{ fontSize:10.5, color:COLOR.muted, margin:0 }}>{n.viajeId} · {n.guia}</p></div>
                 <div><p style={{ fontSize:12.5, fontWeight:700, margin:0 }}>{n.tipo}{n.foto?" 📷":""}</p><p style={{ fontSize:10.5, color:COLOR.muted, margin:0 }}>{n.detalle}</p></div>
                 <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                   {n.afecta.length===0 ? <span style={{ fontSize:11, color:COLOR.muted }}>—</span>
@@ -3909,7 +3910,7 @@ function TrazabilidadWeb({ usuario }) {
               Mientras no se cierre la parada, el flete no se paga. Llama al chofer para confirmar la entrega.</div>
             {guiasAviso.map(g => (
               <div key={g.guia_id} style={{ display:"flex", justifyContent:"space-between", gap:8, fontSize:12.5, color:COLOR.text, padding:"6px 0", borderTop:"1px solid #F3DDCB", flexWrap:"wrap" }}>
-                <span><b className="num">{g.guia_id}</b> · {g.cliente} · {g.chofer} · salió hace {g.dias} día{g.dias===1?"":"s"}</span>
+                <span><b className="num">{g.guia_id}</b> · {nombreClientePedido({cli:g.cliente, razon:g.razon, tipoCli:g.tipoCli})} · {g.chofer} · salió hace {g.dias} día{g.dias===1?"":"s"}</span>
                 <b className="num" style={{ color:"#9A4A22" }}>
                   {g.monto>0 ? fmtMontoFE(g.monto)+" en espera" : (g.faltaTarifa ? "falta tarifa" : "—")}
                   {g.monto>0 && g.faltaTarifa ? " · falta tarifa" : ""}
@@ -4305,7 +4306,7 @@ function TrazabilidadWeb({ usuario }) {
                   <label style={nvLbl}>Guía afectada *</label>
                   <select value={nvNueva.guia} disabled={!v} onChange={e=>setNvNueva(n=>({ ...n, guia:e.target.value, cambios: n.tipo==="Cambio de cantidad" ? armarCambios(n.viajeId, e.target.value) : null }))} style={nvInp}>
                     <option value="">Elegir…</option>
-                    {v && v.guias.map(g => <option key={g.guia} value={g.guia}>{g.cliente||"—"} · {g.guia}</option>)}
+                    {v && v.guias.map(g => <option key={g.guia} value={g.guia}>{nombreClientePedido({cli:g.cliente, razon:g.razon, tipoCli:g.tipoCli})} · {g.guia}</option>)}
                   </select>
                 </div>
               </div>
@@ -4365,7 +4366,7 @@ function TrazabilidadWeb({ usuario }) {
                 <h2 style={{ fontSize:17, fontWeight:800, margin:0 }} className="num">{n.id} · {n.tipo}</h2>
                 <button onClick={()=>setNvVer(null)} style={{ border:"none", background:"none", fontSize:22, color:COLOR.muted, cursor:"pointer" }}>×</button>
               </div>
-              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 10px" }} className="num">{n.viajeId} · {n.guia} · {n.cliente} · {n.prov} · reportó {n.quien} el {n.fecha}</p>
+              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 10px" }} className="num">{n.viajeId} · {n.guia} · {nombreClientePedido({cli:n.cliente, razon:n.razon, tipoCli:n.tipoCli})} · {n.prov} · reportó {n.quien} el {n.fecha}</p>
               <p style={{ fontSize:13, margin:"0 0 10px" }}><span style={nvChip(e.c)}>{e.t}</span></p>
               <p style={{ fontSize:12.5, color:COLOR.text, background:"#FDF6E3", borderRadius:8, padding:"8px 12px", margin:"0 0 12px" }}>{n.detalle}</p>
               {n.cambios && (
@@ -11097,7 +11098,7 @@ function CobranzaWeb({ usuario }) {
         const [{ data: yo }, { data: carts, error: e1 }, { data: cobs }] = await Promise.all([
           window.supa.from("usuarios").select("usr_id").eq("auth_uid", s.session.user.id).limit(1),
           window.supa.from("cartera_cliente")
-            .select("mov_id,cli_id,doc,emision,vence,monto,estado,clientes(nombre)")
+            .select("mov_id,cli_id,doc,emision,vence,monto,estado,clientes(nombre,razon_social,tipo)")   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
             .order("vence", { ascending: true }).limit(500),
           window.supa.from("cobros")
             .select("cobro_id,factura,cli_id,monto,via,cheque_numero,banco,referencia,creado,anulado,motivo_anulacion,registrado_por,usuarios(nombre)")
@@ -11107,7 +11108,9 @@ function CobranzaWeb({ usuario }) {
         if (yo && yo[0]) setMiUsr(yo[0].usr_id);
         setItems(carts.map(c => ({
           id: c.doc, movId: c.mov_id, cliId: c.cli_id, tipo: "Factura",
-          cliente: (c.clientes && c.clientes.nombre) || c.cli_id, prov: "—",
+          cliente: (c.clientes && c.clientes.nombre) || c.cli_id,
+          razon: (c.clientes && c.clientes.razon_social) || null, tipoCli: (c.clientes && c.clientes.tipo) || null,   /* NOMBRE_CLIENTE_INTEGRIDAD_2 · nombre canónico en pantalla; `cliente` queda crudo (se filtra por él) */
+          prov: "—",
           fecha: (c.emision || "").slice(0, 10), vence: (c.vence || "").slice(0, 10),
           total: Number(c.monto) || 0,
           detalle: "Movimiento " + c.mov_id + " · cartera real",
@@ -11452,7 +11455,8 @@ function CobranzaWeb({ usuario }) {
       const saldo = r2(its.reduce((s,it)=>s+saldoDe(it),0));
       const venc = r2(its.filter(it=>diasV(it)<0).reduce((s,it)=>s+saldoDe(it),0));
       const peor = Math.min(...its.map(diasV));
-      return { c, its, saldo, venc, peor };
+      const _r=its[0]||{};   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
+      return { c, razon:_r.razon||null, tipoCli:_r.tipoCli||null, its, saldo, venc, peor };
     }).sort((a,b)=>a.peor-b.peor);
     return (
       <div>
@@ -11468,7 +11472,7 @@ function CobranzaWeb({ usuario }) {
             const sem = x.venc>0 ? { t:"Vencido", c:"#c0392b" } : x.peor<=7 ? { t:"Por vencer", c:"#b07d1a" } : { t:"Al día", c:COLOR.green };
             return (
               <div key={x.c} style={{ display:"grid", gridTemplateColumns:G, gap:10, alignItems:"center", padding:"12px 16px", borderTop: i>0?`1px solid ${COLOR.border}`:"none" }}>
-                <span style={{ fontSize:13.5, fontWeight:800 }}>{x.c}</span>
+                <span style={{ fontSize:13.5, fontWeight:800 }}>{nombreClientePedido({cli:x.c, razon:x.razon, tipoCli:x.tipoCli})}</span>{/* NOMBRE_CLIENTE_INTEGRIDAD_2 */}
                 <span className="num" style={{ textAlign:"center", fontWeight:700 }}>{x.its.length}</span>
                 <b className="num" style={{ fontSize:14, textAlign:"right", color:COLOR.teal }}>{money(x.saldo)}</b>
                 <b className="num" style={{ fontSize:13, textAlign:"right", color:x.venc>0?"#c0392b":COLOR.muted }}>{x.venc>0?money(x.venc):"—"}</b>
@@ -11499,7 +11503,7 @@ function CobranzaWeb({ usuario }) {
           {visibles.map((a,i) => (
             <div key={a.id+a.item.id} style={{ display:"grid", gridTemplateColumns:GC, gap:10, alignItems:"center", padding:"11px 16px", borderTop: i>0?`1px solid ${COLOR.border}`:"none", fontSize:12.5, opacity:a.anulado?0.55:1 }}>
               <span className="num" style={{ color:COLOR.muted }}>{a.fecha}</span>
-              <span style={{ fontWeight:700 }}>{a.item.cliente}</span>
+              <span style={{ fontWeight:700 }}>{nombreClientePedido({cli:a.item.cliente, razon:a.item.razon, tipoCli:a.item.tipoCli})}</span>
               <span className="num" style={{ fontWeight:700 }}>{a.item.id}</span>
               <div><p style={{ margin:0, fontWeight:600 }}>{a.forma}</p>{a.ref && <p className="num" style={{ margin:0, fontSize:10.5, color:COLOR.muted }}>{a.ref}</p>}</div>
               <span style={{ color:COLOR.muted }}>{a.quien}</span>
@@ -11549,7 +11553,7 @@ function CobranzaWeb({ usuario }) {
         <div onClick={()=>setVerCli(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:620, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", padding:"22px 24px" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-              <h2 style={{ fontSize:17, fontWeight:800, margin:0 }}>{verCli}</h2>
+              <h2 style={{ fontSize:17, fontWeight:800, margin:0 }}>{nombreClientePedido({cli:verCli, razon:(items.find(it=>it.cliente===verCli)||{}).razon, tipoCli:(items.find(it=>it.cliente===verCli)||{}).tipoCli})}</h2>{/* NOMBRE_CLIENTE_INTEGRIDAD_2 */}
               <button onClick={()=>setVerCli(null)} style={{ border:"none", background:"none", fontSize:22, color:COLOR.muted, cursor:"pointer" }}>×</button>
             </div>
             {!soloLectura && (() => {
@@ -14567,7 +14571,7 @@ function SolicitudesWeb({ usuario }) {
           const m = {}; (provs || []).forEach(p => m[p.nombre] = p.prov_cod); setProvsMap(m);
         }).catch(() => {});
         const { data, error } = await window.supa.from("solicitudes")
-          .select("sol_id,tipo,origen_id,destino,prov_cod,cli_id,detalle,estado,motivo_resp,creado,resuelto_en,es_demo,usuarios(nombre),clientes(nombre),proveedores(nombre)")
+          .select("sol_id,tipo,origen_id,destino,prov_cod,cli_id,detalle,estado,motivo_resp,creado,resuelto_en,es_demo,usuarios(nombre),clientes(nombre,razon_social,tipo),proveedores(nombre)")   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
           .order("creado", { ascending: false }).limit(300);
         if (error || !data || !data.length) return;
         setSolics(data.map(x => ({
@@ -14577,6 +14581,7 @@ function SolicitudesWeb({ usuario }) {
           de: (x.usuarios && x.usuarios.nombre) || x.origen_id || "—",
           para: (x.proveedores && x.proveedores.nombre) || x.prov_cod || null,
           cliente: (x.clientes && x.clientes.nombre) || x.cli_id || "—",
+          razon: (x.clientes && x.clientes.razon_social) || null, tipoCli: (x.clientes && x.clientes.tipo) || null,   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
           detalle: x.detalle || "",
           fecha: (x.creado || "").slice(0, 10),
           estado: x.estado,
@@ -14678,7 +14683,7 @@ function SolicitudesWeb({ usuario }) {
         <span style={{ fontWeight:700 }}>{SOLIC_TIPOS[x.tipo]||x.tipo}</span>
         <div>
           <p style={{ margin:0, fontWeight:700 }}>{x.dir==="entrante" ? x.de : x.para}</p>
-          <p style={{ margin:0, fontSize:10.5, color:COLOR.muted }}>{x.dir==="entrante" ? "pide · cliente "+x.cliente : (x.cliente!=="—" ? "cliente "+x.cliente : "solicitud del Freelance")}</p>
+          <p style={{ margin:0, fontSize:10.5, color:COLOR.muted }}>{x.dir==="entrante" ? "pide · cliente "+nombreClientePedido({cli:x.cliente,razon:x.razon,tipoCli:x.tipoCli}) : (x.cliente!=="—" ? "cliente "+nombreClientePedido({cli:x.cliente,razon:x.razon,tipoCli:x.tipoCli}) : "solicitud del Freelance")}</p>{/* NOMBRE_CLIENTE_INTEGRIDAD_2 */}
         </div>
         <div>
           <p style={{ margin:0 }}>{x.detalle}</p>

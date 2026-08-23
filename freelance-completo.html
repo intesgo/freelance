@@ -6127,7 +6127,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"472", fecha:"23 ago 2026", desc:"El nombre del cliente se muestra parejo en más pantallas: persona natural → primer nombre + apellido en MAYÚSCULAS (ej. «DORA DIAZ»); empresa → su razón social. Ahora también en el detalle y los modales de Pedidos (anular/revivir/¿cómo pagas?) y en la Cotización en pantalla. Una sola regla para todos. Es solo presentación." };
+const VERSION = { n:"473", fecha:"23 ago 2026", desc:"Cerramos la integridad del nombre del cliente en las pantallas que faltaban: Cobranza/cartera, Solicitudes, Novedades, Agenda, Notas de crédito, Arranque y las Comisiones. Persona natural → primer nombre + apellido en MAYÚSCULAS (ej. «DORA DIAZ»); empresa → su razón social. Una sola regla para todos, la misma de siempre. Es solo presentación." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -12259,7 +12259,7 @@ function ComisionPiladora({toast}){
               {detalle && detalle.map(d=>(
                 <div key={d.ped} style={{borderTop:"1px solid #EFEBE0",padding:"8px 0"}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5}}>
-                    <span style={{fontWeight:700,minWidth:0}}>{d.cli}</span>
+                    <span style={{fontWeight:700,minWidth:0}}>{nombreClientePedido(d)}</span>
                     <span className="num" style={{fontWeight:800,color:"var(--field)",whiteSpace:"nowrap"}}>{money(d.comision)}</span>
                   </div>
                   <div className="meta" style={{fontSize:11}}>
@@ -12521,7 +12521,7 @@ function Arranque({toast}){
               setNuevo({...nuevo,cli:e.target.value});
             }}>
               <option value="">Elige un cliente…</option>
-              {ordUso("clientes",((d&&d.clientes)||[])).map(c=>(<option key={c.id} value={c.id}>{c.nombre}</option>))}
+              {ordUso("clientes",((d&&d.clientes)||[])).map(c=>(<option key={c.id} value={c.id}>{nombreClientePedido(c)}</option>))}{/* NOMBRE_CLIENTE_INTEGRIDAD_2 */}
             </select></div>
           <div className="field"><label>¿Cuánto te debe?</label>
             <input type="number" inputMode="decimal" step="0.01" value={nuevo.monto}
@@ -12637,7 +12637,7 @@ function NotasCredito({toast}){
     {pend.map(n=>(
       <div className="card" key={n.id} style={{padding:"14px 16px",marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
-          <span style={{fontWeight:800,fontSize:14.5,minWidth:0}}>{n.cli}</span>
+          <span style={{fontWeight:800,fontSize:14.5,minWidth:0}}>{nombreClientePedido(n)}</span>{/* NOMBRE_CLIENTE_INTEGRIDAD_2 */}
           <span className="num" style={{fontWeight:800,fontSize:16,color:"#C2603A",whiteSpace:"nowrap"}}>−{money(n.valor)}</span>
         </div>
         <div className="meta" style={{fontSize:11.5,marginTop:2}}>
@@ -12665,7 +12665,7 @@ function NotasCredito({toast}){
       {resto.map(n=>(
         <div className="card" key={n.id} style={{padding:"12px 14px",marginBottom:8}}>
           <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
-            <span style={{fontWeight:700,fontSize:13.5,minWidth:0}}>{n.cli}</span>
+            <span style={{fontWeight:700,fontSize:13.5,minWidth:0}}>{nombreClientePedido(n)}</span>
             <span className="num" style={{fontWeight:700,fontSize:13.5,whiteSpace:"nowrap",
               color:n.estado==="rechazada"?"var(--muted)":"#C2603A",
               textDecoration:n.estado==="rechazada"?"line-through":"none"}}>−{money(n.valor)}</span>
@@ -12687,7 +12687,7 @@ function NotasCredito({toast}){
       <div className="ov" onClick={()=>setRechazando(null)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Rechazar la nota de crédito</h3>
-          <div className="sh-sub">{rechazando.cli} · {rechazando.producto} · {money(rechazando.valor)}</div>
+          <div className="sh-sub">{nombreClientePedido(rechazando)} · {rechazando.producto} · {money(rechazando.valor)}</div>
           <div className="field"><label>¿Por qué?</label>
             <textarea rows={3} value={motivo} onChange={e=>setMotivo(e.target.value)}
               placeholder="La piladora lo va a leer tal cual"/></div>
@@ -13078,8 +13078,9 @@ function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura})
     const fsChip=facturas.filter(f=>f.cli===cli);
     const todasCli=base.filter(f=>f.cli===cli);
     const vencCli=fsChip.filter(f=>f.dias>0).reduce((s,f)=>s+f.saldo,0);
+    const _r=fsChip[0]||todasCli[0]||{};   /* NOMBRE_CLIENTE_INTEGRIDAD_2 · razon/tipo del cliente del grupo */
     return {
-      cli,
+      cli, razon:_r.razon||null, tipoCli:_r.tipoCli||null,
       saldoTotal: todasCli.reduce((s,f)=>s+f.saldo,0),   // toda la deuda del cliente
       saldoVenc: chipSel.k==="Todos" ? vencCli : fsChip.reduce((s,f)=>s+f.saldo,0), // vencido real en Todos; tramo completo si es un tramo
       diasMax: Math.max(...fsChip.map(f=>f.dias),0),
@@ -13127,7 +13128,7 @@ function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura})
         <div className="card" key={i} style={{padding:"11px 12px",marginBottom:8}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"center"}}>
             <span style={{minWidth:0,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {c.cli}{c.nFac>1 && <span className="meta" style={{fontWeight:600,fontSize:10.5}}> · {c.nFac} fac.</span>}</span>
+              {nombreClientePedido(c)}{c.nFac>1 && <span className="meta" style={{fontWeight:600,fontSize:10.5}}> · {c.nFac} fac.</span>}</span>
             <span className="num" style={{textAlign:"right",width:84,fontSize:13,fontWeight:700,color:chipSel.color}}>{money(c.saldoVenc)}</span>
             <span className="num" style={{textAlign:"right",width:44,fontSize:12.5,fontWeight:700}}>{c.diasMax>0?c.diasMax:"—"}</span>
           </div>
@@ -13138,7 +13139,7 @@ function AgingDetalle({tramos, tramoIni, base, totalCartera, volver, onFactura})
           style={{display:"block",width:"100%",padding:"11px 12px",marginBottom:8,textAlign:"left",cursor:"pointer",fontFamily:"inherit",border:"1px solid var(--line)"}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"center"}}>
             <span style={{minWidth:0}}>
-              <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.cli}</span>
+              <span style={{display:"block",fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(f)}</span>
               <span className="meta" style={{fontSize:10}}>Fact. {(f.fac||"").replace(/^001-001-/,"")}</span>
             </span>
             <span className="num" style={{textAlign:"right",width:84,fontSize:13,fontWeight:700,color:chipSel.color}}>{money(f.saldo)}</span>
@@ -13233,9 +13234,10 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
     return {v, total:tot, vencido:ven, mor:tot>0?Math.round(ven/tot*100):0, n:fs.length};
   }).sort((a,b)=>b.vencido-a.vencido);
   const topDeudores=[...base].filter(i=>i.dias>0).sort((a,b)=>b.saldo-a.saldo).slice(0,4);
-  const porCliente=Array.from(new Set(base.map(i=>i.cli))).map(c=>({
-    cli:c, monto:base.filter(i=>i.cli===c).reduce((s,i)=>s+i.saldo,0)
-  })).sort((a,b)=>b.monto-a.monto);
+  const porCliente=Array.from(new Set(base.map(i=>i.cli))).map(c=>{
+    const _r=base.find(i=>i.cli===c)||{};   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
+    return { cli:c, razon:_r.razon||null, tipoCli:_r.tipoCli||null, monto:base.filter(i=>i.cli===c).reduce((s,i)=>s+i.saldo,0) };
+  }).sort((a,b)=>b.monto-a.monto);
   const concentracion=totalCartera>0?Math.round((porCliente.slice(0,2).reduce((s,c)=>s+c.monto,0))/totalCartera*100):0;
   const proximos=base.filter(i=>i.dias<0&&i.dias>=-7).sort((a,b)=>b.dias-a.dias);
 
@@ -13349,7 +13351,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
             {proximos.slice(0,3).map((p,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",gap:6}}>
                 <span style={{fontSize:10,color:"var(--muted)",overflow:"hidden",
-                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(p)}</span>
                 <span className="num" style={{fontSize:10,flexShrink:0}}>en {Math.abs(p.dias)}d</span>
               </div>
             ))}
@@ -13368,7 +13370,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
                 <div key={i}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:2}}>
                     <span style={{fontSize:10,fontWeight:600,overflow:"hidden",
-                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.cli}</span>
+                      textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(d)}</span>
                     <span className="num" style={{fontSize:10,flexShrink:0}}>{money(d.saldo)}</span>
                   </div>
                   <span style={{display:"block",height:5,borderRadius:3,background:"#EFEBE0",overflow:"hidden"}}>
@@ -13545,7 +13547,7 @@ function Cartera({toast, onCobrar, clienteIni, onClienteConsumido}){
           style={{cursor:"pointer",borderLeft:`4px solid ${barra}`,background:fondo}}>
           <div className="row" style={{alignItems:"flex-start"}}>
             <div style={{minWidth:0,flex:1}}>
-              <div className="cli" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.cli}</div>
+              <div className="cli" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(it)}</div>
               {it.chequeDevuelto && <div style={{marginTop:3}}><span className="chq-badge">⚠️ Cheque devuelto</span></div>}
               <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
                 <span className="meta" style={{fontSize:11,flexShrink:0}}>{it.vendedor}</span>
@@ -14235,15 +14237,15 @@ function cargarCarteraReal(){
            arranque y tienen que verse. Se traen con su emisión para poder
            rotularlos. */
         window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,emision,vence,monto,estado").limit(2000),
-        window.SB.from("clientes").select("cli_id,nombre,razon_social,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito").limit(2000),
+        window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 · tipo para el nombre canónico */
         window.SB.from("usuarios").select("usr_id,nombre").limit(500),
         window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,contacto_nombre,principal").limit(2000),
         window.SB.from("pedidos").select("ped_id,cli_id,creado").limit(2000),
       ]);
       const movs = (rk && rk.data) || [];
       if(!movs.length) return null;
-      const nCli = {}, subCli = {}, nUsr = {};
-      ((rc && rc.data) || []).forEach(c=>{ nCli[c.cli_id]=c.nombre; subCli[c.cli_id]=c.sub_id; });
+      const nCli = {}, nRz = {}, nTipo = {}, subCli = {}, nUsr = {};
+      ((rc && rc.data) || []).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; subCli[c.cli_id]=c.sub_id; });
       /* los nombres de verdad: sin esto el asistente no reconoce a nadie al oírlo */
       _clientesVivos = ((rc && rc.data) || []).map(c=>c.nombre).filter(Boolean);
       ((rc && rc.data) || []).forEach(c=>{ if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
@@ -14258,6 +14260,7 @@ function cargarCarteraReal(){
           const em = String(m.emision || "").slice(0,10);
           return {
             cli: nCli[m.cli_id] || m.cli_id,
+            razon: nRz[m.cli_id]||null, tipoCli: nTipo[m.cli_id]||null,   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
             fac: m.doc || "—",
             saldo: Number(m.monto || 0),
             dias: v ? Math.round((hoy - v) / 86400000) : 0,
@@ -17953,7 +17956,7 @@ function Agenda({toast, verCliente, datos}){
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",alignItems:"center",gap:7}}>
               <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,overflow:"hidden",
-                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.cli}</span>
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(t)}</span>
               <span style={{flexShrink:0,fontSize:9.5,fontWeight:700,padding:"2px 7px",borderRadius:7,
                 background:es.bg,color:es.col}}>{es.t}</span>
             </div>
@@ -18033,7 +18036,7 @@ function Agenda({toast, verCliente, datos}){
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:9,borderTop:"1px dashed #E0DBCE"}}>
           <Ico n="reloj" c="#C9A227" s={15}/>
           <span style={{flex:1,minWidth:0,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            <b>Próxima {proxima.hora}</b> · {proxima.cli}</span>
+            <b>Próxima {proxima.hora}</b> · {nombreClientePedido(proxima)}</span>
         </div>
       )}
     </div>
@@ -18102,7 +18105,7 @@ function Agenda({toast, verCliente, datos}){
                 display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <Ico n={tp.ico} c={tp.col} s={18}/></span>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:800,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.cli}</div>
+                <div style={{fontWeight:800,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(sel)}</div>
                 <div className="meta" style={{fontSize:11}}>{sel.tipo} · {fAmable(sel.fecha)}{sel.hora?" · "+sel.hora:""}</div>
               </div>
               <span style={{flexShrink:0,fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:7,
@@ -18142,7 +18145,7 @@ function Agenda({toast, verCliente, datos}){
       <div className="ov" onClick={()=>setCompletando(null)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Completar actividad</h3>
-          <div className="meta" style={{marginBottom:12}}>{completando.tipo} · {completando.cli}</div>
+          <div className="meta" style={{marginBottom:12}}>{completando.tipo} · {nombreClientePedido(completando)}</div>
 
           {completando.tipo==="Visita" && (<>
             <div><div className="ficha-sec" style={{marginBottom:6}}>Resultado de la visita *</div>
@@ -18204,7 +18207,7 @@ function Agenda({toast, verCliente, datos}){
       <div className="ov" onClick={()=>setReprog(null)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Reprogramar</h3>
-          <div className="meta" style={{marginBottom:12}}>{reprog.cli} · actual {fAmable(reprog.fecha)}</div>
+          <div className="meta" style={{marginBottom:12}}>{nombreClientePedido(reprog)} · actual {fAmable(reprog.fecha)}</div>
           <div className="field"><label>Nueva fecha *</label>
             <input type="date" value={nuevaFechaR} onChange={e=>setNuevaFechaR(e.target.value)}/></div>
           <div className="field" style={{marginTop:10}}><label>Motivo *</label>
@@ -18220,7 +18223,7 @@ function Agenda({toast, verCliente, datos}){
       <div className="ov" onClick={()=>setNoReal(null)}>
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>No realizada</h3>
-          <div className="meta" style={{marginBottom:12}}>{noReal.cli} · {fAmable(noReal.fecha)}</div>
+          <div className="meta" style={{marginBottom:12}}>{nombreClientePedido(noReal)} · {fAmable(noReal.fecha)}</div>
           <div><div className="ficha-sec" style={{marginBottom:6}}>¿Por qué no se realizó? *</div>
             <FiltroBuscador cat="motivosVisita" items={["Local cerrado","No estaba el encargado","Falta de tiempo","Cliente canceló","Otro"]}
               value={motivoR||""} onPick={v=>setMotivoR(v==="__"?"":v)}
@@ -19097,7 +19100,8 @@ async function vivoComisionDetalle(mesISO, provCod, practica){
       { p_mes: mesISO, p_prov: provCod, p_demo: !!practica });
     if(error || !data) return null;
     return data.map(d=>({
-      ped:d.ped_id, cli:d.cliente, dia:d.dia_cobro, pago:d.pago_prov,
+      ped:d.ped_id, cli:d.cliente, razon:d.razon_social||null, tipoCli:d.tipo||null, ruc:d.ruc||null,   /* NOMBRE_CLIENTE_INTEGRIDAD_2 · la vista v_comisiones_app ya trae razon_social/tipo/ruc */
+      dia:d.dia_cobro, pago:d.pago_prov,
       qq:Number(d.qq||0), venta:Number(d.venta||0), costo:Number(d.costo||0),
       comision:Number(d.comision||0), gratis:Number(d.gratis_qq||0),
       sinCosto:Number(d.sin_costo||0), qqPedido:Number(d.qq_pedido||0),
@@ -19117,20 +19121,20 @@ async function vivoNotasCredito(){
       desdeArranque(window.SB.from("notas_credito").select("*"), "creado")
         .eq("tipo","fiscal").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedidos").select("ped_id,cli_id,prov_cod,factura").limit(2000),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
       window.SB.from("pedido_items").select("item_id,descripcion").limit(3000),
     ]);
     const ns=(rn&&rn.data)||[]; if(!ns.length) return null;
-    const ped={}, nCli={}, nIt={};
+    const ped={}, nCli={}, nRz={}, nTipo={}, nIt={};
     ((rp&&rp.data)||[]).forEach(p=>{ ped[p.ped_id]=p; });
-    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     ((ri&&ri.data)||[]).forEach(i=>{ nIt[i.item_id]=i.descripcion; });
     const DE={ vendedor:"el vendedor", socio:"el socio comercial",
                freelance:"ti", proveedor:"la piladora, por su cuenta" };
     return ns.map(n=>{
       const p=ped[n.ped_id]||{};
       return { id:n.nc_id, ped:n.ped_id, factura:p.factura||"",
-        cli:nCli[p.cli_id]||p.cli_id||"Cliente", producto:nIt[n.item_id]||n.item_id,
+        cli:nCli[p.cli_id]||p.cli_id||"Cliente", razon:nRz[p.cli_id]||null, tipoCli:nTipo[p.cli_id]||null, producto:nIt[n.item_id]||n.item_id,
         qq:Number(n.qq||0), valor:Number(n.valor||0), motivo:n.motivo||"",
         origen:n.origen, deQuien:DE[n.origen]||n.origen, afecta:!!n.afecta_comision,
         estado:n.estado, motivoResp:n.motivo_resp||"", numero:n.numero||"",
@@ -19159,7 +19163,7 @@ async function vivoArranque(){
     const [rc, ri, rcl] = await Promise.all([
       window.SB.from("cierres").select("*").order("hasta",{ascending:false}).limit(60),
       window.SB.from("config_sistema").select("clave,valor").eq("clave","inicio_operacion"),
-      window.SB.from("clientes").select("cli_id,nombre,es_demo").order("nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo,es_demo").order("nombre").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
     ]);
     /* Sin sesión no hay clientes reales que listar: esta pantalla no tiene
        versión de práctica, porque marcar un arranque falso sería peor que
@@ -19178,7 +19182,7 @@ async function vivoArranque(){
         hasta:String(c.hasta||""), cartera:Number(c.total_cartera||0),
         comisiones:Number(c.total_comisiones||0), notas:c.notas||"",
         cuando:soloDia(c.cerrado_en) })),
-      clientes: clis.map(c=>({ id:c.cli_id, nombre:c.nombre })),
+      clientes: clis.map(c=>({ id:c.cli_id, nombre:c.nombre, razon:c.razon_social||null, tipoCli:c.tipo||null })),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
     };
   }catch(e){ return null; }
 }
@@ -19218,13 +19222,13 @@ async function vivoSolicitudes(){
     const [rs, ru, rc, rv] = await Promise.all([
       window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("usuarios").select("usr_id,nombre,rol").limit(500),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
       window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
     ]);
     const sols=rs&&rs.data; if(!sols || !sols.length) return null;
-    const usr={}, nCli={}, nProv={};
+    const usr={}, nCli={}, nRz={}, nTipo={}, nProv={};
     ((ru&&ru.data)||[]).forEach(u=>{ usr[u.usr_id]=u; });
-    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
     const CARGO={ comisionista:"Comisionista", freelance:"Freelance", proveedor:"Proveedor",
                   socio:"Socio comercial", transportista:"Transportista", admin:"Administrador" };
@@ -19236,7 +19240,7 @@ async function vivoSolicitudes(){
         cargo:CARGO[de.rol]||de.rol||"—",
         tipo: ({anular_pedido:"Anular pedido"})[s.tipo] || s.tipo,
         tipoRaw: s.tipo, pedId: s.ped_id||"",
-        cli:nCli[s.cli_id]||"", proveedor:nProv[s.prov_cod]||"",
+        cli:nCli[s.cli_id]||"", razon:nRz[s.cli_id]||null, tipoCli:nTipo[s.cli_id]||null, proveedor:nProv[s.prov_cod]||"",
         detalle:s.detalle||"", fecha:selloCorto(s.creado), estado:s.estado,
         prioridad:"normal",
         d:{ motivo:s.detalle||"", respuesta:s.motivo_resp||"" },
@@ -19288,12 +19292,12 @@ async function vivoNovedades(){
   try{
     const [rn, rc] = await Promise.all([
       window.SB.from("novedades").select("*").order("creado",{ascending:false}).limit(200),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
     ]);
     const novs=rn&&rn.data; if(!novs || !novs.length) return null;
-    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     return novs.map(n=>({
-      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", tipo:n.tipo||"producto",
+      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", razon:nRz[n.cli_id]||null, tipoCli:nTipo[n.cli_id]||null, tipo:n.tipo||"producto",
       detalle:n.detalle||"", fecha:selloCorto(n.creado),
       estado:NOV_ESTADO_BD[n.estado]||"enviada",
       origen:n.origen||"entrega", monto:n.monto?Number(n.monto):null,
@@ -19348,23 +19352,25 @@ async function vivoAgenda(){
     const hoy=hoyISO();
     const [ra, rc, rk, rp] = await Promise.all([
       window.SB.from("agenda_actividades").select("*").order("fecha").limit(500),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_2 */
       window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(500),
       window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,barrio,principal").limit(2000),
     ]);
-    const nCli={}, ubi={};
-    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}, ubi={};
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     ((rp&&rp.data)||[]).forEach(u=>{ if(!ubi[u.cli_id]||u.principal) ubi[u.cli_id]=[u.ciudad,u.barrio].filter(Boolean).join(", "); });
 
     const propias=((ra&&ra.data)||[]).filter(a=>!yo || !a.usr_id || a.usr_id===yo.usr_id);
     const lista=propias.map(_actDeFila);
+    /* NOMBRE_CLIENTE_INTEGRIDAD_2 · razon/tipo para el nombre canónico en pantalla; `cli` queda crudo (se persiste al guardar la actividad) */
+    lista.forEach(t=>{ if(t.cli_id){ t.razon=nRz[t.cli_id]||null; t.tipoCli=nTipo[t.cli_id]||null; } });
 
     /* sugerencia: cobros cuya factura vence hoy o ya venció */
     const cart=((rk&&rk.data)||[]).filter(m=>m.estado!=="pagada" && m.vence && soloDia(m.vence)<=hoy);
     cart.slice(0,12).forEach((m,i)=>{
       const act="SG-"+m.mov_id;
       if(lista.some(t=>t.act_id===act)) return;
-      lista.push({ id:2000+i, act_id:act, cli:nCli[m.cli_id]||m.cli_id||"—", cli_id:m.cli_id,
+      lista.push({ id:2000+i, act_id:act, cli:nCli[m.cli_id]||m.cli_id||"—", razon:nRz[m.cli_id]||null, tipoCli:nTipo[m.cli_id]||null, cli_id:m.cli_id,
         fecha:hoy, hora:"", tipo:"Cobro",
         objetivo:"Sugerido · cobrar "+(m.doc||"factura")+" ($"+Number(m.monto||0).toFixed(2)+")",
         ubic:ubi[m.cli_id]||"", estado:"pendiente", dur:20, recordatorio:15, sug:true });
@@ -19519,7 +19525,7 @@ function Novedades({toast, go, datos}){
             background:n.estado==="aprobada"?"var(--card)":"#FDF6F3"}}>
             <div className="row" style={{alignItems:"center"}}>
               <div style={{flex:1,minWidth:0}}>
-                <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.cli||n.tipo}</div>
+                <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.cli ? nombreClientePedido(n) : n.tipo}</div>
                 <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.detalle||n.t}</div></div>
               <span className={"chip "+(n.estado==="aprobada"?"c-ok":"c-bad")} style={{flexShrink:0,marginLeft:8}}><span className="d"></span>{n.estado==="aprobada"?"Aprobada":"Rechazada"}</span>
             </div>
@@ -19535,7 +19541,7 @@ function Novedades({toast, go, datos}){
           <div className="card" key={"ent"+i} style={{padding:"11px 13px",marginBottom:8,
             borderLeft:"4px solid #D98324"}}>
             <div style={{flex:1,minWidth:0}}>
-              <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.cli}</div>
+              <div className="cli" style={{fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(n)}</div>
               <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
             </div>
           </div>
@@ -21332,7 +21338,7 @@ function Solicitudes({toast, verCliente, datos}){
                 background:es.bg,color:es.col}}>{es.t}</span>
             </div>
             <div style={{fontSize:13.5,fontWeight:700,marginTop:2,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.cli}</div>
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(s)}</div>
             <div className="meta" style={{fontSize:10.5,marginTop:2}}>
               {s.sc?`${s.sc} · `:""}{s.fecha}
               {alerta && <span style={{color:"#C2603A",fontWeight:700}}> · {s.prioridad==="urgente"?"urgente":"sin respuesta"}</span>}
@@ -21497,7 +21503,7 @@ function Solicitudes({toast, verCliente, datos}){
     if(s.tipo==="muestras"){
       return (<>
         <Sec>Cliente</Sec>
-        <F k="Nombre" v={d.nombre||s.cli}/>
+        <F k="Nombre" v={d.nombre||nombreClientePedido(s)}/>
         <F k="Cédula o RUC" v={d.ruc||"—"}/>
         <F k="Dirección" v={d.direccion||"—"}/>
         <F k="Teléfono" v={d.tel||"—"}/>
@@ -21612,7 +21618,7 @@ function Solicitudes({toast, verCliente, datos}){
                 background:es.bg,color:es.col}}>{es.t}</span>
             </div>
 
-            <F k="Cliente" v={sel.cli} destac/>
+            <F k="Cliente" v={nombreClientePedido(sel)} destac/>
             <F k="Solicitante" v={sel.sc?`${sel.sc} · ${sel.cargo||""}`:(sel.proveedor||"—")}/>
             <F k="Fecha" v={sel.fecha}/>
             <F k="Nivel de aprobación" v={sel.nivel}/>
@@ -21670,7 +21676,7 @@ function Solicitudes({toast, verCliente, datos}){
             : accion==="rechazar"?"Rechazar solicitud"
             : accion==="correccion"?"Solicitar corrección"
             : "Añadir comentario"}</h3>
-          <div className="meta" style={{marginBottom:12}}>{sel&&sel.num} · {sel&&sel.cli}</div>
+          <div className="meta" style={{marginBottom:12}}>{sel&&sel.num} · {sel&&nombreClientePedido(sel)}</div>
 
           {accion==="aprobar" && (
             <div style={{background:"#E4F1E9",borderRadius:10,padding:"10px 12px",marginBottom:12,
@@ -21780,7 +21786,7 @@ function Solicitudes({toast, verCliente, datos}){
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Eliminar borrador</h3>
           <div className="meta" style={{fontSize:12.5,lineHeight:1.5,marginTop:6}}>
-            Se elimina <b>{borrAEliminar.num}</b> de {borrAEliminar.cli}. No se puede recuperar.
+            Se elimina <b>{borrAEliminar.num}</b> de {nombreClientePedido(borrAEliminar)}. No se puede recuperar.
           </div>
           <button className="cta" style={{marginTop:14,background:"#C2603A"}}
             onClick={()=>eliminarBorrador(borrAEliminar)}>Sí, eliminar</button>
@@ -21796,7 +21802,7 @@ function Solicitudes({toast, verCliente, datos}){
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Ya existe una solicitud activa</h3>
           <div className="meta" style={{fontSize:12.5,lineHeight:1.5,marginTop:6}}>
-            Para <b>{avisoDup.cli}</b> ya hay una solicitud de <b>{tipoDe(avisoDup.tipo).t}</b> esperando
+            Para <b>{nombreClientePedido(avisoDup)}</b> ya hay una solicitud de <b>{tipoDe(avisoDup.tipo).t}</b> esperando
             respuesta. Puedes revisarla antes de enviar otra.
           </div>
 
