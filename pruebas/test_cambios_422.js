@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"189"/.test(web),"Sistema Web debe anunciar b189");
-prueba(/const CACHE = "freelance-v291"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"190"/.test(web),"Sistema Web debe anunciar b190");
+prueba(/const CACHE = "freelance-v292"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -170,9 +170,19 @@ prueba((web.match(/const nombreClientePedido = \(p\) =>/g)||[]).length === 1,"no
 prueba(/ped_id,numero_pedido,factura,creado,cli_id,estado,estado_logistico/.test(web),"logística · el select trae numero_pedido");
 prueba(/clientes\(nombre,razon_social,tipo,ubicaciones_cliente/.test(web),"logística · el join de clientes trae razon_social y tipo (para el nombre de persona)");
 prueba(/numero: p\.numero_pedido \|\| null,/.test(web)&&/razon: \(p\.clientes && p\.clientes\.razon_social\) \|\| null,/.test(web)&&/tipoCli: \(p\.clientes && p\.clientes\.tipo\) \|\| null,/.test(web),"logística · el mapeo expone numero, razon y tipoCli del pedido");
-prueba(/textTransform:"uppercase", margin:0 \}\}>\{nombreClientePedido\(p\)\}<\/p>/.test(web),"logística · el item de cliente usa nombreClientePedido en mayúsculas");
+prueba(/textTransform:"uppercase"[^>]*>\{nombreClientePedido\(p\)\}<\/span>/.test(web),"logística · el item de cliente usa nombreClientePedido en mayúsculas");
 prueba(/>\{p\.numero \|\| p\.id\}<\/span>/.test(web),"logística · el item muestra el número de pedido (p.numero || p.id)");
 prueba(/<Ico name="mapPin" size=\{18\} color=\{COLOR\.tealDark\} \/>/.test(web),"logística · el encabezado de ciudad lleva el pin vectorial (mapPin) del molde");
+
+/* ── DISENO_LOGISTICA_FILA_DATOS · la fila trae fecha/días/piladora/vendedor en una sola línea, y hay orden «Más recientes» ── */
+prueba(/DISENO_LOGISTICA_FILA_DATOS/.test(web),"queda el ancla DISENO_LOGISTICA_FILA_DATOS");
+prueba(/creado: p\.creado,/.test(web)&&/prov: \(p\.proveedores && p\.proveedores\.nombre\)/.test(web),"logística · el mapeo expone creado (fecha) y prov (piladora) por fila");
+prueba(/const fmtFechaLog = \(iso\) =>/.test(web)&&/const diasDeLog = \(iso\) =>/.test(web),"logística · existen los helpers de fecha (fmtFechaLog) y días (diasDeLog)");
+prueba(/fmtFechaLog\(p\.creado\)/.test(web)&&/diasDeLog\(p\.creado\)/.test(web),"logística · la fila muestra la fecha de ingreso y los días");
+prueba(/Piladora <b[^>]*>\{p\.prov\}/.test(web)&&/Vendedor <b[^>]*>\{p\.sc\}/.test(web),"logística · la fila muestra la piladora (p.prov) y el vendedor (p.sc)");
+prueba(/name="calendar"/.test(web)&&/name="clock"/.test(web)&&/name="warehouse"/.test(web)&&/name="user"/.test(web),"logística · la fila usa iconos Lucide (calendar, clock, warehouse, user)");
+prueba(/minWidth:920/.test(web),"logística · la fila tiene min-width para deslizarse en horizontal en pantallas angostas");
+prueba(/\["fecha","↓ Más recientes"\]/.test(web)&&/ordenP1==="fecha"/.test(web),"logística · existe el orden «↓ Más recientes» (por fecha de ingreso)");
 
 /* ── PED_NOMBRE_PERSONA · la lista de Pedidos de las 3 apps móviles muestra el nombre de persona en MAYÚSCULAS ── */
 prueba(/function nombreClientePedido\(p\)\{/.test(app)&&/function nombreClientePedido\(p\)\{/.test(comi)&&/function nombreClientePedido\(p\)\{/.test(socio),"las 3 apps definen el helper nombreClientePedido (mismo criterio que el Sistema Web)");
