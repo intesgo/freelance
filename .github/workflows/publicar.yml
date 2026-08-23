@@ -17,12 +17,27 @@ jobs:
     steps:
       - name: Traer el fuente
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # dos commits: para diferenciar HEAD^..HEAD (qué archivos cambió este push)
 
       - name: Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'   # reusa el caché de npm (hay package-lock.json): npm ci baja de ~1-2 min a segundos
+
+      # ══ Chequeo rápido de versión (13 ago) · corre en SEGUNDOS, antes de npm ci y de la batería ══
+      # Si tocaste una app o sw.js pero NO subiste VERSION.n / CACHE respecto de lo YA publicado,
+      # se detiene AQUÍ (no espera ~6 min de pruebas) y avisa: publicar sin subir esos números deja
+      # el cambio invisible (la barra «Actualizar» no sale). Reglas del CLAUDE.md §4.
+      # Falla-cerrado solo ante un problema confirmado; ante cualquier duda de infra, deja pasar.
+      - name: Chequeo rápido de versión (falla en segundos)
+        run: |
+          git fetch origin gh-pages --depth=1 || true
+          CHANGED="$(git diff --name-only HEAD^ HEAD 2>/dev/null || true)" \
+          LIVE_VERSION="$(git show FETCH_HEAD:home/version.json 2>/dev/null || true)" \
+          LIVE_SW="$(git show FETCH_HEAD:sw.js 2>/dev/null || true)" \
+          node scripts/chequeo_version.js
 
       - name: Instalar lo que piden las pruebas y el compilador
         run: npm ci
