@@ -10,9 +10,9 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"190"/.test(web),"Sistema Web debe anunciar b190");
+ok(/const VERSION = \{ n:"191"/.test(web),"Sistema Web debe anunciar b191");
 ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
-ok(/const CACHE = "freelance-v292"/.test(sw),"la caché debe renovarse a v292");
+ok(/const CACHE = "freelance-v293"/.test(sw),"la caché debe renovarse a v293");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");

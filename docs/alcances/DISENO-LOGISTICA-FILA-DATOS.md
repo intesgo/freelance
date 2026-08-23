@@ -46,8 +46,19 @@ sola línea horizontal con columnas alineadas**, en este orden:
   piladora y vendedor; el botón «↓ Más recientes» ordena por fecha de ingreso; en pantalla
   angosta la fila se desliza.
 
+## Refinamiento (b191) · solo el valor, sin palabra-etiqueta
+Para dar más aire a la línea, se quitaron las palabras-etiqueta de la fila y quedó **solo el
+valor con su iconito** (los iconos ya dicen qué es cada dato):
+- Fecha: se quitó «Ingresó» → «4 ago 2026» (📅).
+- Días (`diasDeLog`): se quitó «hace» → «18 días» / «1 día» / «hoy» (⏱). **Solo cambió el texto de
+  salida, no el cálculo.**
+- Piladora: se quitó «Piladora» → «San Agustín» (🏭).
+- Vendedor: se quitó «Vendedor» → «Richard Ramírez» (👤).
+Además se angostaron esas columnas (fecha 150→105, días 110→80, piladora 180→140, vendedor 190→150)
+y el `min-width` de la fila bajó 920→760, para que entre mejor sin deslizarse.
+
 ## Versiones
-Sistema Web **b190**, caché **freelance-v292**.
+Sistema Web **b190** (fila rica) → **b191** (solo valores), caché **freelance-v292** → **freelance-v293**.
 
 ## Trampas conocidas
 - El `<Ico>` renderiza un `<svg display:block>`: por eso cada columna es un flex con el
