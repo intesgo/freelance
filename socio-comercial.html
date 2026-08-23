@@ -1582,7 +1582,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"57", fecha:"22 ago 2026", desc:"Ajuste interno: el pedido ya expone su monto exacto (la suma de sus líneas) para que ningún total salga de un precio promedio redondeado. No cambia lo que ves en la pantalla del socio." };
+const VERSION = { n:"58", fecha:"23 ago 2026", desc:"En la lista de Pedidos, el cliente ahora se muestra por su nombre de persona y en MAYÚSCULAS (p. ej. «PEDRO CASTILLO» en vez de «Supermercado Castillo»), igual que en el Sistema Web. Es solo presentación: tu comisión se sigue viendo igual." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -4512,8 +4512,9 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
 
     {ordenada.map(p=>(
       <div className="card" key={p.id} onClick={()=>setSel(p.id)} style={{cursor:"pointer"}}>
+        {/* PED_NOMBRE_PERSONA · nombre de persona en mayúsculas (la comisión «tu comisión» se conserva: es lo que gana el socio) */}
         <div className="row">
-          <div><div className="cli">{p.cli}</div>
+          <div><div className="cli" style={{textTransform:"uppercase"}}>{nombreClientePedido(p)}</div>
             <div className="meta">{p.cant} × {p.prod} · {p.prov} · {p.cond} · {money(p.precio)}</div></div>
           <div style={{textAlign:"right"}}><div className="amt num">{money(p.comision)}</div>
             <div className="meta">tu comisión</div></div>
@@ -6773,13 +6774,26 @@ async function pedirDevolucion(pedId, motivo){
   }catch(e){ return { ok:false, motivo:String((e&&e.message)||e) }; }
 }
 
+/* PED_NOMBRE_PERSONA · nombre "de persona" del cliente del pedido, igual que en el Sistema Web:
+   jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+function nombreClientePedido(p){
+  const rz=(p.razon||"").trim();
+  const juridica=/empres|jurid/i.test(p.tipoCli||"")
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
+  if(juridica) return rz||p.cli||"—";
+  const base=rz||p.cli||"";
+  const w=base.split(/\s+/).filter(Boolean);
+  if(w.length<=1) return base||"—";
+  return w[0]+" "+(w.length>=4?w[2]:w[1]);
+}
 async function vivoPedidos(){
   try{
     const yo=await yoUsuario(); if(!yo) return null;
     const [rp, ri, rc, rv, rm, rd] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd").limit(2000),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      /* PED_NOMBRE_PERSONA · razon_social y tipo para el nombre de persona en la lista de Pedidos */
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),
       window.SB.from("proveedores").select("prov_cod,nombre").limit(200),
       window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
       /* las devoluciones ya pedidas: sin esto la pantalla dejaria pedir la
@@ -6791,9 +6805,9 @@ async function vivoPedidos(){
     let peds=(rp&&rp.data)||[];
     if(soloLoMio(yo)) peds=peds.filter(p=>p.sub_id===yo.usr_id);
     if(!peds.length) return null;
-    const nCli={}, nProv={}, com={}, dev={};
+    const nCli={}, nRz={}, nTipo={}, nProv={}, com={}, dev={};
     ((rd&&rd.data)||[]).forEach(d=>{ if(d.ped_id) dev[d.ped_id]=d; });
-    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; });
     ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
     const items=(ri&&ri.data)||[];
@@ -6804,7 +6818,7 @@ async function vivoPedidos(){
       const m=PED_MAPA[p.estado]||{linea:1,etapa:1,t:p.estado||"—"};
       const c=com[p.ped_id];
       return {
-        id:p.ped_id, cli:nCli[p.cli_id]||p.cli_id||"Cliente", prov:nProv[p.prov_cod]||p.prov_cod||"—",
+        id:p.ped_id, cli:nCli[p.cli_id]||p.cli_id||"Cliente", razon:nRz[p.cli_id]||null, tipoCli:nTipo[p.cli_id]||null, prov:nProv[p.prov_cod]||p.prov_cod||"—",
         fecha:soloDia(p.creado),
         prod: its.length ? (its[0].descripcion + (its.length>1 ? " y "+(its.length-1)+" más" : "")) : "Sin detalle",
         cant, precio: cant ? Number((importe/cant).toFixed(2)) : 0,

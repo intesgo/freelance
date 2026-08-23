@@ -34,8 +34,8 @@ const FIX={
   pedido_items:[
     {ped_id:"PED-DEMO-02",descripcion:"Producto Demo A · Unidad",cantidad_qq:10.00,precio_usd:40.00},
     {ped_id:"PED-DEMO-02",descripcion:"Producto Demo B · Unidad",cantidad_qq:5.00,precio_usd:22.50}],
-  clientes:[{cli_id:"CLI-DEMO-01",nombre:"Cliente Demo Norte"},{cli_id:"CLI-DEMO-02",nombre:"Cliente Demo Central"},
-            {cli_id:"CLI-DEMO-03",nombre:"Cliente Demo Sur"}],
+  clientes:[{cli_id:"CLI-DEMO-01",nombre:"Cliente Demo Norte",tipo:"Empresa"},{cli_id:"CLI-DEMO-02",nombre:"Cliente Demo Central",tipo:"Empresa"},
+            {cli_id:"CLI-DEMO-03",nombre:"Cliente Demo Sur",tipo:"Empresa"}],
   proveedores:[{prov_cod:"PROV-DEMO-01",nombre:"Proveedor Demo Uno"},{prov_cod:"PROV-DEMO-02",nombre:"Proveedor Demo Dos"}],
   comisiones:[{ped_id:"PED-DEMO-02",monto:20.00,estado:"Generada"},{ped_id:"PED-DEMO-03",monto:80.00,estado:"Pagada"}],
   solicitudes:[

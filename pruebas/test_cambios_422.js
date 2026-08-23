@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo ── */
-prueba(/const VERSION = \{ n:"470"/.test(app),"Freelance debe anunciar v470");
+prueba(/const VERSION = \{ n:"471"/.test(app),"Freelance debe anunciar v471");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"189"/.test(web),"Sistema Web debe anunciar b189");
-prueba(/const CACHE = "freelance-v290"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v291"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -173,6 +173,14 @@ prueba(/numero: p\.numero_pedido \|\| null,/.test(web)&&/razon: \(p\.clientes &&
 prueba(/textTransform:"uppercase", margin:0 \}\}>\{nombreClientePedido\(p\)\}<\/p>/.test(web),"logística · el item de cliente usa nombreClientePedido en mayúsculas");
 prueba(/>\{p\.numero \|\| p\.id\}<\/span>/.test(web),"logística · el item muestra el número de pedido (p.numero || p.id)");
 prueba(/<Ico name="mapPin" size=\{18\} color=\{COLOR\.tealDark\} \/>/.test(web),"logística · el encabezado de ciudad lleva el pin vectorial (mapPin) del molde");
+
+/* ── PED_NOMBRE_PERSONA · la lista de Pedidos de las 3 apps móviles muestra el nombre de persona en MAYÚSCULAS ── */
+prueba(/function nombreClientePedido\(p\)\{/.test(app)&&/function nombreClientePedido\(p\)\{/.test(comi)&&/function nombreClientePedido\(p\)\{/.test(socio),"las 3 apps definen el helper nombreClientePedido (mismo criterio que el Sistema Web)");
+prueba(/clientes"\)\.select\("cli_id,nombre,razon_social,tipo"\)/.test(app)&&/clientes"\)\.select\("cli_id,nombre,razon_social,tipo"\)/.test(comi)&&/clientes"\)\.select\("cli_id,nombre,razon_social,tipo"\)/.test(socio),"las 3 apps traen razon_social y tipo para armar el nombre de persona");
+prueba(/textTransform:"uppercase"[^>]*>\{nombreClientePedido\(p\)\}<\/span>/.test(app),"freelance · la fila usa nombreClientePedido en mayúsculas");
+prueba(/textTransform:"uppercase"[^>]*>\{nombreClientePedido\(pedido\)\}<\/div>/.test(comi),"comisionista · la fila usa nombreClientePedido en mayúsculas");
+prueba(/className="cli" style=\{\{textTransform:"uppercase"\}\}>\{nombreClientePedido\(p\)\}<\/div>/.test(socio),"socio · la fila usa nombreClientePedido en mayúsculas");
+prueba(/money\(pedido\.comision\)/.test(comi)&&/money\(p\.comision\)/.test(socio),"la comisión («tu comisión») SE CONSERVA en la lista de comisionista y socio (es lo que gana el vendedor)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

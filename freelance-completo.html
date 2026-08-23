@@ -6127,7 +6127,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"470", fecha:"23 ago 2026", desc:"En la lista de Pedidos (Pendientes, En camino y Entregados), cada fila ahora muestra solo los quintales; se quitó el total en dólares de esa lista para no confundir (el monto sigue en el detalle del pedido). Es solo presentación: no cambia ningún cálculo." };
+const VERSION = { n:"471", fecha:"23 ago 2026", desc:"En la lista de Pedidos, el cliente ahora se muestra por su nombre de persona y en MAYÚSCULAS (p. ej. «PEDRO CASTILLO» en vez de «Supermercado Castillo»), igual que en el Sistema Web. Es solo presentación." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11692,7 +11692,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
             <span className="d" style={{flexShrink:0,width:8,height:8,borderRadius:"50%",
               background:p.sync==="pend"?"var(--maize-deep)":"var(--ok)"}}></span>
             <span style={{flexShrink:0,fontSize:12.5,fontWeight:600,color:"var(--muted)"}}>{fechaCorta}</span>
-            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.cli}</span>
+            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido(p)}</span>{/* PED_NOMBRE_PERSONA · nombre de persona en mayúsculas */}
           </button>
           {/* mitad derecha → seguimiento */}
           <button onClick={()=>abrir("seguimiento")}
@@ -18908,6 +18908,18 @@ function montoDePedido(p){
   if (p && p.importe != null) return Math.round((Number(p.importe)||0)*100)/100;
   return Math.round((Number(p&&p.cant)||0)*(Number(p&&p.precio)||0)*100)/100;
 }
+/* PED_NOMBRE_PERSONA · nombre "de persona" del cliente del pedido, igual que en el Sistema Web:
+   jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+function nombreClientePedido(p){
+  const rz=(p.razon||"").trim();
+  const juridica=/empres|jurid/i.test(p.tipoCli||"")
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
+  if(juridica) return rz||p.cli||"—";
+  const base=rz||p.cli||"";
+  const w=base.split(/\s+/).filter(Boolean);
+  if(w.length<=1) return base||"—";
+  return w[0]+" "+(w.length>=4?w[2]:w[1]);   /* 2 nombres + 2 apellidos → apellido = 3.ª palabra */
+}
 async function vivoPedidos(){
   try{
     await cargarArranque();
@@ -18915,13 +18927,15 @@ async function vivoPedidos(){
       desdeArranque(window.SB.from("pedidos").select("*"), "creado")
         .order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq,comision_usd").limit(2000),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      /* PED_NOMBRE_PERSONA · se trae razon_social y tipo para mostrar el nombre de persona
+         (nombreClientePedido) en la lista de Pedidos, igual que el Sistema Web. */
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),
       window.SB.from("proveedores").select("prov_cod,nombre,pago_habitual").limit(200),
       window.SB.from("comisiones").select("ped_id,monto,estado").limit(2000),
     ]);
     const peds=rp&&rp.data; if(!Array.isArray(peds)) return null; if(!peds.length) return [];
-    const nCli={}, nProv={}, com={}, habProv={};
-    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}, nProv={}, com={}, habProv={};
+    ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     ((rv&&rv.data)||[]).forEach(p=>{ nProv[p.prov_cod]=p.nombre; habProv[p.prov_cod]=p.pago_habitual||""; });
     ((rm&&rm.data)||[]).forEach(c=>{ com[c.ped_id]=c; });
     const items=(ri&&ri.data)||[];
@@ -18942,6 +18956,7 @@ async function vivoPedidos(){
       return {
         id:p.ped_id,
         cli:nCli[p.cli_id]||p.cli_id||"Cliente",
+        razon:nRz[p.cli_id]||null, tipoCli:nTipo[p.cli_id]||null,   /* PED_NOMBRE_PERSONA · para nombreClientePedido */
         prov:nProv[p.prov_cod]||p.prov_cod||"—",
         fecha:soloDia(p.creado),
         prod: its.length ? (its[0].descripcion + (its.length>1 ? " y "+(its.length-1)+" más" : "")) : "Sin detalle",
