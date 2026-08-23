@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo ── */
-prueba(/const VERSION = \{ n:"471"/.test(app),"Freelance debe anunciar v471");
+prueba(/const VERSION = \{ n:"472"/.test(app),"Freelance debe anunciar v472");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"193"/.test(web),"Sistema Web debe anunciar b193");
-prueba(/const CACHE = "freelance-v296"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"194"/.test(web),"Sistema Web debe anunciar b194");
+prueba(/const CACHE = "freelance-v297"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 

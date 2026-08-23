@@ -238,8 +238,8 @@ async function bateria(js, ruidoso) {
   /* ─────────────── PARTE A · paridad de estados en la lista ─────────────── */
   const mA = await montarLista(js);
   const nBotones = correW(mA, `window.__nBotonesEditar()`);
-  const editEnv  = correW(mA, `window.__botonEditar("Cliente Uno")`);
-  const editFac  = correW(mA, `window.__botonEditar("Cliente Dos")`);
+  const editEnv  = correW(mA, `window.__botonEditar("CLIENTE UNO")`);
+  const editFac  = correW(mA, `window.__botonEditar("CLIENTE DOS")`);
 
   comprobar("A · pedido «enviado_proveedor» (Cliente Uno): SÍ sale el lápiz «Editar pedido»"
     + " (fue: " + editEnv + ")", editEnv === "si");
@@ -256,7 +256,7 @@ async function bateria(js, ruidoso) {
   comprobar("B · el montaje lee «pedidos» una vez (fue: " + baseOk + ")", baseOk === 1);
 
   mOk.estado.rpcResp = { data:null, error:null };
-  correW(mOk, `window.__clickEditar("Cliente Uno")`);   // → abre la vista Armar con el carrito cargado
+  correW(mOk, `window.__clickEditar("CLIENTE UNO")`);   // → abre la vista Armar con el carrito cargado
   await esperar(220); correW(mOk, `window.__flush()`);
   const antesOk = mOk.estado.lecturasPedidos;           // lecturas justo antes de guardar
   const clkOk = correW(mOk, `window.__clickTexto("Guardar cambios")`);
@@ -274,7 +274,7 @@ async function bateria(js, ruidoso) {
   /* Caso FALLO: el RPC responde error → no debe recargar ni perder el pedido. */
   const mFail = await montarLista(js);
   mFail.estado.rpcResp = { data:null, error:{ message:"rls denegado" } };
-  correW(mFail, `window.__clickEditar("Cliente Uno")`);
+  correW(mFail, `window.__clickEditar("CLIENTE UNO")`);
   await esperar(220); correW(mFail, `window.__flush()`);
   const antesFail = mFail.estado.lecturasPedidos;
   correW(mFail, `window.__clickTexto("Guardar cambios")`);

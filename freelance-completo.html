@@ -6127,7 +6127,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"471", fecha:"23 ago 2026", desc:"En la lista de Pedidos, el cliente ahora se muestra por su nombre de persona y en MAYÚSCULAS (p. ej. «PEDRO CASTILLO» en vez de «Supermercado Castillo»), igual que en el Sistema Web. Es solo presentación." };
+const VERSION = { n:"472", fecha:"23 ago 2026", desc:"El nombre del cliente se muestra parejo en más pantallas: persona natural → primer nombre + apellido en MAYÚSCULAS (ej. «DORA DIAZ»); empresa → su razón social. Ahora también en el detalle y los modales de Pedidos (anular/revivir/¿cómo pagas?) y en la Cotización en pantalla. Una sola regla para todos. Es solo presentación." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -11583,7 +11583,7 @@ function Pedidos({pedidos=PEDIDOS_INI, toast, vivo, onRecargar, onEditar}){
               const monto=(p.cant||0)*(p.precio||0);
               return (
               <div className="card" key={p.id} style={{padding:"12px 14px",marginBottom:10,border:"1px solid var(--line)"}}>
-                <div style={{fontSize:14.5,fontWeight:800,color:"var(--field)"}}>{p.cli}</div>
+                <div style={{fontSize:14.5,fontWeight:800,color:"var(--field)"}}>{nombreClientePedido(p)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD */}
                 <div className="meta" style={{fontSize:12,margin:"4px 0 10px"}}>{p.fecha||"—"} · {money(monto)} · {p.prov}</div>
                 <button onClick={()=>setRevivirP(p)}
                   style={{width:"100%",padding:"11px",borderRadius:11,border:"1px solid #2E7D52",
@@ -11764,7 +11764,7 @@ function PagoPiladoraSheet({p, onClose, onConfirmar, guardando}){
     <div className="ov" onClick={onClose}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
         <h3>¿Cómo le pagas a {p.prov}?</h3>
-        <div className="sh-sub">{p.cli} · {p.cant} qq · el cliente te paga a {String(p.cond||"").toLowerCase()}</div>
+        <div className="sh-sub">{nombreClientePedido(p)} · {p.cant} qq · el cliente te paga a {String(p.cond||"").toLowerCase()}</div>
 
         {OPC.map(o=>(
           <button key={o.v} onClick={()=>setPago(o.v)}
@@ -11823,7 +11823,7 @@ function AnularPedidoSheet({p, onClose, onConfirmar, guardando}){
         <h3>Vas a anular ESTE pedido:</h3>
         {/* ficha clara: para no anular el pedido equivocado por un clic apurado */}
         <div className="card" style={{padding:"12px 14px",margin:"4px 0 12px",border:"1px solid var(--line)"}}>
-          <div style={{fontSize:16,fontWeight:800,color:"var(--field)",marginBottom:4}}>{p.cli}</div>
+          <div style={{fontSize:16,fontWeight:800,color:"var(--field)",marginBottom:4}}>{nombreClientePedido(p)}</div>
           <div style={fila}><span className="meta">Fecha</span><b>{p.fecha||"—"}</b></div>
           <div style={fila}><span className="meta">Monto</span><b>{money(monto)}</b></div>
           <div style={fila}><span className="meta">Estado</span><b>{p.estado}</b></div>
@@ -11867,7 +11867,7 @@ function RevivirPedidoSheet({p, onClose, onConfirmar, guardando}){
       <div className="sheet" onClick={e=>e.stopPropagation()}>
         <h3>¿Revivir este pedido?</h3>
         <div className="card" style={{padding:"12px 14px",margin:"4px 0 12px",border:"1px solid var(--line)"}}>
-          <div style={{fontSize:16,fontWeight:800,color:"var(--field)",marginBottom:4}}>{p.cli}</div>
+          <div style={{fontSize:16,fontWeight:800,color:"var(--field)",marginBottom:4}}>{nombreClientePedido(p)}</div>
           <div style={fila}><span className="meta">Fecha</span><b>{p.fecha||"—"}</b></div>
           <div style={fila}><span className="meta">Monto</span><b>{money(monto)}</b></div>
           <div style={fila}><span className="meta">Proveedor</span><b>{p.prov}</b></div>
@@ -11982,7 +11982,7 @@ function DetallePedido({p, modo="factura", volver, vivo, onAprobado, toast, onEd
       <div className="card" style={{padding:"16px 16px 14px"}}>
         {/* encabezado tipo factura */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:2}}>
-          <span style={{fontWeight:800,fontSize:16}}>{p.cli}</span>
+          <span style={{fontWeight:800,fontSize:16}}>{nombreClientePedido(p)}</span>
           <span className="meta" style={{fontSize:11.5,whiteSpace:"nowrap"}}>{fmt(p.fecha)}</span>
         </div>
         <div className="meta" style={{fontSize:11.5,marginBottom:12}}>{p.prov} · el cliente te paga a {String(p.cond||"").toLowerCase()}</div>
@@ -18910,15 +18910,29 @@ function montoDePedido(p){
 }
 /* PED_NOMBRE_PERSONA · nombre "de persona" del cliente del pedido, igual que en el Sistema Web:
    jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+/* NOMBRE_CLIENTE_INTEGRIDAD · FUENTE ÚNICA del nombre del cliente para MOSTRAR (una sola verdad).
+   Acepta el pedido {cli, razon, tipoCli, ruc} y la ficha de cliente {nombre, razon_social/
+   razonSocial, tipo, ruc}. Reglas: jurídica si 3.er dígito del RUC 9/6, o tipo empresa/jurídica,
+   o marca de empresa en la razón (S.A., S.A.S., Cía, Ltda, Compañía, Corp) → razón social;
+   natural → primer nombre + primer apellido de la RAZÓN SOCIAL (3.ª palabra si hay 4+). SIEMPRE
+   en MAYÚSCULAS. Misma lógica que el Sistema Web. */
 function nombreClientePedido(p){
-  const rz=(p.razon||"").trim();
-  const juridica=/empres|jurid/i.test(p.tipoCli||"")
-    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
-  if(juridica) return rz||p.cli||"—";
-  const base=rz||p.cli||"";
+  if(!p) return "";
+  const razon=String(p.razon||p.razonSocial||p.razon_social||"").trim();
+  const comercial=String(p.cli||p.nombre||"").trim();
+  const tipo=String(p.tipoCli||p.tipo||"");
+  const ruc=String(p.ruc||"");
+  const d3=ruc.length>=3?ruc.charAt(2):"";
+  const rsUp=razon.toUpperCase().replace(/\./g,"");
+  const juridica=d3==="9"||d3==="6"
+    || /empres|jurid/i.test(tipo)
+    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA|CORP)\b/.test(rsUp)
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(razon);
+  if(juridica) return (razon||comercial||"—").toUpperCase();
+  const base=razon||comercial||"";
   const w=base.split(/\s+/).filter(Boolean);
-  if(w.length<=1) return base||"—";
-  return w[0]+" "+(w.length>=4?w[2]:w[1]);   /* 2 nombres + 2 apellidos → apellido = 3.ª palabra */
+  if(w.length<=1) return (base||"—").toUpperCase();
+  return (w[0]+" "+(w.length>=4?w[2]:w[1])).toUpperCase();
 }
 async function vivoPedidos(){
   try{
@@ -25232,7 +25246,7 @@ function Cotizacion({ toast }){
         {cliente ? (
           <div style={{display:"flex", alignItems:"center", gap:10}}>
             <div style={{flex:1, minWidth:0}}>
-              <div style={{fontFamily:BODY, fontSize:15, fontWeight:700, color:CL.tinta}}>{cliente.nombre}</div>
+              <div style={{fontFamily:BODY, fontSize:15, fontWeight:700, color:CL.tinta}}>{nombreClientePedido(cliente)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD */}
               <div style={{fontFamily:BODY, fontSize:12.5, color:CL.grisTexto}}>
                 {[cliente.ruc && ("RUC " + cliente.ruc), cliente.ciudad].filter(Boolean).join(" · ") || "sin datos"}
               </div>
@@ -25251,7 +25265,7 @@ function Cotizacion({ toast }){
               <button key={c.id} onClick={()=>escoger(c)}
                 style={{display:"block", width:"100%", textAlign:"left", padding:"9px 2px",
                   borderBottom:"1px solid "+CL.linea, background:"none", border:"none", cursor:"pointer"}}>
-                <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta}}>{c.nombre}</div>
+                <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta}}>{nombreClientePedido(c)}</div>
                 <div style={{fontFamily:BODY, fontSize:12, color:CL.grisTenue}}>
                   {[c.ciudad, c.condicion === "contado" ? "contado" : ("crédito " + (c.plazo||30) + " días")].filter(Boolean).join(" · ")}
                 </div>
@@ -25364,7 +25378,7 @@ function Cotizacion({ toast }){
             <div style={{padding:"14px 18px", borderBottom:"1px solid "+CL.linea, fontFamily:BODY, fontSize:13}}>
               <div style={{fontSize:10.5, fontWeight:700, color:CL.grisTenue, letterSpacing:".11em",
                 textTransform:"uppercase", marginBottom:7}}>Para</div>
-              <div style={{fontWeight:700, fontSize:14.5, color:CL.tinta}}>{cliente.razon || cliente.nombre}</div>
+              <div style={{fontWeight:700, fontSize:14.5, color:CL.tinta}}>{nombreClientePedido(cliente)}</div>
               <div style={{color:CL.grisTexto, marginTop:3, lineHeight:1.6}}>
                 {cliente.ruc && <>RUC {cliente.ruc}<br/></>}
                 {[cliente.dir, cliente.ciudad].filter(Boolean).join(" · ")}

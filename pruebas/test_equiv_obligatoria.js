@@ -366,7 +366,7 @@ async function bateria(js, ruidoso) {
 
   /* ─── PARTE 2 · tipo_precio por condición al cargar la edición ─── */
   const m2 = await montarListo(js);
-  correW(m2, `window.__clickEditar("Cliente Crédito")`);   // abre la edición en la vista Armar
+  correW(m2, `window.__clickEditar("CLIENTE CRÉDITO")`);   // abre la edición en la vista Armar
   await esperar(220); correW(m2, `window.__flush()`);
   correW(m2, `window.__botonPorTexto("Guardar cambios")`);
   await esperar(240); correW(m2, `window.__flush()`);

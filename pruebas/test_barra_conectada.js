@@ -151,7 +151,7 @@ const guionResumen=(tab)=>`(async()=>{
     const m=montar(true);
     const pedidos=await vm.runInContext(guion("Pedidos"), m.ctx);
     comprobar("Pedidos muestra el sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(pedidos));
-    comprobar("Pedidos trae el cliente sintético", pedidos.indexOf("Cliente Demo Norte")>=0);
+    comprobar("Pedidos trae el cliente sintético", pedidos.indexOf("CLIENTE DEMO NORTE")>=0);
     /* El estado y el proveedor viven en la sub-vista «Resumen» (entrada liviana). */
     const resumen=await vm.runInContext(guionResumen("Pedidos"), montar(true).ctx);
     comprobar("el estado guardado se traduce al del negocio (en Resumen)", resumen.indexOf("Enviado al proveedor")>=0);

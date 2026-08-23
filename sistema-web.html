@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"193", fecha:"23 ago 2026", desc:"Arreglo del aviso «Actualizar»: el Sistema Web ya no se queda en una versión vieja. El chequeo de nueva versión (version.json) ahora se lee SIEMPRE de la red, no de la copia guardada del teléfono; antes, con señal lenta, podía servirse un número viejo y la barra «Actualizar» no salía. Sin cambios de pantalla." };
+const VERSION = { n:"194", fecha:"23 ago 2026", desc:"El nombre del cliente se muestra parejo en todo el sistema: persona natural → primer nombre + apellido (sacado de la razón social, ej. «DORA DIAZ»); empresa → su razón social; siempre en MAYÚSCULAS. Se aplicó en Logística (orden/ruta/novedades), Comisiones, los buscadores y la ficha/lista de clientes. Una sola regla para todos (incluye el RUC para distinguir empresa de persona)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -881,22 +881,12 @@ function ArcCupo({ total, usado, excede, money }) {
     </div>
   );
 }
-// Nombre corto para mostrar el cliente ya elegido:
-//  · Persona natural → primer nombre + primer apellido (asumiendo nombres antes de apellidos): "Pedro Rodrigo Castillo Rosero" → "Pedro Castillo"
-//  · Jurídica (empresa) → el nombre de la empresa completo: "Comercial Mendoza S.A."
+// Nombre corto para mostrar el cliente ya elegido. NOMBRE_CLIENTE_INTEGRIDAD:
+// delega en nombreClientePedido (fuente única) para no duplicar criterios.
+//  · Persona natural → primer nombre + primer apellido (de la razón social), en MAYÚSCULAS.
+//  · Jurídica (empresa) → la razón social, en MAYÚSCULAS.
 function nombreCortoCliente(c) {
-  if (!c) return "";
-  const rs = String(c.razonSocial || c.razon_social || c.nombre || "").trim();
-  if (!rs) return "";
-  const ruc = String(c.ruc || "");
-  const rsUp = rs.toUpperCase().replace(/\./g, "");
-  const esJuridica = c.tipo === "Empresa" || c.tipo === "Jurídica"
-    || (ruc.length === 13 && ruc[2] === "9")
-    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA)\b/.test(rsUp);
-  if (esJuridica) return rs;
-  const w = rs.split(/\s+/).filter(Boolean);
-  if (w.length <= 2) return rs;
-  return w[0] + " " + w[w.length - 2];
+  return c ? nombreClientePedido(c) : "";
 }
 const DOCS_CREDITO_CLI = [
   "Copia de RUC o cédula",
@@ -1365,21 +1355,33 @@ const margenDeProducto = (prodId) => {
   const f = p ? familiaDeVariedad(p.variedad) : "";
   return MARGEN_FAMILIA[f] || MARGEN_DEFECTO;
 };
-/* DISENO_LOGISTICA_ESCOGER · nombre "de persona" del cliente del pedido, a NIVEL DE MÓDULO para
-   que lo usen igual PedidosWeb y TrazabilidadWeb (antes vivía dentro de PedidosWeb). Misma lógica:
-   jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+/* NOMBRE_CLIENTE_INTEGRIDAD · FUENTE ÚNICA del nombre del cliente para MOSTRAR (una sola verdad).
+   Acepta tanto el pedido {cli, razon, tipoCli, ruc} como la ficha de cliente
+   {nombre, razon_social/razonSocial, tipo, ruc}. Reglas:
+   · jurídica si: 3.er dígito del RUC = 9 o 6, o el tipo dice empresa/jurídica, o la razón
+     social trae marca de empresa (S.A., S.A.S., Cía, Ltda, Compañía, Corp).
+   · jurídica → razón social (o el comercial de respaldo).
+   · natural  → nombre de PERSONA sacado de la RAZÓN SOCIAL: primer nombre + primer apellido
+     (con 4+ palabras el apellido es la 3.ª: 2 nombres + 2 apellidos).
+   · SIEMPRE en MAYÚSCULAS.
+   nombreCortoCliente/refCortoCliente delegan aquí para no duplicar criterios. */
 const nombreClientePedido = (p) => {
-  const rz = (p.razon || "").trim();
-  // jurídica si el tipo lo dice, o si la razón social trae marca de empresa
-  const juridica = /empres|jurid/i.test(p.tipoCli || "")
-    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
-  if (juridica) return rz || p.cli || "—";
-  const base = rz || p.cli || "";
+  if (!p) return "";
+  const razon = String(p.razon || p.razonSocial || p.razon_social || "").trim();
+  const comercial = String(p.cli || p.nombre || "").trim();
+  const tipo = String(p.tipoCli || p.tipo || "");
+  const ruc = String(p.ruc || "");
+  const d3 = ruc.length >= 3 ? ruc.charAt(2) : "";
+  const rsUp = razon.toUpperCase().replace(/\./g, "");
+  const juridica = d3 === "9" || d3 === "6"
+    || /empres|jurid/i.test(tipo)
+    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA|CORP)\b/.test(rsUp)
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(razon);
+  if (juridica) return (razon || comercial || "—").toUpperCase();
+  const base = razon || comercial || "";
   const w = base.split(/\s+/).filter(Boolean);
-  if (w.length <= 1) return base || "—";
-  const nombre = w[0];
-  const apellido = w.length >= 4 ? w[2] : w[1];   // 2 nombres + 2 apellidos → apellido = 3.ª palabra
-  return nombre + " " + apellido;
+  if (w.length <= 1) return (base || "—").toUpperCase();
+  return (w[0] + " " + (w.length >= 4 ? w[2] : w[1])).toUpperCase();
 };
 // Costos por defecto ($/qq). Estibada casi fija; flete variable por distancia.
 const COSTOS_DEFECTO = { get estibada(){ return PREFS.costoEstibada; }, get flete(){ return PREFS.costoFlete; } };   // $/qq · configurables en Configuración
@@ -3363,7 +3365,7 @@ function TrazabilidadWeb({ usuario }) {
                 <div style={{ display:"flex", alignItems:"center", gap:14, background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"12px 14px", marginBottom:10 }}>
                   <span className="num" style={{ background:COLOR.orange, color:"#fff", fontWeight:800, fontSize:15, borderRadius:9, width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{i+1}</span>
                   <div style={{ flex:1 }}>
-                    <p style={{ fontSize:14.5, fontWeight:800, color:COLOR.tealDark, margin:0 }}>{p.cli}</p>
+                    <p style={{ fontSize:14.5, fontWeight:800, color:COLOR.tealDark, margin:0 }}>{nombreClientePedido(p)}</p>{/* NOMBRE_CLIENTE_INTEGRIDAD */}
                     <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{p.id} · {p.sc}</p>
                   </div>
                   <p className="num" style={{ fontSize:15, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(logQQ(p))} qq</p>
@@ -3385,7 +3387,7 @@ function TrazabilidadWeb({ usuario }) {
                     {disponibles.map(dp => (
                       <div key={dp.id} style={{ display:"flex", alignItems:"center", gap:10, border:`1px solid ${COLOR.border}`, borderRadius:10, padding:"9px 12px" }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0 }}>{dp.cli}</p>
+                          <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0 }}>{nombreClientePedido(dp)}</p>
                           <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{dp.id} · {dp.ciudad} · {Math.round(logQQ(dp))} qq</p>
                         </div>
                         <button disabled={rpcOn} onClick={()=>agregarPedidoARuta(dp.id)} style={{ ...btn(COLOR.teal), padding:"7px 12px", fontSize:12.5, opacity:rpcOn?.6:1 }}>Agregar</button>
@@ -4065,7 +4067,7 @@ function TrazabilidadWeb({ usuario }) {
           <div style={{ fontSize:12, color:"#7c2d12" }}>
             {retirosBodega.map(p => (
               <div key={p.id} style={{ display:"flex", justifyContent:"space-between", gap:10, padding:"4px 0", borderTop:"1px solid #fed7aa" }}>
-                <span><b>{p.cli}</b> · {p.factura}</span>
+                <span><b>{nombreClientePedido(p)}</b> · {p.factura}</span>
                 <span className="num" style={{ color:"#9a3412" }}>El cliente retira donde el proveedor</span>
               </div>
             ))}
@@ -4508,7 +4510,7 @@ function TrazabilidadWeb({ usuario }) {
                 <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", background:i%2?"#fff":"#F7F9FB", borderRadius:8, marginBottom:4, fontSize:13 }}>
                   <span className="num" style={{ background:COLOR.orange, color:"#fff", fontWeight:800, fontSize:12, borderRadius:7, width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{i+1}</span>
                   <div style={{ flex:1 }}>
-                    <p style={{ fontWeight:700, margin:0 }}>{p.cli}</p>
+                    <p style={{ fontWeight:700, margin:0 }}>{nombreClientePedido(p)}</p>
                     <p style={{ fontSize:11, color:COLOR.muted, margin:0 }}>{p.ciudad} · {p.id}</p>
                   </div>
                   <span className="num" style={{ fontWeight:700 }}>{Math.round(logQQ(p))} qq</span>
@@ -5703,7 +5705,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       try {
         const [{ data, error }, resCart] = await Promise.all([
           window.supa.from("clientes")
-            .select("cli_id, nombre, razon_social, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal, estado_cliente")
+            .select("cli_id, nombre, razon_social, tipo, ruc, sub_id, condicion_pago, cupo, usado, bloqueado, canal, estado_cliente")
             .eq("activo", true).order("nombre"),
           /* PED_CUPO_VIVO_PARIDAD · el "usado" real es la suma de la cartera PENDIENTE (no demo)
              por cliente, homologado con las apps. La columna clientes.usado no se usa (está en 0
@@ -5718,7 +5720,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         });
         if (data && data.length > 0) {
           const reales = data.map(c => ({
-            id: c.cli_id, nombre: c.nombre, razonSocial: c.razon_social, ruc: c.ruc,
+            id: c.cli_id, nombre: c.nombre, razonSocial: c.razon_social, tipo: c.tipo, ruc: c.ruc,   /* NOMBRE_CLIENTE_INTEGRIDAD · tipo para el nombre canónico */
             vendedor: c.sub_id || "", condicionPago: c.condicion_pago || "", cupo: c.cupo||0,
             usado: Math.round((usadoPorCli[c.cli_id]||0)*100)/100,   /* PED_CUPO_VIVO_PARIDAD · usado real de cartera (no clientes.usado) */
             bloqueado: !!c.bloqueado, canal: c.canal || "", estadoCliente: c.estado_cliente || "",
@@ -15525,7 +15527,7 @@ function TableroPrincipal({ usuario, navegar }) {
                q => q.order("creado", { ascending: false }).limit(300)),
           leer("cobros", "cobro_id,cli_id,factura,monto,via,creado,anulado,es_demo",
                q => q.order("creado", { ascending: false }).limit(300)),
-          leer("clientes", "cli_id,nombre,razon_social,creado,es_demo", q => q.limit(2000)),
+          leer("clientes", "cli_id,nombre,razon_social,tipo,ruc,creado,es_demo", q => q.limit(2000)),   /* NOMBRE_CLIENTE_INTEGRIDAD · tipo/ruc para el nombre canónico */
           leer("cartera_cliente", "mov_id,cli_id,doc,monto,vence,estado,es_demo", q => q.limit(2000)),
           leer("viajes", "viaje_id,estado,es_demo", q => q.limit(500)),
         ]);
@@ -16768,12 +16770,12 @@ function ComisionesWeb({ usuario }) {
         const { data: s } = await window.supa.auth.getSession();
         if (!s || !s.session) return;
         const { data, error } = await window.supa.from("comisiones")
-          .select("com_id,ped_id,sub_id,monto,f_gen,f_cli_pago,f_conf,f_pago,es_demo,pedidos(cli_id,prov_cod,clientes(nombre),proveedores(nombre)),usuarios(nombre)")
+          .select("com_id,ped_id,sub_id,monto,f_gen,f_cli_pago,f_conf,f_pago,es_demo,pedidos(cli_id,prov_cod,clientes(nombre,razon_social,tipo,ruc),proveedores(nombre)),usuarios(nombre)")   /* NOMBRE_CLIENTE_INTEGRIDAD · razon_social,tipo,ruc para el nombre canónico */
           .order("f_gen", { ascending: false }).limit(300);
         if (error || !data || !data.length) return;
         setComReg(data.map(c => ({
           id: c.com_id, pedido: c.ped_id || "—",
-          cliente: (c.pedidos && c.pedidos.clientes && c.pedidos.clientes.nombre) || (c.pedidos && c.pedidos.cli_id) || "—",
+          cliente: nombreClientePedido((c.pedidos && c.pedidos.clientes) || {}) || (c.pedidos && c.pedidos.cli_id) || "—",   /* NOMBRE_CLIENTE_INTEGRIDAD */
           prov: (c.pedidos && c.pedidos.proveedores && c.pedidos.proveedores.nombre) || (c.pedidos && c.pedidos.prov_cod) || "—",
           sub: (c.usuarios && c.usuarios.nombre) || c.sub_id || "—",
           monto: Number(c.monto) || 0,
