@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"196"/.test(web),"Sistema Web debe anunciar b196");
-prueba(/const CACHE = "freelance-v299"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v300"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -237,6 +237,30 @@ prueba(/nombreClientePedido\(\{cli:g\.cliente, razon:g\.razon, tipoCli:g\.tipoCl
 /* freelance · la vista v_comisiones_app ya trae razon_social/tipo/ruc y se formatea con la misma función */
 prueba(/ped:d\.ped_id, cli:d\.cliente, razon:d\.razon_social\|\|null, tipoCli:d\.tipo\|\|null, ruc:d\.ruc\|\|null/.test(app),"freelance · Comisiones toma razon_social/tipo/ruc de la vista v_comisiones_app (sin tocar la base)");
 prueba(/window\.SB\.from\("clientes"\)\.select\("cli_id,nombre,razon_social,tipo,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito"\)/.test(app),"freelance · Cartera trae tipo del cliente para el nombre canónico");
+
+/* ── NOMBRE_CLIENTE_INTEGRIDAD_3 · Proveedor, Socio y Comisionista (solo pantalla) ── */
+const prov=fs.readFileSync(path.join(raiz,"proveedor-freelance.html"),"utf8");
+/* la MISMA función (una sola verdad) en las tres apps, con RUC (3.er dígito) y MAYÚSCULAS */
+prueba(/function nombreClientePedido\(p\)\{/.test(prov)&&/const d3=ruc\.length>=3\?ruc\.charAt\(2\):"";/.test(prov)&&/\.toUpperCase\(\)/.test(prov),"proveedor · define nombreClientePedido canónica (RUC + MAYÚSCULAS)");
+prueba(/d3==="9"\|\|d3==="6"/.test(socio)&&/d3==="9"\|\|d3==="6"/.test(comi),"socio y comisionista · nombreClientePedido ahora usa el 3.er dígito del RUC y MAYÚSCULAS (misma regla)");
+/* Comisionista · el nombre corto del buscador se UNIFICÓ (delega en la función única) */
+prueba(/return nombreClientePedido\(\{cli:nombre, razon:razon\}\);/.test(comi),"comisionista · refCortoCliente delega en nombreClientePedido (sin criterios duplicados)");
+/* proveedor · el select de clientes trae razon_social,tipo y el índice los guarda */
+prueba(/from\("clientes"\)\.select\("cli_id,nombre,razon_social,tipo"\)/.test(prov),"proveedor · el select de clientes trae razon_social,tipo");
+prueba(/nCli\[c\.cli_id\]=\{nombre:c\.nombre, razon:c\.razon_social\|\|null, tipoCli:c\.tipo\|\|null\}/.test(prov),"proveedor · el índice nCli guarda nombre+razon+tipo");
+/* socio y comisionista · Novedades y Agenda ahora traen razon_social,tipo (3 selects: Pedidos+Novedades+Agenda) */
+prueba((socio.match(/select\("cli_id,nombre,razon_social,tipo"\)/g)||[]).length>=3,"socio · Novedades y Agenda amplían el select a razon_social,tipo");
+prueba((comi.match(/select\("cli_id,nombre,razon_social,tipo"\)/g)||[]).length>=3,"comisionista · Novedades y Agenda amplían el select a razon_social,tipo");
+/* socio · la Cotización agrega tipo (ya traía razon_social y ruc) */
+prueba(/select\("cli_id,nombre,razon_social,tipo,ruc,tel,tel2,plazo,condicion_pago,activo"\)/.test(socio),"socio · la Cotización trae tipo del cliente");
+/* anclas de la tanda en las tres apps */
+prueba((prov.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=6,"proveedor · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
+prueba((socio.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"socio · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
+prueba((comi.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"comisionista · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
+/* versiones de las tres apps tocadas */
+prueba(/const VERSION = \{ n:"71"/.test(prov),"proveedor debe anunciar v71");
+prueba(/const VERSION = \{ n:"59"/.test(socio),"socio debe anunciar v59");
+prueba(/const VERSION = \{ n:"192"/.test(comi),"comisionista debe anunciar v192");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

@@ -131,7 +131,7 @@ const guion=(lab)=>`(async()=>{
   {
     const m=montar(false);
     const t=await vm.runInContext(guion("Decidir"), m.ctx);
-    comprobar("sin datos sigue la demostración", /⚪ Demostración/.test(t) && t.indexOf("Distribuidora Ríos")>=0);
+    comprobar("sin datos sigue la demostración", /⚪ Demostración/.test(t) && t.indexOf("DISTRIBUIDORA RÍOS")>=0);
   }
   console.log("═══ lo que se decide, se guarda");
   {

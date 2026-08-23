@@ -1582,7 +1582,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"58", fecha:"23 ago 2026", desc:"En la lista de Pedidos, el cliente ahora se muestra por su nombre de persona y en MAYÚSCULAS (p. ej. «PEDRO CASTILLO» en vez de «Supermercado Castillo»), igual que en el Sistema Web. Es solo presentación: tu comisión se sigue viendo igual." };
+const VERSION = { n:"59", fecha:"23 ago 2026", desc:"El nombre del cliente ahora sale parejo y en MAYÚSCULAS en TODAS las pantallas (detalle del pedido, cotización, novedades, agenda, directorio y ficha), no solo en la lista: persona natural → nombre + apellido (ej. «PEDRO CASTILLO»); empresa → su razón social. Es solo presentación; tu comisión se ve igual." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -4627,7 +4627,7 @@ function DetallePedido({p, volver}){
     <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a mis pedidos</button>
     <div className="det-head">
       <div className="row">
-        <div><div className="cli" style={{fontSize:17}}>{p.cli}</div>
+        <div><div className="cli" style={{fontSize:17,textTransform:"uppercase"}}>{nombreClientePedido(p)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
           <div className="meta">{p.cant} × {p.prod} · {p.prov} · {p.cond} · {money(p.precio)}</div></div>
         <div style={{textAlign:"right"}}><div className="amt num">{money(p.comision)}</div>
           <div className="meta">tu comisión</div></div>
@@ -5812,7 +5812,7 @@ function Clientes({toast}){
       return (
         <div className="card" key={i} style={{padding:"13px 15px",cursor:"pointer"}} onClick={()=>setSel(c)}>
           <div className="row" style={{alignItems:"center"}}>
-            <div><div className="cli" style={{fontSize:14}}>{c}</div>
+            <div><div className="cli" style={{fontSize:14,textTransform:"uppercase"}}>{nombreClientePedido({cli:c, razon:refs[0]||null})}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 · nombre canónico; `c` crudo se sigue usando como clave (FICHA/REFERENCIALES) */}
               <div className="meta">{f?`${f.ciudad}, ${f.prov} · ${f.diasCredito} días crédito`:"Sin ficha"}</div>
               {refs.length>0 && <div className="meta" style={{color:"var(--maize-deep)",marginTop:2}}>Factura a: {refs.join(" · ")}</div>}</div>
             <span className="meta" style={{fontSize:18,color:"var(--muted)"}}>›</span>
@@ -5997,7 +5997,7 @@ function FichaCliente({nombre, volver, toast}){
     <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a clientes</button>
     <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:4}}>
       <div style={{flex:1,minWidth:0}}>
-        <div className="h1" style={{marginBottom:4}}>{nombre}</div>
+        <div className="h1" style={{marginBottom:4,textTransform:"uppercase"}}>{nombreClientePedido({cli:nombre, razon:(typeof REFERENCIALES!=="undefined"&&REFERENCIALES[nombre]?REFERENCIALES[nombre][0]:null)})}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 · `nombre` crudo sigue siendo la clave (FICHA_CLIENTE/motivosBloqueo) */}
         <div className="sub">{f.negocio}</div>
       </div>
       <span className={"chip "+(motivosBloqueo(nombre).length>0?"c-bad":"c-ok")} style={{flexShrink:0}}>
@@ -6484,7 +6484,7 @@ function Agenda({toast, datos}){
             display:"flex",alignItems:"center",justifyContent:"center"}}>
             {t.hecho?"✓":""}</button>
           <div style={{flex:1,marginLeft:12}}>
-            <div className="cli" style={{fontSize:14,textDecoration:t.hecho?"line-through":"none"}}>{t.cli}</div>
+            <div className="cli" style={{fontSize:14,textTransform:"uppercase",textDecoration:t.hecho?"line-through":"none"}}>{nombreClientePedido(t)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
             <div className="meta">{t.nota}</div>
             {FICHA_CLIENTE[t.cli] && <div className="meta" style={{fontSize:14,marginTop:2}}>📍 {FICHA_CLIENTE[t.cli].ciudad}, {FICHA_CLIENTE[t.cli].zona}</div>}
           </div>
@@ -6776,15 +6776,28 @@ async function pedirDevolucion(pedId, motivo){
 
 /* PED_NOMBRE_PERSONA · nombre "de persona" del cliente del pedido, igual que en el Sistema Web:
    jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+/* NOMBRE_CLIENTE_INTEGRIDAD · FUENTE ÚNICA del nombre del cliente para MOSTRAR (una sola verdad).
+   Acepta el pedido {cli, razon, tipoCli, ruc} y la ficha {nombre, razon_social/razonSocial, tipo, ruc}.
+   Jurídica si 3.er dígito del RUC 9/6, o tipo empresa/jurídica, o marca de empresa en la razón
+   (S.A., S.A.S., CA, Cía, Ltda, Compañía, Corp) → razón social; natural → primer nombre + primer
+   apellido de la RAZÓN SOCIAL (3.ª palabra si hay 4+). SIEMPRE en MAYÚSCULAS. Igual que el Sistema Web. */
 function nombreClientePedido(p){
-  const rz=(p.razon||"").trim();
-  const juridica=/empres|jurid/i.test(p.tipoCli||"")
-    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
-  if(juridica) return rz||p.cli||"—";
-  const base=rz||p.cli||"";
+  if(!p) return "";
+  const razon=String(p.razon||p.razonSocial||p.razon_social||"").trim();
+  const comercial=String(p.cli||p.nombre||"").trim();
+  const tipo=String(p.tipoCli||p.tipo||"");
+  const ruc=String(p.ruc||"");
+  const d3=ruc.length>=3?ruc.charAt(2):"";
+  const rsUp=razon.toUpperCase().replace(/\./g,"");
+  const juridica=d3==="9"||d3==="6"
+    || /empres|jurid/i.test(tipo)
+    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA|CORP)\b/.test(rsUp)
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(razon);
+  if(juridica) return (razon||comercial||"—").toUpperCase();
+  const base=razon||comercial||"";
   const w=base.split(/\s+/).filter(Boolean);
-  if(w.length<=1) return base||"—";
-  return w[0]+" "+(w.length>=4?w[2]:w[1]);
+  if(w.length<=1) return (base||"—").toUpperCase();
+  return (w[0]+" "+(w.length>=4?w[2]:w[1])).toUpperCase();
 }
 async function vivoPedidos(){
   try{
@@ -6853,12 +6866,12 @@ async function vivoNovedades(){
   try{
     const [rn, rc] = await Promise.all([
       window.SB.from("novedades").select("*").order("creado",{ascending:false}).limit(200),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · razon/tipo para el nombre canónico */
     ]);
     const novs=rn&&rn.data; if(!novs || !novs.length) return null;
-    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     return novs.map(n=>({
-      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", tipo:n.tipo||"producto",
+      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", razon:nRz[n.cli_id]||null, tipoCli:nTipo[n.cli_id]||null, tipo:n.tipo||"producto",   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · cli crudo (se filtra por él); razon/tipoCli para mostrar */
       detalle:n.detalle||"", fecha:selloCorto(n.creado),
       estado:NOV_ESTADO_BD[n.estado]||"enviada",
       origen:n.origen||"entrega", demo:!!n.es_demo,
@@ -6875,14 +6888,14 @@ async function vivoAgenda(){
     const hoy=hoyISO();
     const [ra, rc, rk] = await Promise.all([
       window.SB.from("agenda_actividades").select("*").order("fecha").limit(500),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · razon/tipo para el nombre canónico */
       window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(500),
     ]);
-    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     const propias=((ra&&ra.data)||[]).filter(a=>!a.usr_id || a.usr_id===yo.usr_id);
     const lista=propias.map((f,i)=>({
       id:1000+i, act_id:f.act_id, fecha:soloDia(f.fecha), hora:f.hora||"",
-      cli:f.cliente||"—", cli_id:f.cli_id||null, tipo:f.tipo||"Otro",
+      cli:f.cliente||"—", cli_id:f.cli_id||null, razon:nRz[f.cli_id]||null, tipoCli:nTipo[f.cli_id]||null, tipo:f.tipo||"Otro",   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · cli crudo (persistencia/lookup); razon/tipoCli para mostrar */
       nota:f.objetivo||"", hecho:f.estado==="completada",
       ubic:f.ubic||"", dur:Number(f.dur)||30, recordatorio:Number(f.recordatorio)||15,
     }));
@@ -6891,6 +6904,7 @@ async function vivoAgenda(){
       const act="SG-"+m.mov_id;
       if(lista.some(t=>t.act_id===act)) return;
       lista.push({ id:2000+i, act_id:act, fecha:hoy, hora:"", cli:nCli[m.cli_id]||m.cli_id||"—",
+        razon:nRz[m.cli_id]||null, tipoCli:nTipo[m.cli_id]||null,   /* NOMBRE_CLIENTE_INTEGRIDAD_3 */
         cli_id:m.cli_id, tipo:"Cobro",
         nota:"Sugerido · cobrar "+(m.doc||"factura")+" ($"+Number(m.monto||0).toFixed(2)+")",
         hecho:false, dur:20, recordatorio:15, sug:true });
@@ -7030,7 +7044,7 @@ function Novedades({toast, go, datos}){
       {datos.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").slice(0,10).map((n,i)=>(
         <div className="card" key={"rp"+i} style={{padding:"11px 13px",marginBottom:8,
           borderLeft:"4px solid "+(n.estado==="aprobada"?"#2E7D52":"#C2603A")}}>
-          <div style={{fontSize:13.5,fontWeight:700}}>{n.cli}</div>
+          <div style={{fontSize:13.5,fontWeight:700,textTransform:"uppercase"}}>{nombreClientePedido(n)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
           <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
           <div className="meta" style={{fontSize:11,fontWeight:700,
             color:n.estado==="aprobada"?"#2E7D52":"#C2603A"}}>{n.estado==="aprobada"?"Aprobada":"Rechazada"}</div>
@@ -7042,7 +7056,7 @@ function Novedades({toast, go, datos}){
       {datos.filter(n=>n.origen==="entrega").slice(0,10).map((n,i)=>(
         <div className="card" key={"en"+i} style={{padding:"11px 13px",marginBottom:8,
           borderLeft:"4px solid #D98324"}}>
-          <div style={{fontSize:13.5,fontWeight:700}}>{n.cli}</div>
+          <div style={{fontSize:13.5,fontWeight:700,textTransform:"uppercase"}}>{nombreClientePedido(n)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
           <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
         </div>
       ))}
@@ -8240,7 +8254,7 @@ function cargarBaseCotiza(){
          saber qué piladoras lo surten: una consulta menos que antes. */
       const [rc, rb, rp, rd, ro, rv] = await Promise.all([
         window.SB.from("clientes")
-          .select("cli_id,nombre,razon_social,ruc,tel,tel2,plazo,condicion_pago,activo").limit(2000),
+          .select("cli_id,nombre,razon_social,tipo,ruc,tel,tel2,plazo,condicion_pago,activo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · tipo para el nombre canónico */
         window.SB.from("ubicaciones_cliente").select("cli_id,ciudad,direccion,principal").limit(2000),
         window.SB.from("ofertas_piladora")
           .select("prod_id,pres_cod,presentacion,equiv_qq,prov_cod,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta")
@@ -8270,7 +8284,7 @@ function cargarBaseCotiza(){
       const org = ((ro && ro.data) || [])[0] || null;
       const clientes = cls.map(c=>{
         const u = ubic[c.cli_id] || {};
-        return { id:c.cli_id, nombre:c.nombre, razon:c.razon_social || c.nombre, ruc:c.ruc || "",
+        return { id:c.cli_id, nombre:c.nombre, razon:c.razon_social || c.nombre, tipoCli:c.tipo||null, ruc:c.ruc || "",   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · tipoCli para el nombre canónico */
                  tel:c.tel || c.tel2 || "", ciudad:u.ciudad || "", dir:u.direccion || "",
                  plazo:Number(c.plazo || 0),
                  condicion:/contado/i.test(String(c.condicion_pago||"")) ? "contado" : "credito" };
@@ -8458,7 +8472,7 @@ function Cotizacion({ toast }){
         {cliente ? (
           <div style={{display:"flex", alignItems:"center", gap:10}}>
             <div style={{flex:1, minWidth:0}}>
-              <div style={{fontFamily:BODY, fontSize:15, fontWeight:700, color:CL.tinta}}>{cliente.nombre}</div>
+              <div style={{fontFamily:BODY, fontSize:15, fontWeight:700, color:CL.tinta}}>{nombreClientePedido(cliente)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
               <div style={{fontFamily:BODY, fontSize:12.5, color:CL.grisTexto}}>
                 {[cliente.ruc && ("RUC " + cliente.ruc), cliente.ciudad].filter(Boolean).join(" · ") || "sin datos"}
               </div>
@@ -8477,7 +8491,7 @@ function Cotizacion({ toast }){
               <button key={c.id} onClick={()=>escoger(c)}
                 style={{display:"block", width:"100%", textAlign:"left", padding:"9px 2px",
                   borderBottom:"1px solid "+CL.linea, background:"none", border:"none", cursor:"pointer"}}>
-                <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta}}>{c.nombre}</div>
+                <div style={{fontFamily:BODY, fontSize:14, fontWeight:700, color:CL.tinta}}>{nombreClientePedido(c)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
                 <div style={{fontFamily:BODY, fontSize:12, color:CL.grisTenue}}>
                   {[c.ciudad, c.condicion === "contado" ? "contado" : ("crédito " + (c.plazo||30) + " días")].filter(Boolean).join(" · ")}
                 </div>
