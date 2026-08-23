@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"196"/.test(web),"Sistema Web debe anunciar b196");
-prueba(/const CACHE = "freelance-v300"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"197"/.test(web),"Sistema Web debe anunciar b197");
+prueba(/const CACHE = "freelance-v301"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -198,6 +198,22 @@ prueba(/¿Seguro que no quiere enviar este producto a despacho\?/.test(web),"log
 prueba(/Sí, dejar fuera/.test(web)&&/>No<\/button>/.test(web),"logística · el aviso tiene los botones «Sí, dejar fuera» / «No»");
 prueba(/Debe quedar al menos un producto para enviar este pedido a la ruta\./.test(web),"logística · no se puede dejar un pedido sin ningún producto");
 prueba(/const qqPlan = \(p\) =>/.test(web),"logística · los qq mostrados reflejan solo las líneas marcadas (qqPlan)");
+
+/* ── DISENO_LOGISTICA_ESCALAS_QQ · «Escoger pedidos»: 4 niveles de qq por color, píldora flotante y badge CONTADO ── */
+prueba((web.match(/DISENO_LOGISTICA_ESCALAS_QQ/g)||[]).length >= 6,"logística · queda el ancla DISENO_LOGISTICA_ESCALAS_QQ");
+/* 1) los 4 niveles de qq */
+prueba(/fontSize:17\.5, fontWeight:800, color:"#123d29", margin:0 \}\}>\{Math\.round\(qqC\)\}/.test(web),"logística · TOTAL DE CIUDAD en verde bosque #123d29 (el más fuerte)");
+prueba(/fontSize:15, fontWeight:800, color:COLOR\.text \}\}>\{Math\.round\(qqIra\)\} qq/.test(web),"logística · TOTAL DEL PEDIDO en tinta, peso 800, ~15");
+prueba(/fontSize:13, fontWeight:600, color: excl\?"#c0392b":COLOR\.muted, textDecoration: excl\?"line-through":"none" \}\}>\{it\.q\} qq/.test(web),"logística · LÍNEA DE PRODUCTO gris peso 600; excluido en rojo #c0392b tachado");
+prueba(/background:"#E4EFE7", borderRadius:8, padding:"3px 10px" \}\}>Irá a despacho:/.test(web),"logística · «Irá a despacho» con pastilla #E4EFE7 (el resultado resalta)");
+/* 2) píldora flotante (reemplaza la barra inline; nunca las dos) */
+prueba(/position:"fixed"[\s\S]{0,180}bottom:"calc\(16px \+ env\(safe-area-inset-bottom, 0px\)\)"/.test(web),"logística · la suma es una píldora flotante fija (respeta la barra del sistema en móvil)");
+prueba(/🚚 \{idsSel\.length\} entregas · <span className="num">\{Math\.round\(qqSel\)\} qq<\/span>/.test(web),"logística · la píldora muestra entregas + qqSel (sin recalcular)");
+prueba(!/marginTop:14,\s*\n\s*background:COLOR\.tealLight, border:`1px solid \$\{COLOR\.border\}`, borderRadius:11, padding:"11px 14px", flexWrap:"wrap"/.test(web),"logística · ya no queda la barra inline (solo la flotante)");
+/* 3) condición de pago: fuera del detalle, badge en la fila del cliente */
+prueba(!/\{it\.cond\?<span style=\{\{ color:COLOR\.muted, fontWeight:500 \}\}> · \{it\.cond\}<\/span>:null\}/.test(web),"logística · el detalle YA NO muestra contado/crédito por producto");
+prueba(/const esContado = \(p\.items\|\|\[\]\)\.length>0 && p\.items\.every\(it => \/contado\/i\.test\(it\.cond\|\|""\)\)/.test(web),"logística · esContado se deriva de las líneas (mixto NO es contado)");
+prueba(/esContado && <span[\s\S]{0,240}💵 CONTADO<\/span>/.test(web),"logística · la fila del cliente muestra «💵 CONTADO» solo en pedidos de contado");
 
 /* ── PED_NOMBRE_PERSONA · la lista de Pedidos de las 3 apps móviles muestra el nombre de persona en MAYÚSCULAS ── */
 prueba(/function nombreClientePedido\(p\)\{/.test(app)&&/function nombreClientePedido\(p\)\{/.test(comi)&&/function nombreClientePedido\(p\)\{/.test(socio),"las 3 apps definen el helper nombreClientePedido (mismo criterio que el Sistema Web)");
