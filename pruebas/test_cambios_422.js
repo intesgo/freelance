@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"199"/.test(web),"Sistema Web debe anunciar b199");
-prueba(/const CACHE = "freelance-v303"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"200"/.test(web),"Sistema Web debe anunciar b200");
+prueba(/const CACHE = "freelance-v304"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -229,6 +229,14 @@ prueba(/const qqRutaPed = \(r,p\) => \(r\.qqPlan && r\.qqPlan\[p\.id\]!=null\) \
 prueba(/const qqRuta = \(r\) => \{ const s = pedidosDe\(r\)\.reduce\(\(a,p\)=>a\+qqRutaPed\(r,p\),0\); return s>0 \? s : \(Number\(r\.qq\)\|\|0\); \}/.test(web),"logística · qqRuta suma qqRutaPed (total de la ruta, tablas, despacho y capacidad)");
 prueba(/\{Math\.round\(qqRutaPed\(r, p\)\)\} qq<\/p>/.test(web),"logística · la fila de «Orden de entrega» muestra el qq recortado (qqRutaPed)");
 prueba(/\{Math\.round\(qqRutaPed\(r, p\)\)\} qq<\/span>/.test(web),"logística · el detalle de la ruta muestra el qq recortado (qqRutaPed)");
+
+/* ── DISENO_LOGISTICA_SIN_AVISO_REALES · se quitaron los dos avisos verdes solo-informativos ── */
+prueba(/DISENO_LOGISTICA_SIN_AVISO_REALES/.test(web),"logística · queda el ancla DISENO_LOGISTICA_SIN_AVISO_REALES");
+prueba(!/● Pedidos reales · \{pedidos\.length\}/.test(web),"logística · ya no está el aviso «Pedidos reales · N sin despachar»");
+prueba(!/🟢 Rutas reales · " \+ rutas\.length \+ " en Supabase\./.test(web),"logística · ya no está el aviso «Rutas reales · N en Supabase»");
+/* los avisos ÚTILES se conservan */
+prueba(/No hay pedidos listos para despachar\./.test(web),"logística · se conserva el aviso «no hay pedidos listos»");
+prueba(/Pedidos de DEMOSTRACIÓN · no son tuyos\./.test(web),"logística · se conserva el aviso de DEMOSTRACIÓN");
 
 /* ── PED_NOMBRE_PERSONA · la lista de Pedidos de las 3 apps móviles muestra el nombre de persona en MAYÚSCULAS ── */
 prueba(/function nombreClientePedido\(p\)\{/.test(app)&&/function nombreClientePedido\(p\)\{/.test(comi)&&/function nombreClientePedido\(p\)\{/.test(socio),"las 3 apps definen el helper nombreClientePedido (mismo criterio que el Sistema Web)");
