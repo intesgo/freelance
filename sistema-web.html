@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"188", fecha:"23 ago 2026", desc:"En la lista de Pedidos, la columna ahora muestra el «Pedido N.º» y, al tocar una fila, se abre una ficha de solo lectura con el detalle completo del pedido (productos, cantidades, precios, flete y estibada). El lápiz sigue yendo directo a editar. Es solo presentación: no cambia lo que se guarda." };
+const VERSION = { n:"189", fecha:"23 ago 2026", desc:"En Logística, al «Escoger pedidos» ahora cada pedido se ve más claro: el nombre del cliente como en Pedidos (en mayúsculas), el «Pedido N.º» resaltado en vez del código interno, y el encabezado de cada ciudad se distingue con un recuadro verde y su pin. Es presentación: no cambia el armado de rutas ni los cálculos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1364,6 +1364,22 @@ const margenDeProducto = (prodId) => {
   const p = PRODUCTOS_WEB.find(x => x.id === prodId);
   const f = p ? familiaDeVariedad(p.variedad) : "";
   return MARGEN_FAMILIA[f] || MARGEN_DEFECTO;
+};
+/* DISENO_LOGISTICA_ESCOGER · nombre "de persona" del cliente del pedido, a NIVEL DE MÓDULO para
+   que lo usen igual PedidosWeb y TrazabilidadWeb (antes vivía dentro de PedidosWeb). Misma lógica:
+   jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+const nombreClientePedido = (p) => {
+  const rz = (p.razon || "").trim();
+  // jurídica si el tipo lo dice, o si la razón social trae marca de empresa
+  const juridica = /empres|jurid/i.test(p.tipoCli || "")
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
+  if (juridica) return rz || p.cli || "—";
+  const base = rz || p.cli || "";
+  const w = base.split(/\s+/).filter(Boolean);
+  if (w.length <= 1) return base || "—";
+  const nombre = w[0];
+  const apellido = w.length >= 4 ? w[2] : w[1];   // 2 nombres + 2 apellidos → apellido = 3.ª palabra
+  return nombre + " " + apellido;
 };
 // Costos por defecto ($/qq). Estibada casi fija; flete variable por distancia.
 const COSTOS_DEFECTO = { get estibada(){ return PREFS.costoEstibada; }, get flete(){ return PREFS.costoFlete; } };   // $/qq · configurables en Configuración
@@ -2481,8 +2497,10 @@ function TrazabilidadWeb({ usuario }) {
       const { data: s } = await window.supa.auth.getSession().catch(()=>({data:null}));
       if (!activo || !s || !s.session) { setCargandoLog(false); return; }
       const { data, error } = await window.supa.from("pedidos")
-        .select("ped_id,factura,creado,cli_id,estado,estado_logistico,ubicacion_id,retiro_bodega," +
-                "clientes(nombre,ubicaciones_cliente(ubic_id,ciudad,provincia,direccion,barrio,contacto_tel,principal,tipo_entrega))," +
+        /* DISENO_LOGISTICA_ESCOGER · se trae numero_pedido y razon_social,tipo del cliente
+           para mostrar el «Pedido N.º» y el nombre de persona (nombreClientePedido). */
+        .select("ped_id,numero_pedido,factura,creado,cli_id,estado,estado_logistico,ubicacion_id,retiro_bodega," +
+                "clientes(nombre,razon_social,tipo,ubicaciones_cliente(ubic_id,ciudad,provincia,direccion,barrio,contacto_tel,principal,tipo_entrega))," +
                 "pedido_items(descripcion,cantidad_qq,despachado_qq)," +
                 "proveedores(nombre),usuarios(nombre)")
         /* 08/08/2026 · NUEVO FLUJO: la ruta se arma con los pedidos, NO con los
@@ -2518,11 +2536,14 @@ function TrazabilidadWeb({ usuario }) {
           a + (Number(i.despachado_qq != null ? i.despachado_qq : i.cantidad_qq) || 0), 0);
         return {
           id: p.ped_id,
+          numero: p.numero_pedido || null,   /* DISENO_LOGISTICA_ESCOGER · número de pedido uniforme (null en demo) */
+          razon: (p.clientes && p.clientes.razon_social) || null,
+          tipoCli: (p.clientes && p.clientes.tipo) || null,
           qqReal,
           retiroBodega: !!p.retiro_bodega,
           cliId: p.cli_id,          /* lo necesita la guía del viaje */
           ubicacionId: (u && u.ubic_id) || p.ubicacion_id || null,   /* lo necesita crear_ruta / agregar_pedido_ruta */
-          cli: (p.clientes && p.clientes.nombre) || p.cli_id,
+          cli: (p.clientes && p.clientes.nombre) || p.cli_id,   /* respaldo para nombreClientePedido */
           zona: u.provincia || "—",
           sc: (p.usuarios && p.usuarios.nombre) || "—",
           destino: u.provincia || "—",
@@ -3021,14 +3042,19 @@ function TrazabilidadWeb({ usuario }) {
           const sinZona = gruposDeCiudad(c).length===0;
           return (
             <div key={c} style={{ border:`1.5px solid ${todos||algunos?COLOR.teal:COLOR.border}`, borderRadius:12, marginBottom:10, overflow:"hidden", background: todos?COLOR.tealLight:"#fff", opacity: otraZona?0.45:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}
+              {/* DISENO_LOGISTICA_ESCOGER · encabezado de CIUDAD con estilo propio (fondo verde suave,
+                  pin en cuadrito, nombre en verde bosque, subtítulo en tealDark) para diferenciarlo del
+                  item de cliente. El checkbox y su lógica de selección NO cambian. */}
+              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer", background:COLOR.tealLight }}
                    onClick={()=>setCiudadAbierta(o=>({...o,[c]:!o[c]}))}>
                 <input type="checkbox" checked={todos} ref={el=>{ if(el) el.indeterminate = algunos; }}
                        onChange={()=>toggleCiudad(lista)} onClick={e=>e.stopPropagation()}
                        style={{ width:22, height:22, accentColor:COLOR.teal }} />
+                <span style={{ width:34, height:34, borderRadius:9, background:"#fff", border:`1px solid ${COLOR.teal}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                  <Ico name="mapPin" size={18} color={COLOR.tealDark} /></span>
                 <div style={{ flex:1 }}>
-                  <p style={{ fontSize:15, fontWeight:800, color:COLOR.text, margin:0 }}>{c}</p>
-                  <p style={{ fontSize:12, color:COLOR.muted, margin:0 }}>{lista[0].destino} · {lista.length} pedido(s){nSel>0?` · ${nSel} marcado(s)`:""}{otraZona?(sinZona?" · ⛔ sin zona (defínela en Zonas)":" · ⛔ otra zona"):""}</p>
+                  <p style={{ fontSize:15, fontWeight:800, color:COLOR.tealDark, margin:0 }}>{c}</p>
+                  <p style={{ fontSize:12, fontWeight:600, color:COLOR.tealDark, opacity:.85, margin:0 }}>{lista[0].destino} · {lista.length} pedido(s){nSel>0?` · ${nSel} marcado(s)`:""}{otraZona?(sinZona?" · ⛔ sin zona (defínela en Zonas)":" · ⛔ otra zona"):""}</p>
                 </div>
                 <p className="num" style={{ fontSize:17, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(qqC)} <span style={{fontSize:12,fontWeight:600,color:COLOR.muted}}>qq</span></p>
                 <span style={{ fontSize:24, fontWeight:800, color:COLOR.teal, padding:"2px 10px", display:"inline-block", transform:abierta?"rotate(90deg)":"none", transition:"transform .15s" }}>›</span>
@@ -3044,8 +3070,12 @@ function TrazabilidadWeb({ usuario }) {
                     <input type="checkbox" checked={!!sel[p.id]} onChange={()=>toggleSel(p.id)} onClick={e=>e.stopPropagation()}
                            style={{ width:17, height:17, accentColor:COLOR.teal }} />
                     <div style={{ flex:1 }}>
-                      <p style={{ fontSize:13.5, fontWeight:700, color:COLOR.text, margin:0 }}>{p.cli}</p>
-                      <p style={{ fontSize:11.5, color:COLOR.muted, margin:0 }}>{p.id} · {p.sc}{llena?" · ⚠ llena un camión":""}</p>
+                      {/* DISENO_LOGISTICA_ESCOGER · nombre de persona (igual que en Pedidos) en mayúsculas y número de pedido uniforme */}
+                      <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.text, textTransform:"uppercase", margin:0 }}>{nombreClientePedido(p)}</p>
+                      <p style={{ fontSize:11.5, color:COLOR.muted, margin:"2px 0 0", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                        <span className="num" style={{ fontWeight:800, color:COLOR.tealDark, background:"#E4EFE7", borderRadius:6, padding:"1px 7px" }}>{p.numero || p.id}</span>
+                        <span>· {p.sc}{llena?" · ⚠ llena un camión":""}</span>
+                      </p>
                     </div>
                     <p className="num" style={{ fontSize:14, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(logQQ(p))} qq</p>
                   </div>
@@ -5894,19 +5924,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   /* Nombre a mostrar en la columna Cliente (#5):
      · persona jurídica → razón social completa
      · persona natural → primer nombre + primer apellido (sin nombre comercial abajo) */
-  const nombreClientePedido = (p) => {
-    const rz = (p.razon || "").trim();
-    // jurídica si el tipo lo dice, o si la razón social trae marca de empresa
-    const juridica = /empres|jurid/i.test(p.tipoCli || "")
-      || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
-    if (juridica) return rz || p.cli || "—";
-    const base = rz || p.cli || "";
-    const w = base.split(/\s+/).filter(Boolean);
-    if (w.length <= 1) return base || "—";
-    const nombre = w[0];
-    const apellido = w.length >= 4 ? w[2] : w[1];   // 2 nombres + 2 apellidos → apellido = 3.ª palabra
-    return nombre + " " + apellido;
-  };
+  /* DISENO_LOGISTICA_ESCOGER · nombreClientePedido se movió a nivel de módulo (junto a
+     margenDeProducto) para reutilizarlo también en TrazabilidadWeb, sin cambiar su lógica. */
   /* Abrevia la presentación en la columna Producto (#7): Quintal→qq, Arroba→@ */
   const abreviarPres = (txt) => (txt || "")
     .replace(/Quintal\s*\(100\s*lb\)/gi, "qq")
