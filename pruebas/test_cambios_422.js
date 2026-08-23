@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"200"/.test(web),"Sistema Web debe anunciar b200");
-prueba(/const CACHE = "freelance-v304"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"201"/.test(web),"Sistema Web debe anunciar b201");
+prueba(/const CACHE = "freelance-v305"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -246,13 +246,41 @@ prueba(/textTransform:"uppercase"[^>]*>\{nombreClientePedido\(pedido\)\}<\/div>/
 prueba(/className="cli" style=\{\{textTransform:"uppercase"\}\}>\{nombreClientePedido\(p\)\}<\/div>/.test(socio),"socio · la fila usa nombreClientePedido en mayúsculas");
 prueba(/money\(pedido\.comision\)/.test(comi)&&/money\(p\.comision\)/.test(socio),"la comisión («tu comisión») SE CONSERVA en la lista de comisionista y socio (es lo que gana el vendedor)");
 
-/* ── PED_PESTANAS_ESTADO · Pedidos (web) con 5 pestañas por estado ── */
-prueba(/PED_PESTANAS_ESTADO/.test(web),"queda el ancla PED_PESTANAS_ESTADO");
-prueba(/\["pendientes","Pendientes"\],\["encamino","En camino"\],\["entregados","Entregados"\],\["anulados","Anulados"\],\["traza","🔍 Trazabilidad"\]/.test(web),"web · las 5 pestañas de Pedidos en orden (Pendientes/En camino/Entregados/Anulados/Trazabilidad)");
-prueba(/const tabDePed = \(est\) =>/.test(web)&&/if \(e\.startsWith\("Anulado"\)\) return "anulados";/.test(web),"web · Anulados es pestaña propia (no se mezcla con Entregados)");
+/* ── PED_FE_001 · Pedidos (web): clasifica por CÓDIGO canónico + pestañas + colores + sin Trazabilidad ── */
+prueba(/PED_FE_001/.test(web),"queda el ancla PED_FE_001");
+/* cada pedido lleva el código crudo */
+prueba(/estadoCod: pd\.estado \|\| null, estadoLog: pd\.estado_logistico \|\| null/.test(web),"web · cada pedido lleva el CÓDIGO crudo estadoCod/estadoLog (del listado)");
+/* tabDePed por código, con la precedencia y el default seguro */
+prueba(/const tabDePed = \(p\) =>/.test(web)&&/const cod = String\(\(p && p\.estadoCod\) \|\| ""\)/.test(web)&&/const log = String\(\(p && p\.estadoLog\) \|\| ""\)/.test(web),"web · tabDePed clasifica por estadoCod/estadoLog (código), no por la etiqueta");
+prueba(/if \(cod === "anulado"\) return "anulados";/.test(web),"web · anulado → 'anulados'");
+prueba(/if \(log === "entregado" \|\| cod === "entregado" \|\| cod === "cliente_pago" \|\| cod === "cerrado"\)\s+return "entregados";/.test(web),"web · entregado/cliente_pago/cerrado (o log entregado) → 'entregados'");
+prueba(/if \(log === "despachado" \|\| cod === "despachado"\) return "en_ruta";/.test(web),"web · despachado (o log despachado) → 'en_ruta'");
+prueba(/if \(cod === "facturado"\) return "por_despachar";/.test(web),"web · facturado sin despachar → 'por_despachar'");
+prueba(/if \(cod === "ingresado" \|\| cod === "esperando_aprobacion" \|\| cod === "enviado_proveedor"\) return "pendientes";/.test(web),"web · ingresado/esperando_aprobacion/enviado_proveedor → 'pendientes'");
+prueba(/return "sin_clasificar";/.test(web),"web · NEGATIVO: lo desconocido/nulo cae a 'sin_clasificar' (NUNCA a entregados)");
+prueba(!/return "entregados";\s*\/\* Entregado, Cliente pagó, Cerrado \*\//.test(web),"web · ya NO existe el default viejo a 'entregados'");
+/* pestañas: 6 base + Sin clasificar condicional; «Todos» incluye anulados */
+prueba(/\[\["todos","Todos"\],\["pendientes","Pendientes"\],\["por_despachar","Por despachar"\],\["en_ruta","En ruta"\],\["entregados","Entregados"\],\["anulados","Anulados"\]\]/.test(web),"web · las 6 pestañas base en orden (Todos/Pendientes/Por despachar/En ruta/Entregados/Anulados)");
+prueba(/haySinClasificar \? \[\["sin_clasificar","Sin clasificar"\]\] : \[\]/.test(web),"web · «Sin clasificar» solo aparece si hay ≥1 pedido ahí");
+prueba(/k === "todos" \? pedidos\.length/.test(web),"web · «Todos» cuenta todos (incluye anulados)");
 prueba(/const \[pTab, setPTab\] = useState\("pendientes"\)/.test(web),"web · la pestaña por defecto es Pendientes");
-prueba(/usarPaginacion\(pedidosTab, pagP\)/.test(web)&&/const contarTab = /.test(web),"web · la lista se filtra por pestaña y cada pestaña muestra su conteo");
 prueba(/\{pedidosTab\.length\} pedidos · \{porRevisarTab\} por revisar/.test(web),"web · el rótulo «N pedidos · N por revisar» respeta la pestaña activa");
+prueba(/p\.estadoLog==="parcial" &&/.test(web),"web · «Por despachar»: los pedidos en 'parcial' llevan alerta de saldo");
+/* colores por código: «Anulado» NO azul, con icono */
+prueba(/const colorEstado = \(p\) =>/.test(web),"web · colorEstado mapea por el objeto (código)");
+prueba(/if \(cod === "anulado"\) return \{ bg:"#FDECEC", c:"#b91c1c", icon:"⛔" \}/.test(web),"web · NEGATIVO: «Anulado» se pinta rojo, no azul de pedido vivo");
+prueba(/\{ce\.icon\} \{p\.estado\}/.test(web),"web · el estado muestra icono + texto (no depende solo del color)");
+/* Trazabilidad quitada de Pedidos; enlace a Logística */
+prueba(!/const vistaTraza = \(\) =>/.test(web),"web · NEGATIVO: ya NO existe vistaTraza (Trazabilidad) en Pedidos");
+prueba(!/📲 Avisar al cliente/.test(web),"web · NEGATIVO: ya NO existe «Avisar al cliente» (recorrido demo) en Pedidos");
+prueba(!/"traza","🔍 Trazabilidad"/.test(web),"web · NEGATIVO: ya NO existe la pestaña «Trazabilidad»");
+prueba(/🚚 Ver en Logística/.test(web)&&/onIrLogistica={\(\)=>setSeccion\("trazabilidad"\)}/.test(web),"web · hay un enlace «Ver en Logística» que abre el módulo Logística");
+/* fecha en hora de Ecuador */
+prueba(/fecha: pd\.creado \? hoyECWeb\(new Date\(pd\.creado\)\) : ""/.test(web),"web · la fecha del pedido va en hora de Ecuador (hoyECWeb), no slice(0,10) UTC");
+prueba(!/fecha: String\(pd\.creado\|\|""\)\.slice\(0,10\)/.test(web),"web · NEGATIVO: ya no queda el slice(0,10) UTC de la fecha del pedido");
+/* subtítulo honesto */
+prueba(/label:"Pedidos",\s+sub:"Gestión y seguimiento de pedidos"/.test(web),"web · el subtítulo de Pedidos es «Gestión y seguimiento de pedidos»");
+prueba(!/Aprobaciones por lote/.test(web),"web · NEGATIVO: ya no queda «Aprobaciones por lote»");
 
 /* ── PED_ESCOGER_SIN_RETIRO_BODEGA · Logística no ofrece los pedidos «retira en bodega» ── */
 prueba(/PED_ESCOGER_SIN_RETIRO_BODEGA/.test(web),"queda el ancla PED_ESCOGER_SIN_RETIRO_BODEGA");
