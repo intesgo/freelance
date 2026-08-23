@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo ── */
-prueba(/const VERSION = \{ n:"472"/.test(app),"Freelance debe anunciar v472");
+prueba(/const VERSION = \{ n:"473"/.test(app),"Freelance debe anunciar v473");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"195"/.test(web),"Sistema Web debe anunciar b195");
-prueba(/const CACHE = "freelance-v298"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"196"/.test(web),"Sistema Web debe anunciar b196");
+prueba(/const CACHE = "freelance-v299"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -219,6 +219,24 @@ prueba(/\{pedidosTab\.length\} pedidos · \{porRevisarTab\} por revisar/.test(we
 prueba(/PED_ESCOGER_SIN_RETIRO_BODEGA/.test(web),"queda el ancla PED_ESCOGER_SIN_RETIRO_BODEGA");
 prueba(/!enRuta\(p\.id\) && !p\.retiroBodega/.test(web),"logística · «Escoger pedidos» filtra por !p.retiroBodega (NULL cuenta como elegible)");
 prueba(!/\.neq\("retiro_bodega",\s*true\)/.test(web),"logística · NO se usa .neq(retiro_bodega,true) en el select (descartaría los NULL)");
+
+/* ── NOMBRE_CLIENTE_INTEGRIDAD_2 · cerrar las pantallas que faltaban con la MISMA función ── */
+prueba((web.match(/NOMBRE_CLIENTE_INTEGRIDAD_2/g)||[]).length >= 10,"web · queda el ancla NOMBRE_CLIENTE_INTEGRIDAD_2 en las pantallas cerradas (Cobranza, Solicitudes, Logística)");
+prueba((app.match(/NOMBRE_CLIENTE_INTEGRIDAD_2/g)||[]).length >= 5,"freelance · queda el ancla NOMBRE_CLIENTE_INTEGRIDAD_2 (Notas, Novedades, Solicitudes, Agenda, Arranque, Cartera, Comisiones)");
+/* web · los selects vivos traen razon_social,tipo del cliente */
+prueba(/mov_id,cli_id,doc,emision,vence,monto,estado,clientes\(nombre,razon_social,tipo\)/.test(web),"web · Cobranza trae clientes(nombre,razon_social,tipo)");
+prueba(/cli_id,detalle,estado,motivo_resp,creado,resuelto_en,es_demo,usuarios\(nombre\),clientes\(nombre,razon_social,tipo\)/.test(web),"web · Solicitudes trae clientes(nombre,razon_social,tipo)");
+prueba(/viaje_guias\(guia_id,ped_id,orden_entrega,qq,estado_entrega,entregado_qq,entregado_en,receptor,clientes\(nombre,razon_social,tipo\)\)/.test(web),"web · Logística (viajes vivos) trae clientes(nombre,razon_social,tipo) en las guías");
+prueba(/viaje_guias\(guia_id,estado_entrega,clientes\(nombre,razon_social,tipo\)\)/.test(web),"web · Logística (aviso de guías sin cerrar) trae clientes(nombre,razon_social,tipo)");
+prueba(/respuesta,resuelto_en,resuelto_por,es_demo,clientes\(nombre,razon_social,tipo\)/.test(web),"web · Novedades (vivo) trae clientes(nombre,razon_social,tipo)");
+/* web · las pantallas muestran el nombre con la función única, y dejan `cliente` crudo para filtros/búsqueda */
+prueba(/\{nombreClientePedido\(\{cli:x\.c, razon:x\.razon, tipoCli:x\.tipoCli\}\)\}/.test(web),"web · Cobranza muestra el nombre con nombreClientePedido");
+prueba(/pide · cliente "\+nombreClientePedido\(\{cli:x\.cliente,razon:x\.razon,tipoCli:x\.tipoCli\}\)/.test(web),"web · Solicitudes muestra el nombre con nombreClientePedido");
+prueba(/\{nombreClientePedido\(\{cli:n\.cliente, razon:n\.razon, tipoCli:n\.tipoCli\}\)\}/.test(web),"web · Novedades (lista) muestra el nombre con nombreClientePedido");
+prueba(/nombreClientePedido\(\{cli:g\.cliente, razon:g\.razon, tipoCli:g\.tipoCli\}\)/.test(web),"web · Logística (aviso de guías) muestra el nombre con nombreClientePedido");
+/* freelance · la vista v_comisiones_app ya trae razon_social/tipo/ruc y se formatea con la misma función */
+prueba(/ped:d\.ped_id, cli:d\.cliente, razon:d\.razon_social\|\|null, tipoCli:d\.tipo\|\|null, ruc:d\.ruc\|\|null/.test(app),"freelance · Comisiones toma razon_social/tipo/ruc de la vista v_comisiones_app (sin tocar la base)");
+prueba(/window\.SB\.from\("clientes"\)\.select\("cli_id,nombre,razon_social,tipo,sub_id,cupo,usado,plazo,tel,tel2,bloqueado,motivo_bloqueo,estado_credito"\)/.test(app),"freelance · Cartera trae tipo del cliente para el nombre canónico");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

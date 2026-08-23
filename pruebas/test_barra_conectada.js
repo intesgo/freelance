@@ -161,7 +161,7 @@ const guionResumen=(tab)=>`(async()=>{
     const m=montar(true);
     const t=await vm.runInContext(guion("Solicitudes"), m.ctx);
     comprobar("Solicitudes muestra el sello de datos vivos", /Solicitudes\s*🟢 Datos vivos/.test(t));
-    comprobar("la solicitud recibida viene del fixture", t.indexOf("SOL-DEMO-01")>=0 && t.indexOf("Cliente Demo Central")>=0);
+    comprobar("la solicitud recibida viene del fixture", t.indexOf("SOL-DEMO-01")>=0 && t.indexOf("CLIENTE DEMO CENTRAL")>=0);
     comprobar("se ve quién la pidió (del padrón sintético)", t.indexOf("Usuario Demo Dos")>=0);
   }
   {
@@ -177,7 +177,7 @@ const guionResumen=(tab)=>`(async()=>{
     comprobar("Agenda muestra el sello de datos vivos", /Agenda\s*🟢 Datos vivos/.test(t));
     comprobar("la actividad programada aparece", t.indexOf("Tomar pedido demo")>=0);
     comprobar("sugiere el cobro de la factura vencida", t.indexOf("Sugerido · cobrar FAC-DEMO-03")>=0);
-    comprobar("la sugerencia sale con el cliente correcto", t.indexOf("Cliente Demo Sur")>=0);
+    comprobar("la sugerencia sale con el cliente correcto", t.indexOf("CLIENTE DEMO SUR")>=0);
   }
   {
     /* los globos de la barra cuentan lo que hay de verdad */

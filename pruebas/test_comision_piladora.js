@@ -45,11 +45,16 @@ const REAL = [{
   venta: 1900, costo: 1520, comision: 380, gratis_qq: 0,
   del_vendedor: 0, te_queda: 380, sin_costo: 2, a_medio_cobrar: 0,
 }];
+/* NOMBRE_CLIENTE_INTEGRIDAD_2 · la vista de comisiones ya entrega razon_social/tipo/ruc,
+   y el respaldo muestra el nombre canónico (nombreClientePedido): empresa → razón social
+   en MAYÚSCULAS. Por eso el fixture trae razon_social y tipo, como la fuente ya ampliada. */
 const DETALLE = [{
-  ped_id: "PD-0020", cliente: "Comercial Nilo", dia_cobro: MES + "-14", pago_prov: "contado",
+  ped_id: "PD-0020", cliente: "Comercial Nilo", razon_social: "Comercial Nilo", tipo: "juridica",
+  dia_cobro: MES + "-14", pago_prov: "contado",
   qq: 80, venta: 2920, costo: 2340, comision: 580, gratis_qq: 5, sin_costo: 0,
 }, {
-  ped_id: "PD-0021", cliente: "Abarrotes Don Pepe", dia_cobro: MES + "-22", pago_prov: "credito",
+  ped_id: "PD-0021", cliente: "Abarrotes Don Pepe", razon_social: "Abarrotes Don Pepe", tipo: "juridica",
+  dia_cobro: MES + "-22", pago_prov: "credito",
   qq: 70, venta: 2555, costo: 2117.50, comision: 437.50, gratis_qq: 0, sin_costo: 0,
   qq_pedido: 80, qq_devuelto: 10,
 }];
@@ -159,7 +164,7 @@ const tocar = (m, t) => vm.runInContext(`window.__tocar(${JSON.stringify(t)})`, 
   comprobar("pide el respaldo de la piladora que se tocó, y del mismo mes",
     det.args && det.args.p_prov === "AGU" && det.args.p_mes === MES + "-01" && det.args.p_demo === false);
   comprobar("el respaldo sale pedido por pedido, con su cliente",
-    /PD-0020/.test(t) && /Comercial Nilo/.test(t) && /PD-0021/.test(t) && /Abarrotes Don Pepe/.test(t));
+    /PD-0020/.test(t) && /COMERCIAL NILO/.test(t) && /PD-0021/.test(t) && /ABARROTES DON PEPE/.test(t));
   comprobar("dice cómo se le pagó a la piladora en cada pedido",
     /le pagaste de contado/.test(t) && /le pagaste a crédito/.test(t));
   comprobar("y cuándo terminó de pagar el cliente", /cobrado el 14\/|cobrado el 22\//.test(t));
@@ -169,7 +174,7 @@ const tocar = (m, t) => vm.runInContext(`window.__tocar(${JSON.stringify(t)})`, 
     (t.match(/qq devueltos con nota de crédito/g) || []).length === 1);
   tocar(m, "Ocultar el respaldo");
   await esperar(200);
-  comprobar("el respaldo se puede volver a cerrar", !/Abarrotes Don Pepe/.test(txt(m)));
+  comprobar("el respaldo se puede volver a cerrar", !/ABARROTES DON PEPE/.test(txt(m)));
 
   /* ── 3 · sin datos reales: cae a la práctica y lo dice ── */
   const m2 = montar({ hayReal: false });

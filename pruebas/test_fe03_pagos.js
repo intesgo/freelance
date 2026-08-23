@@ -10,9 +10,9 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"195"/.test(web),"Sistema Web debe anunciar b195");
+ok(/const VERSION = \{ n:"196"/.test(web),"Sistema Web debe anunciar b196");
 ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
-ok(/const CACHE = "freelance-v298"/.test(sw),"la caché debe renovarse a v298");
+ok(/const CACHE = "freelance-v299"/.test(sw),"la caché debe renovarse a v299");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");
@@ -33,7 +33,7 @@ ok(/el flete y la estibada esperan a que se confirme la entrega/.test(web),"el m
 ok(/FE06_GUIAS_SIN_CERRAR/.test(web),"ancla FE06_GUIAS_SIN_CERRAR (Logística · Despacho)");
 ok(/const FE06_DIAS_AVISO = 3;/.test(web),"el umbral de días es una constante con nombre");
 ok(/fuenteLog === "vivo" && guiasAviso && guiasAviso\.length > 0/.test(web),"el aviso solo se pinta en vivo y si hay filas (no molesta vacío)");
-ok(/from\("viajes"\)[\s\S]{0,220}\.in\("estado", \["despachado"\]\)/.test(web),"lee los viajes despachados para el aviso");
+ok(/from\("viajes"\)[\s\S]{0,320}\.in\("estado", \["despachado"\]\)/.test(web),"lee los viajes despachados para el aviso");
 ok(/hoyECWeb\(new Date\(iso\)\)/.test(web),"cuenta los días con la fecha de Ecuador, no el reloj del navegador");
 ok(!/from\("viajes"\)[\s\S]{0,80}\.(insert|update|delete)\(/.test(web),"el aviso NO escribe en viajes (solo lee)");
 
