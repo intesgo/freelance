@@ -237,15 +237,15 @@ async function bateria(js, ruidoso) {
     txt.indexOf("Arroz Vitalota") < 0);
 
   /* 5 · al hacer clic en la fila de PD-0011 se abre el modal con sus TRES líneas */
-  corre(m, `window.__clickCab("Pedro Castillo")`);
+  corre(m, `window.__clickCab("PEDRO CASTILLO")`);
   corre(m, `ReactDOM.flushSync(function(){})`);
   const det = corre(m, `window.__detalleTxt()`);
   comprobar("al tocar la fila de PD-0011 el modal muestra sus 3 líneas (Arrocillo, Flor, Vitalota)",
     det.indexOf("Arrocillo Especial") >= 0 && det.indexOf("Arroz Flor") >= 0 && det.indexOf("Arroz Vitalota") >= 0);
 
   /* 6 · la cabecera del 04/08 sale a nombre de SU cliente: «Pedro Castillo» */
-  comprobar("la cabecera del 04/08 dice «Pedro Castillo» (su cliente, no la posición)",
-    txt.indexOf("04/08/2026") >= 0 && txt.indexOf("Pedro Castillo") >= 0);
+  comprobar("la cabecera del 04/08 dice «PEDRO CASTILLO» (su cliente, no la posición)",
+    txt.indexOf("04/08/2026") >= 0 && txt.indexOf("PEDRO CASTILLO") >= 0);
 
   /* 7 · el primer cliente alfabético del maestro NO se cuela en ningún pedido */
   comprobar("«Abad Mendieta» no aparece en ninguna parte (no es cliente de ningún pedido)",

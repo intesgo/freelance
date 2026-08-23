@@ -277,7 +277,7 @@ async function bateria(js, ruidoso) {
     txtBusca.indexOf("Clientes") >= 0 && txtBusca.indexOf("A crédito") >= 0 && txtBusca.indexOf("Bloqueados") >= 0);
 
   /* ── B) LA FICHA DE PEDRO (el camino verde de la maqueta) ── */
-  const txtPedro = await abrir("castillo", "Pedro Castillo");
+  const txtPedro = await abrir("castillo", "PEDRO CASTILLO");
   comprobar("elegirlo abre la ficha, con su «Buscar otro cliente»",
     txtPedro.indexOf("Buscar otro cliente") >= 0);
   comprobar("EN LA FICHA EL SELLO DE FUENTE YA NO ESTÁ (lo pidió el PO)",
@@ -327,7 +327,7 @@ async function bateria(js, ruidoso) {
     txtVuelta.indexOf("Se le puede vender") < 0);
 
   /* ── D) EL BLOQUEADO ── */
-  const txtVera = await abrir("vera", "Almacenes Vera S.A.");
+  const txtVera = await abrir("vera", "ALMACENES VERA S.A.");
   comprobar("el chip de estado dice «Bloqueado»",
     txtVera.indexOf("Bloqueado") >= 0);
   comprobar("la franja va en rojo: «No se le puede vender» · «Bloqueado: Cheque protestado»",
@@ -335,7 +335,7 @@ async function bateria(js, ruidoso) {
   await volver();
 
   /* ── E) EL DE LOS VENCIDOS ── */
-  const txtLoja = await abrir("loja", "Comercial Loja");
+  const txtLoja = await abrir("loja", "COMERCIAL LOJA");
   comprobar("con cartera vencida la franja dice «No se le puede vender» · «Con vencidos»",
     txtLoja.indexOf("No se le puede vender") >= 0 && txtLoja.indexOf("Con vencidos") >= 0);
   comprobar("y la tarjetita de CARTERA lo cuenta: Debe $500,00 · 1 factura(s) · 1 vencida(s)",
@@ -344,13 +344,13 @@ async function bateria(js, ruidoso) {
   await volver();
 
   /* ── F) EL QUE SE COMIÓ EL CUPO ── */
-  const txtAnita = await abrir("anita", "Víveres Anita");
+  const txtAnita = await abrir("anita", "VÍVERES ANITA");
   comprobar("con el cupo en cero la franja dice «No se le puede vender» · «Sin cupo disponible»",
     txtAnita.indexOf("No se le puede vender") >= 0 && txtAnita.indexOf("Sin cupo disponible") >= 0);
   await volver();
 
   /* ── G) EL NUEVO SIN HISTORIAL: se dice con palabras, no se inventa ── */
-  const txtNuevo = await abrir("nuevo", "Nuevo Cliente");
+  const txtNuevo = await abrir("nuevo", "NUEVO CLIENTE");
   comprobar("al de contado sin cupo asignado no se le inventa un bloqueo: veredicto verde",
     txtNuevo.indexOf("Se le puede vender") >= 0 && txtNuevo.indexOf("No se le puede vender") < 0);
   comprobar("ÚLTIMA COMPRA «Sin compras registradas» y RANKING «Sin historial»",
@@ -366,7 +366,7 @@ async function bateria(js, ruidoso) {
      En pantalla ancha se acomodan las que quepan; en un teléfono deben ser
      exactamente DOS columnas, no una. Se mide sobre la rejilla de verdad,
      con la ficha de Pedro abierta, en dos montajes con anchos distintos. */
-  await abrir("castillo", "Pedro Castillo");
+  await abrir("castillo", "PEDRO CASTILLO");
   const rejillaAncha = corre(m, `window.__rejillaDatos()`);
   comprobar("en pantalla ancha la rejilla sigue acomodando las que quepan (auto-fill)",
     /auto-fill/.test(rejillaAncha));
@@ -379,7 +379,7 @@ async function bateria(js, ruidoso) {
     corre(cel, `ReactDOM.flushSync(function(){})`);
     corre(cel, `window.__escribir("Escribe nombre, razón social o RUC…", "castillo")`);
     await esperar(40);
-    corre(cel, `window.__tocar("div", "Pedro Castillo")`);
+    corre(cel, `window.__tocar("div", "PEDRO CASTILLO")`);
     await esperar(60);
     corre(cel, `ReactDOM.flushSync(function(){})`);
     const rejillaCel = corre(cel, `window.__rejillaDatos()`);

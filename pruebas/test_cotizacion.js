@@ -241,7 +241,7 @@ const escribir = (m, k, v) => vm.runInContext(`window.__escribir(${JSON.stringif
   comprobar("sin sesión avisa que es demostración", /Demostración/.test(t));
   escribir(d, "nombre, RUC o ciudad", "mendoza");
   await esperar(200);
-  comprobar("y ofrece los clientes de la demostración", /Mendoza/.test(txt(d)));
+  comprobar("y ofrece los clientes de la demostración", /MENDOZA/i.test(txt(d)));
 
   console.log("Resultado " + nombreApp + ": " + ok + " ✓ · " + mal + " ✗");
   process.exit(mal ? 1 : 0);
