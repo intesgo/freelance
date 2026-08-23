@@ -29,8 +29,8 @@ for(const a of APPS){
 ok(/const VERSION = \{ n:"472"/.test(L("freelance-completo.html")),"Freelance debe anunciar v472");
 ok(/const VERSION = \{ n:"191"/.test(L("Comisionista.html")),"Comisionista debe anunciar v191");
 ok(/const VERSION = \{ n:"58"/.test(L("socio-comercial.html")),"Socio debe anunciar v58");
-ok(/const VERSION = \{ n:"194"/.test(L("sistema-web.html")),"Sistema Web debe anunciar b194");
-ok(/const CACHE = "freelance-v297"/.test(sw),"la caché debe renovarse a v297");
+ok(/const VERSION = \{ n:"195"/.test(L("sistema-web.html")),"Sistema Web debe anunciar b195");
+ok(/const CACHE = "freelance-v298"/.test(sw),"la caché debe renovarse a v298");
 
 if(m){console.error(`FE02-COBRO: ${b} ✓ · ${m} ✗`);process.exit(1);}
 console.log(`FE02-COBRO: ${b} ✓ · 0 ✗`);
