@@ -117,6 +117,28 @@ dos números en el mismo cambio:
 Si no subes estos números, el teléfono sigue sirviendo la copia guardada y el usuario no
 ve la actualización.
 
+### ✅ Checklist de publicación — SIEMPRE los dos números juntos
+
+**Cada publicación (Sistema Web incluido) sube en el MISMO cambio:**
+
+1. `VERSION.n` del HTML que tocaste (el Sistema Web lleva su propia numeración `b###`).
+2. `CACHE` en `sw.js` al siguiente número (`freelance-v###`).
+
+**Por qué salen (o no) las barras «Actualizar» — dos motores distintos:**
+
+- **Apps móviles** (freelance, comisionista, socio, proveedor, transportista): el aviso lo
+  dispara el **service worker**. Si no subes `CACHE`, el teléfono sigue sirviendo la copia
+  guardada y no se entera.
+- **Sistema Web** (`intesgo.app/home`): el aviso lo dispara **`version.json`** — el compilador
+  lo regenera con `VERSION.n` en cada publicación, y la página lo compara contra la versión que
+  tiene cargada. Es decir: **para el Sistema Web, lo que hace salir la barra es subir `VERSION.n`**
+  (no el `CACHE`). Aun así, **sube igual `CACHE`**: el mismo `sw.js` (scope `/`) cachea todo el
+  sitio, y `version.json` **se lee siempre de la red, nunca de la caché** (regla puesta en `sw.js`,
+  con su guard en `test_cambios_422.js`) — no la rompas.
+
+**Regla de oro:** si publicas el Sistema Web y NO sube `VERSION.n`, la barra «Actualizar» **no
+sale**. Sube `VERSION.n` **y** `CACHE`, y ajusta los arneses de versión/caché (§4 arriba).
+
 ### ⚠️ IMPORTANTE — Arneses atados a versión y diseño
 
 Hay pruebas amarradas a la **versión** y al **diseño** de las pantallas, por ejemplo:
