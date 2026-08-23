@@ -1272,7 +1272,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"69", fecha:"23 ago 2026", desc:"En «Pedidos por facturar», cada fila ahora muestra solo la fecha y los quintales; se quitó el total en dólares de esa lista para no confundir (el monto sigue en el detalle y en la factura). Es solo presentación: no cambia ningún cálculo." };
+const VERSION = { n:"70", fecha:"23 ago 2026", desc:"Al facturar, si la ruta activa dejó un producto fuera de despacho, ese producto ya NO aparece en el pedido (antes salía aunque no se pudiera despachar). Así facturas solo lo que de verdad va, y el total no lo incluye. La base ya lo bloqueaba; esto es para que no te confunda un producto que no va." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1542,8 +1542,22 @@ async function vivoDecidir(){
        lo que hiciste. */
     let peds=((rp&&rp.data)||[]).filter(p=>p.estado==="enviado_proveedor" || p.estado==="facturado" || p.estado==="anulado");
     if(mio) peds=peds.filter(p=>p.prov_cod===mio);
+    /* DISENO_LOGISTICA_DESPACHO_PARCIAL · líneas que la RUTA ACTIVA dejó fuera: NO se muestran al
+       facturar (el servidor ya las rechaza; esto es solo para que la piladora no vea un producto
+       "fantasma" que no puede despachar). Solo lectura. */
+    const exclPorPed={};
+    const pedIds=peds.map(p=>p.ped_id);
+    if(pedIds.length){
+      const rrp=await window.SB.from("ruta_pedidos")
+        .select("ped_id,items_excluidos").in("ped_id",pedIds).eq("estado_asignacion","activo").limit(2000);
+      (((rrp&&rrp.data))||[]).forEach(r=>{
+        const ex=Array.isArray(r.items_excluidos)?r.items_excluidos:[];
+        if(ex.length) exclPorPed[r.ped_id]=new Set(ex.map(String));
+      });
+    }
     const facturar=peds.map(p=>{
-      const its=items.filter(i=>i.ped_id===p.ped_id);
+      const fuera=exclPorPed[p.ped_id]||null;   /* item_id que NO van en esta ruta */
+      const its=items.filter(i=>i.ped_id===p.ped_id && !(fuera && fuera.has(String(i.item_id))));
       const qq=its.reduce((s,i)=>s+Number(i.cantidad_qq||0),0);
       const monto=its.reduce((s,i)=>s+Number(i.cantidad_qq||0)*Number(i.precio_usd||0),0);
       return { id:p.ped_id, cliente:nCli[p.cli_id]||p.cli_id||"Cliente",

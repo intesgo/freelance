@@ -49,6 +49,7 @@ const PLAN = [
   { arnes:"test_rol_comisionista.js", que:"el rol nuevo ve lo mismo que el viejo", apps:DEL_EQUIPO },
   { arnes:"test_aprobar_pedido.js",  que:"cómo le pagas a la piladora al aprobar", apps:["freelance-completo"] },
   { arnes:"test_despacho_parcial.js", que:"cuando el pedido sale corto",           apps:[null] },
+  { arnes:"test_ruta_excluidos_prov.js", que:"al facturar, el proveedor no ve las líneas que la ruta dejó fuera", apps:[null] },
   { arnes:"test_nota_credito.js",    que:"la nota de crédito y a quién le duele", apps:[null] },
   { arnes:"test_comision_piladora.js", que:"lo que le facturas a cada piladora",   apps:["freelance-completo"] },
   { arnes:"test_arranque.js",        que:"el día en que empieza a contar de verdad", apps:["freelance-completo"] },
