@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"189", fecha:"23 ago 2026", desc:"En Logística, al «Escoger pedidos» ahora cada pedido se ve más claro: el nombre del cliente como en Pedidos (en mayúsculas), el «Pedido N.º» resaltado en vez del código interno, y el encabezado de cada ciudad se distingue con un recuadro verde y su pin. Es presentación: no cambia el armado de rutas ni los cálculos." };
+const VERSION = { n:"190", fecha:"23 ago 2026", desc:"En Logística, al «Escoger pedidos» cada pedido ahora se ve en UNA sola línea con columnas claras: nombre del cliente (mayúsculas), «Pedido N.º», fecha de ingreso y hace cuántos días entró, la piladora y el vendedor. En pantallas angostas la fila se desliza en horizontal. Además hay un nuevo orden «↓ Más recientes». Es presentación: no cambia el armado de rutas ni los cálculos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2539,6 +2539,8 @@ function TrazabilidadWeb({ usuario }) {
           numero: p.numero_pedido || null,   /* DISENO_LOGISTICA_ESCOGER · número de pedido uniforme (null en demo) */
           razon: (p.clientes && p.clientes.razon_social) || null,
           tipoCli: (p.clientes && p.clientes.tipo) || null,
+          creado: p.creado,                                        /* DISENO_LOGISTICA_FILA_DATOS · fecha cruda, para fecha y días */
+          prov: (p.proveedores && p.proveedores.nombre) || "—",    /* DISENO_LOGISTICA_FILA_DATOS · piladora a nivel de fila */
           qqReal,
           retiroBodega: !!p.retiro_bodega,
           cliId: p.cli_id,          /* lo necesita la guía del viaje */
@@ -3005,6 +3007,27 @@ function TrazabilidadWeb({ usuario }) {
     toast("Ruta creada: " + payload.nombre + " · " + orden.length + " pedido(s). Sigue: Orden de entrega.");
   };
 
+  /* DISENO_LOGISTICA_FILA_DATOS · fecha y días de ingreso, en horario de Ecuador.
+     No se reutilizan diasDesde/fmtFecha de otros componentes (fuera de alcance). */
+  const fmtFechaLog = (iso) => {
+    if (!iso) return "—";
+    const ymd = hoyECWeb(new Date(iso));            /* "YYYY-MM-DD" en Ecuador */
+    const [y,m,d] = ymd.split("-").map(Number);
+    if (!y) return "—";
+    const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return d + " " + (MESES[m-1] || "?") + " " + y;
+  };
+  const diasDeLog = (iso) => {
+    if (!iso) return "—";
+    const a = hoyECWeb(new Date(iso)).split("-").map(Number);   /* ingreso, EC */
+    const b = hoyECWeb().split("-").map(Number);                /* hoy, EC */
+    if (!a[0]) return "—";
+    const n = Math.round((Date.UTC(b[0],b[1]-1,b[2]) - Date.UTC(a[0],a[1]-1,a[2])) / 86400000);
+    if (n <= 0) return "hoy";
+    if (n === 1) return "hace 1 día";
+    return "hace " + n + " días";
+  };
+
   const seleccionPedidos = () => {
     if (disponibles.length===0) return (
       <div style={{ ...card, textAlign:"center", padding:"26px 20px", marginBottom:16 }}>
@@ -3016,6 +3039,12 @@ function TrazabilidadWeb({ usuario }) {
     disponibles.forEach(p => { (grupos[p.ciudad] = grupos[p.ciudad] || []).push(p); });
     const ciudades = Object.keys(grupos).sort((a,b) => {
       if (ordenP1==="ns") return logOrdenNS(a)-logOrdenNS(b);
+      if (ordenP1==="fecha") {
+        /* DISENO_LOGISTICA_FILA_DATOS · ciudad ordenada por su pedido más reciente (desc) */
+        const fa = grupos[a].reduce((x,p)=> (p.creado||"")>x ? (p.creado||"") : x, ""),
+              fb = grupos[b].reduce((x,p)=> (p.creado||"")>x ? (p.creado||"") : x, "");
+        return fb<fa ? -1 : fb>fa ? 1 : 0;
+      }
       const qa = grupos[a].reduce((x,p)=>x+logQQ(p),0), qb = grupos[b].reduce((x,p)=>x+logQQ(p),0);
       return qb-qa;
     });
@@ -3028,12 +3057,15 @@ function TrazabilidadWeb({ usuario }) {
           </p>
         )}
         <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-          {[["qq","↓ Mayor qq"],["ns","↕ Norte → Sur"]].map(([k,t])=>(
+          {[["qq","↓ Mayor qq"],["ns","↕ Norte → Sur"],["fecha","↓ Más recientes"]].map(([k,t])=>(
             <button key={k} onClick={()=>setOrdenP1(k)} style={pillTg(ordenP1===k)}>{t}</button>
           ))}
         </div>
         {ciudades.map(c => {
-          const lista = grupos[c];
+          /* DISENO_LOGISTICA_FILA_DATOS · con "Más recientes" la lista de la ciudad va por creado desc */
+          const lista = ordenP1==="fecha"
+            ? grupos[c].slice().sort((x,y)=> (y.creado||"")<(x.creado||"") ? -1 : (y.creado||"")>(x.creado||"") ? 1 : 0)
+            : grupos[c];
           const qqC = lista.reduce((a,p)=>a+logQQ(p),0);
           const nSel = lista.filter(p=>sel[p.id]).length;
           const todos = nSel===lista.length, algunos = nSel>0 && !todos;
@@ -3061,23 +3093,37 @@ function TrazabilidadWeb({ usuario }) {
               </div>
               {abierta && lista.map(p => {
                 const llena = logQQ(p) >= capMin;
+                /* DISENO_LOGISTICA_FILA_DATOS · columna de ancho fijo: ícono + texto que corta con "…" */
+                const colBox = (w) => ({ width:w, flexShrink:0, display:"flex", alignItems:"center", gap:5, fontSize:12, overflow:"hidden" });
+                const colTxt = { flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" };
                 return (
+                  /* DISENO_LOGISTICA_FILA_DATOS · una sola línea horizontal; en pantallas angostas se DESLIZA (overflow-x) en vez de amontonarse */
                   <div key={p.id} onClick={()=>toggleSel(p.id)}
-                    style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px 11px 26px",
-                      borderTop:`1px solid ${COLOR.border}`, cursor:"pointer",
+                    style={{ borderTop:`1px solid ${COLOR.border}`, cursor:"pointer", overflowX:"auto",
                       background: sel[p.id]?COLOR.tealLight:(llena?"#fdf6e3":"#fff"),
                       borderLeft: llena?`3px solid ${COLOR.orange}`:"3px solid transparent" }}>
-                    <input type="checkbox" checked={!!sel[p.id]} onChange={()=>toggleSel(p.id)} onClick={e=>e.stopPropagation()}
-                           style={{ width:17, height:17, accentColor:COLOR.teal }} />
-                    <div style={{ flex:1 }}>
-                      {/* DISENO_LOGISTICA_ESCOGER · nombre de persona (igual que en Pedidos) en mayúsculas y número de pedido uniforme */}
-                      <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.text, textTransform:"uppercase", margin:0 }}>{nombreClientePedido(p)}</p>
-                      <p style={{ fontSize:11.5, color:COLOR.muted, margin:"2px 0 0", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                        <span className="num" style={{ fontWeight:800, color:COLOR.tealDark, background:"#E4EFE7", borderRadius:6, padding:"1px 7px" }}>{p.numero || p.id}</span>
-                        <span>· {p.sc}{llena?" · ⚠ llena un camión":""}</span>
-                      </p>
+                    <div style={{ display:"flex", alignItems:"center", gap:14, minWidth:920, whiteSpace:"nowrap", padding:"11px 14px 11px 26px" }}>
+                      <input type="checkbox" checked={!!sel[p.id]} onChange={()=>toggleSel(p.id)} onClick={e=>e.stopPropagation()}
+                             style={{ width:17, height:17, accentColor:COLOR.teal, flexShrink:0 }} />
+                      {/* nombre de persona en MAYÚSCULAS (igual que en Pedidos) */}
+                      <span style={{ width:160, flexShrink:0, fontSize:13.5, fontWeight:800, color:COLOR.text, textTransform:"uppercase", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}</span>
+                      {/* número de pedido uniforme (chip verde) */}
+                      <span className="num" style={{ width:135, flexShrink:0, textAlign:"center", fontSize:12, fontWeight:800, color:COLOR.tealDark, background:"#E4EFE7", borderRadius:6, padding:"2px 8px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.numero || p.id}</span>
+                      <span style={{ ...colBox(150), color:COLOR.muted }}>
+                        <Ico name="calendar" size={13} color={COLOR.muted} />
+                        <span style={colTxt}>Ingresó <b style={{color:COLOR.text}}>{fmtFechaLog(p.creado)}</b></span></span>
+                      <span style={{ ...colBox(110), color:"#b45309" }}>
+                        <Ico name="clock" size={13} color="#b45309" />
+                        <span style={colTxt}><b>{diasDeLog(p.creado)}</b></span></span>
+                      <span style={{ ...colBox(180), color:COLOR.muted }}>
+                        <Ico name="warehouse" size={13} color={COLOR.muted} />
+                        <span style={colTxt}>Piladora <b style={{color:COLOR.text}}>{p.prov}</b></span></span>
+                      <span style={{ ...colBox(190), color:COLOR.muted }}>
+                        <Ico name="user" size={13} color={COLOR.muted} />
+                        <span style={colTxt}>Vendedor <b style={{color:COLOR.text}}>{p.sc}</b></span></span>
+                      <span style={{ flex:1 }} />
+                      <span className="num" style={{ flexShrink:0, fontSize:14, fontWeight:800, color:COLOR.text }}>{Math.round(logQQ(p))} qq{llena?<span style={{ color:COLOR.orange, fontWeight:700 }}> · ⚠ llena un camión</span>:""}</span>
                     </div>
-                    <p className="num" style={{ fontSize:14, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(logQQ(p))} qq</p>
                   </div>
                 );
               })}
