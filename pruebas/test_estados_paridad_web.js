@@ -237,15 +237,21 @@ async function bateria(js, ruidoso) {
 
   /* ─────────────── PARTE A · paridad de estados en la lista ─────────────── */
   const mA = await montarLista(js);
-  const nBotones = correW(mA, `window.__nBotonesEditar()`);
+  /* PED_PESTANAS_ESTADO · la lista se reparte en pestañas por estado. «enviado_proveedor»
+     está en Pendientes (la pestaña por defecto); «facturado» está en «En camino». */
   const editEnv  = correW(mA, `window.__botonEditar("CLIENTE UNO")`);
+  const nBotones = correW(mA, `window.__nBotonesEditar()`);   // en Pendientes: solo el lápiz del pedido editable
+  correW(mA, `window.__clickTexto("En camino")`);             // el facturado vive en «En camino»
+  await esperar(160); correW(mA, `window.__flush()`);
   const editFac  = correW(mA, `window.__botonEditar("CLIENTE DOS")`);
+  correW(mA, `window.__clickTexto("Pendientes")`);            // se vuelve a Pendientes para el resto
+  await esperar(160); correW(mA, `window.__flush()`);
 
   comprobar("A · pedido «enviado_proveedor» (Cliente Uno): SÍ sale el lápiz «Editar pedido»"
     + " (fue: " + editEnv + ")", editEnv === "si");
   comprobar("A · pedido «facturado» (Cliente Dos): NO sale el lápiz «Editar pedido»"
     + " (fue: " + editFac + ")", editFac === "no");
-  comprobar("A · en toda la lista hay exactamente 1 lápiz «Editar pedido»"
+  comprobar("A · en la pestaña Pendientes hay exactamente 1 lápiz «Editar pedido»"
     + " (fue: " + nBotones + ")", nBotones === 1);
 
   /* ─────────────── PARTE B · una sola vía de guardado, recarga en éxito ───── */

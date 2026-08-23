@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"194"/.test(web),"Sistema Web debe anunciar b194");
-prueba(/const CACHE = "freelance-v297"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"195"/.test(web),"Sistema Web debe anunciar b195");
+prueba(/const CACHE = "freelance-v298"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -206,6 +206,19 @@ prueba(/textTransform:"uppercase"[^>]*>\{nombreClientePedido\(p\)\}<\/span>/.tes
 prueba(/textTransform:"uppercase"[^>]*>\{nombreClientePedido\(pedido\)\}<\/div>/.test(comi),"comisionista · la fila usa nombreClientePedido en mayúsculas");
 prueba(/className="cli" style=\{\{textTransform:"uppercase"\}\}>\{nombreClientePedido\(p\)\}<\/div>/.test(socio),"socio · la fila usa nombreClientePedido en mayúsculas");
 prueba(/money\(pedido\.comision\)/.test(comi)&&/money\(p\.comision\)/.test(socio),"la comisión («tu comisión») SE CONSERVA en la lista de comisionista y socio (es lo que gana el vendedor)");
+
+/* ── PED_PESTANAS_ESTADO · Pedidos (web) con 5 pestañas por estado ── */
+prueba(/PED_PESTANAS_ESTADO/.test(web),"queda el ancla PED_PESTANAS_ESTADO");
+prueba(/\["pendientes","Pendientes"\],\["encamino","En camino"\],\["entregados","Entregados"\],\["anulados","Anulados"\],\["traza","🔍 Trazabilidad"\]/.test(web),"web · las 5 pestañas de Pedidos en orden (Pendientes/En camino/Entregados/Anulados/Trazabilidad)");
+prueba(/const tabDePed = \(est\) =>/.test(web)&&/if \(e\.startsWith\("Anulado"\)\) return "anulados";/.test(web),"web · Anulados es pestaña propia (no se mezcla con Entregados)");
+prueba(/const \[pTab, setPTab\] = useState\("pendientes"\)/.test(web),"web · la pestaña por defecto es Pendientes");
+prueba(/usarPaginacion\(pedidosTab, pagP\)/.test(web)&&/const contarTab = /.test(web),"web · la lista se filtra por pestaña y cada pestaña muestra su conteo");
+prueba(/\{pedidosTab\.length\} pedidos · \{porRevisarTab\} por revisar/.test(web),"web · el rótulo «N pedidos · N por revisar» respeta la pestaña activa");
+
+/* ── PED_ESCOGER_SIN_RETIRO_BODEGA · Logística no ofrece los pedidos «retira en bodega» ── */
+prueba(/PED_ESCOGER_SIN_RETIRO_BODEGA/.test(web),"queda el ancla PED_ESCOGER_SIN_RETIRO_BODEGA");
+prueba(/!enRuta\(p\.id\) && !p\.retiroBodega/.test(web),"logística · «Escoger pedidos» filtra por !p.retiroBodega (NULL cuenta como elegible)");
+prueba(!/\.neq\("retiro_bodega",\s*true\)/.test(web),"logística · NO se usa .neq(retiro_bodega,true) en el select (descartaría los NULL)");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);

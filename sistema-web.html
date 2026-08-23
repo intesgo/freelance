@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"194", fecha:"23 ago 2026", desc:"El nombre del cliente se muestra parejo en todo el sistema: persona natural → primer nombre + apellido (sacado de la razón social, ej. «DORA DIAZ»); empresa → su razón social; siempre en MAYÚSCULAS. Se aplicó en Logística (orden/ruta/novedades), Comisiones, los buscadores y la ficha/lista de clientes. Una sola regla para todos (incluye el RUC para distinguir empresa de persona)." };
+const VERSION = { n:"195", fecha:"23 ago 2026", desc:"Pedidos ahora tiene 5 pestañas: Pendientes · En camino · Entregados · Anulados · 🔍 Trazabilidad, cada una con su número. La lista se filtra por estado (arranca en Pendientes). Además, en Logística al «Escoger pedidos» ya no aparecen los pedidos que el cliente retira en bodega (no van en la ruta). Es presentación: no cambia columnas, el modal, el orden ni el servidor." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2925,6 +2925,10 @@ function TrazabilidadWeb({ usuario }) {
 
   // ── Derivadas base ──
   const enRuta = (id) => rutas.some(r => r.pedidos.indexOf(id)>=0);
+  /* PED_ESCOGER_SIN_RETIRO_BODEGA · «retira en bodega» NO va a la ruta (el servidor
+     _log_pedido_elegible ya lo rechaza). Se filtra por !p.retiroBodega tras traer los datos;
+     como retiroBodega = !!retiro_bodega, un NULL cuenta como elegible (igual que el coalesce
+     del servidor). El select NO descarta por retiro_bodega en Supabase (eso botaría los NULL). */
   const disponibles = pedidos.filter(p => p.estado!=="anulado" && !enRuta(p.id) && !p.retiroBodega);
   const retirosBodega = pedidos.filter(p => p.retiroBodega);
   const pedidosDe = (r) => r.pedidos.map(id=>pedidos.find(x=>x.id===id)).filter(Boolean);
@@ -5681,7 +5685,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   }, []);
   useEffect(() => { cargarPedidosVivos(); }, [cargarPedidosVivos]);
   const [vista, setVista] = useState("lista");
-  const [pTab, setPTab] = useState("pedidos");     // pedidos | traza
+  const [pTab, setPTab] = useState("pendientes");     // PED_PESTANAS_ESTADO · pendientes | encamino | entregados | anulados | traza
   const [tzQ, setTzQ] = useState("");
   const [tzSel, setTzSel] = useState(null);        // { v, g } elegido
   const [aviso, setAviso] = useState("");
@@ -6076,6 +6080,19 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     const c = va < vb ? -1 : va > vb ? 1 : 0;
     return ordDir === "asc" ? c : -c;
   });
+  /* PED_PESTANAS_ESTADO · reparto por estado (mismo criterio que el freelance). Anulados
+     tiene pestaña propia (NO se mezcla con Entregados). startsWith donde el estado varía. */
+  const tabDePed = (est) => {
+    const e = String(est || "");
+    if (e.startsWith("Anulado")) return "anulados";
+    if (e.startsWith("Ingresado") || e.startsWith("Esperando") || e.startsWith("Por autorizar") || e.startsWith("Enviado")) return "pendientes";
+    if (e === "Facturado" || e === "Despachado") return "encamino";
+    return "entregados";   /* Entregado, Cliente pagó, Cerrado */
+  };
+  const PTABS = [["pendientes","Pendientes"],["encamino","En camino"],["entregados","Entregados"],["anulados","Anulados"],["traza","🔍 Trazabilidad"]];
+  const contarTab = (k) => pedidos.filter(p => tabDePed(p.estado) === k).length;
+  const pedidosTab = (pTab === "traza") ? [] : pedidosOrdenados.filter(p => tabDePed(p.estado) === pTab);
+  const porRevisarTab = pedidosTab.filter(p => p.estado.startsWith("Esperando") || p.estado.startsWith("Por autorizar")).length;
   const clicOrden = (campo) => {
     if (ordCampo === campo) setOrdDir(d => d === "asc" ? "desc" : "asc");
     else { setOrdCampo(campo); setOrdDir(campo === "fecha" ? "desc" : "asc"); }
@@ -6434,16 +6451,17 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     return (
       <div style={{ padding:"22px 28px 40px" }}>
         <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-          {[["pedidos","📦 Pedidos"],["traza","🔍 Trazabilidad"]].map(([k,t])=>(
-            <button key={k} onClick={()=>setPTab(k)}
+          {/* PED_PESTANAS_ESTADO · 5 pestañas: 4 filtran la MISMA lista por estado (con su conteo), Trazabilidad queda igual */}
+          {PTABS.map(([k,t])=>(
+            <button key={k} onClick={()=>{ setPTab(k); setPagP(0); }}
               style={{ border:"none", cursor:"pointer", borderRadius:20, padding:"9px 18px", fontSize:13.5, fontWeight:700,
-                background: pTab===k?COLOR.tealDark:"#eef1f4", color: pTab===k?"#fff":COLOR.muted }}>{t}</button>
+                background: pTab===k?COLOR.tealDark:"#eef1f4", color: pTab===k?"#fff":COLOR.muted }}>{t}{k!=="traza" ? ` (${contarTab(k)})` : ""}</button>
           ))}
         </div>
         {pTab==="traza" ? vistaTraza() : (
         <div>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, marginBottom:18 }}>
-          <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidos.length} pedidos · {pedidos.filter(p=>p.estado.startsWith("Esperando")||p.estado.startsWith("Por autorizar")).length} por revisar</p>
+          <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidosTab.length} pedidos · {porRevisarTab} por revisar</p>{/* PED_PESTANAS_ESTADO · el rótulo respeta la pestaña activa */}
           <button onClick={abrir} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700 }}>+ Nuevo pedido</button>
         </div>
         {/* PED_P0_2_AGRUPAR_WEB · ACORDEÓN: una CABECERA por pedido; ningún producto hace de
@@ -6459,7 +6477,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
             {th("fecha","Fecha")}{th("cliente","Cliente")}{th("numero","Pedido N.º")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
           </div>
-          {usarPaginacion(pedidosOrdenados, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
+          {usarPaginacion(pedidosTab, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
             return (
               <div key={p.id} style={{ borderTop: i>0 ? `1px solid ${COLOR.border}` : "none" }}>
                 {/* PED_NUMERO_Y_MODAL · CABECERA del pedido: clic en zona libre = abre el modal de solo lectura
@@ -6488,7 +6506,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             </>);
           })()}
         </div>
-        <VerMas pg={usarPaginacion(pedidos, pagP)} onMas={setPagP} />
+        <VerMas pg={usarPaginacion(pedidosTab, pagP)} onMas={setPagP} />
         </div>
         )}
 
