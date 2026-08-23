@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"197", fecha:"23 ago 2026", desc:"En Logística → «Escoger pedidos», los quintales ahora se distinguen por color y peso (total de ciudad en verde fuerte, total del pedido, línea de producto y «irá a despacho» en pastilla; producto excluido en rojo tachado). La suma de la ruta pasó a una píldora flotante que se queda a la vista al marcar y hacer scroll. Y la fila del cliente marca «💵 CONTADO» solo en pedidos de contado (se quitó el contado/crédito del detalle por producto). Es solo presentación: no cambia cálculos ni el flujo de ruta." };
+const VERSION = { n:"198", fecha:"23 ago 2026", desc:"En Logística → «Escoger pedidos»: la suma de la píldora flotante (y el total de cada ciudad) ahora RESTA los productos que dejaste fuera con los casilleros, así el número cuadra con lo que de verdad va. La píldora se puede ARRASTRAR con el dedo o el mouse por si tapa algo (queda dentro de la pantalla y no dispara «Guardar» al moverla). Los quintales siguen distinguidos por color, con «💵 CONTADO» en los pedidos de contado. Es solo presentación: no cambia el flujo de ruta." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2945,8 +2945,10 @@ function TrazabilidadWeb({ usuario }) {
   const [logAbierto, setLogAbierto] = useState({});          // {ped_id: bool} · fila del pedido desplegada
   const [excluidos, setExcluidos] = useState({});            // {ped_id: {item_id: true}} · líneas desmarcadas (NO van)
   const [excluirConfirm, setExcluirConfirm] = useState(null);// {pedId, itemId} · desmarque pendiente de confirmar
+  /* DISENO_LOGISTICA_ESCALAS_QQ · la píldora flotante se puede ARRASTRAR (dedo y mouse) por si tapa algo */
+  const [pillPos, setPillPos] = useState(null);              // {x,y} arrastrada, o null = abajo-centro por defecto
+  const pillDrag = React.useRef({ active:false, moved:false, dx:0, dy:0, w:0, h:0 });
   const idsSel = Object.keys(sel).filter(k=>sel[k]);
-  const qqSel = idsSel.reduce((a,id)=>{ const p=pedidos.find(x=>x.id===id); return a+(p?logQQ(p):0); },0);
 
   // ── Regla de zonas (los grupos editables mandan) ──
   const gruposActivos = gruposCiu.filter(g => g.activo);
@@ -2987,6 +2989,28 @@ function TrazabilidadWeb({ usuario }) {
     const its = itemsConId(p);
     if (!its.length) return logQQ(p);   /* sin líneas identificables: el qq de siempre */
     return its.filter(it => !estaExcluido(p.id, it.id)).reduce((a, it) => a + (Number(it.q) || 0), 0);
+  };
+  /* DISENO_LOGISTICA_ESCALAS_QQ · la suma de la píldora resta los productos excluidos (qqPlan, no logQQ).
+     Va DESPUÉS de qqPlan a propósito (si no, ReferenceError). */
+  const qqSel = idsSel.reduce((a,id)=>{ const p=pedidos.find(x=>x.id===id); return a+(p?qqPlan(p):0); },0);
+  /* ── arrastre de la píldora con Pointer Events (dedo y mouse), con tope al borde de la pantalla ── */
+  const pillPointerDown = (e) => {
+    if (e.target.closest && e.target.closest("[data-nodrag]")) return;   /* no arrastrar desde «Guardar» */
+    const r = e.currentTarget.getBoundingClientRect();
+    pillDrag.current = { active:true, moved:false, dx:e.clientX-r.left, dy:e.clientY-r.top, w:r.width, h:r.height };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch(_) {}
+  };
+  const pillPointerMove = (e) => {
+    const d = pillDrag.current; if (!d.active) return;
+    d.moved = true;
+    const M = 8;   /* margen mínimo al borde */
+    const x = Math.max(M, Math.min(e.clientX-d.dx, window.innerWidth  - d.w - M));
+    const y = Math.max(M, Math.min(e.clientY-d.dy, window.innerHeight - d.h - M));
+    setPillPos({ x, y });
+  };
+  const pillPointerUp = (e) => {
+    pillDrag.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(_) {}
   };
   const incluirItem = (pedId, itemId) => {
     setExcluidos(s => { const n = {...s}; const m = {...(n[pedId] || {})}; delete m[itemId]; n[pedId] = m; return n; });
@@ -3112,7 +3136,7 @@ function TrazabilidadWeb({ usuario }) {
           const lista = ordenP1==="fecha"
             ? grupos[c].slice().sort((x,y)=> (y.creado||"")<(x.creado||"") ? -1 : (y.creado||"")>(x.creado||"") ? 1 : 0)
             : grupos[c];
-          const qqC = lista.reduce((a,p)=>a+logQQ(p),0);
+          const qqC = lista.reduce((a,p)=>a+qqPlan(p),0);   /* DISENO_LOGISTICA_ESCALAS_QQ · el total de ciudad también resta los productos excluidos */
           const nSel = lista.filter(p=>sel[p.id]).length;
           const todos = nSel===lista.length, algunos = nSel>0 && !todos;
           const abierta = !!ciudadAbierta[c];
@@ -3218,17 +3242,18 @@ function TrazabilidadWeb({ usuario }) {
         })}
         {/* DISENO_LOGISTICA_ESCALAS_QQ · PÍLDORA FLOTANTE con la suma: aparece al marcar el primer pedido
             y se mantiene visible al hacer scroll y seguir marcando. Reemplaza la barra inline (nunca las dos).
-            Usa idsSel/qqSel tal cual (qqSel ya descuenta los productos excluidos). En móvil respeta la barra del sistema. */}
+            Se puede ARRASTRAR (dedo/mouse) por si tapa algo, con tope al borde. qqSel ya descuenta los excluidos. */}
         {idsSel.length>0 &&
-          <div style={{ position:"fixed", left:"50%", transform:"translateX(-50%)",
-            bottom:"calc(16px + env(safe-area-inset-bottom, 0px))", zIndex:60,
-            display:"flex", alignItems:"center", gap:14, maxWidth:"calc(100vw - 24px)",
+          <div onPointerDown={pillPointerDown} onPointerMove={pillPointerMove} onPointerUp={pillPointerUp} onPointerCancel={pillPointerUp}
+            style={{ position:"fixed", zIndex:60, touchAction:"none", cursor:"grab",
+            ...(pillPos ? { left:pillPos.x, top:pillPos.y } : { left:"50%", transform:"translateX(-50%)", bottom:"calc(16px + env(safe-area-inset-bottom, 0px))" }),
+            display:"flex", alignItems:"center", gap:12, maxWidth:"calc(100vw - 16px)",
             background:COLOR.tealLight, border:`1.5px solid ${COLOR.tealDark}`, borderRadius:999,
             padding:"10px 12px 10px 18px", boxShadow:"0 8px 26px rgba(18,61,41,.30)" }}>
             <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.tealDark, margin:0, whiteSpace:"nowrap" }}>
-              🚚 {idsSel.length} entregas · <span className="num">{Math.round(qqSel)} qq</span>
+              🚚 {idsSel.length} E · <span className="num">{Math.round(qqSel)} qq</span>
             </p>
-            <button disabled={rpcOn} onClick={guardarRuta} style={{ ...btn(COLOR.tealDark), padding:"11px 20px", fontSize:14, opacity:rpcOn?.6:1, whiteSpace:"nowrap" }}>Guardar ruta ✓</button>
+            <button data-nodrag disabled={rpcOn} onClick={guardarRuta} style={{ ...btn(COLOR.tealDark), padding:"11px 18px", fontSize:14, opacity:rpcOn?.6:1, whiteSpace:"nowrap", touchAction:"none" }}>Guardar ✓</button>
           </div>}
       </div>
     );
