@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"188"/.test(web),"Sistema Web debe anunciar b188");
-prueba(/const CACHE = "freelance-v287"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v288"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
