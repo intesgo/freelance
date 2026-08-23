@@ -1272,7 +1272,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"70", fecha:"23 ago 2026", desc:"Al facturar, si la ruta activa dejó un producto fuera de despacho, ese producto ya NO aparece en el pedido (antes salía aunque no se pudiera despachar). Así facturas solo lo que de verdad va, y el total no lo incluye. La base ya lo bloqueaba; esto es para que no te confunda un producto que no va." };
+const VERSION = { n:"71", fecha:"23 ago 2026", desc:"El nombre del cliente ahora se muestra parejo y en MAYÚSCULAS en las pantallas de tu firma (pedidos por facturar, ajustes y anulación): persona natural → nombre + apellido (ej. «DORA DIAZ»); empresa → su razón social. Es solo presentación; los comprobantes y el XML del SRI no cambian." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1513,6 +1513,30 @@ const soloDia = (iso)=> String(iso||"").slice(0,10);
 const TIPO_SOL_PROV={ credito:"💳 Ampliación de crédito", cupo:"💳 Ampliación de cupo",
   devolucion:"↩ Devolución", precio:"🏷 Precio especial", descuento:"🏷 Descuento",
   posfechar:"📅 Posfechar cheque", muestras:"🎁 Muestras", nc:"🧾 Nota de crédito" };
+/* NOMBRE_CLIENTE_INTEGRIDAD · FUENTE ÚNICA del nombre del cliente para MOSTRAR (una sola verdad).
+   Acepta el pedido {cli, razon, tipoCli, ruc} y la ficha de cliente {nombre, razon_social/
+   razonSocial, tipo, ruc}. Reglas: jurídica si 3.er dígito del RUC 9/6, o tipo empresa/jurídica,
+   o marca de empresa en la razón (S.A., S.A.S., Cía, Ltda, Compañía, Corp) → razón social;
+   natural → primer nombre + primer apellido de la RAZÓN SOCIAL (3.ª palabra si hay 4+). SIEMPRE
+   en MAYÚSCULAS. Misma lógica que el Sistema Web y las demás apps. */
+function nombreClientePedido(p){
+  if(!p) return "";
+  const razon=String(p.razon||p.razonSocial||p.razon_social||"").trim();
+  const comercial=String(p.cli||p.nombre||"").trim();
+  const tipo=String(p.tipoCli||p.tipo||"");
+  const ruc=String(p.ruc||"");
+  const d3=ruc.length>=3?ruc.charAt(2):"";
+  const rsUp=razon.toUpperCase().replace(/\./g,"");
+  const juridica=d3==="9"||d3==="6"
+    || /empres|jurid/i.test(tipo)
+    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA|CORP)\b/.test(rsUp)
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(razon);
+  if(juridica) return (razon||comercial||"—").toUpperCase();
+  const base=razon||comercial||"";
+  const w=base.split(/\s+/).filter(Boolean);
+  if(w.length<=1) return (base||"—").toUpperCase();
+  return (w[0]+" "+(w.length>=4?w[2]:w[1])).toUpperCase();
+}
 async function vivoDecidir(){
   try{
     const yo=await yoUsuario(); if(!yo) return null;
@@ -1520,12 +1544,13 @@ async function vivoDecidir(){
     const [rp, ri, rc, rs, ro, rprod] = await Promise.all([
       window.SB.from("pedidos").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("pedido_items").select("item_id,ped_id,descripcion,cantidad_qq,precio_usd,despachado_qq,gratis_qq,gratis_despachado_qq,tipo_precio,prod_id,pres_cod,promo_id,condicion,comision_usd,es_demo").limit(2000),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · razon_social/tipo para el nombre canónico */
       window.SB.from("solicitudes").select("*").order("creado",{ascending:false}).limit(300),
       window.SB.from("ofertas_piladora").select("oferta_id,prod_id,prov_cod,pres_cod,presentacion,equiv_qq,precio_contado,precio_credito,activo,vigente_desde,vigente_hasta,es_demo").limit(3000),
       window.SB.from("productos").select("prod_id,nombre,estado").limit(1000),
     ]);
-    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    /* NOMBRE_CLIENTE_INTEGRIDAD_3 · el índice guarda nombre + razón + tipo (no solo el comercial) */
+    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]={nombre:c.nombre, razon:c.razon_social||null, tipoCli:c.tipo||null}; });
     const items=(ri&&ri.data)||[];
     const nomProd={}; ((rprod&&rprod.data)||[]).forEach(p=>{ if(p.estado==="activo") nomProd[p.prod_id]=p.nombre||p.prod_id; });
     const hoy=hoyECProveedor();
@@ -1560,7 +1585,8 @@ async function vivoDecidir(){
       const its=items.filter(i=>i.ped_id===p.ped_id && !(fuera && fuera.has(String(i.item_id))));
       const qq=its.reduce((s,i)=>s+Number(i.cantidad_qq||0),0);
       const monto=its.reduce((s,i)=>s+Number(i.cantidad_qq||0)*Number(i.precio_usd||0),0);
-      return { id:p.ped_id, cliente:nCli[p.cli_id]||p.cli_id||"Cliente",
+      const _c=nCli[p.cli_id]||{};   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · cliente crudo + razon/tipoCli para el nombre canónico */
+      return { id:p.ped_id, cliente:_c.nombre||p.cli_id||"Cliente", razon:_c.razon||null, tipoCli:_c.tipoCli||null,
         detalle:(its.length?its[0].descripcion:"Pedido")+" · "+qq+" qq · "+(p.condicion==="contado"?"contado":"crédito"),
         monto, fecha:soloDia(p.creado),
         /* si aqui no se distingue "anulado", una factura anulada volveria a
@@ -1591,7 +1617,7 @@ async function vivoDecidir(){
          puede atar a la factura que hay que anular, y la cadena se corta justo
          en el paso que toca el dinero. */
       tipoRaw:s.tipo||"", pedId:s.ped_id||null,
-      detalle:s.detalle||"", cliente:nCli[s.cli_id]||"—", fecha:soloDia(s.creado),
+      detalle:s.detalle||"", cliente:(nCli[s.cli_id]||{}).nombre||"—", fecha:soloDia(s.creado),
       estado:s.estado, motivoResp:s.motivo_resp||null, demo:!!s.es_demo,
     }));
     if(!facturar.length && !solics.length) return null;
@@ -2047,7 +2073,7 @@ function Decisiones({ctx, datos}){
         <div key={p.id} style={card}>
           <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
             <div>
-              <div style={{fontWeight:700,fontSize:14}}>{p.cliente} <span className="num" style={{fontWeight:600,fontSize:11.5,color:"#6B6455"}}>· {p.id}</span></div>
+              <div style={{fontWeight:700,fontSize:14}}>{nombreClientePedido({cli:p.cliente, razon:p.razon, tipoCli:p.tipoCli})} <span className="num" style={{fontWeight:600,fontSize:11.5,color:"#6B6455"}}>· {p.id}</span></div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
               <div style={{fontSize:12.5,color:"#6B6455",marginTop:2}}>{p.detalle}</div>
               <div className="num" style={{fontSize:12,color:"#6B6455",marginTop:2}}>{p.fecha}</div>{/* PED_FILA_SOLO_QQ · la fila muestra solo fecha (los quintales van en p.detalle); el monto sigue en el detalle/factura */}
             </div>
@@ -2103,7 +2129,7 @@ function Decisiones({ctx, datos}){
                 deja sin efecto la comisión del vendedor por esta venta.
                 Mientras no lo hagas, el cliente sigue debiendo.</div>
               <button style={{...btn2,background:"#C0392B",color:"#fff",border:"none",width:"100%"}}
-                onClick={()=>setAnulando({id:p.id,factura:p.factura,cliente:p.cliente,monto:p.monto,motivo:""})}>
+                onClick={()=>setAnulando({id:p.id,factura:p.factura,cliente:p.cliente,razon:p.razon,tipoCli:p.tipoCli,monto:p.monto,motivo:""})}>
                 Anular factura {p.factura||""}</button>
             </div>
           )}
@@ -2221,7 +2247,7 @@ function Decisiones({ctx, datos}){
             borderRadius:"20px 20px 0 0",padding:"20px 18px 28px",maxHeight:"92vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,fontSize:17}}>Cambiar producto o presentación</div>
             <div style={{fontSize:12.5,color:"#6B6455",margin:"3px 0 14px",lineHeight:1.45}}>
-              {cambio.l.nombre} · {cambio.p.cliente}<br/>
+              {cambio.l.nombre} · {nombreClientePedido({cli:cambio.p.cliente, razon:cambio.p.razon, tipoCli:cambio.p.tipoCli})}<br/>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
               Solo antes de facturar. El servidor recalcula precio y comisión; no se digitan.</div>
             <label style={{display:"block",fontSize:12,fontWeight:700,color:"#6B6455"}}>Nueva opción
               <select value={cambio.clave} onChange={e=>{setCambio(x=>({...x,clave:e.target.value}));setCambioPrev(null);}}
@@ -2262,7 +2288,7 @@ function Decisiones({ctx, datos}){
             borderRadius:"20px 20px 0 0",padding:"20px 18px 28px",maxHeight:"92vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,fontSize:17}}>Ajuste interno</div>
             <div style={{fontSize:12.5,color:"#6B6455",margin:"3px 0 14px",lineHeight:1.5}}>
-              {ajInt.l.nombre} · {ajInt.p.cliente}<br/>
+              {ajInt.l.nombre} · {nombreClientePedido({cli:ajInt.p.cliente, razon:ajInt.p.razon, tipoCli:ajInt.p.tipoCli})}<br/>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
               No es nota del SRI, su valor fiscal es $0 y no baja la cartera. Solo corrige la comisión.</div>
             <div style={{fontSize:12,fontWeight:700,color:"#6B6455",marginBottom:6}}>¿Quién asume?</div>
             {[
@@ -2301,7 +2327,7 @@ function Decisiones({ctx, datos}){
               padding:"20px 18px 28px",maxHeight:"92vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,fontSize:17,marginBottom:2}}>Nota de crédito</div>
             <div style={{fontSize:12.5,color:"#6B6455",marginBottom:16}}>
-              {nc.l.nombre} · {nc.p.cliente} · salieron {nc.l.despachado!=null?nc.l.despachado:nc.l.pedido} qq
+              {nc.l.nombre} · {nombreClientePedido({cli:nc.p.cliente, razon:nc.p.razon, tipoCli:nc.p.tipoCli})} · salieron {nc.l.despachado!=null?nc.l.despachado:nc.l.pedido} qq{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
             </div>
 
             <div style={{fontSize:12,fontWeight:700,color:"#6B6455",marginBottom:6}}>¿De quién nació?</div>
@@ -2379,7 +2405,7 @@ function Decisiones({ctx, datos}){
         <div key={p.id} style={card}>
           <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
             <div>
-              <div style={{fontWeight:700,fontSize:14}}>{p.cliente} <span className="num" style={{fontWeight:600,fontSize:11.5,color:"#6B6455"}}>· {p.fac}</span></div>
+              <div style={{fontWeight:700,fontSize:14}}>{nombreClientePedido({cli:p.cliente, razon:p.razon, tipoCli:p.tipoCli})} <span className="num" style={{fontWeight:600,fontSize:11.5,color:"#6B6455"}}>· {p.fac}</span></div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 · pagos por confirmar corre hoy sobre datos demo (no vive); el formato queda listo para cuando se conecte a la base */}
               <div style={{fontSize:12.5,color:"#6B6455",marginTop:2}}>{p.via}</div>
               <div className="num" style={{fontSize:12,color:"#6B6455",marginTop:2}}>{money(p.monto)} · comisión retenida {p.comId} ({money(p.comision)})</div>
             </div>
@@ -2449,7 +2475,7 @@ function Decisiones({ctx, datos}){
             <div style={{fontFamily:"Space Grotesk",fontWeight:700,fontSize:15,marginBottom:8}}>
               Anular la factura {anulando.factura||""}</div>
             <div style={{fontSize:12.5,color:"#6B6455",marginBottom:10,lineHeight:1.55}}>
-              Cliente: <b>{anulando.cliente}</b><br/>
+              Cliente: <b>{nombreClientePedido({cli:anulando.cliente, razon:anulando.razon, tipoCli:anulando.tipoCli})}</b><br/>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
               Al anular ocurren tres cosas a la vez: se le quita al cliente la
               deuda de <b>{money(anulando.monto)}</b>, la comisión del vendedor
               por esta venta queda sin efecto, y el pedido pasa a anulado.

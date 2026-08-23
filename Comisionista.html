@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"191", fecha:"23 ago 2026", desc:"En la lista de Pedidos, el cliente ahora se muestra por su nombre de persona y en MAYÚSCULAS (p. ej. «PEDRO CASTILLO» en vez de «Supermercado Castillo»), igual que en el Sistema Web. Es solo presentación: tu comisión se sigue viendo igual." };
+const VERSION = { n:"192", fecha:"23 ago 2026", desc:"El nombre del cliente ahora sale parejo y en MAYÚSCULAS en TODAS las pantallas (detalle del pedido, devolución, anulación, agenda, novedades, directorio y ficha), no solo en la lista: persona natural → nombre + apellido (ej. «PEDRO CASTILLO»); empresa → su razón social. Una sola regla (se unificó el nombre corto del buscador). Es solo presentación; tu comisión se ve igual." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -3623,16 +3623,13 @@ function FiltroBuscador({items, value, onPick, todos, etiquetaTodos, render, est
 // Buscador con autocompletar (cliente, proveedor, producto)
 /* Nombre corto del cliente para mostrarlo (como en el sistema web):
    persona natural → primer nombre + primer apellido; empresa → nombre de la empresa. */
+/* NOMBRE_CLIENTE_INTEGRIDAD_3 · UNIFICADA: el nombre corto del buscador sale de la MISMA
+   función que todo lo demás (nombreClientePedido). Toma la razón social del referencial
+   (REFERENCIALES) y deja que la regla única decida persona/empresa y las MAYÚSCULAS. */
 function refCortoCliente(nombre){
   var refs = (typeof REFERENCIALES!=="undefined" && REFERENCIALES[nombre]) ? REFERENCIALES[nombre] : [];
-  var rs = String((refs && refs[0]) || nombre || "").trim();
-  if(!rs) return nombre;
-  var rsUp = rs.toUpperCase().replace(/\./g,"");
-  var esJuridica = /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA)\b/.test(rsUp);
-  if(esJuridica) return rs;
-  var w = rs.split(/\s+/).filter(Boolean);
-  if(w.length<=2) return rs;
-  return w[0]+" "+w[w.length-2];
+  var razon = String((refs && refs[0]) || "").trim();
+  return nombreClientePedido({cli:nombre, razon:razon});
 }
 function SearchSelect({label, hint, items, value, onPick, onClear, disabled, placeholder, render, sortBy, multiPalabra, maxItems, sinLabel, className, onAbrir, cat, sinLapiz, fijo, fuzzy}) {
   const [q,setQ]=useState("");
@@ -9003,7 +9000,7 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Pedir devolución</h3>
           <div className="meta" style={{marginBottom:10,lineHeight:1.55}}>
-            <b>{devol.ped.cli}</b> · pedido {devol.ped.id}
+            <b>{nombreClientePedido(devol.ped)}</b> · pedido {devol.ped.id}{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
             {devol.ped.factura ? <> · factura {devol.ped.factura}</> : null}
             <br/>
             Esto <b>no anula nada todavía</b>: la piladora recibe tu pedido y
@@ -9029,7 +9026,7 @@ function Pedidos({irInicio, pedidos=PEDIDOS_INI, vivo, toast}){
         <div className="sheet" onClick={e=>e.stopPropagation()}>
           <h3>Pedir anulación</h3>
           <div className="meta" style={{fontSize:12,margin:"4px 0 12px",lineHeight:1.45}}>
-            {anul.ped.cli} · {anul.ped.cant} × {anul.ped.prod}
+            {nombreClientePedido(anul.ped)} · {anul.ped.cant} × {anul.ped.prod}{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
             <br/>
             Esto <b>no anula nada todavía</b>: el Freelance recibe tu pedido y decide.
             Si lo aprueba, el pedido queda anulado y queda registrado quién lo pidió y
@@ -9094,7 +9091,7 @@ function DetallePedido({p, volver, onPedirAnular, anulPedida}){
     <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a mis pedidos</button>
     <div className="det-head">
       <div className="row">
-        <div><div className="cli" style={{fontSize:17}}>{p.cli}</div>
+        <div><div className="cli" style={{fontSize:17,textTransform:"uppercase"}}>{nombreClientePedido(p)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
           <div className="meta">{p.cant} × {p.prod} · {p.prov} · {p.cond} · {money(p.precio)}</div></div>
         <div style={{textAlign:"right"}}><div className="amt num">{money(p.comision)}</div>
           <div className="meta">tu comisión</div></div>
@@ -9662,8 +9659,8 @@ function Clientes({toast}){
           <div className="row" style={{alignItems:"center"}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:7}}>
-                <span className="cli" style={{fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",
-                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c}</span>
+                <span className="cli" style={{fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",textTransform:"uppercase",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nombreClientePedido({cli:c, razon:refs[0]||null})}</span>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 · `c` crudo sigue siendo la clave (FICHA/REFERENCIALES/motivosBloqueo) */}
                 {bloq && <span className="chip c-bad" style={{flexShrink:0}}><span className="d"></span>Bloqueado</span>}
               </div>
               <div className="meta" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -9694,7 +9691,7 @@ function ClientesBloqueados({volver, ver}){
         <div className="card" key={i} style={{cursor:"pointer"}} onClick={()=>ver(b.cli)}>
           <div className="row" style={{alignItems:"center"}}>
             <div style={{flex:1}}>
-              <div className="cli">{b.cli}</div>
+              <div className="cli" style={{textTransform:"uppercase"}}>{nombreClientePedido({cli:b.cli, razon:(typeof REFERENCIALES!=="undefined"&&REFERENCIALES[b.cli]?REFERENCIALES[b.cli][0]:null)})}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 · `b.cli` crudo se usa para navegar (ver) */}
               <ul className="bq-list" style={{margin:"6px 0 0",paddingLeft:18}}>
                 {b.motivos.map((m,j)=><li key={j} style={{fontSize:12.5,color:"var(--clay)"}}>{m}</li>)}
               </ul>
@@ -9853,7 +9850,7 @@ function FichaCliente({nombre, volver, toast}){
     <button className="ghost" onClick={volver} style={{marginTop:0,marginBottom:16,textAlign:"left"}}>‹ Volver a clientes</button>
     <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:4}}>
       <div style={{flex:1,minWidth:0}}>
-        <div className="h1" style={{marginBottom:4}}>{nombre}</div>
+        <div className="h1" style={{marginBottom:4,textTransform:"uppercase"}}>{nombreClientePedido({cli:nombre, razon:(typeof REFERENCIALES!=="undefined"&&REFERENCIALES[nombre]?REFERENCIALES[nombre][0]:null)})}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 · `nombre` crudo sigue siendo la clave (FICHA_CLIENTE/motivosBloqueo) */}
         <div className="sub">{f.negocio}</div>
       </div>
       <span className={"chip "+(motivosBloqueo(nombre).length>0?"c-bad":"c-ok")} style={{flexShrink:0}}>
@@ -10370,7 +10367,7 @@ function Agenda({toast, datos}){
             display:"flex",alignItems:"center",justifyContent:"center"}}>
             {t.hecho?"✓":""}</button>
           <div style={{flex:1,marginLeft:12}}>
-            <div className="cli" style={{fontSize:14,textDecoration:t.hecho?"line-through":"none"}}>{t.cli}</div>
+            <div className="cli" style={{fontSize:14,textTransform:"uppercase",textDecoration:t.hecho?"line-through":"none"}}>{nombreClientePedido(t)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
             <div className="meta">{t.nota}</div>
             {FICHA_CLIENTE[t.cli] && <div className="meta" style={{fontSize:11,marginTop:2}}>📍 {FICHA_CLIENTE[t.cli].ciudad}, {FICHA_CLIENTE[t.cli].zona}</div>}
           </div>
@@ -10651,15 +10648,29 @@ const PED_MAPA={
 };
 /* PED_NOMBRE_PERSONA · nombre "de persona" del cliente del pedido, igual que en el Sistema Web:
    jurídica → razón social; natural → primer nombre + apellido. Lee p.razon / p.tipoCli / p.cli. */
+/* NOMBRE_CLIENTE_INTEGRIDAD · FUENTE ÚNICA del nombre del cliente para MOSTRAR (una sola verdad).
+   Acepta el pedido {cli, razon, tipoCli, ruc} y la ficha {nombre, razon_social/razonSocial, tipo, ruc}.
+   Jurídica si 3.er dígito del RUC 9/6, o tipo empresa/jurídica, o marca de empresa en la razón
+   (S.A., S.A.S., CA, Cía, Ltda, Compañía, Corp) → razón social; natural → primer nombre + primer
+   apellido de la RAZÓN SOCIAL (3.ª palabra si hay 4+). SIEMPRE en MAYÚSCULAS. Igual que el Sistema Web.
+   refCortoCliente delega en esta función (una sola regla, sin criterios duplicados). */
 function nombreClientePedido(p){
-  const rz=(p.razon||"").trim();
-  const juridica=/empres|jurid/i.test(p.tipoCli||"")
-    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(rz);
-  if(juridica) return rz||p.cli||"—";
-  const base=rz||p.cli||"";
+  if(!p) return "";
+  const razon=String(p.razon||p.razonSocial||p.razon_social||"").trim();
+  const comercial=String(p.cli||p.nombre||"").trim();
+  const tipo=String(p.tipoCli||p.tipo||"");
+  const ruc=String(p.ruc||"");
+  const d3=ruc.length>=3?ruc.charAt(2):"";
+  const rsUp=razon.toUpperCase().replace(/\./g,"");
+  const juridica=d3==="9"||d3==="6"
+    || /empres|jurid/i.test(tipo)
+    || /\b(SA|SAS|CA|CIA|CÍA|LTDA|COMPANIA|COMPAÑIA|CORP)\b/.test(rsUp)
+    || /(\bs\.?a\.?s?\b|\bc[ií]a\.?\b|\bltda\.?\b|compa[ñn][ií]a|\bcorp\b|s\.?a\.? de c\.?v)/i.test(razon);
+  if(juridica) return (razon||comercial||"—").toUpperCase();
+  const base=razon||comercial||"";
   const w=base.split(/\s+/).filter(Boolean);
-  if(w.length<=1) return base||"—";
-  return w[0]+" "+(w.length>=4?w[2]:w[1]);
+  if(w.length<=1) return (base||"—").toUpperCase();
+  return (w[0]+" "+(w.length>=4?w[2]:w[1])).toUpperCase();
 }
 async function vivoPedidos(){
   try{
@@ -10728,12 +10739,12 @@ async function vivoNovedades(){
   try{
     const [rn, rc] = await Promise.all([
       window.SB.from("novedades").select("*").order("creado",{ascending:false}).limit(200),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · razon/tipo para el nombre canónico */
     ]);
     const novs=rn&&rn.data; if(!novs || !novs.length) return null;
-    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     return novs.map(n=>({
-      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", tipo:n.tipo||"producto",
+      id:n.nov_id, cli:nCli[n.cli_id]||n.cli_id||"—", razon:nRz[n.cli_id]||null, tipoCli:nTipo[n.cli_id]||null, tipo:n.tipo||"producto",   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · cli crudo (se filtra por él); razon/tipoCli para mostrar */
       detalle:n.detalle||"", fecha:selloCorto(n.creado),
       estado:NOV_ESTADO_BD[n.estado]||"enviada",
       origen:n.origen||"entrega", demo:!!n.es_demo,
@@ -10750,14 +10761,14 @@ async function vivoAgenda(){
     const hoy=hoyISO();
     const [ra, rc, rk] = await Promise.all([
       window.SB.from("agenda_actividades").select("*").order("fecha").limit(500),
-      window.SB.from("clientes").select("cli_id,nombre").limit(2000),
+      window.SB.from("clientes").select("cli_id,nombre,razon_social,tipo").limit(2000),   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · razon/tipo para el nombre canónico */
       window.SB.from("cartera_cliente").select("mov_id,cli_id,doc,vence,monto,estado").limit(500),
     ]);
-    const nCli={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; });
+    const nCli={}, nRz={}, nTipo={}; ((rc&&rc.data)||[]).forEach(c=>{ nCli[c.cli_id]=c.nombre; nRz[c.cli_id]=c.razon_social||null; nTipo[c.cli_id]=c.tipo||null; });
     const propias=((ra&&ra.data)||[]).filter(a=>!a.usr_id || a.usr_id===yo.usr_id);
     const lista=propias.map((f,i)=>({
       id:1000+i, act_id:f.act_id, fecha:soloDia(f.fecha), hora:f.hora||"",
-      cli:f.cliente||"—", cli_id:f.cli_id||null, tipo:f.tipo||"Otro",
+      cli:f.cliente||"—", cli_id:f.cli_id||null, razon:nRz[f.cli_id]||null, tipoCli:nTipo[f.cli_id]||null, tipo:f.tipo||"Otro",   /* NOMBRE_CLIENTE_INTEGRIDAD_3 · cli crudo (persistencia/lookup); razon/tipoCli para mostrar */
       nota:f.objetivo||"", hecho:f.estado==="completada",
       ubic:f.ubic||"", dur:Number(f.dur)||30, recordatorio:Number(f.recordatorio)||15,
     }));
@@ -10766,6 +10777,7 @@ async function vivoAgenda(){
       const act="SG-"+m.mov_id;
       if(lista.some(t=>t.act_id===act)) return;
       lista.push({ id:2000+i, act_id:act, fecha:hoy, hora:"", cli:nCli[m.cli_id]||m.cli_id||"—",
+        razon:nRz[m.cli_id]||null, tipoCli:nTipo[m.cli_id]||null,   /* NOMBRE_CLIENTE_INTEGRIDAD_3 */
         cli_id:m.cli_id, tipo:"Cobro",
         nota:"Sugerido · cobrar "+(m.doc||"factura")+" ($"+Number(m.monto||0).toFixed(2)+")",
         hecho:false, dur:20, recordatorio:15, sug:true });
@@ -10934,7 +10946,7 @@ function Novedades({toast, go, datos}){
       {datos.filter(n=>n.estado==="aprobada"||n.estado==="rechazada").slice(0,10).map((n,i)=>(
         <div className="card" key={"rp"+i} style={{padding:"11px 13px",marginBottom:8,
           borderLeft:"4px solid "+(n.estado==="aprobada"?"#2E7D52":"#C2603A")}}>
-          <div style={{fontSize:13.5,fontWeight:700}}>{n.cli}</div>
+          <div style={{fontSize:13.5,fontWeight:700,textTransform:"uppercase"}}>{nombreClientePedido(n)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
           <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
           <div className="meta" style={{fontSize:11,fontWeight:700,
             color:n.estado==="aprobada"?"#2E7D52":"#C2603A"}}>{n.estado==="aprobada"?"Aprobada":"Rechazada"}</div>
@@ -10946,7 +10958,7 @@ function Novedades({toast, go, datos}){
       {datos.filter(n=>n.origen==="entrega").slice(0,10).map((n,i)=>(
         <div className="card" key={"en"+i} style={{padding:"11px 13px",marginBottom:8,
           borderLeft:"4px solid #D98324"}}>
-          <div style={{fontSize:13.5,fontWeight:700}}>{n.cli}</div>
+          <div style={{fontSize:13.5,fontWeight:700,textTransform:"uppercase"}}>{nombreClientePedido(n)}</div>{/* NOMBRE_CLIENTE_INTEGRIDAD_3 */}
           <div className="meta" style={{fontSize:11}}>{n.detalle} · {n.fecha}</div>
         </div>
       ))}

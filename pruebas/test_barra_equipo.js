@@ -95,7 +95,7 @@ const guion=(tab)=>`(async()=>{
     const m=montar(true);
     const t=await vm.runInContext(guion("Pedidos"), m.ctx);
     comprobar("Pedidos con sello de datos vivos", /Pedidos\s*🟢 Datos vivos/.test(t));
-    comprobar("aparece su pedido demo (Cliente Demo Norte)", t.indexOf("Cliente Demo Norte")>=0);
+    comprobar("aparece su pedido demo (Cliente Demo Norte)", t.indexOf("CLIENTE DEMO NORTE")>=0);
     comprobar("NO aparece el pedido del otro usuario (Cliente Demo Sur)", t.indexOf("Cliente Demo Sur")<0);
     comprobar("ya no se ve el ejemplo (Comercial Mendoza)", t.indexOf("Comercial Mendoza")<0);
   }
@@ -148,7 +148,7 @@ const guion=(tab)=>`(async()=>{
   {
     const m=montar(false);
     const t=await vm.runInContext(guion("Pedidos"), m.ctx);
-    comprobar("sin datos sigue la demostración", /Pedidos\s*⚪ Demostración/.test(t) && t.indexOf("Comercial Mendoza")>=0);
+    comprobar("sin datos sigue la demostración", /Pedidos\s*⚪ Demostración/.test(t) && t.indexOf("COMERCIAL MENDOZA")>=0);
   }
   console.log("═══ lo que se marca, se guarda");
   {
