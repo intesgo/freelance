@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"191"/.test(web),"Sistema Web debe anunciar b191");
-prueba(/const CACHE = "freelance-v293"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"192"/.test(web),"Sistema Web debe anunciar b192");
+prueba(/const CACHE = "freelance-v294"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -184,6 +184,18 @@ prueba(!/Ingresó <b[^>]*>\{fmtFechaLog/.test(web)&&!/>Piladora <b[^>]*>\{p\.pro
 prueba(/name="calendar"/.test(web)&&/name="clock"/.test(web)&&/name="warehouse"/.test(web)&&/name="user"/.test(web),"logística · la fila usa iconos Lucide (calendar, clock, warehouse, user)");
 prueba(/minWidth:760/.test(web),"logística · la fila tiene min-width para deslizarse en horizontal en pantallas angostas");
 prueba(/\["fecha","↓ Más recientes"\]/.test(web)&&/ordenP1==="fecha"/.test(web),"logística · existe el orden «↓ Más recientes» (por fecha de ingreso)");
+
+/* ── DISENO_LOGISTICA_DESPACHO_PARCIAL · casilleros por producto al armar la ruta ── */
+prueba((web.match(/DISENO_LOGISTICA_DESPACHO_PARCIAL/g)||[]).length >= 3,"queda el ancla DISENO_LOGISTICA_DESPACHO_PARCIAL");
+prueba(/pedido_items\(item_id,descripcion,cantidad_qq,despachado_qq,condicion\)/.test(web),"logística · el select trae item_id y condicion de cada línea");
+prueba(/id: \(i\.item_id != null \? i\.item_id : null\)/.test(web),"logística · el mapeo expone el item_id de cada línea");
+prueba(/const \[excluidos, setExcluidos\]/.test(web)&&/const \[logAbierto, setLogAbierto\]/.test(web),"logística · hay estado para el despliegue del pedido y las líneas excluidas");
+prueba(/const toggleItem = \(p, it\) =>/.test(web)&&/const confirmarExcluir = \(\) =>/.test(web),"logística · existen toggleItem y confirmarExcluir");
+prueba(/items_excluidos: Object\.keys\(excluidos\[id\] \|\| \{\}\)/.test(web),"logística · el payload de crear_ruta manda items_excluidos por pedido");
+prueba(/¿Seguro que no quiere enviar este producto a despacho\?/.test(web),"logística · el aviso de desmarcar usa el texto exacto");
+prueba(/Sí, dejar fuera/.test(web)&&/>No<\/button>/.test(web),"logística · el aviso tiene los botones «Sí, dejar fuera» / «No»");
+prueba(/Debe quedar al menos un producto para enviar este pedido a la ruta\./.test(web),"logística · no se puede dejar un pedido sin ningún producto");
+prueba(/const qqPlan = \(p\) =>/.test(web),"logística · los qq mostrados reflejan solo las líneas marcadas (qqPlan)");
 
 /* ── PED_NOMBRE_PERSONA · la lista de Pedidos de las 3 apps móviles muestra el nombre de persona en MAYÚSCULAS ── */
 prueba(/function nombreClientePedido\(p\)\{/.test(app)&&/function nombreClientePedido\(p\)\{/.test(comi)&&/function nombreClientePedido\(p\)\{/.test(socio),"las 3 apps definen el helper nombreClientePedido (mismo criterio que el Sistema Web)");
