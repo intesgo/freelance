@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"198"/.test(web),"Sistema Web debe anunciar b198");
-prueba(/const CACHE = "freelance-v302"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"199"/.test(web),"Sistema Web debe anunciar b199");
+prueba(/const CACHE = "freelance-v303"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -220,6 +220,15 @@ prueba(!/🚚 \{idsSel\.length\} entregas/.test(web)&&!/>Guardar ruta ✓<\/butt
 prueba(!/\{it\.cond\?<span style=\{\{ color:COLOR\.muted, fontWeight:500 \}\}> · \{it\.cond\}<\/span>:null\}/.test(web),"logística · el detalle YA NO muestra contado/crédito por producto");
 prueba(/const esContado = \(p\.items\|\|\[\]\)\.length>0 && p\.items\.every\(it => \/contado\/i\.test\(it\.cond\|\|""\)\)/.test(web),"logística · esContado se deriva de las líneas (mixto NO es contado)");
 prueba(/esContado && <span[\s\S]{0,240}💵 CONTADO<\/span>/.test(web),"logística · la fila del cliente muestra «💵 CONTADO» solo en pedidos de contado");
+
+/* ── DISENO_LOGISTICA_QQ_RECORTADO · Orden de entrega / Despacho respetan el qq recortado (qq_planificado de la base) ── */
+prueba((web.match(/DISENO_LOGISTICA_QQ_RECORTADO/g)||[]).length >= 4,"logística · queda el ancla DISENO_LOGISTICA_QQ_RECORTADO");
+prueba(/ruta_pedidos\(ped_id,orden_entrega,ciudad,ubicacion_id,estado_asignacion,qq_planificado,items_excluidos\)/.test(web),"logística · recargarRutas trae qq_planificado e items_excluidos");
+prueba(/qqPlan: Object\.fromEntries\(rp\.map\(x => \[x\.ped_id, x\.qq_planificado==null\?null:Number\(x\.qq_planificado\)\]\)\)/.test(web),"logística · mapRutaViva expone el mapa qqPlan por pedido");
+prueba(/const qqRutaPed = \(r,p\) => \(r\.qqPlan && r\.qqPlan\[p\.id\]!=null\) \? r\.qqPlan\[p\.id\] : logQQ\(p\)/.test(web),"logística · qqRutaPed usa lo planificado y cae a logQQ en rutas viejas");
+prueba(/const qqRuta = \(r\) => \{ const s = pedidosDe\(r\)\.reduce\(\(a,p\)=>a\+qqRutaPed\(r,p\),0\); return s>0 \? s : \(Number\(r\.qq\)\|\|0\); \}/.test(web),"logística · qqRuta suma qqRutaPed (total de la ruta, tablas, despacho y capacidad)");
+prueba(/\{Math\.round\(qqRutaPed\(r, p\)\)\} qq<\/p>/.test(web),"logística · la fila de «Orden de entrega» muestra el qq recortado (qqRutaPed)");
+prueba(/\{Math\.round\(qqRutaPed\(r, p\)\)\} qq<\/span>/.test(web),"logística · el detalle de la ruta muestra el qq recortado (qqRutaPed)");
 
 /* ── PED_NOMBRE_PERSONA · la lista de Pedidos de las 3 apps móviles muestra el nombre de persona en MAYÚSCULAS ── */
 prueba(/function nombreClientePedido\(p\)\{/.test(app)&&/function nombreClientePedido\(p\)\{/.test(comi)&&/function nombreClientePedido\(p\)\{/.test(socio),"las 3 apps definen el helper nombreClientePedido (mismo criterio que el Sistema Web)");
