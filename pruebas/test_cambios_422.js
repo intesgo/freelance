@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"188"/.test(web),"Sistema Web debe anunciar b188");
-prueba(/const CACHE = "freelance-v288"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"189"/.test(web),"Sistema Web debe anunciar b189");
+prueba(/const CACHE = "freelance-v289"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -163,6 +163,16 @@ prueba((web.match(/DISENO_SUBIR_PEDIDO/g)||[]).length >= 2,"queda el ancla DISEN
   /* iconos nuevos declarados en el set ICONS (fuera del slice de PedidosWeb) */
   prueba(/warehouse:|repeat:|tag:|plus:|trash:|send:|lock:|chevronUp:|chevronDown:/.test(web),"el set ICONS incluye los iconos nuevos de la vista armar");
 }
+
+/* ── DISENO_LOGISTICA_ESCOGER · Logística «Escoger pedidos»: número + nombre de persona + ciudad resaltada ── */
+prueba((web.match(/DISENO_LOGISTICA_ESCOGER/g)||[]).length >= 3,"queda el ancla DISENO_LOGISTICA_ESCOGER (helper, select, ciudad, item)");
+prueba((web.match(/const nombreClientePedido = \(p\) =>/g)||[]).length === 1,"nombreClientePedido está definida UNA sola vez, a nivel de módulo (reutilizable por Pedidos y Logística)");
+prueba(/ped_id,numero_pedido,factura,creado,cli_id,estado,estado_logistico/.test(web),"logística · el select trae numero_pedido");
+prueba(/clientes\(nombre,razon_social,tipo,ubicaciones_cliente/.test(web),"logística · el join de clientes trae razon_social y tipo (para el nombre de persona)");
+prueba(/numero: p\.numero_pedido \|\| null,/.test(web)&&/razon: \(p\.clientes && p\.clientes\.razon_social\) \|\| null,/.test(web)&&/tipoCli: \(p\.clientes && p\.clientes\.tipo\) \|\| null,/.test(web),"logística · el mapeo expone numero, razon y tipoCli del pedido");
+prueba(/textTransform:"uppercase", margin:0 \}\}>\{nombreClientePedido\(p\)\}<\/p>/.test(web),"logística · el item de cliente usa nombreClientePedido en mayúsculas");
+prueba(/>\{p\.numero \|\| p\.id\}<\/span>/.test(web),"logística · el item muestra el número de pedido (p.numero || p.id)");
+prueba(/<Ico name="mapPin" size=\{18\} color=\{COLOR\.tealDark\} \/>/.test(web),"logística · el encabezado de ciudad lleva el pin vectorial (mapPin) del molde");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
