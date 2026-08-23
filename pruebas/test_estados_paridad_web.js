@@ -237,11 +237,11 @@ async function bateria(js, ruidoso) {
 
   /* ─────────────── PARTE A · paridad de estados en la lista ─────────────── */
   const mA = await montarLista(js);
-  /* PED_PESTANAS_ESTADO · la lista se reparte en pestañas por estado. «enviado_proveedor»
-     está en Pendientes (la pestaña por defecto); «facturado» está en «En camino». */
+  /* PED_FE_001 · la lista se reparte por CÓDIGO. «enviado_proveedor» está en Pendientes (por defecto);
+     «facturado» (estado_logistico null) cae en «Por despachar». */
   const editEnv  = correW(mA, `window.__botonEditar("CLIENTE UNO")`);
   const nBotones = correW(mA, `window.__nBotonesEditar()`);   // en Pendientes: solo el lápiz del pedido editable
-  correW(mA, `window.__clickTexto("En camino")`);             // el facturado vive en «En camino»
+  correW(mA, `window.__clickTexto("Por despachar")`);         // el facturado (sin despachar) vive en «Por despachar»
   await esperar(160); correW(mA, `window.__flush()`);
   const editFac  = correW(mA, `window.__botonEditar("CLIENTE DOS")`);
   correW(mA, `window.__clickTexto("Pendientes")`);            // se vuelve a Pendientes para el resto

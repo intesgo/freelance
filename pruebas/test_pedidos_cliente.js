@@ -289,7 +289,9 @@ const MUTANTES = [
             retiroBodega: !!pd.retiro_bodega, asumeFlete: pd.asume_flete || null, asumeEstibada: pd.asume_estibada || null,
             fleteCobro: Number(pd.flete_cobro_qq)||0, estibadaCobro: Number(pd.estibada_cobro_qq)||0,
             cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
-            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
+            /* PED_FE_001 · el CÓDIGO crudo del estado manda la clasificación (no la etiqueta linda) */
+            estadoCod: pd.estado || null, estadoLog: pd.estado_logistico || null,
+            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: pd.creado ? hoyECWeb(new Date(pd.creado)) : "",
             demo: !!pd.es_demo, editable: editable(pd),
             totalQq, nLineas, prodGuia, importe,
             /* compat con el orden (valorOrden) y la trazabilidad, que leen prod/cant/unidad/precio */

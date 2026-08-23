@@ -354,7 +354,7 @@ const SECCIONES = [
   { key:"dashboard", ic:"home",    icon:"🏠", label:"Dashboard",            sub:"Panel del freelance" },
   { key:"clientes", ic:"users",     icon:"👥", label:"Clientes",             sub:"Maestro y cupos" /* v1.0: el crédito, el cupo y el riesgo viven DENTRO de la ficha, no en el nombre */ },
   { key:"solicitudes", ic:"inbox",  icon:"📨", label:"Solicitudes",          sub:"Aprobaciones y elevadas" },
-  { key:"pedidos", ic:"cart",      icon:"🛒", label:"Pedidos",              sub:"Aprobaciones por lote" },
+  { key:"pedidos", ic:"cart",      icon:"🛒", label:"Pedidos",              sub:"Gestión y seguimiento de pedidos" },   /* PED_FE_001 · no simular acciones masivas que no existen */
   { key:"trazabilidad", ic:"truck", icon:"🚚", label:"Logística",            sub:"Despacho y entregas" },
   { key:"calidad", ic:"beaker",      icon:"🔬", label:"Control de calidad",   sub:"Arroz · al recibir" },
   { key:"cobranza", ic:"banknote",     icon:"💰", label:"Cobranza",             sub:"Cartera · conciliación de pagos" /* WEB-01 · el matiz «Cartera» del título interno pasa al subtítulo */ },
@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"200", fecha:"23 ago 2026", desc:"Logística: se quitaron dos avisos verdes que solo repetían lo obvio («Pedidos reales · N sin despachar» y «Rutas reales · N en Supabase»). La pantalla queda más limpia. Se conservan los avisos que sí ayudan: cuando no hay pedidos, cuando estás en demostración, o si algo falló al cargar." };
+const VERSION = { n:"201", fecha:"23 ago 2026", desc:"Pedidos dice la verdad de los estados: se clasifican por su código real (no por la etiqueta), con pestañas Todos · Pendientes · Por despachar · En ruta · Entregados · Anulados (y «Sin clasificar» solo si hace falta). Lo desconocido ya NO cae en «Entregados». Cada estado lleva su color e icono, y «Anulado» ya no se ve azul como un pedido vivo. Se quitó de Pedidos el seguimiento de demostración (Trazabilidad y «avisar al cliente»); en su lugar hay un enlace «Ver en Logística». Las fechas van en hora de Ecuador." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5508,7 +5508,7 @@ function LoginWeb({ onAcceder }) {
    detalle de productos y resumen económico. No consulta nada nuevo: usa los datos ya en memoria
    (p.lineas y los totales que trae la fila). Cierra con X / Cerrar / Escape; foco atrapado dentro
    del diálogo y devuelto a la fila al cerrar; role="dialog" aria-modal. Solo muestra lo que existe. */
-function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente, abreviarPres }){
+function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente, abreviarPres, onIrLogistica }){
   const cajaRef = React.useRef(null);
   const antesRef = React.useRef(null);
   React.useEffect(()=>{
@@ -5531,7 +5531,7 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
   },[]);
 
   const num = p.numero || p.pedId || "—";
-  const ce = colorEstado(p.estado);
+  const ce = colorEstado(p);
   const lineas = p.lineas || [];
   const r2 = n => Math.round((Number(n)||0)*100)/100;
   const totalQq = p.totalQq != null ? p.totalQq : (Number(p.cant)||0);
@@ -5555,7 +5555,8 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
         <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 20px 14px", borderBottom:`1px solid ${COLOR.border}` }}>
           <div style={{ minWidth:0, flex:1 }}>
             <p className="num" style={{ margin:0, fontSize:17, fontWeight:800, color:COLOR.tealDark }}>Pedido N.º {num}</p>
-            <span style={{ display:"inline-block", marginTop:5, fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 10px", borderRadius:999 }}>{p.estado}{p.demo?" · DEMO":""}</span>
+            <span style={{ display:"inline-block", marginTop:5, fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 10px", borderRadius:999 }}>{ce.icon} {p.estado}{p.demo?" · DEMO":""}</span>
+            {p.estadoLog==="parcial" && <span style={{ display:"inline-block", marginLeft:6, marginTop:5, fontSize:10, fontWeight:800, color:"#b45309", background:"#FFF7E8", padding:"4px 9px", borderRadius:999 }}>⚠ saldo por despachar</span>}
           </div>
           <button onClick={onCerrar} aria-label="Cerrar" style={{ border:"none", background:"#f3f1ea", borderRadius:10, width:38, height:38, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}><Ico name="x" size={18} color={COLOR.text}/></button>
         </div>
@@ -5615,6 +5616,12 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
           </div>
         </div>
 
+        {/* PED_FE_001 · el seguimiento vive en Logística (no un recorrido demo en Pedidos). Abre el módulo. */}
+        {onIrLogistica && (
+          <div style={{ padding:"0 20px 12px" }}>
+            <button onClick={()=>onIrLogistica(p)} style={{ width:"100%", border:`1px solid ${COLOR.border}`, background:"#F7F9FB", borderRadius:12, padding:"11px", fontSize:13.5, fontWeight:700, color:COLOR.tealDark, cursor:"pointer" }}>🚚 Ver en Logística</button>
+          </div>
+        )}
         <div style={{ padding:"14px 20px", borderTop:`1px solid ${COLOR.border}`, display:"flex", gap:10 }}>
           <button onClick={onCerrar} style={{ flex:1, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:12, padding:"13px", fontSize:15, fontWeight:600, color:COLOR.text, cursor:"pointer" }}>Cerrar</button>
           {p.editable && p.pedId && !p.demo && (
@@ -5626,7 +5633,7 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
   );
 }
 
-function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
+function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const [pedidos, setPedidos] = useState(()=>MODO_DEMO_WEB?PEDIDOS_WEB_INI:[]);
   /* v43 · BOMBA DORMIDA reparada: la lista usaba pagP/setPagP sin declararlos →
@@ -5710,7 +5717,9 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
             retiroBodega: !!pd.retiro_bodega, asumeFlete: pd.asume_flete || null, asumeEstibada: pd.asume_estibada || null,
             fleteCobro: Number(pd.flete_cobro_qq)||0, estibadaCobro: Number(pd.estibada_cobro_qq)||0,
             cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
-            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
+            /* PED_FE_001 · el CÓDIGO crudo del estado manda la clasificación (no la etiqueta linda) */
+            estadoCod: pd.estado || null, estadoLog: pd.estado_logistico || null,
+            prov: provNom, cond: condTxt, estado: estadoTxt, fecha: pd.creado ? hoyECWeb(new Date(pd.creado)) : "",
             demo: !!pd.es_demo, editable: editable(pd),
             totalQq, nLineas, prodGuia, importe,
             /* compat con el orden (valorOrden) y la trazabilidad, que leen prod/cant/unidad/precio */
@@ -5731,9 +5740,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   }, []);
   useEffect(() => { cargarPedidosVivos(); }, [cargarPedidosVivos]);
   const [vista, setVista] = useState("lista");
-  const [pTab, setPTab] = useState("pendientes");     // PED_PESTANAS_ESTADO · pendientes | encamino | entregados | anulados | traza
-  const [tzQ, setTzQ] = useState("");
-  const [tzSel, setTzSel] = useState(null);        // { v, g } elegido
+  const [pTab, setPTab] = useState("pendientes");     // PED_FE_001 · todos|pendientes|por_despachar|en_ruta|entregados|anulados|sin_clasificar
   const [aviso, setAviso] = useState("");
 
   /* PED_SIN_FALLBACK_DEMO · en modo VIVO (sin ?demo=1) los clientes y los productos
@@ -6126,19 +6133,25 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     const c = va < vb ? -1 : va > vb ? 1 : 0;
     return ordDir === "asc" ? c : -c;
   });
-  /* PED_PESTANAS_ESTADO · reparto por estado (mismo criterio que el freelance). Anulados
-     tiene pestaña propia (NO se mezcla con Entregados). startsWith donde el estado varía. */
-  const tabDePed = (est) => {
-    const e = String(est || "");
-    if (e.startsWith("Anulado")) return "anulados";
-    if (e.startsWith("Ingresado") || e.startsWith("Esperando") || e.startsWith("Por autorizar") || e.startsWith("Enviado")) return "pendientes";
-    if (e === "Facturado" || e === "Despachado") return "encamino";
-    return "entregados";   /* Entregado, Cliente pagó, Cerrado */
+  /* PED_FE_001 · reparto por CÓDIGO CANÓNICO (estadoCod/estadoLog), NO por la etiqueta visible.
+     Precedencia estricta; lo desconocido/nulo cae a 'sin_clasificar' (NUNCA a entregados). */
+  const tabDePed = (p) => {
+    const cod = String((p && p.estadoCod) || "");
+    const log = String((p && p.estadoLog) || "");
+    if (cod === "anulado") return "anulados";
+    if (log === "entregado" || cod === "entregado" || cod === "cliente_pago" || cod === "cerrado") return "entregados";
+    if (log === "despachado" || cod === "despachado") return "en_ruta";
+    if (cod === "facturado") return "por_despachar";   /* facturado sin viaje despachado (log sin_despachar/parcial) */
+    if (cod === "ingresado" || cod === "esperando_aprobacion" || cod === "enviado_proveedor") return "pendientes";
+    return "sin_clasificar";
   };
-  const PTABS = [["pendientes","Pendientes"],["encamino","En camino"],["entregados","Entregados"],["anulados","Anulados"],["traza","🔍 Trazabilidad"]];
-  const contarTab = (k) => pedidos.filter(p => tabDePed(p.estado) === k).length;
-  const pedidosTab = (pTab === "traza") ? [] : pedidosOrdenados.filter(p => tabDePed(p.estado) === pTab);
-  const porRevisarTab = pedidosTab.filter(p => p.estado.startsWith("Esperando") || p.estado.startsWith("Por autorizar")).length;
+  const haySinClasificar = pedidos.some(p => tabDePed(p) === "sin_clasificar");
+  /* PED_PESTANAS_ESTADO · «Todos» incluye anulados; «Sin clasificar» solo aparece si hay ≥1 ahí. */
+  const PTABS = [["todos","Todos"],["pendientes","Pendientes"],["por_despachar","Por despachar"],["en_ruta","En ruta"],["entregados","Entregados"],["anulados","Anulados"]]
+    .concat(haySinClasificar ? [["sin_clasificar","Sin clasificar"]] : []);
+  const contarTab = (k) => k === "todos" ? pedidos.length : pedidos.filter(p => tabDePed(p) === k).length;
+  const pedidosTab = (pTab === "todos") ? pedidosOrdenados : pedidosOrdenados.filter(p => tabDePed(p) === pTab);
+  const porRevisarTab = pedidosTab.filter(p => p.estadoCod === "esperando_aprobacion").length;
   const clicOrden = (campo) => {
     if (ordCampo === campo) setOrdDir(d => d === "asc" ? "desc" : "asc");
     else { setOrdCampo(campo); setOrdDir(campo === "fecha" ? "desc" : "asc"); }
@@ -6281,6 +6294,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
       prov: (carrito[0] && carrito[0].prov) || "—",
       cond: carrito.some(l=>l.credito) ? "Crédito" : "Contado",
       estado: requiereOptim ? "Por autorizar (precio especial)" : "Esperando aprobación",
+      /* PED_FE_001 · el pedido recién creado nace 'esperando_aprobacion' → cae en la pestaña Pendientes */
+      estadoCod: "esperando_aprobacion", estadoLog: null,
       fecha: fechaHoy, demo: false, editable: false,
       totalQq: totalQqOptim, nLineas: carrito.length, prodGuia: prodGuiaOptim, importe: importeOptim,
       prod: prodGuiaOptim, cant: totalQqOptim, unidad:"qq", precio: totalQqOptim ? Math.round((importeOptim/totalQqOptim)*100)/100 : 0,
@@ -6371,140 +6386,40 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
     } catch (e) { setAviso("No se pudo guardar: " + (e.message||"error")); }
   };
 
-  const colorEstado = (e) => {
-    if (e.startsWith("Esperando")) return { bg:"#FFF7E8", c:"#b07d1a" };
-    if (e.startsWith("Por autorizar")) return { bg:"#F3EDFB", c:"#7a4fb0" };
-    if (e === "Facturado") return { bg:"#E9F8EF", c:"#1c7a44" };
-    return { bg:"#EEF6FF", c:"#2c5d8f" };
+  /* PED_FE_001 · color de estado por CÓDIGO (mapa explícito: fondo + texto + icono).
+     «Anulado» NO se pinta azul como un pedido vivo, y no se depende solo del color (lleva icono). */
+  const colorEstado = (p) => {
+    const cod = String((p && p.estadoCod) || "");
+    const log = String((p && p.estadoLog) || "");
+    if (cod === "anulado") return { bg:"#FDECEC", c:"#b91c1c", icon:"⛔" };                                   /* rojo · anulado/incidencia */
+    if (log === "entregado" || cod === "entregado" || cod === "cliente_pago" || cod === "cerrado")
+      return { bg:"#E9F8EF", c:"#1c7a44", icon:"✅" };                                                        /* verde · entregado/cerrado/cliente pagó */
+    if (log === "despachado" || cod === "despachado" || cod === "facturado")
+      return { bg:"#EEF6FF", c:"#2c5d8f", icon:"🚚" };                                                        /* azul · proveedor/despacho/ruta */
+    if (cod === "esperando_aprobacion") return { bg:"#F3EDFB", c:"#7a4fb0", icon:"✋" };                      /* morado · aprobación (incl. «por autorizar») */
+    if (cod === "ingresado" || cod === "enviado_proveedor") return { bg:"#FFF7E8", c:"#b07d1a", icon:"⏳" }; /* ámbar · espera/demora */
+    return { bg:"#EEF1F4", c:"#5b6771", icon:"❔" };                                                          /* gris · sin clasificar */
   };
 
   const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none" };
   const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
 
   // ════ VISTA LISTA ════
-  // ═══ TRAZABILIDAD: "¿dónde está y qué ha pasado con esto?" — el recorrido completo
-  // del pedido cruzando todos los módulos, con lo pendiente en gris. ═══
-  const tzFactCorta = (g) => "F-" + (((g.factura||"").split("-").pop()||"").replace(/^0+/,"") || g.factura);
-  const tzCandidatos = () => {
-    const q = tzQ.trim().toLowerCase(); if (!q) return [];
-    const porPedido = pedidos.filter(p => String(p.id).includes(q)).map(p => p.cli.toLowerCase());
-    return EF_VIAJES_INI.flatMap(v => v.guias.map(g => ({ v, g }))).filter(({v,g}) =>
-      [v.id, g.guia, g.factura, tzFactCorta(g), g.cliente||"", g.prov||""].join(" ").toLowerCase().includes(q)
-      || porPedido.some(cli => (g.cliente||"").toLowerCase().includes(cli)));
-  };
-  const tzRecorrido = ({ v, g }) => {
-    const fc = tzFactCorta(g);
-    const tr = EF_TRANSPORTISTAS_INI.find(t=>t.id===v.transportistaId) || { nombre:"—" };
-    const qqT = Math.round(g.carga.reduce((s,it)=>s+(parseFloat(it.qq)||0)+(parseFloat(it.arrobas)||0)*0.25,0)*100)/100;
-    const ped = pedidos.find(p => p.cli === g.cliente);
-    const ctrl = CONTROLES_CALIDAD_INI.find(c => (g.factura||"").includes((c.guia||"").replace("#","")) || (g.guia||"").includes((c.guia||"").replace("#","")));
-    const novs = NOVEDADES_INI.filter(n => n.viajeId===v.id && n.guia===g.guia);
-    const entrega = (v.historial||[]).find(h => (h.accion||"").startsWith("Entregado"));
-    const docs = [...DOCS_AUTO, ...DOCS_INI].filter(d => d.numero===fc || d.numero===g.guia);
-    const docEstado = (d) => { const tp = DOC_TIPOS_INI.find(t=>t.id===d.tipoId)||{tenedorFinal:[]};
-      return d.deposito ? "depositado · custodia culminada" : tp.tenedorFinal.includes(d.tenedor) ? "cerrado · tenedor final "+d.tenedor : (d.tenedor==="Freelance" ? "en custodia · Freelance" : "en tránsito · "+d.tenedor); };
-    const concepto = (L, nombre) => !L ? { done:false, sub:nombre+" por pagar (módulo Pagos)" }
-      : { done:true, sub:nombre+" "+(L.estado==="pagado"?"pagado ✓":"liquidado · por pagar")+" · cancela: "+[...new Set(L.paga)].join("/") };
-    const hitos = [
-      ped ? { icon:"🛒", titulo:"Pedido #"+ped.id+" · "+ped.estado, sub:ped.prod+" · "+ped.cant+" "+(ped.unidad||"qq"), fecha:ped.fecha, done:true }
-          : { icon:"🛒", titulo:"Pedido del comisionista", sub:"Se vinculará en vivo con el backend", fecha:"", done:false },
-      { icon:"🧾", titulo:"Facturado por el proveedor", sub:fc+" ("+g.factura+") · "+g.prov, fecha:v.fecha, done:true },
-      ctrl ? { icon:"🔬", titulo:"Control de calidad · "+ctrl.resultado, sub:"Control N° "+ctrl.id+" · "+ctrl.piladora, fecha:ctrl.fecha, done:true }
-           : { icon:"🔬", titulo:"Control de calidad", sub:"Sin registro para esta guía", fecha:"", done:false },
-      { icon:"🚛", titulo:"Despachado · viaje "+v.id, sub:v.rutaNombre+" · "+tr.nombre+" · placa "+v.placa, fecha:v.fecha, done:true },
-      ...novs.map(n => ({ icon:"⚠", titulo:"Novedad "+n.id+" · "+n.tipo+" ("+(n.estado==="resuelta"?"resuelta":n.estado==="en_gestion"?"en gestión":n.estado)+")", sub:n.detalle, fecha:n.fecha, done:true, warn:true })),
-      entrega ? { icon:"✅", titulo:"Entregado al cliente", sub:"Confirmó: "+entrega.quien, fecha:entrega.fecha, done:true }
-              : { icon:"✅", titulo:"Entrega", sub:"Pendiente de confirmación del transportista", fecha:"", done:false },
-      { icon:"📦", titulo:"Flete", ...concepto(v.flete, "Flete") },
-      { icon:"💪", titulo:"Estibada", ...concepto(v.estiba, "Estibada") },
-      ...(docs.length>0
-        ? docs.map(d => ({ icon:"📑", titulo:"Documento "+d.numero, sub:(DOC_TIPOS_INI.find(t=>t.id===d.tipoId)||{nombre:""}).nombre+" · "+docEstado(d), fecha:d.fechaOrigen, done:true }))
-        : [{ icon:"📑", titulo:"Documentos firmados", sub:"Aún no nacen en la cadena de custodia", fecha:"", done:false }]),
-      { icon:"💰", titulo:"Cobro y comisión", sub:"Pendiente · la comisión se libera con la confirmación del proveedor", fecha:"", done:false },
-    ];
-    const chip = (ok, t) => <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11.5, fontWeight:700, background:(ok?COLOR.green:"#8a97a3")+"22", color: ok?COLOR.green:"#5b6771" }}>{ok?"✅":"⏳"} {t}</span>;
-    return (
-      <div>
-        <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"16px 18px", marginBottom:14 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
-            <div>
-              <p style={{ fontSize:16, fontWeight:800, color:COLOR.text, margin:0 }}>{g.cliente||"—"} <span style={{ fontWeight:600, fontSize:12.5, color:COLOR.muted }}>· {g.prov}</span></p>
-              <p className="num" style={{ fontSize:12.5, color:COLOR.muted, margin:"3px 0 0" }}>{fc} · {g.guia} · viaje {v.id} · {qqT} qq</p>
-            </div>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              <button style={{ border:"none", background:"#1fa855", color:"#fff", borderRadius:9, padding:"7px 14px", fontSize:12.5, fontWeight:700, cursor:"pointer" }} onClick={()=>{
-                const texto = rellenar(plantillaDe(entrega?"PL-08":"PL-01").texto,
-                  { cliente:g.cliente||"cliente", viaje:v.id, chofer:tr.nombre, placa:v.placa, firma:usuario.nombre||"FREELANCE" });
-                waAbrir(texto);
-                comunicar(usuario, entrega?"Entrega confirmada":"Pedido despachado", g.cliente||"Cliente", "whatsapp", texto);
-              }}>📲 Avisar al cliente</button>
-              <button style={{ border:`1px solid ${COLOR.border}`, background:"#fff", borderRadius:9, padding:"7px 12px", fontSize:12.5, fontWeight:700, cursor:"pointer", color:COLOR.text }} onClick={()=>setTzSel(null)}>‹ Otra búsqueda</button>
-            </div>
-          </div>
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:10 }}>
-            {chip(!!entrega, "Logística")}
-            {chip(!!ctrl, "Calidad")}
-            {chip(!!(v.flete && v.flete.estado==="pagado") && !!(v.estiba && v.estiba.estado==="pagado"), "Flete y estibada")}
-            {chip(docs.length>0 && docs.every(d => d.deposito || (DOC_TIPOS_INI.find(t=>t.id===d.tipoId)||{tenedorFinal:[]}).tenedorFinal.includes(d.tenedor)), "Documentos")}
-            {chip(false, "Cobro")}
-          </div>
-        </div>
-        <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"18px 22px" }}>
-          <div style={{ borderLeft:`2px solid ${COLOR.teal}`, marginLeft:8, paddingLeft:18 }}>
-            {hitos.map((h,i) => (
-              <div key={i} style={{ marginBottom:14, position:"relative", opacity:h.done?1:0.55 }}>
-                <span style={{ position:"absolute", left:-29, top:1, width:20, height:20, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11,
-                  background: h.warn?"#FFF3E0":h.done?COLOR.tealLight:"#eef1f4", border:`2px solid ${h.warn?"#b45309":h.done?COLOR.teal:"#cbd5dd"}` }}>{h.icon}</span>
-                <p style={{ fontSize:13.5, fontWeight:800, margin:0, color: h.warn?"#b45309":COLOR.text }}>{h.titulo}</p>
-                <p style={{ fontSize:12, color:COLOR.muted, margin:"1px 0 0" }}>{h.sub}{h.fecha?<span className="num"> · {h.fecha}</span>:null}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  };
-  const vistaTraza = () => {
-    const cands = tzCandidatos();
-    return (
-      <div>
-        <input value={tzQ} onChange={e=>{ setTzQ(e.target.value); setTzSel(null); }}
-          placeholder="🔍 Busca por N° de pedido, factura (F-4521), guía (GR-008832), cliente o viaje (VJ-00004)…"
-          style={{ width:"100%", padding:"14px 16px", borderRadius:12, border:`1px solid ${COLOR.border}`, fontSize:15, outline:"none", marginBottom:14, boxSizing:"border-box" }} />
-        {tzSel ? tzRecorrido(tzSel)
-          : !tzQ.trim() ? <p style={{ fontSize:13, color:COLOR.muted }}>Escribe cualquier dato que tengas a mano y te muestro el recorrido completo: pedido → factura → calidad → despacho → entrega → flete/estibada → documentos → cobro.</p>
-          : cands.length===0 ? <p style={{ fontSize:13, color:COLOR.muted }}>Sin resultados para "{tzQ}". Prueba con la factura, la guía o el nombre del cliente.</p>
-          : cands.length===1 ? tzRecorrido(cands[0])
-          : (
-            <div>
-              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 8px" }}>{cands.length} resultados — elige uno:</p>
-              {cands.map(({v,g},i) => (
-                <div key={i} onClick={()=>setTzSel({v,g})} style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"13px 16px", marginBottom:8, cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                  <div>
-                    <p style={{ fontSize:13.5, fontWeight:800, margin:0 }}>{g.cliente||"—"} <span style={{ fontWeight:600, fontSize:12, color:COLOR.muted }}>· {g.prov}</span></p>
-                    <p className="num" style={{ fontSize:12, color:COLOR.muted, margin:0 }}>{tzFactCorta(g)} · {g.guia} · viaje {v.id} · {v.fecha}</p>
-                  </div>
-                  <span style={{ fontSize:13, fontWeight:700, color:COLOR.teal }}>Ver recorrido ›</span>
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
-    );
-  };
+  /* PED_FE_001 · Trazabilidad ELIMINADA de Pedidos (vistaTraza/tzRecorrido/tzCandidatos y su buscador demo): el seguimiento vive en Logística. El demo (EF_VIAJES_INI y cía.) queda para otras pantallas. */
 
   if (vista === "lista") {
     return (
       <div style={{ padding:"22px 28px 40px" }}>
-        <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-          {/* PED_PESTANAS_ESTADO · 5 pestañas: 4 filtran la MISMA lista por estado (con su conteo), Trazabilidad queda igual */}
+        <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+          {/* PED_FE_001 · pestañas por estado (código canónico); cada una filtra la MISMA lista con su conteo.
+              Trazabilidad se quitó de Pedidos: el seguimiento vive en Logística. */}
           {PTABS.map(([k,t])=>(
             <button key={k} onClick={()=>{ setPTab(k); setPagP(0); }}
               style={{ border:"none", cursor:"pointer", borderRadius:20, padding:"9px 18px", fontSize:13.5, fontWeight:700,
-                background: pTab===k?COLOR.tealDark:"#eef1f4", color: pTab===k?"#fff":COLOR.muted }}>{t}{k!=="traza" ? ` (${contarTab(k)})` : ""}</button>
+                background: pTab===k?COLOR.tealDark:"#eef1f4", color: pTab===k?"#fff":COLOR.muted }}>{t} ({contarTab(k)})</button>
           ))}
         </div>
-        {pTab==="traza" ? vistaTraza() : (
+        {(
         <div>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, marginBottom:18 }}>
           <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidosTab.length} pedidos · {porRevisarTab} por revisar</p>{/* PED_PESTANAS_ESTADO · el rótulo respeta la pestaña activa */}
@@ -6523,7 +6438,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
             {th("fecha","Fecha")}{th("cliente","Cliente")}{th("numero","Pedido N.º")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
           </div>
-          {usarPaginacion(pedidosTab, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
+          {usarPaginacion(pedidosTab, pagP).filas.map((p, i) => { const ce = colorEstado(p);
             return (
               <div key={p.id} style={{ borderTop: i>0 ? `1px solid ${COLOR.border}` : "none" }}>
                 {/* PED_NUMERO_Y_MODAL · CABECERA del pedido: clic en zona libre = abre el modal de solo lectura
@@ -6538,7 +6453,10 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                   <span className="num" style={{ whiteSpace:"nowrap" }}>{p.totalQq != null ? p.totalQq : p.cant} qq</span>
                   <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(p.importe != null ? p.importe : p.cant*p.precio)}</span>
                   <span style={{ color:COLOR.muted }}>{p.cond}</span>
-                  <span><span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{p.estado}</span></span>
+                  <span style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>{/* PED_FE_001 · icono + color por código; «Anulado» ya no se pinta azul */}
+                    <span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{ce.icon} {p.estado}</span>
+                    {p.estadoLog==="parcial" && <span title="Despacho parcial: queda saldo por enviar" style={{ fontSize:10, fontWeight:800, color:"#b45309", background:"#FFF7E8", padding:"3px 7px", borderRadius:999, whiteSpace:"nowrap" }}>⚠ saldo</span>}
+                  </span>
                   <span style={{ textAlign:"right" }}>
                     {p.editable && p.pedId && !p.demo && (
                       <button onClick={(e)=>{ e.stopPropagation(); abrirEdicionArmar(p.pedId); }} title="Editar pedido"
@@ -6560,6 +6478,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         {pedModal && (
           <ModalPedido p={pedModal} onCerrar={()=>setPedModal(null)}
             money={money} colorEstado={colorEstado} nombreCliente={nombreClientePedido} abreviarPres={abreviarPres}
+            onIrLogistica={onIrLogistica ? ()=>{ setPedModal(null); onIrLogistica(); } : null}
             onEditar={pd => { setPedModal(null); abrirEdicionArmar(pd.pedId); }} />
         )}
 
@@ -20480,7 +20399,7 @@ function App() {
       case "clientes":
         return <ClientesWeb usuario={sesion} navegar={navegar} />;
       case "pedidos":
-        return <PedidosWeb usuario={sesion} preCliId={pedidoPreCli} onConsumirPre={()=>setPedidoPreCli(null)} />;
+        return <PedidosWeb usuario={sesion} preCliId={pedidoPreCli} onConsumirPre={()=>setPedidoPreCli(null)} onIrLogistica={()=>setSeccion("trazabilidad")} />;
       case "calidad":
         return <CalidadWeb usuario={sesion} />;
       case "pagos":
