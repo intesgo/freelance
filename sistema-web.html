@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"191", fecha:"23 ago 2026", desc:"En Logística, al «Escoger pedidos» la fila de cada pedido quedó más limpia: se quitaron las palabras-etiqueta (Ingresó, Piladora, Vendedor, «hace») y quedan solo los valores con su iconito (📅 fecha, ⏱ días, 🏭 piladora, 👤 vendedor). Las columnas se hicieron un poco más angostas para que la línea entre mejor. Es presentación: no cambia el cálculo ni el armado de rutas." };
+const VERSION = { n:"192", fecha:"23 ago 2026", desc:"En Logística, al «Escoger pedidos» ahora puedes DESPLEGAR cada pedido (flechita ›) y elegir por producto cuál va a despacho. Todos vienen marcados; si desmarcas uno te pide confirmar («¿Seguro que no quiere enviar este producto a despacho?») y ese producto no entra a la ruta (el pedido queda parcial). No puedes dejar un pedido sin ningún producto. Los qq de la fila reflejan solo lo que sí irá." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2501,7 +2501,8 @@ function TrazabilidadWeb({ usuario }) {
            para mostrar el «Pedido N.º» y el nombre de persona (nombreClientePedido). */
         .select("ped_id,numero_pedido,factura,creado,cli_id,estado,estado_logistico,ubicacion_id,retiro_bodega," +
                 "clientes(nombre,razon_social,tipo,ubicaciones_cliente(ubic_id,ciudad,provincia,direccion,barrio,contacto_tel,principal,tipo_entrega))," +
-                "pedido_items(descripcion,cantidad_qq,despachado_qq)," +
+                /* DISENO_LOGISTICA_DESPACHO_PARCIAL · item_id y condicion para elegir por producto qué va a la ruta */
+                "pedido_items(item_id,descripcion,cantidad_qq,despachado_qq,condicion)," +
                 "proveedores(nombre),usuarios(nombre)")
         /* 08/08/2026 · NUEVO FLUJO: la ruta se arma con los pedidos, NO con los
            facturados. Logistica ve el pedido apenas se crea (ingresado,
@@ -2560,8 +2561,10 @@ function TrazabilidadWeb({ usuario }) {
           estado: p.estado,
           facturado: p.estado === "facturado",
           items: (p.pedido_items||[]).map(i => ({
+            id: (i.item_id != null ? i.item_id : null),   /* DISENO_LOGISTICA_DESPACHO_PARCIAL · llave del ítem para excluirlo */
             p: i.descripcion || "producto",
             q: Number(i.despachado_qq != null ? i.despachado_qq : i.cantidad_qq) || 0,
+            cond: i.condicion || "",
             ok: false,
             prov: (p.proveedores && p.proveedores.nombre) || "—",
           })),
@@ -2932,6 +2935,10 @@ function TrazabilidadWeb({ usuario }) {
   const [sel, setSel] = useState({});
   const [ordenP1, setOrdenP1] = useState("qq");
   const [ciudadAbierta, setCiudadAbierta] = useState({});
+  /* DISENO_LOGISTICA_DESPACHO_PARCIAL · despliegue por pedido y productos que el freelance deja fuera de la ruta */
+  const [logAbierto, setLogAbierto] = useState({});          // {ped_id: bool} · fila del pedido desplegada
+  const [excluidos, setExcluidos] = useState({});            // {ped_id: {item_id: true}} · líneas desmarcadas (NO van)
+  const [excluirConfirm, setExcluirConfirm] = useState(null);// {pedId, itemId} · desmarque pendiente de confirmar
   const idsSel = Object.keys(sel).filter(k=>sel[k]);
   const qqSel = idsSel.reduce((a,id)=>{ const p=pedidos.find(x=>x.id===id); return a+(p?logQQ(p):0); },0);
 
@@ -2960,6 +2967,37 @@ function TrazabilidadWeb({ usuario }) {
     const todos = lista.every(p => sel[p.id]);
     if (!todos && !puedeCiudad(lista[0].ciudad)) { toast(motivoBloqueo(lista[0].ciudad)); return; }
     setSel(s => { const n = {...s}; lista.forEach(p => { n[p.id] = !todos; }); return n; });
+  };
+
+  /* ── DISENO_LOGISTICA_DESPACHO_PARCIAL · casilleros por producto ──
+     Cada pedido puede desplegarse y elegir por línea cuál va a despacho. Lo NO
+     marcado se guarda en `excluidos[ped_id][item_id]` y viaja como items_excluidos
+     al crear la ruta (la base ya lo respeta). Un producto excluido NO se despacha;
+     el pedido queda parcial (si el cliente aún lo quiere, se sube como pedido nuevo). */
+  const itemsConId = (p) => (p.items || []).filter(it => it.id != null);
+  const estaExcluido = (pedId, itemId) => !!((excluidos[pedId] || {})[itemId]);
+  /* qq que realmente irá = suma de las líneas marcadas (coincide con qq_planificado de la base) */
+  const qqPlan = (p) => {
+    const its = itemsConId(p);
+    if (!its.length) return logQQ(p);   /* sin líneas identificables: el qq de siempre */
+    return its.filter(it => !estaExcluido(p.id, it.id)).reduce((a, it) => a + (Number(it.q) || 0), 0);
+  };
+  const incluirItem = (pedId, itemId) => {
+    setExcluidos(s => { const n = {...s}; const m = {...(n[pedId] || {})}; delete m[itemId]; n[pedId] = m; return n; });
+  };
+  const toggleItem = (p, it) => {
+    if (it.id == null) return;                       /* sin llave no se puede excluir con seguridad */
+    if (estaExcluido(p.id, it.id)) { incluirItem(p.id, it.id); return; }   /* volver a marcar: sin aviso */
+    /* desmarcar: no dejar el pedido sin ningún producto */
+    const incluidasAhora = itemsConId(p).filter(x => !estaExcluido(p.id, x.id));
+    if (incluidasAhora.length <= 1) { toast("Debe quedar al menos un producto para enviar este pedido a la ruta."); return; }
+    setExcluirConfirm({ pedId: p.id, itemId: it.id });   /* pide confirmación (texto exacto en el modal) */
+  };
+  const confirmarExcluir = () => {
+    if (!excluirConfirm) return;
+    const { pedId, itemId } = excluirConfirm;
+    setExcluidos(s => { const n = {...s}; n[pedId] = {...(n[pedId] || {}), [itemId]: true}; return n; });
+    setExcluirConfirm(null);
   };
 
   // ── Orden de entrega (utilidades puras sobre listas de ids) ──
@@ -2997,12 +3035,14 @@ function TrazabilidadWeb({ usuario }) {
       nombre: nombreInteligente(orden),
       pedidos: orden.map((id, i) => {
         const p = pedidos.find(x => x.id === id) || {};
-        return { ped_id: id, orden_entrega: i+1, ciudad: p.ciudad || null, ubicacion_id: p.ubicacionId || null };
+        /* DISENO_LOGISTICA_DESPACHO_PARCIAL · los productos desmarcados no entran a la ruta */
+        return { ped_id: id, orden_entrega: i+1, ciudad: p.ciudad || null, ubicacion_id: p.ubicacionId || null,
+                 items_excluidos: Object.keys(excluidos[id] || {}).filter(k => excluidos[id][k]) };
       }),
     };
     const r = await correrRpc("crear_ruta", { p_payload: payload, p_op_id: op_id });
     if (!r.ok) return;
-    setSel({}); setCiudadAbierta({});
+    setSel({}); setCiudadAbierta({}); setLogAbierto({}); setExcluidos({});
     await recargarRutas();     // la base es la verdad: se relee tras crear
     toast("Ruta creada: " + payload.nombre + " · " + orden.length + " pedido(s). Sigue: Orden de entrega.");
   };
@@ -3096,9 +3136,13 @@ function TrazabilidadWeb({ usuario }) {
                 /* DISENO_LOGISTICA_FILA_DATOS · columna de ancho fijo: ícono + texto que corta con "…" */
                 const colBox = (w) => ({ width:w, flexShrink:0, display:"flex", alignItems:"center", gap:5, fontSize:12, overflow:"hidden" });
                 const colTxt = { flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" };
+                const abiertoP = !!logAbierto[p.id];
+                const nExcl = Object.keys(excluidos[p.id]||{}).filter(k=>(excluidos[p.id]||{})[k]).length;
+                const qqIra = qqPlan(p);
                 return (
-                  /* DISENO_LOGISTICA_FILA_DATOS · una sola línea horizontal; en pantallas angostas se DESLIZA (overflow-x) en vez de amontonarse */
-                  <div key={p.id} onClick={()=>toggleSel(p.id)}
+                  <React.Fragment key={p.id}>
+                  {/* DISENO_LOGISTICA_FILA_DATOS · una sola línea horizontal; en pantallas angostas se DESLIZA (overflow-x) en vez de amontonarse */}
+                  <div onClick={()=>toggleSel(p.id)}
                     style={{ borderTop:`1px solid ${COLOR.border}`, cursor:"pointer", overflowX:"auto",
                       background: sel[p.id]?COLOR.tealLight:(llena?"#fdf6e3":"#fff"),
                       borderLeft: llena?`3px solid ${COLOR.orange}`:"3px solid transparent" }}>
@@ -3123,9 +3167,34 @@ function TrazabilidadWeb({ usuario }) {
                         <Ico name="user" size={13} color={COLOR.muted} />
                         <span style={colTxt}><b style={{color:COLOR.text}}>{p.sc}</b></span></span>
                       <span style={{ flex:1 }} />
-                      <span className="num" style={{ flexShrink:0, fontSize:14, fontWeight:800, color:COLOR.text }}>{Math.round(logQQ(p))} qq{llena?<span style={{ color:COLOR.orange, fontWeight:700 }}> · ⚠ llena un camión</span>:""}</span>
+                      <span className="num" style={{ flexShrink:0, fontSize:14, fontWeight:800, color:COLOR.text }}>{Math.round(qqIra)} qq{nExcl>0?<span style={{ color:"#b45309", fontWeight:700 }}> · {nExcl} fuera</span>:null}{llena?<span style={{ color:COLOR.orange, fontWeight:700 }}> · ⚠ llena un camión</span>:null}</span>
+                      {/* DISENO_LOGISTICA_DESPACHO_PARCIAL · desplegar el pedido para elegir por producto qué va a despacho */}
+                      <button onClick={e=>{ e.stopPropagation(); setLogAbierto(o=>({...o,[p.id]:!o[p.id]})); }}
+                        title="Ver productos" style={{ flexShrink:0, background:"transparent", border:"none", cursor:"pointer", fontSize:22, fontWeight:800, color:COLOR.teal, padding:"0 4px", lineHeight:1, transform:abiertoP?"rotate(90deg)":"none", transition:"transform .15s" }}>›</button>
                     </div>
                   </div>
+                  {abiertoP && (
+                    /* DISENO_LOGISTICA_DESPACHO_PARCIAL · casilleros por producto (todos marcados por defecto = todo va) */
+                    <div onClick={e=>e.stopPropagation()} style={{ borderTop:`1px dashed ${COLOR.border}`, background:"#fafbfc", padding:"6px 16px 12px 44px" }}>
+                      {(p.items||[]).length===0 && <p style={{ fontSize:12.5, color:COLOR.muted, margin:"6px 0" }}>Sin líneas de producto.</p>}
+                      {(p.items||[]).map((it, idx) => {
+                        const excl = it.id!=null && estaExcluido(p.id, it.id);
+                        return (
+                          <label key={it.id!=null?it.id:("x"+idx)} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", cursor: it.id!=null?"pointer":"default", opacity: excl?0.55:1 }}>
+                            <input type="checkbox" checked={!excl} disabled={it.id==null} onChange={()=>toggleItem(p, it)}
+                              style={{ width:16, height:16, accentColor:COLOR.teal, flexShrink:0 }} />
+                            <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:600, color:COLOR.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textDecoration: excl?"line-through":"none" }}>{it.p}{it.cond?<span style={{ color:COLOR.muted, fontWeight:500 }}> · {it.cond}</span>:null}</span>
+                            <span className="num" style={{ flexShrink:0, fontSize:12.5, fontWeight:700, color:COLOR.muted }}>{it.q} qq</span>
+                          </label>
+                        );
+                      })}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:8, borderTop:`1px solid ${COLOR.border}` }}>
+                        <span style={{ fontSize:11.5, color:COLOR.muted }}>{nExcl>0?`${nExcl} producto(s) NO irán a esta ruta`:"Todos los productos van a despacho"}</span>
+                        <span className="num" style={{ fontSize:13, fontWeight:800, color:COLOR.tealDark }}>Irá a despacho: {Math.round(qqIra)} qq</span>
+                      </div>
+                    </div>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -4365,6 +4434,20 @@ function TrazabilidadWeb({ usuario }) {
             <div style={{ display:"flex", justifyContent:"space-between" }}>
               <button disabled={rpcOn} style={{...nvBtn("#f3f5f7", COLOR.text), opacity:rpcOn?.6:1}} onClick={()=>setNvAnular(null)}>Cancelar</button>
               <button disabled={rpcOn} style={{...nvBtn("#b91c1c"), opacity:rpcOn?.6:1}} onClick={nvConfirmarAnular}>Anular novedad</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DISENO_LOGISTICA_DESPACHO_PARCIAL · confirmar que un producto NO se envía a despacho */}
+      {excluirConfirm && (
+        <div onClick={()=>setExcluirConfirm(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:420, maxWidth:"100%", padding:"22px 24px" }}>
+            <h2 style={{ fontSize:16.5, fontWeight:800, margin:"0 0 8px", color:"#b45309" }}>¿Seguro que no quiere enviar este producto a despacho?</h2>
+            <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 16px" }}>El producto no se despacha en esta ruta. El pedido queda parcial; si el cliente aún lo quiere, se sube como un pedido nuevo.</p>
+            <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <button style={{ ...btn("#f3f5f7", COLOR.text) }} onClick={()=>setExcluirConfirm(null)}>No</button>
+              <button style={{ ...btn("#b45309") }} onClick={confirmarExcluir}>Sí, dejar fuera</button>
             </div>
           </div>
         </div>
