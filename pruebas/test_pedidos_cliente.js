@@ -179,8 +179,10 @@ function montar(js) {
         cs[i].dispatchEvent(new window.MouseEvent("click",{bubbles:true})); return true; } }
       return false;
     };
+    /* PED_NUMERO_Y_MODAL · el detalle ya no vive en un acordeón inline sino en el modal
+       de solo lectura (role="dialog"): se lee su texto tras hacer clic en la fila. */
     window.__detalleTxt = function(){
-      var ds = window.__c.querySelectorAll(".ped-detalle"); var t = "";
+      var ds = document.querySelectorAll('[role="dialog"]'); var t = "";
       for (var i=0;i<ds.length;i++) t += (ds[i].textContent||"") + " | ";
       return t;
     };
@@ -229,15 +231,16 @@ async function bateria(js, ruidoso) {
   comprobar("hay un solo botón editar (1 pedido editable no-demo)",
     nEditar === 1);
 
-  /* 4 · plegado, los productos 2.º y 3.º de PD-0011 NO se ven (no está aplanado) */
-  comprobar("plegado, «Arroz Vitalota» (3.ª línea) NO aparece: el detalle está oculto",
+  /* 4 · con el modal cerrado, los productos de PD-0011 NO se ven en la lista (la columna es
+     el número de pedido, no la guía de productos) */
+  comprobar("con el modal cerrado, «Arroz Vitalota» NO aparece en la lista (la columna es el número)",
     txt.indexOf("Arroz Vitalota") < 0);
 
-  /* 5 · al desplegar PD-0011, su detalle muestra sus TRES líneas */
+  /* 5 · al hacer clic en la fila de PD-0011 se abre el modal con sus TRES líneas */
   corre(m, `window.__clickCab("Pedro Castillo")`);
   corre(m, `ReactDOM.flushSync(function(){})`);
   const det = corre(m, `window.__detalleTxt()`);
-  comprobar("al desplegar PD-0011 el detalle muestra sus 3 líneas (Arrocillo, Flor, Vitalota)",
+  comprobar("al tocar la fila de PD-0011 el modal muestra sus 3 líneas (Arrocillo, Flor, Vitalota)",
     det.indexOf("Arrocillo Especial") >= 0 && det.indexOf("Arroz Flor") >= 0 && det.indexOf("Arroz Vitalota") >= 0);
 
   /* 6 · la cabecera del 04/08 sale a nombre de SU cliente: «Pedro Castillo» */
@@ -280,6 +283,11 @@ const MUTANTES = [
   ["PED_P0_2_AGRUPAR_WEB · vuelve a UNA FILA POR PRODUCTO (filas.push por ítem)",
 `          filas.push({
             id: pd.ped_id, pedId: pd.ped_id,
+            /* PED_NUMERO_Y_MODAL · número de pedido para la columna y el modal (null en demo) + datos del modal */
+            numero: pd.numero_pedido || null,
+            fechaEntrega: pd.fecha_entrega || null, notaChofer: pd.nota_chofer || null,
+            retiroBodega: !!pd.retiro_bodega, asumeFlete: pd.asume_flete || null, asumeEstibada: pd.asume_estibada || null,
+            fleteCobro: Number(pd.flete_cobro_qq)||0, estibadaCobro: Number(pd.estibada_cobro_qq)||0,
             cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
             prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
             demo: !!pd.es_demo, editable: editable(pd),

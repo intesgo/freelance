@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"187"/.test(web),"Sistema Web debe anunciar b187");
-prueba(/const CACHE = "freelance-v286"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"188"/.test(web),"Sistema Web debe anunciar b188");
+prueba(/const CACHE = "freelance-v287"/.test(sw),"la caché debe renovarse");
 
 /* ── Sistema Web · pantalla de pedido rediseñada (b143 · modal de 3 pestañas) ── */
 prueba(/Cambiar producto/.test(web),"debe mantenerse Cambiar producto");
@@ -91,12 +91,23 @@ prueba(/const totalCant = lineasQq\.reduce\(\(s,l\)=>s\+\(Number\(l\.qq\)\|\|0\)
 prueba(!/const totalCant = carrito\.reduce\(\(s,it\)=>s\+\(Number\(it\.cant\)\|\|0\),0\)/.test(app),"freelance · ya no se suma la cantidad cruda en la tarjeta optimista");
 prueba(/prod:it\.prodNombre\|\|it\.prod, cant:qqLinea, precio:precioQqLinea/.test(comi),"comisionista · la tarjeta optimista usa qqLinea y precioQqLinea (no it.cant/it.precio crudos)");
 
-/* ── PED_P0_2_AGRUPAR_WEB · la lista de pedidos de la web es un acordeón (una cabecera por pedido) ── */
+/* ── PED_P0_2_AGRUPAR_WEB · la lista de pedidos de la web es UNA fila por pedido ── */
 prueba(/PED_P0_2_AGRUPAR_WEB/.test(web),"queda el ancla PED_P0_2_AGRUPAR_WEB en la web");
-prueba(/className="ped-cabecera"/.test(web)&&/className="ped-detalle"/.test(web),"web · la lista renderiza cabecera por pedido (ped-cabecera) y detalle desplegable (ped-detalle)");
-prueba(/const \[pedAbierto, setPedAbierto\] = useState\(null\)/.test(web),"web · hay un estado de acordeón (pedAbierto) para desplegar/plegar el pedido");
+prueba(/className="ped-cabecera"/.test(web),"web · la lista renderiza una cabecera por pedido (ped-cabecera)");
 prueba(/const prodGuia = nLineas \? \(\(its\[0\]\.descripcion \|\| its\[0\]\.prod_id\)/.test(web),"web · cargarPedidosVivos arma una fila por pedido con prodGuia + totalQq + lineas");
 prueba(!/\(porPed\[pd\.ped_id\]\|\|\[\]\)\.forEach\(\(x,i\) => filas\.push/.test(web),"web · ya no se hace filas.push por ítem (lista aplanada)");
+
+/* ── PED_NUMERO_Y_MODAL · la lista muestra «Pedido N.º» y la fila abre un modal de solo lectura ── */
+prueba((web.match(/PED_NUMERO_Y_MODAL/g)||[]).length >= 3,"queda el ancla PED_NUMERO_Y_MODAL (select, fila-modal, componente)");
+prueba(/th\("numero","Pedido N.º"\)/.test(web)&&!/th\("producto","Productos"\)/.test(web),"web · la cabecera dice «Pedido N.º» y ya no «Productos»");
+prueba(/numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq/.test(web),"web · el select trae numero_pedido y los datos del modal");
+prueba(/numero: pd\.numero_pedido \|\| null/.test(web),"web · la fila expone el número de pedido (numero_pedido)");
+prueba(/function ModalPedido\(\{ p, onCerrar, onEditar/.test(web),"web · existe el componente ModalPedido (solo lectura)");
+prueba(/onClick=\{\(e\)=>\{ e\.currentTarget\.focus\(\); setPedModal\(p\); \}\}/.test(web),"web · el clic en la fila abre el modal (setPedModal)");
+prueba(/role="dialog" aria-modal="true"/.test(web),"web · el modal es accesible (role=dialog, aria-modal)");
+prueba(/if\(e\.key==="Escape"\)\{ e\.preventDefault\(\); onCerrar\(\); return; \}/.test(web),"web · el modal cierra con la tecla Escape");
+prueba(/onClick=\{\(e\)=>\{ e\.stopPropagation\(\); abrirEdicionArmar\(p\.pedId\); \}\}/.test(web),"web · el lápiz usa stopPropagation (no abre el modal) y va directo a editar");
+prueba(!/className="ped-detalle"/.test(web)&&!/const \[pedAbierto/.test(web),"web · se retiró el acordeón inline (ped-detalle / pedAbierto): el detalle vive en el modal");
 
 /* ── PED_MONTO_SUMA_LINEAS · el monto del pedido es la suma de las líneas, no cant × promedio ── */
 const comi2=fs.readFileSync(path.join(raiz,"Comisionista.html"),"utf8");
