@@ -456,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"196", fecha:"23 ago 2026", desc:"Cerramos la integridad del nombre del cliente en las pantallas que faltaban: Cobranza/cartera, Solicitudes y las Guías de Logística (viajes en curso, novedades y avisos). Persona natural → primer nombre + apellido en MAYÚSCULAS (ej. «DORA DIAZ»); empresa → su razón social. Una sola regla para todos, la misma de siempre. Es solo presentación." };
+const VERSION = { n:"197", fecha:"23 ago 2026", desc:"En Logística → «Escoger pedidos», los quintales ahora se distinguen por color y peso (total de ciudad en verde fuerte, total del pedido, línea de producto y «irá a despacho» en pastilla; producto excluido en rojo tachado). La suma de la ruta pasó a una píldora flotante que se queda a la vista al marcar y hacer scroll. Y la fila del cliente marca «💵 CONTADO» solo en pedidos de contado (se quitó el contado/crédito del detalle por producto). Es solo presentación: no cambia cálculos ni el flujo de ruta." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -3134,7 +3134,8 @@ function TrazabilidadWeb({ usuario }) {
                   <p style={{ fontSize:15, fontWeight:800, color:COLOR.tealDark, margin:0 }}>{c}</p>
                   <p style={{ fontSize:12, fontWeight:600, color:COLOR.tealDark, opacity:.85, margin:0 }}>{lista[0].destino} · {lista.length} pedido(s){nSel>0?` · ${nSel} marcado(s)`:""}{otraZona?(sinZona?" · ⛔ sin zona (defínela en Zonas)":" · ⛔ otra zona"):""}</p>
                 </div>
-                <p className="num" style={{ fontSize:17, fontWeight:800, color:COLOR.text, margin:0 }}>{Math.round(qqC)} <span style={{fontSize:12,fontWeight:600,color:COLOR.muted}}>qq</span></p>
+                {/* DISENO_LOGISTICA_ESCALAS_QQ · TOTAL DE CIUDAD: verde bosque, el más fuerte de los 4 niveles */}
+                <p className="num" style={{ fontSize:17.5, fontWeight:800, color:"#123d29", margin:0 }}>{Math.round(qqC)} <span style={{fontSize:12,fontWeight:600,color:COLOR.muted}}>qq</span></p>
                 <span style={{ fontSize:24, fontWeight:800, color:COLOR.teal, padding:"2px 10px", display:"inline-block", transform:abierta?"rotate(90deg)":"none", transition:"transform .15s" }}>›</span>
               </div>
               {abierta && lista.map(p => {
@@ -3145,6 +3146,9 @@ function TrazabilidadWeb({ usuario }) {
                 const abiertoP = !!logAbierto[p.id];
                 const nExcl = Object.keys(excluidos[p.id]||{}).filter(k=>(excluidos[p.id]||{})[k]).length;
                 const qqIra = qqPlan(p);
+                /* DISENO_LOGISTICA_ESCALAS_QQ · no hay campo de pago por pedido: contado se deriva de las líneas.
+                   Un pedido MIXTO (parte contado, parte crédito) NO se marca como contado. */
+                const esContado = (p.items||[]).length>0 && p.items.every(it => /contado/i.test(it.cond||""));
                 return (
                   <React.Fragment key={p.id}>
                   {/* DISENO_LOGISTICA_FILA_DATOS · una sola línea horizontal; en pantallas angostas se DESLIZA (overflow-x) en vez de amontonarse */}
@@ -3159,6 +3163,8 @@ function TrazabilidadWeb({ usuario }) {
                       <span style={{ width:160, flexShrink:0, fontSize:13.5, fontWeight:800, color:COLOR.text, textTransform:"uppercase", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}</span>
                       {/* número de pedido uniforme (chip verde) */}
                       <span className="num" style={{ width:135, flexShrink:0, textAlign:"center", fontSize:12, fontWeight:800, color:COLOR.tealDark, background:"#E4EFE7", borderRadius:6, padding:"2px 8px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.numero || p.id}</span>
+                      {/* DISENO_LOGISTICA_ESCALAS_QQ · distintivo CONTADO (solo contado; crédito sin badge) para que el ojo vaya a lo que hay que cobrar al entregar */}
+                      {esContado && <span style={{ flexShrink:0, fontSize:11, fontWeight:800, color:"#B26A00", background:"#FCEFD6", borderRadius:6, padding:"2px 8px", whiteSpace:"nowrap" }}>💵 CONTADO</span>}
                       {/* DISENO_LOGISTICA_FILA_DATOS · solo el valor + su icono (sin la palabra-etiqueta) para dar aire a la línea */}
                       <span style={{ ...colBox(105), color:COLOR.muted }}>
                         <Ico name="calendar" size={13} color={COLOR.muted} />
@@ -3173,7 +3179,8 @@ function TrazabilidadWeb({ usuario }) {
                         <Ico name="user" size={13} color={COLOR.muted} />
                         <span style={colTxt}><b style={{color:COLOR.text}}>{p.sc}</b></span></span>
                       <span style={{ flex:1 }} />
-                      <span className="num" style={{ flexShrink:0, fontSize:14, fontWeight:800, color:COLOR.text }}>{Math.round(qqIra)} qq{nExcl>0?<span style={{ color:"#b45309", fontWeight:700 }}> · {nExcl} fuera</span>:null}{llena?<span style={{ color:COLOR.orange, fontWeight:700 }}> · ⚠ llena un camión</span>:null}</span>
+                      {/* DISENO_LOGISTICA_ESCALAS_QQ · TOTAL DEL PEDIDO: tinta, peso 800 (los sufijos siguen en ámbar/naranja) */}
+                      <span className="num" style={{ flexShrink:0, fontSize:15, fontWeight:800, color:COLOR.text }}>{Math.round(qqIra)} qq{nExcl>0?<span style={{ color:"#b45309", fontWeight:700 }}> · {nExcl} fuera</span>:null}{llena?<span style={{ color:COLOR.orange, fontWeight:700 }}> · ⚠ llena un camión</span>:null}</span>
                       {/* DISENO_LOGISTICA_DESPACHO_PARCIAL · desplegar el pedido para elegir por producto qué va a despacho */}
                       <button onClick={e=>{ e.stopPropagation(); setLogAbierto(o=>({...o,[p.id]:!o[p.id]})); }}
                         title="Ver productos" style={{ flexShrink:0, background:"transparent", border:"none", cursor:"pointer", fontSize:22, fontWeight:800, color:COLOR.teal, padding:"0 4px", lineHeight:1, transform:abiertoP?"rotate(90deg)":"none", transition:"transform .15s" }}>›</button>
@@ -3189,14 +3196,17 @@ function TrazabilidadWeb({ usuario }) {
                           <label key={it.id!=null?it.id:("x"+idx)} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", cursor: it.id!=null?"pointer":"default", opacity: excl?0.55:1 }}>
                             <input type="checkbox" checked={!excl} disabled={it.id==null} onChange={()=>toggleItem(p, it)}
                               style={{ width:16, height:16, accentColor:COLOR.teal, flexShrink:0 }} />
-                            <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:600, color:COLOR.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textDecoration: excl?"line-through":"none" }}>{it.p}{it.cond?<span style={{ color:COLOR.muted, fontWeight:500 }}> · {it.cond}</span>:null}</span>
-                            <span className="num" style={{ flexShrink:0, fontSize:12.5, fontWeight:700, color:COLOR.muted }}>{it.q} qq</span>
+                            {/* DISENO_LOGISTICA_ESCALAS_QQ · se quitó el contado/crédito del detalle (it.cond ya no se muestra aquí; se usa para el badge de la fila del cliente) */}
+                            <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:600, color:COLOR.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textDecoration: excl?"line-through":"none" }}>{it.p}</span>
+                            {/* DISENO_LOGISTICA_ESCALAS_QQ · LÍNEA DE PRODUCTO: gris apagado, peso 600 (pesa menos que el total); excluido → rojo tachado */}
+                            <span className="num" style={{ flexShrink:0, fontSize:13, fontWeight:600, color: excl?"#c0392b":COLOR.muted, textDecoration: excl?"line-through":"none" }}>{it.q} qq</span>
                           </label>
                         );
                       })}
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:8, borderTop:`1px solid ${COLOR.border}` }}>
                         <span style={{ fontSize:11.5, color:COLOR.muted }}>{nExcl>0?`${nExcl} producto(s) NO irán a esta ruta`:"Todos los productos van a despacho"}</span>
-                        <span className="num" style={{ fontSize:13, fontWeight:800, color:COLOR.tealDark }}>Irá a despacho: {Math.round(qqIra)} qq</span>
+                        {/* DISENO_LOGISTICA_ESCALAS_QQ · IRÁ A DESPACHO: el resultado, en pastilla para que resalte */}
+                        <span className="num" style={{ fontSize:13, fontWeight:800, color:COLOR.tealDark, background:"#E4EFE7", borderRadius:8, padding:"3px 10px" }}>Irá a despacho: {Math.round(qqIra)} qq</span>
                       </div>
                     </div>
                   )}
@@ -3206,13 +3216,19 @@ function TrazabilidadWeb({ usuario }) {
             </div>
           );
         })}
+        {/* DISENO_LOGISTICA_ESCALAS_QQ · PÍLDORA FLOTANTE con la suma: aparece al marcar el primer pedido
+            y se mantiene visible al hacer scroll y seguir marcando. Reemplaza la barra inline (nunca las dos).
+            Usa idsSel/qqSel tal cual (qqSel ya descuenta los productos excluidos). En móvil respeta la barra del sistema. */}
         {idsSel.length>0 &&
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginTop:14,
-            background:COLOR.tealLight, border:`1px solid ${COLOR.border}`, borderRadius:11, padding:"11px 14px", flexWrap:"wrap" }}>
-            <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.tealDark, margin:0 }}>
-              🚚 {idsSel.length} entrega(s) · <span className="num">{Math.round(qqSel)} qq</span>
+          <div style={{ position:"fixed", left:"50%", transform:"translateX(-50%)",
+            bottom:"calc(16px + env(safe-area-inset-bottom, 0px))", zIndex:60,
+            display:"flex", alignItems:"center", gap:14, maxWidth:"calc(100vw - 24px)",
+            background:COLOR.tealLight, border:`1.5px solid ${COLOR.tealDark}`, borderRadius:999,
+            padding:"10px 12px 10px 18px", boxShadow:"0 8px 26px rgba(18,61,41,.30)" }}>
+            <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.tealDark, margin:0, whiteSpace:"nowrap" }}>
+              🚚 {idsSel.length} entregas · <span className="num">{Math.round(qqSel)} qq</span>
             </p>
-            <button disabled={rpcOn} onClick={guardarRuta} style={{ ...btn(COLOR.tealDark), padding:"11px 20px", fontSize:14, opacity:rpcOn?.6:1 }}>Guardar ruta ✓</button>
+            <button disabled={rpcOn} onClick={guardarRuta} style={{ ...btn(COLOR.tealDark), padding:"11px 20px", fontSize:14, opacity:rpcOn?.6:1, whiteSpace:"nowrap" }}>Guardar ruta ✓</button>
           </div>}
       </div>
     );
