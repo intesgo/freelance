@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"197"/.test(web),"Sistema Web debe anunciar b197");
-prueba(/const CACHE = "freelance-v301"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"198"/.test(web),"Sistema Web debe anunciar b198");
+prueba(/const CACHE = "freelance-v302"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -206,10 +206,16 @@ prueba(/fontSize:17\.5, fontWeight:800, color:"#123d29", margin:0 \}\}>\{Math\.r
 prueba(/fontSize:15, fontWeight:800, color:COLOR\.text \}\}>\{Math\.round\(qqIra\)\} qq/.test(web),"logística · TOTAL DEL PEDIDO en tinta, peso 800, ~15");
 prueba(/fontSize:13, fontWeight:600, color: excl\?"#c0392b":COLOR\.muted, textDecoration: excl\?"line-through":"none" \}\}>\{it\.q\} qq/.test(web),"logística · LÍNEA DE PRODUCTO gris peso 600; excluido en rojo #c0392b tachado");
 prueba(/background:"#E4EFE7", borderRadius:8, padding:"3px 10px" \}\}>Irá a despacho:/.test(web),"logística · «Irá a despacho» con pastilla #E4EFE7 (el resultado resalta)");
-/* 2) píldora flotante (reemplaza la barra inline; nunca las dos) */
-prueba(/position:"fixed"[\s\S]{0,180}bottom:"calc\(16px \+ env\(safe-area-inset-bottom, 0px\)\)"/.test(web),"logística · la suma es una píldora flotante fija (respeta la barra del sistema en móvil)");
-prueba(/🚚 \{idsSel\.length\} entregas · <span className="num">\{Math\.round\(qqSel\)\} qq<\/span>/.test(web),"logística · la píldora muestra entregas + qqSel (sin recalcular)");
-prueba(!/marginTop:14,\s*\n\s*background:COLOR\.tealLight, border:`1px solid \$\{COLOR\.border\}`, borderRadius:11, padding:"11px 14px", flexWrap:"wrap"/.test(web),"logística · ya no queda la barra inline (solo la flotante)");
+/* 2) píldora flotante (reemplaza la barra inline; nunca las dos) · ARRASTRABLE y con la suma que resta excluidos */
+prueba(/position:"fixed", zIndex:60, touchAction:"none", cursor:"grab"/.test(web)&&/bottom:"calc\(16px \+ env\(safe-area-inset-bottom, 0px\)\)"/.test(web),"logística · la píldora es flotante fija (respeta la barra del sistema en móvil)");
+prueba(/onPointerDown=\{pillPointerDown\} onPointerMove=\{pillPointerMove\} onPointerUp=\{pillPointerUp\}/.test(web),"logística · la píldora se arrastra con Pointer Events (dedo y mouse)");
+prueba(/window\.innerWidth  - d\.w - M/.test(web)&&/window\.innerHeight - d\.h - M/.test(web),"logística · el arrastre tiene tope al borde de la pantalla (clamp)");
+prueba(/e\.target\.closest\("\[data-nodrag\]"\)/.test(web)&&/<button data-nodrag/.test(web),"logística · arrastrar desde «Guardar» NO mueve la píldora (data-nodrag)");
+prueba(/const qqSel = idsSel\.reduce\(\(a,id\)=>\{ const p=pedidos\.find\(x=>x\.id===id\); return a\+\(p\?qqPlan\(p\):0\); \},0\)/.test(web),"logística · qqSel usa qqPlan (resta los productos excluidos), no logQQ");
+prueba(/const qqC = lista\.reduce\(\(a,p\)=>a\+qqPlan\(p\),0\)/.test(web),"logística · el total de ciudad qqC también usa qqPlan (resta excluidos)");
+prueba(/🚚 \{idsSel\.length\} E · <span className="num">\{Math\.round\(qqSel\)\} qq<\/span>/.test(web),"logística · la píldora muestra «N E · qqSel qq» (texto corto)");
+prueba(/>Guardar ✓<\/button>/.test(web),"logística · el botón dice «Guardar ✓»");
+prueba(!/🚚 \{idsSel\.length\} entregas/.test(web)&&!/>Guardar ruta ✓<\/button>/.test(web),"logística · ya no quedan los textos largos («entregas» / «Guardar ruta ✓»)");
 /* 3) condición de pago: fuera del detalle, badge en la fila del cliente */
 prueba(!/\{it\.cond\?<span style=\{\{ color:COLOR\.muted, fontWeight:500 \}\}> · \{it\.cond\}<\/span>:null\}/.test(web),"logística · el detalle YA NO muestra contado/crédito por producto");
 prueba(/const esContado = \(p\.items\|\|\[\]\)\.length>0 && p\.items\.every\(it => \/contado\/i\.test\(it\.cond\|\|""\)\)/.test(web),"logística · esContado se deriva de las líneas (mixto NO es contado)");

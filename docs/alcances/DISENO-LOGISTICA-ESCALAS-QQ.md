@@ -52,8 +52,23 @@ No se cambian anchos de columnas ni la lógica; solo color/peso de esos números
    marcar; 4 niveles de qq bien diferenciados; producto excluido en rojo tachado; el detalle
    ya NO muestra contado/crédito; la fila del cliente muestra «💵 CONTADO» solo en contado.
 
+## Refuerzo b198 (segunda vuelta)
+
+1. **FIX de la suma:** `qqSel` (la suma de la píldora) y `qqC` (total por ciudad) usaban
+   `logQQ(p)`, que **no** resta los productos excluidos con los casilleros. Se cambiaron a
+   `qqPlan(p)`. Como `qqPlan` se declara después, **`qqSel` se movió debajo de `qqPlan`**
+   (si no, `ReferenceError`).
+2. **Píldora arrastrable:** con **Pointer Events** (dedo y mouse), con **tope al borde**
+   (`clamp` a `window.innerWidth/innerHeight`). El botón «Guardar» lleva `data-nodrag` para
+   que **arrastrar desde él no mueva** la píldora ni dispare el guardado. `touchAction:"none"`
+   para que el arrastre no haga scroll de la página.
+3. **Textos cortos:** «entregas» → «E»; «Guardar ruta ✓» → «Guardar ✓».
+
 ## Trampas conocidas
 
-- `qqSel` ya descuenta los productos excluidos — no sumar por fuera.
+- Desde b198, `qqSel`/`qqC` usan `qqPlan` (restan los excluidos). No volver a `logQQ`, y
+  mantener `qqSel` **debajo** de `qqPlan` para no romper el orden de declaración.
 - El badge de contado se calcula de las líneas del pedido, **no** de un campo de pago (no existe).
 - Un pedido **mixto** (parte contado, parte crédito) **NO** se marca como contado.
+- El arrastre usa `setPointerCapture`; el botón se salva del arrastre con `data-nodrag`
+  (`e.target.closest("[data-nodrag]")`).
