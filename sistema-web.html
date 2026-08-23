@@ -63,6 +63,8 @@
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:#cdd5de;border-radius:6px}
   button:active:not([disabled]){transform:translateY(1px)}
+  /* PED_NUMERO_Y_MODAL · realce suave de la fila de pedido (clic abre el modal de solo lectura) */
+  .ped-cabecera:hover,.ped-cabecera:focus-visible{background:#F7FAFC}
   /* ── Animaciones de entrada (comité UI: una por elemento, jamás en bucle) ── */
   @keyframes apSubir{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes apDona{from{opacity:0;transform:rotate(-120deg) scale(.85)}to{opacity:1;transform:rotate(0) scale(1)}}
@@ -454,7 +456,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"187", fecha:"22 ago 2026", desc:"En la lista de Pedidos, la columna Cliente ahora muestra todos los nombres en MAYÚSCULAS de forma uniforme, sin importar cómo se guardaron en la base. Es solo apariencia: no cambia el nombre guardado." };
+const VERSION = { n:"188", fecha:"23 ago 2026", desc:"En la lista de Pedidos, la columna ahora muestra el «Pedido N.º» y, al tocar una fila, se abre una ficha de solo lectura con el detalle completo del pedido (productos, cantidades, precios, flete y estibada). El lápiz sigue yendo directo a editar. Es solo presentación: no cambia lo que se guarda." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5290,6 +5292,128 @@ function LoginWeb({ onAcceder }) {
 }
 
 // ── Pedidos (web): lista + vista de armado a pantalla completa (formulario + resumen) ──
+/* PED_NUMERO_Y_MODAL · Modal de SOLO LECTURA de un pedido de la lista: número, datos generales,
+   detalle de productos y resumen económico. No consulta nada nuevo: usa los datos ya en memoria
+   (p.lineas y los totales que trae la fila). Cierra con X / Cerrar / Escape; foco atrapado dentro
+   del diálogo y devuelto a la fila al cerrar; role="dialog" aria-modal. Solo muestra lo que existe. */
+function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente, abreviarPres }){
+  const cajaRef = React.useRef(null);
+  const antesRef = React.useRef(null);
+  React.useEffect(()=>{
+    antesRef.current = document.activeElement;
+    const c = cajaRef.current;
+    if(c){ const f=c.querySelector('button, input, [tabindex]:not([tabindex="-1"])'); (f||c).focus(); }
+    const onKey = (e)=>{
+      if(e.key==="Escape"){ e.preventDefault(); onCerrar(); return; }
+      if(e.key==="Tab" && cajaRef.current){
+        const fs=[...cajaRef.current.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x=>!x.disabled && x.offsetParent!==null);
+        if(!fs.length) return;
+        const primero=fs[0], ultimo=fs[fs.length-1];
+        if(e.shiftKey && document.activeElement===primero){ e.preventDefault(); ultimo.focus(); }
+        else if(!e.shiftKey && document.activeElement===ultimo){ e.preventDefault(); primero.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return ()=>{ document.removeEventListener("keydown", onKey);
+      try{ if(antesRef.current && antesRef.current.focus) antesRef.current.focus(); }catch(_){} };
+  },[]);
+
+  const num = p.numero || p.pedId || "—";
+  const ce = colorEstado(p.estado);
+  const lineas = p.lineas || [];
+  const r2 = n => Math.round((Number(n)||0)*100)/100;
+  const totalQq = p.totalQq != null ? p.totalQq : (Number(p.cant)||0);
+  const subtotal = p.importe != null ? p.importe : (Number(p.cant)||0)*(Number(p.precio)||0);
+  const flete = (!p.retiroBodega && (Number(p.fleteCobro)||0)>0) ? r2(totalQq*(Number(p.fleteCobro)||0)) : 0;
+  const estibada = (!p.retiroBodega && (Number(p.estibadaCobro)||0)>0) ? r2(totalQq*(Number(p.estibadaCobro)||0)) : 0;
+  const totalFinal = r2(subtotal + flete + estibada);
+
+  const fila = { display:"flex", justifyContent:"space-between", padding:"5px 0", fontSize:13 };
+  const dato = (etq, val) => (
+    <div style={{ minWidth:150, flex:"1 1 180px" }}>
+      <p style={{ margin:0, fontSize:11, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>{etq}</p>
+      <p style={{ margin:"3px 0 0", fontSize:13.5, color:COLOR.text }}>{val}</p>
+    </div>
+  );
+
+  return (
+    <div onClick={onCerrar} style={{ position:"fixed", inset:0, background:"rgba(20,25,20,.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:16, zIndex:130 }}>
+      <div ref={cajaRef} onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label={"Pedido N.º "+num} tabIndex={-1}
+        style={{ width:"100%", maxWidth:640, maxHeight:"90vh", background:"#fff", borderRadius:18, display:"flex", flexDirection:"column", overflow:"hidden", boxShadow:"0 20px 60px rgba(0,0,0,.3)", outline:"none" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 20px 14px", borderBottom:`1px solid ${COLOR.border}` }}>
+          <div style={{ minWidth:0, flex:1 }}>
+            <p className="num" style={{ margin:0, fontSize:17, fontWeight:800, color:COLOR.tealDark }}>Pedido N.º {num}</p>
+            <span style={{ display:"inline-block", marginTop:5, fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 10px", borderRadius:999 }}>{p.estado}{p.demo?" · DEMO":""}</span>
+          </div>
+          <button onClick={onCerrar} aria-label="Cerrar" style={{ border:"none", background:"#f3f1ea", borderRadius:10, width:38, height:38, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}><Ico name="x" size={18} color={COLOR.text}/></button>
+        </div>
+
+        <div style={{ padding:"14px 20px 18px", overflowY:"auto" }}>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:14, marginBottom:16 }}>
+            {dato("Fecha del pedido", p.fecha ? p.fecha.split("-").reverse().join("/") : "—")}
+            {dato("Cliente", nombreCliente(p))}
+            {dato("Condición", p.cond || "—")}
+            {p.fechaEntrega && dato("Entrega deseada", String(p.fechaEntrega).slice(0,10).split("-").reverse().join("/"))}
+          </div>
+          {p.notaChofer && (
+            <div style={{ marginBottom:16, background:"#F7F9FB", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"11px 13px" }}>
+              <p style={{ margin:0, fontSize:11, fontWeight:700, color:COLOR.muted, textTransform:"uppercase" }}>Nota para el chofer</p>
+              <p style={{ margin:"4px 0 0", fontSize:13, color:COLOR.text }}>{p.notaChofer}</p>
+            </div>
+          )}
+
+          <p style={{ fontSize:13, fontWeight:800, color:COLOR.tealDark, textTransform:"uppercase", letterSpacing:.4, margin:"0 0 8px" }}>Detalle de productos</p>
+          <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflowX:"auto", marginBottom:16 }}>
+            {lineas.length===0
+              ? <p style={{ margin:0, padding:"16px", fontSize:13, color:COLOR.muted }}>Sin productos para mostrar.</p>
+              : (
+              <table style={{ width:"100%", minWidth:420, borderCollapse:"collapse", fontSize:12.5 }}>
+                <thead>
+                  <tr style={{ background:"#F7F9FB", color:COLOR.muted }}>
+                    <th style={{ padding:"9px 12px", fontWeight:700, textAlign:"left" }}>Producto</th>
+                    <th style={{ padding:"9px 12px", fontWeight:700, textAlign:"right", whiteSpace:"nowrap" }}>Cant. (qq)</th>
+                    <th style={{ padding:"9px 12px", fontWeight:700, textAlign:"right", whiteSpace:"nowrap" }}>Precio/qq</th>
+                    <th style={{ padding:"9px 12px", fontWeight:700, textAlign:"right", whiteSpace:"nowrap" }}>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineas.map((l,k)=>{ const qq=r2(l.qq); const sub=r2((Number(l.qq)||0)*(Number(l.precio)||0));
+                    return (
+                    <tr key={k} style={{ borderTop:`1px solid ${COLOR.border}` }}>
+                      <td style={{ padding:"9px 12px", color:COLOR.text }}>{abreviarPres(l.prod)}{l.cond && <span style={{ fontSize:11, color:COLOR.muted, marginLeft:6 }}>· {l.cond}</span>}</td>
+                      <td className="num" style={{ padding:"9px 12px", textAlign:"right", whiteSpace:"nowrap" }}>{qq}</td>
+                      <td className="num" style={{ padding:"9px 12px", textAlign:"right", whiteSpace:"nowrap" }}>{money(l.precio)}</td>
+                      <td className="num" style={{ padding:"9px 12px", textAlign:"right", fontWeight:700, whiteSpace:"nowrap" }}>{money(sub)}</td>
+                    </tr>
+                  );})}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div style={{ background:"#faf8f2", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"12px 16px" }}>
+            <div style={fila}><span style={{ color:COLOR.muted }}>Total en quintales</span><b className="num">{totalQq} qq</b></div>
+            <div style={fila}><span style={{ color:COLOR.muted }}>Subtotal</span><b className="num">{money(subtotal)}</b></div>
+            {flete>0 && <div style={fila}><span style={{ color:COLOR.muted }}>Flete ({totalQq} qq × {money(p.fleteCobro)})</span><b className="num">{money(flete)}</b></div>}
+            {estibada>0 && <div style={fila}><span style={{ color:COLOR.muted }}>Estibada ({totalQq} qq × {money(p.estibadaCobro)})</span><b className="num">{money(estibada)}</b></div>}
+            <div style={{ ...fila, borderTop:`1px solid ${COLOR.border}`, marginTop:6, paddingTop:9 }}>
+              <span style={{ fontSize:15, fontWeight:800, color:COLOR.tealDark }}>Total del pedido</span>
+              <b className="num" style={{ fontSize:18, fontWeight:800, color:COLOR.tealDark }}>{money(totalFinal)}</b>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding:"14px 20px", borderTop:`1px solid ${COLOR.border}`, display:"flex", gap:10 }}>
+          <button onClick={onCerrar} style={{ flex:1, border:`1.5px solid ${COLOR.border}`, background:"#fff", borderRadius:12, padding:"13px", fontSize:15, fontWeight:600, color:COLOR.text, cursor:"pointer" }}>Cerrar</button>
+          {p.editable && p.pedId && !p.demo && (
+            <button onClick={()=>onEditar(p)} style={{ flex:1, border:"none", background:COLOR.cta||"#17492e", color:"#fff", borderRadius:12, padding:"13px", fontSize:15, fontWeight:700, cursor:"pointer" }}>Editar pedido</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const [pedidos, setPedidos] = useState(()=>MODO_DEMO_WEB?PEDIDOS_WEB_INI:[]);
@@ -5318,7 +5442,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   const [editandoPed, setEditandoPed] = useState(null);   // ped_id que se edita en la pantalla de armado (#4)
   const [itemsOriginales, setItemsOriginales] = useState([]);  // ítems como estaban al abrir (para borrar los quitados)
   const [lineaEdit, setLineaEdit] = useState(null);       // id de la línea del carrito que se está editando
-  const [pedAbierto, setPedAbierto] = useState(null);     // PED_P0_2_AGRUPAR_WEB · ped_id cuyo detalle (acordeón) está desplegado
+  const [pedModal, setPedModal] = useState(null);         // PED_NUMERO_Y_MODAL · pedido abierto en el modal de solo lectura (o null)
   const cargarPedidosVivos = React.useCallback(async () => {
     if (!window.supa || !window.supa.auth) return;
     {
@@ -5327,7 +5451,10 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         if (!s || !s.session) return;
         const [{ data: p }, { data: it }] = await Promise.all([
           window.supa.from("pedidos")
-            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,clientes(nombre,razon_social,tipo),proveedores(nombre)")
+            /* PED_NUMERO_Y_MODAL · se traen el número de pedido (numero_pedido, ya poblado por
+               Cowork para pedidos reales; null en demo) y los datos de entrega/cobro para el modal
+               de solo lectura. No se toca la base ni las RPC: solo se leen columnas ya existentes. */
+            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq,clientes(nombre,razon_social,tipo),proveedores(nombre)")
             .order("creado", { ascending: false }).limit(200),
           window.supa.from("pedido_items")
             .select("item_id,ped_id,prod_id,pres_cod,promo_id,condicion,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq,comision_usd").limit(1000),
@@ -5365,6 +5492,11 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
           const prodGuia = nLineas ? ((its[0].descripcion || its[0].prod_id) + (nLineas>1 ? " y "+(nLineas-1)+" más" : "")) : "Sin detalle";
           filas.push({
             id: pd.ped_id, pedId: pd.ped_id,
+            /* PED_NUMERO_Y_MODAL · número de pedido para la columna y el modal (null en demo) + datos del modal */
+            numero: pd.numero_pedido || null,
+            fechaEntrega: pd.fecha_entrega || null, notaChofer: pd.nota_chofer || null,
+            retiroBodega: !!pd.retiro_bodega, asumeFlete: pd.asume_flete || null, asumeEstibada: pd.asume_estibada || null,
+            fleteCobro: Number(pd.flete_cobro_qq)||0, estibadaCobro: Number(pd.estibada_cobro_qq)||0,
             cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
             prov: provNom, cond: condTxt, estado: estadoTxt, fecha: String(pd.creado||"").slice(0,10),
             demo: !!pd.es_demo, editable: editable(pd),
@@ -5784,6 +5916,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
   /* Ordenamiento de la tabla (#2) · por defecto fecha, más reciente primero */
   const valorOrden = (p) => ({
     fecha: p.fecha || "", cliente: nombreClientePedido(p).toLowerCase(), producto: (p.prodGuia||p.prod||"").toLowerCase(),
+    numero: (p.numero || p.pedId || "").toLowerCase(),   /* PED_NUMERO_Y_MODAL · ordenar por número de pedido */
     cant: Number(p.totalQq!=null?p.totalQq:p.cant)||0, total: Number(p.importe!=null?p.importe:(Number(p.cant)||0)*(Number(p.precio)||0))||0,
     cond: (p.cond||"").toLowerCase(), estado: (p.estado||"").toLowerCase(),
   }[ordCampo]);
@@ -6167,28 +6300,26 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
            (nombre a la izquierda; cantidad qq y precio a la derecha). */}
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
           {(() => {
-            const GC = ".62fr 2fr 1.25fr .55fr .8fr .5fr .9fr 54px";   // Cliente ancho, Editar angosto · Producto = guía
+            const GC = ".62fr 2fr 1.1fr .55fr .8fr .5fr .9fr 54px";   // PED_NUMERO_Y_MODAL · Cliente ancho, Editar angosto · «Pedido N.º» más corto que la guía
             const th = (campo, txt, extra) => (
               <span onClick={()=>clicOrden(campo)} style={{ cursor:"pointer", userSelect:"none", whiteSpace:"nowrap", ...(extra||{}) }}>{txt}{flechaOrden(campo)}</span>
             );
             return (<>
           <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("producto","Productos")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
+            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("numero","Pedido N.º")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
           </div>
           {usarPaginacion(pedidosOrdenados, pagP).filas.map((p, i) => { const ce = colorEstado(p.estado);
-            const abierto = pedAbierto === p.pedId;
-            const nLin = p.nLineas != null ? p.nLineas : (p.lineas ? p.lineas.length : 1);
             return (
               <div key={p.id} style={{ borderTop: i>0 ? `1px solid ${COLOR.border}` : "none" }}>
-                {/* CABECERA del pedido (clic = desplegar/plegar) */}
-                <div className="ped-cabecera" onClick={()=>setPedAbierto(a => a===p.pedId ? null : p.pedId)}
-                  style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"13px 18px", alignItems:"center", fontSize:13, cursor:"pointer", background: abierto ? "#F7FAFC" : "transparent" }}>
+                {/* PED_NUMERO_Y_MODAL · CABECERA del pedido: clic en zona libre = abre el modal de solo lectura
+                    (el detalle ya no vive en un acordeón inline). El lápiz sigue yendo directo a editar. */}
+                <div className="ped-cabecera" role="button" tabIndex={0}
+                  onClick={(e)=>{ e.currentTarget.focus(); setPedModal(p); }}
+                  onKeyDown={(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); setPedModal(p); } }}
+                  style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"13px 18px", alignItems:"center", fontSize:13, cursor:"pointer", outline:"none" }}>
                   <span className="num" style={{ color:COLOR.muted, fontSize:12, whiteSpace:"nowrap" }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
                   <span style={{ fontWeight:700, color:COLOR.text, textTransform:"uppercase", minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></span>{/* DISENO_CLIENTE_MAYUSCULAS · uniforma la columna Cliente a mayúsculas (solo CSS, no toca el dato) */}
-                  <span style={{ color:COLOR.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                    <span style={{ color:COLOR.tealDark, fontWeight:700, marginRight:6 }}>{abierto ? "▾" : "▸"}</span>
-                    {abreviarPres(p.prodGuia || p.prod)}{nLin>1 && <span style={{ fontSize:11, color:COLOR.muted }}> · {nLin} líneas</span>}
-                  </span>
+                  <span className="num" style={{ fontWeight:700, color:COLOR.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.numero || p.pedId || "—"}</span>
                   <span className="num" style={{ whiteSpace:"nowrap" }}>{p.totalQq != null ? p.totalQq : p.cant} qq</span>
                   <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(p.importe != null ? p.importe : p.cant*p.precio)}</span>
                   <span style={{ color:COLOR.muted }}>{p.cond}</span>
@@ -6200,21 +6331,6 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
                     )}
                   </span>
                 </div>
-                {/* DETALLE desplegable · las líneas del pedido en quintales */}
-                {abierto && (
-                  <div className="ped-detalle" style={{ padding:"4px 18px 14px 18px", background:"#F7FAFC", borderTop:`1px dashed ${COLOR.border}` }}>
-                    {(p.lineas || []).map((l, k) => (
-                      <div key={k} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"8px 4px", borderBottom: k < (p.lineas.length-1) ? `1px solid ${COLOR.border}` : "none" }}>
-                        <span style={{ color:COLOR.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{abreviarPres(l.prod)}{l.cond && <span style={{ fontSize:11, color:COLOR.muted, marginLeft:6 }}>· {l.cond}</span>}</span>
-                        <span className="num" style={{ whiteSpace:"nowrap", color:COLOR.muted }}>
-                          <span style={{ marginRight:14 }}>{Math.round((Number(l.qq)||0)*100)/100} qq</span>
-                          <span style={{ fontWeight:700, color:COLOR.text }}>{money(l.precio)}/qq</span>
-                        </span>
-                      </div>
-                    ))}
-                    {(!p.lineas || !p.lineas.length) && <p style={{ margin:"6px 0", fontSize:12.5, color:COLOR.muted }}>Sin líneas para mostrar.</p>}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -6223,6 +6339,13 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre }) {
         </div>
         <VerMas pg={usarPaginacion(pedidos, pagP)} onMas={setPagP} />
         </div>
+        )}
+
+        {/* PED_NUMERO_Y_MODAL · modal de solo lectura del pedido (se abre al tocar la fila) */}
+        {pedModal && (
+          <ModalPedido p={pedModal} onCerrar={()=>setPedModal(null)}
+            money={money} colorEstado={colorEstado} nombreCliente={nombreClientePedido} abreviarPres={abreviarPres}
+            onEditar={pd => { setPedModal(null); abrirEdicionArmar(pd.pedId); }} />
         )}
 
         {/* PED_WEB_EDITOR_UNICO · aquí estaba el MODAL del editor viejo (editPed && …).

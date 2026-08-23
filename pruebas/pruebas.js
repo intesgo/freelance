@@ -87,6 +87,7 @@ const PLAN = [
      Esta vigila que cada fila salga a nombre de SU cliente, con el maestro de
      clientes llegando a propósito DESPUÉS de los pedidos. */
   { arnes:"test_pedidos_cliente.js", que:"cada pedido, a nombre de su cliente", apps:[null] },
+  { arnes:"test_pedido_numero_modal.js", que:"PED_NUMERO_Y_MODAL: la lista muestra «Pedido N.º» y la fila abre un modal de solo lectura (Escape/Cerrar/X); el lápiz no abre el modal", apps:[null] },
   /* La pantalla de Precios escribía en `precios`, congelada desde el 24 jul: decía
      «guardado» y el vendedor seguía cotizando lo de antes. Esta prueba vigila que
      no quede NINGÚN camino que escriba ahí, y que la subida de costo en bloque
