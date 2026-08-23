@@ -11,7 +11,7 @@
    mitad del campo es un problema real.
    ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE = "freelance-v295";
+const CACHE = "freelance-v296";
 const PIEZAS = [
   "./", "./index.html",
   "./Comisionista.html", "./socio-comercial.html", "./transportista-app.html",
@@ -141,6 +141,17 @@ self.addEventListener("fetch", (e) => {
         return new Response("", { status: 504, statusText: "sin conexion" });
       }
     })());
+    return;
+  }
+
+  /* ── version.json · el aviso "hay nueva versión" ── SIEMPRE de la red, NUNCA de la caché.
+     El Sistema Web (intesgo.app/home) compara version.json contra la versión que tiene
+     cargada para mostrar la barra "Actualizar". Si el service worker sirviera una copia
+     GUARDADA, mostraría un número VIEJO y la barra no saldría nunca. Mismo criterio que las
+     llamadas a la base: sin red, el chequeo falla en silencio (no molesta) y ya. */
+  if (url.pathname.endsWith("/version.json")) {
+    e.respondWith(fetch(e.request).catch(() =>
+      new Response("{}", { status: 504, headers: { "Content-Type": "application/json" } })));
     return;
   }
 
