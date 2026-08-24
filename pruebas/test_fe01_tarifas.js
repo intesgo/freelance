@@ -10,8 +10,8 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"203"/.test(web),"Sistema Web debe anunciar b203");
-ok(/const CACHE = "freelance-v307"/.test(sw),"la caché debe renovarse a v307");
+ok(/const VERSION = \{ n:"204"/.test(web),"Sistema Web debe anunciar b204");
+ok(/const CACHE = "freelance-v308"/.test(sw),"la caché debe renovarse a v308");
 
 /* ── el módulo existe y está enrutado ── */
 ok(/function TarifasFEWeb\(\{ usuario \}\)\{/.test(web),"existe el módulo TarifasFEWeb");
@@ -19,10 +19,10 @@ ok(/case "tarifasfe":/.test(web) && /return <TarifasFEWeb usuario=\{sesion\} \/>
   "el menú «Tarifas de logística» (tarifasfe) enruta a TarifasFEWeb");
 ok(/key:"tarifasfe",\s*ic:"[a-zA-Z]+",\s*icon:"[^"]*",\s*label:"Tarifas de logística"/.test(web),"la sección tarifasfe está en SECCIONES");  /* DISENO_BASE_ERP · ic:"<vectorial>" antes del emoji */
 
-/* ── las tres anclas del alcance ── */
-ok(/FE01_TARIFAS_ZONA/.test(web),"ancla FE01_TARIFAS_ZONA (cobro por zona)");
+/* ── anclas del alcance (FE01_QUITA_COBRO · ya no existe la pestaña Zonas/cobro) ── */
 ok(/FE01_CHOFERES/.test(web),"ancla FE01_CHOFERES");
 ok(/FE01_ESTIBADORES/.test(web),"ancla FE01_ESTIBADORES");
+ok(!/tab==="zonas"/.test(web),"FE01_QUITA_COBRO · ya no hay pestaña «Zonas (cobro)» en el módulo de tarifas");
 
 /* ── escribe donde debe ── */
 ok(/from\("tarifas_fe"\)/.test(web),"guarda tarifas en tarifas_fe");
@@ -37,7 +37,7 @@ ok(/capacidad_qq/.test(web) && /patch\.placa/.test(web),"el chofer guarda placa 
 ok(/vigente_desde\)\.slice\(0,10\)===hoy/.test(web),"si la vigente es de HOY, actualiza en sitio");
 ok(/update\(\{vigente_hasta:hoy\}\)/.test(web),"si es de otro día, cierra la vigente (vigente_hasta = hoy)");
 ok(/tarifa_id:nuevoIdTF\(\)/.test(web),"inserta una fila nueva con id generado (tarifa_id sin default)");
-ok(/ambito:"zona"/.test(web) && /ambito:"persona"/.test(web),"usa los ámbitos zona y persona");
+ok(/"ambito","persona"/.test(web),"la tarifa de chofer/estibador usa el ámbito persona");
 
 /* ── ocultar/reactivar sin borrar ── */
 ok(/from\("usuarios"\)\.update\(\{activo:!ocultar\}\)/.test(web),"ocultar/reactivar chofer usa usuarios.activo");

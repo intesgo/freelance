@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"192", fecha:"23 ago 2026", desc:"El nombre del cliente ahora sale parejo y en MAYÚSCULAS en TODAS las pantallas (detalle del pedido, devolución, anulación, agenda, novedades, directorio y ficha), no solo en la lista: persona natural → nombre + apellido (ej. «PEDRO CASTILLO»); empresa → su razón social. Una sola regla (se unificó el nombre corto del buscador). Es solo presentación; tu comisión se ve igual." };
+const VERSION = { n:"193", fecha:"24 ago 2026", desc:"Se quitó el cobro de flete/estibada al cliente: ya va incluido en los precios base. El total del pedido es solo la base de productos." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4818,7 +4818,7 @@ async function revisarRegaloDePromo(items, provId){
   return null;
 }
 
-async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, fleteCobroQq, estibadaCobroQq}){
+async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}){ /* FE01_QUITA_COBRO */
   try{
     if(!window.SB || !window.SB.auth) return { ok:false, motivo:"sin_conexion" };
     const { data:s } = await window.SB.auth.getSession();
@@ -4837,8 +4837,8 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
       origen_canal:"comisionista",          /* PED_ORIGEN_CANAL */
       ubicacion_id:retiro?null:((ubic&&ubic.ubic_id)||null),retiro_bodega:!!retiro,
       asume_flete:retiro?null:(asumeFlete||"freelance"),asume_estibada:retiro?null:(asumeEstibada||"freelance"),
-      /* FE02_COBRO_PEDIDO: cobro al cliente en $/qq (0 en retiro) */
-      flete_cobro_qq: retiro?0:(Number(fleteCobroQq)||0), estibada_cobro_qq: retiro?0:(Number(estibadaCobroQq)||0),
+      /* FE01_QUITA_COBRO: ya no se cobra flete/estibada al cliente (va incluido en el precio base); columnas se conservan en 0 */
+      flete_cobro_qq: 0, estibada_cobro_qq: 0,
       fecha_entrega: fechaEntrega||null, nota_chofer: (notaChofer&&notaChofer.trim())||null,
       items:items.map(it=>({prod_id:it.prod.prodId,pres_cod:it.prod.presCod,
         cantidad_presentacion:Number(it.cant),gratis_presentacion:Number(it.gratis)||0,
@@ -4862,14 +4862,9 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
    En la demostración no hay oferta ni equivalencia: solo ahí se cae a qqDeTam,
    el conversor que el resto de la app ya usa.
    ═══════════════════════════════════════════════════════════════════════════ */
-function totalQuintalesDeCarrito(carrito){
-  const qq = (carrito||[]).reduce((s,it)=>{
-    if(!it) return s;
-    const eq = it.prod ? Number(it.prod.equiv) : 0;
-    return s + ((eq>0 ? eq : qqDeTam(it.unidad)) * (Number(it.cant)||0));
-  },0);
-  return Math.round(qq*100)/100;
-}
+/* FE01_QUITA_COBRO · totalQuintalesDeCarrito se eliminó: su único uso era el cobro de flete/estibada
+   (qq × $/qq), que se quitó. El total en quintales por línea (cantidad_qq) sigue saliendo de la
+   equivalencia de la oferta en el guardado; ya no se arma un total del carrito en pantalla. */
 
 /* ═══ UNA LÍNEA DEL PEDIDO ════════════════════════════════════════════════
    SPRINT-06 · Un producto dentro del pedido que se está armando: qué es,
@@ -4930,7 +4925,7 @@ function LineaDelPedido({ item, money, onEditar, onQuitar }) {
    general dice cuántos son, y el de cada línea cuál es. Los dos hacen falta.
    ═══════════════════════════════════════════════════════════════════════════ */
 function PedidoEnCurso({ carrito, cliente, proveedor, totalComision, money,
-                         baseTotal, fleteCobroTotal, estibadaCobroTotal, totalConCobro, totalQq, fleteQq, estibadaQq,
+                         baseTotal, /* FE01_QUITA_COBRO: total del pedido = solo base de productos */
                          puedeGuardar, onEditarLinea, onQuitarLinea,
                          onGuardar, onAgregarOtro, onCerrar }) {
   const porAjustar = carrito.filter(x=>x.ajustar).length;
@@ -4947,13 +4942,10 @@ function PedidoEnCurso({ carrito, cliente, proveedor, totalComision, money,
               onEditar={()=>onEditarLinea(it)} onQuitar={()=>onQuitarLinea(it)} />
           ))}
 
-        {/* FE02_COBRO_PEDIDO: desglose Base + Flete + Estibada = Total */}
+        {/* FE01_QUITA_COBRO: el total del pedido es solo la base de productos (el flete/estibada ya va incluido en el precio base) */}
         {carrito.length>0 && (
           <div style={{margin:"8px 0",padding:"10px 12px",border:"1.5px solid #d8ddd7",borderRadius:12,background:"#F7FAF8"}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Base del pedido</span><b className="num" style={{color:"#1E4D3A"}}>{money(baseTotal||0)}</b></div>
-            {fleteCobroTotal>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Flete ({totalQq} qq × {money(fleteQq||0)})</span><b className="num" style={{color:"#1E4D3A"}}>{money(fleteCobroTotal)}</b></div>}
-            {estibadaCobroTotal>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,color:"#6b7a70",marginBottom:3}}><span>Estibada ({totalQq} qq × {money(estibadaQq||0)})</span><b className="num" style={{color:"#1E4D3A"}}>{money(estibadaCobroTotal)}</b></div>}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5,paddingTop:5,borderTop:"1px solid #d8ddd7"}}><span style={{fontSize:14,fontWeight:800,color:"#1E4D3A"}}>Total del pedido</span><b className="num" style={{fontSize:16,fontWeight:800,color:"#1E4D3A"}}>{money(totalConCobro||baseTotal||0)}</b></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:14,fontWeight:800,color:"#1E4D3A"}}>Total del pedido</span><b className="num" style={{fontSize:16,fontWeight:800,color:"#1E4D3A"}}>{money(baseTotal||0)}</b></div>
           </div>
         )}
 
@@ -5156,11 +5148,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const [fechaEntregaPed,setFechaEntregaPed]=useState("");         // fecha de entrega (opcional) → payload registrar_pedido_atomico
   const [notaChoferPed,setNotaChoferPed]=useState("");             // nota para el chofer (opcional) → payload registrar_pedido_atomico
   const [ubicMap,setUbicMap]=useState({});
-  /* FE02_COBRO_PEDIDO · cobro de flete/estibada al cliente ($/qq) desde la tarifa por zona (FE-01); 0 en retiro */
-  const [zonasFE,setZonasFE]=useState([]);
-  const [tarZonaFE,setTarZonaFE]=useState({});
-  const [fleteCobroQq,setFleteCobroQq]=useState("");
-  const [estibadaCobroQq,setEstibadaCobroQq]=useState("");
+  /* FE01_QUITA_COBRO: se eliminó el cobro de flete/estibada al cliente (ya va incluido en el precio base) */
   /* el botón atrás cierra lo abierto dentro del módulo antes de salir */
   // Origen del producto elegido: "favorito" (recompra) o "nuevo" (campo Producto nuevo → arranca limpio)
   const origenProd = React.useRef(null);
@@ -5237,26 +5225,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     return ()=>{ activo=false; };
   },[]);
 
-  /* FE02_COBRO_PEDIDO · zonas + tarifas vigentes por zona (para el cobro al cliente) */
-  React.useEffect(()=>{
-    if(!window.SB) return;
-    let vivo=true;
-    (async ()=>{
-      try{
-        const [rz,rt]=await Promise.all([
-          window.SB.from("zonas").select("zona_id,nombre,ciudades,activo").eq("activo",true),
-          window.SB.from("tarifas_fe").select("concepto,zona_id,valor_qq").eq("ambito","zona").is("vigente_hasta",null),
-        ]);
-        if(!vivo) return;
-        const m={}; (((rt&&rt.data))||[]).forEach(t=>{ (m[t.zona_id]=m[t.zona_id]||{})[t.concepto]=Number(t.valor_qq); });
-        setZonasFE(((rz&&rz.data))||[]); setTarZonaFE(m);
-      }catch(e){}
-    })();
-    return ()=>{ vivo=false; };
-  },[]);
-  const normCiudadFE=(s)=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
-  const zonaDeCiudadFE=(ciudad)=>{ const c=normCiudadFE(ciudad); if(!c) return null;
-    return (zonasFE||[]).find(z=>Array.isArray(z.ciudades)&&z.ciudades.some(x=>normCiudadFE(x)===c))||null; };
+  /* FE01_QUITA_COBRO: se eliminó la lectura de zonas/tarifas_fe (ámbito zona) y los helpers de zona; solo servían para prellenar el cobro al cliente que ya no existe */
   const PROVS_PED = vivoPed ? vivoPed.provs : PROVEEDORES;
   const PRES_PED  = vivoPed ? vivoPed.pres  : PRESENTACIONES;
   const CLIS_PED  = (vivoPed && vivoPed.clis && vivoPed.clis.length) ? vivoPed.clis : CLIENTES;
@@ -5287,14 +5256,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     if(lista.length===1){ setUbicPed(lista[0]); return; }
     setUbicPed(lista.find(u=>u.principal) || null);
   },[cli, ubicMap]);
-  /* FE02_COBRO_PEDIDO · al elegir domicilio/dirección se prellena con la tarifa de la zona; en retiro va en 0 */
-  React.useEffect(()=>{
-    if(retiroBodegaPed){ setFleteCobroQq("0"); setEstibadaCobroQq("0"); return; }
-    const z=zonaDeCiudadFE(ubicPed&&ubicPed.ciudad);
-    const t=(z&&tarZonaFE[z.zona_id])||{};
-    setFleteCobroQq(t.flete!=null?String(t.flete):"");
-    setEstibadaCobroQq(t.estibada!=null?String(t.estibada):"");
-  },[retiroBodegaPed, ubicPed, tarZonaFE]);
+  /* FE01_QUITA_COBRO: se eliminó el efecto que prellenaba el cobro de flete/estibada desde la tarifa de zona */
   /* − / + de cantidad: un toque = 50; mantener aplastado = sube o baja rápido */
   const menosCant = usarRepetir(()=>setCant(c=>Math.max(1,(parseInt(c)||0)-50)));
   const masCant   = usarRepetir(()=>setCant(c=>(parseInt(c)||0)+50));
@@ -5319,12 +5281,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const totalComisionCarrito = carrito.reduce((s,it)=>s+it.comisionTotal,0);
   // Valor total de la factura del pedido (precio x cantidad de cada item)
   const totalFacturaCarrito = Math.round(carrito.reduce((s,it)=>s+(it.precio*it.cant),0)*100)/100;
-  // Total en quintales: con la equivalencia REAL de la oferta, la misma que se graba
-  const totalQuintalesCarrito = totalQuintalesDeCarrito(carrito);
-  /* FE02_COBRO_PEDIDO · desglose Base + Flete + Estibada = Total ($/qq × quintales) */
-  const fleteCobroTotal = (retiroBodegaPed?0:(Number(fleteCobroQq)||0))*totalQuintalesCarrito;
-  const estibadaCobroTotal = (retiroBodegaPed?0:(Number(estibadaCobroQq)||0))*totalQuintalesCarrito;
-  const totalConCobro = Math.round((totalFacturaCarrito + fleteCobroTotal + estibadaCobroTotal)*100)/100;
+  /* FE01_QUITA_COBRO: el total del pedido es solo la base de productos (totalFacturaCarrito); se quitó el desglose y el total en quintales que solo servía para el cobro de flete/estibada */
   const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id) : [];
   // Productos que ESE cliente ya compró antes (con este proveedor), según su historial.
   // Se ocultan los que ya están en el pedido para no elegirlos dos veces.
@@ -5550,23 +5507,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             </button>);
           })}
         </div>
-        {/* FE02_COBRO_PEDIDO: cobro al cliente en $/qq, tomado de la tarifa de la zona (ajustable); 0 en retiro */}
-        {!retiroBodegaPed ? (
-          <div style={{marginTop:12,padding:"11px 12px",border:"1.5px solid #d8ddd7",borderRadius:12,background:"#F7FAF8"}}>
-            <div style={{fontSize:12.5,fontWeight:800,color:"#1E4D3A"}}>Cobro al cliente ($/qq){(()=>{const z=zonaDeCiudadFE(ubicPed&&ubicPed.ciudad);return z?(" · "+z.nombre):"";})()}</div>
-            <div style={{fontSize:11,color:"#6b7a70",margin:"1px 0 8px"}}>{zonaDeCiudadFE(ubicPed&&ubicPed.ciudad)?"Tomado de la tarifa de la zona; puedes ajustarlo.":"Sin zona para esa ciudad; escríbelo a mano."}</div>
-            <div style={{display:"flex",gap:8}}>
-              <label style={{flex:1,fontSize:11,fontWeight:700,color:"#6b7a70"}}>Flete $/qq
-                <input inputMode="decimal" value={fleteCobroQq} onChange={e=>setFleteCobroQq(e.target.value)} placeholder="0.00"
-                  style={{width:"100%",marginTop:3,padding:"9px 11px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} /></label>
-              <label style={{flex:1,fontSize:11,fontWeight:700,color:"#6b7a70"}}>Estibada $/qq
-                <input inputMode="decimal" value={estibadaCobroQq} onChange={e=>setEstibadaCobroQq(e.target.value)} placeholder="0.00"
-                  style={{width:"100%",marginTop:3,padding:"9px 11px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} /></label>
-            </div>
-          </div>
-        ) : (
-          <div style={{marginTop:12,fontSize:12,color:"#9a3412"}}>En retiro no se cobra flete ni estibada (van en 0).</div>
-        )}
+        {/* FE01_QUITA_COBRO: se eliminó el cuadro del cobro de flete/estibada en $/qq; ya va incluido en el precio base */}
         <div style={{fontSize:12.5,fontWeight:700,color:"#1E4D3A",margin:"12px 0 6px"}}>Fecha de entrega <span style={{fontWeight:600,color:"#9aa3ad"}}>(opcional)</span></div>
         <input type="date" value={fechaEntregaPed} onChange={e=>setFechaEntregaPed(e.target.value)}
           style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d8ddd7",fontSize:14,color:"#1E4D3A",boxSizing:"border-box"}} />
@@ -6181,9 +6122,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
         carrito={carrito} money={money}
         cliente={(cli && cli.nombre) || cli} proveedor={prov?prov.nombre:""}
         totalComision={totalComisionCarrito}
-        baseTotal={totalFacturaCarrito} fleteCobroTotal={fleteCobroTotal} estibadaCobroTotal={estibadaCobroTotal}
-        totalConCobro={totalConCobro} totalQq={totalQuintalesCarrito}
-        fleteQq={Number(fleteCobroQq)||0} estibadaQq={Number(estibadaCobroQq)||0}
+        baseTotal={totalFacturaCarrito} /* FE01_QUITA_COBRO: total = solo base de productos */
         puedeGuardar={!(carrito.length===0 || carrito.some(x=>x.ajustar) || bloqueado)}
         onEditarLinea={it=>{
           const pres = PRES_PED.find(p=>p.nombre===it.prodNombre);
@@ -6206,7 +6145,7 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             cli:(cli && cli.nombre) || cli || "—",
             detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
             cuando:"recién" }));
-          if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed, fleteCobroQq, estibadaCobroQq});
+          if(onGuardarPedido) onGuardarPedido({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}); /* FE01_QUITA_COBRO */
           const resumen = carrito.map(it=>`• ${it.cant} ${it.unidad||""} ${it.prodNombre||it.prod} · ${money(it.precio)}`).join("\n");
           setGuardadoOk({cli:(cli && cli.nombre)||cli||"—", n:carrito.length, resumen});
           cerrarPedido();
@@ -13505,7 +13444,7 @@ function App({usuario}){
     })();
     return ()=>{ vivo=false; };
   },[]);
-  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, fleteCobroQq, estibadaCobroQq})=>{
+  const guardarPedido=async ({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer})=>{ /* FE01_QUITA_COBRO */
     /* PROMO-03 · el regalo de más se frena ANTES de guardar nada, ni siquiera
        en el teléfono. El vendedor ve cuánto concede la promoción y el pedido
        se queda tal como está para que lo corrija. Devuelve false: quien llama
@@ -13556,7 +13495,7 @@ function App({usuario}){
     /* b170 · y además nace en la base, si hay sesión y todo es real. Si algo es
        de demostración o no hay señal, guardarPedidoEnBase lo detecta y la app
        sigue igual que siempre: el vendedor nunca se queda sin poder cerrar. */
-    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer, fleteCobroQq, estibadaCobroQq}).then(r=>{
+    guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}).then(r=>{ /* FE01_QUITA_COBRO */
       if(r.ok) show("✓ Pedido "+r.pedId+" guardado en el sistema");
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo en el teléfono: "+r.motivo);
