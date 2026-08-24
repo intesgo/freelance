@@ -291,6 +291,8 @@ const MUTANTES = [
             cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
             /* PED_FE_001 · el CÓDIGO crudo del estado manda la clasificación (no la etiqueta linda) */
             estadoCod: pd.estado || null, estadoLog: pd.estado_logistico || null,
+            /* PED_FE_003 · datos secundarios de la fila/modal + el vendedor (nombre por sub_id en render) */
+            sub: pd.sub_id || null, provCod: pd.prov_cod || null, factura: pd.factura || null, ciudad: pd.ciudad || null, creadoRaw: pd.creado || null,
             prov: provNom, cond: condTxt, estado: estadoTxt, fecha: pd.creado ? hoyECWeb(new Date(pd.creado)) : "",
             demo: !!pd.es_demo, editable: editable(pd),
             totalQq, nLineas, prodGuia, importe,

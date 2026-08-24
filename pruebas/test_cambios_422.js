@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"202"/.test(web),"Sistema Web debe anunciar b202");
-prueba(/const CACHE = "freelance-v306"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"203"/.test(web),"Sistema Web debe anunciar b203");
+prueba(/const CACHE = "freelance-v307"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -105,7 +105,7 @@ prueba(/th\("numero","Pedido N.º"\)/.test(web)&&!/th\("producto","Productos"\)/
 prueba(/numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq/.test(web),"web · el select trae numero_pedido y los datos del modal");
 prueba(/numero: pd\.numero_pedido \|\| null/.test(web),"web · la fila expone el número de pedido (numero_pedido)");
 prueba(/function ModalPedido\(\{ p, onCerrar, onEditar/.test(web),"web · existe el componente ModalPedido (solo lectura)");
-prueba(/onClick=\{\(e\)=>\{ e\.currentTarget\.focus\(\); setPedModal\(p\); \}\}/.test(web),"web · el clic en la fila abre el modal (setPedModal)");
+prueba(/const abrirModalPed = \(p\) => setPedModal\(p\);/.test(web)&&/e\.currentTarget\.focus\(\); abrirModalPed\(p\);/.test(web),"web · el clic en la fila abre el modal (abrirModalPed → setPedModal)");/* PED_FE_003 · el clic de fila/tarjeta abre el modal por un manejador único */
 prueba(/role="dialog" aria-modal="true"/.test(web),"web · el modal es accesible (role=dialog, aria-modal)");
 prueba(/if\(e\.key==="Escape"\)\{ e\.preventDefault\(\); onCerrar\(\); return; \}/.test(web),"web · el modal cierra con la tecla Escape");
 prueba(/onClick=\{\(e\)=>\{ e\.stopPropagation\(\); abrirEdicionArmar\(p\.pedId\); \}\}/.test(web),"web · el lápiz usa stopPropagation (no abre el modal) y va directo a editar");
