@@ -10,9 +10,9 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"206"/.test(web),"Sistema Web debe anunciar b206");
+ok(/const VERSION = \{ n:"207"/.test(web),"Sistema Web debe anunciar b207");
 ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
-ok(/const CACHE = "freelance-v310"/.test(sw),"la caché debe renovarse a v310");
+ok(/const CACHE = "freelance-v311"/.test(sw),"la caché debe renovarse a v311");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");
@@ -20,8 +20,6 @@ ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el
 /* ── FE-03.1 · los otros dos mensajes traducidos, no el error crudo de Postgres ── */
 ok(!/No se pudo pagar: " \+ e\.message/.test(web),"al pagar NO se muestra el error crudo de Postgres");
 ok(/PAGO_NO_LISTO:/.test(web),"pagar traduce el código PAGO_NO_LISTO");
-ok(/ESTIBADOR_NO_ENCONTRADO:/.test(web),"asignar_estibador_ruta traduce sus códigos (EST_ERR)");
-ok(/asignar_estibador_ruta", \{ p_ruta_id: despachar\.id, p_estibador_id: dEst\.id \}, EST_ERR\)/.test(web),"asignar_estibador_ruta recibe su diccionario EST_ERR");
 
 /* ── FE-05.1 · el flete nace 'provisional' y se explica, no alarma ── */
 ok(/Se cobra al entregar/.test(tr),"el chofer ve el flete provisional como «Se cobra al entregar»");
@@ -38,19 +36,19 @@ ok(/hoyECWeb\(new Date\(iso\)\)/.test(web),"cuenta los días con la fecha de Ecu
 ok(!/from\("viajes"\)[\s\S]{0,80}\.(insert|update|delete)\(/.test(web),"el aviso NO escribe en viajes (solo lee)");
 
 /* ── anclas ── */
-ok(/FE03_ESTIBADOR_RUTA/.test(web),"ancla FE03_ESTIBADOR_RUTA (Logística)");
+ok(/FE_TANDA3_DESPACHO/.test(web),"ancla FE_TANDA3_DESPACHO (Logística · modo multi-zona)");
 ok(/FE03_PAGOS_VIAJE/.test(web),"ancla FE03_PAGOS_VIAJE (panel del viaje)");
 ok(/FE03_PAGOS_FINANCIERA/.test(web),"ancla FE03_PAGOS_FINANCIERA (Financiera)");
 ok(/FE03_PAGOS_CHOFER/.test(tr),"ancla FE03_PAGOS_CHOFER (app del chofer)");
 
-/* ── Logística: estibador obligatorio y asignado ANTES de despachar ── */
+/* ── FE_TANDA3 · Etapa 2 · el despacho arma flete/estibada por ZONA en UN solo RPC ── */
 ok(/from\("estibadores"\)/.test(web),"Logística lista los estibadores");
-ok(/correrRpc\("asignar_estibador_ruta", \{ p_ruta_id: despachar\.id, p_estibador_id: dEst\.id \}/.test(web),
-  "se llama asignar_estibador_ruta con ruta y estibador");
-const iAsig=web.indexOf('correrRpc("asignar_estibador_ruta"');
-const iDesp=web.indexOf('correrRpc("despachar_ruta"');
-ok(iAsig>0 && iDesp>0 && iAsig<iDesp,"el estibador se asigna ANTES de despachar_ruta (orden)");
-ok(/fuenteLog==="vivo" && !dEst/.test(web),"sin estibador, el botón Despachar queda deshabilitado");
+ok(!/asignar_estibador_ruta/.test(web),"ya NO se llama asignar_estibador_ruta (el estibador va dentro de despachar_ruta)");
+ok(/correrRpc\("despachar_ruta", \{[\s\S]{0,400}p_asignacion,/.test(web),"despachar_ruta recibe el 7º parámetro p_asignacion");
+ok(/const p_asignacion = \{[\s\S]{0,600}flete:[\s\S]{0,600}estibadores:/.test(web),"p_asignacion arma flete[] y estibadores[] por zona");
+ok(/zona_id: z\.zona_id, convenio:/.test(web),"el flete del convenio va por zona (zona_id + convenio)");
+ok(/estibador_id: e\.id/.test(web),"cada estibador elegido entra en p_asignacion.estibadores");
+ok(/!dTr \|\| !dPlaca\.trim\(\) \|\| !dEsts\.some\(e=>e\.id\)/.test(web),"sin transportista, placa o estibador, el botón Despachar queda deshabilitado");
 ok(/abrirPagosViaje\(vj\)/.test(web),"al terminar el despacho se abre el panel de pagos del viaje");
 
 /* ── panel del viaje: solo lectura desde pagos_fe ── */
