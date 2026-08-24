@@ -118,6 +118,25 @@ function hoyECWeb(fecha=new Date()){
     .formatToParts(fecha).forEach(x=>{if(x.type!=="literal")p[x.type]=x.value;});
   return `${p.year}-${p.month}-${p.day}`;
 }
+/* PED_FE_002 · la hora (HH:MM) en zona Ecuador, para el rótulo «Actualizado a las …». */
+function horaECWeb(fecha=new Date()){
+  return new Intl.DateTimeFormat("es-EC",{timeZone:ZONA_HORARIA_EC,hour:"2-digit",minute:"2-digit",hour12:false}).format(fecha);
+}
+/* PED_FE_001/PED_FE_002 · reparto de un pedido en su PESTAÑA por el CÓDIGO canónico
+   (estado + estado_logistico), NO por la etiqueta visible. Único lugar de la regla:
+   lo usan tanto la lista (tabDePed) como el conteo real por pestaña (cargarConteos),
+   para que los números y las filas cuadren siempre. Precedencia estricta; lo
+   desconocido/nulo cae a 'sin_clasificar' (NUNCA a 'entregados'). */
+function clasificarTabPed(cod, log){
+  cod = String(cod || ""); log = String(log || "");
+  if (cod === "anulado") return "anulados";
+  if (log === "entregado" || cod === "entregado" || cod === "cliente_pago" || cod === "cerrado") return "entregados";
+  if (log === "despachado" || cod === "despachado") return "en_ruta";
+  if (cod === "facturado") return "por_despachar";   /* facturado sin viaje despachado (log sin_despachar/parcial) */
+  if (cod === "ingresado" || cod === "esperando_aprobacion" || cod === "enviado_proveedor") return "pendientes";
+  return "sin_clasificar";
+}
+const PAG_PED_WEB = 100;   /* PED_FE_002 · tamaño de página al leer pedidos del servidor (.range) */
 /* PED_EQUIV_OBLIGATORIA · la equivalencia de una presentación: si viene válida (>0)
    se respeta; si falta (0/null/NaN) NO se enmascara a 1 en silencio — solo el Quintal
    (1:1) vale 1, cualquier otra presentación queda en 0 para que el guardado la RECHACE
@@ -456,7 +475,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"201", fecha:"23 ago 2026", desc:"Pedidos dice la verdad de los estados: se clasifican por su código real (no por la etiqueta), con pestañas Todos · Pendientes · Por despachar · En ruta · Entregados · Anulados (y «Sin clasificar» solo si hace falta). Lo desconocido ya NO cae en «Entregados». Cada estado lleva su color e icono, y «Anulado» ya no se ve azul como un pedido vivo. Se quitó de Pedidos el seguimiento de demostración (Trazabilidad y «avisar al cliente»); en su lugar hay un enlace «Ver en Logística». Las fechas van en hora de Ecuador." };
+const VERSION = { n:"202", fecha:"24 ago 2026", desc:"Pedidos ahora dice la verdad de la carga: mientras trae los datos avisa «Cargando…»; si falla la conexión, el permiso o la sesión muestra el motivo y un botón «Reintentar» (ya no un falso «0 pedidos»). Un pedido sin líneas ya no desaparece de la lista. Los números de cada pestaña reflejan el TOTAL real (no solo lo que se ve). «Ver más» trae otra tanda desde el servidor sin bajar toda la base, y cada pedido llega con su detalle completo. Botón «Actualizar» con la hora de la última carga, y la lista se refresca sola al volver a la pestaña." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5636,10 +5655,19 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
 function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const [pedidos, setPedidos] = useState(()=>MODO_DEMO_WEB?PEDIDOS_WEB_INI:[]);
-  /* v43 · BOMBA DORMIDA reparada: la lista usaba pagP/setPagP sin declararlos →
-     ReferenceError al abrir la sección (pantalla de error). La halló el arnés
-     nuevo que renderiza cada sección contra el archivo real. */
-  const [pagP, setPagP] = useState(0);
+  /* PED_FE_002 · paginación de SERVIDOR: pagServidor es la última página traída (0 = primera).
+     «Ver más» pide la siguiente al servidor con .range y la AGREGA a las ya cargadas.
+     (Antes había un «Ver más» de memoria con usarPaginacion/pagP que solo cortaba la lista
+      ya descargada; se reemplazó para no bajar toda la base de una.) */
+  const [pagServidor, setPagServidor] = useState(0);
+  /* PED_FE_002 · estados de carga / error / vacío + «Reintentar». En vivo la lista arranca
+     «Cargando…»; en demo ya trae datos de muestra, así que no hay espera. */
+  const [cargandoPed, setCargandoPed] = useState(()=>!MODO_DEMO_WEB);
+  const [errorPed, setErrorPed] = useState(null);        // {tipo:'sesion'|'conexion', msg} | null
+  const [cargandoMas, setCargandoMas] = useState(false); // trayendo otra página del servidor
+  const [hayMasPed, setHayMasPed] = useState(false);     // la última página vino llena → puede haber más
+  const [conteosPed, setConteosPed] = useState(null);    // {todos,pendientes,…} conteos REALES del servidor
+  const [actualizadoPed, setActualizadoPed] = useState(""); // "HH:MM" (hora EC) de la última carga completa
   /* ── FASE 4 (b37) · Pedidos VIVOS reparados. El cableado "listo y esperando" de Fase 1b
      tenía tres fallas descubiertas en la auditoría de los 57: (1) usaba el puente anónimo
      sbLeer y el RLS cierra pedidos/pedido_items a anon → jamás traía datos, ni con sesión;
@@ -5662,24 +5690,44 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const [itemsOriginales, setItemsOriginales] = useState([]);  // ítems como estaban al abrir (para borrar los quitados)
   const [lineaEdit, setLineaEdit] = useState(null);       // id de la línea del carrito que se está editando
   const [pedModal, setPedModal] = useState(null);         // PED_NUMERO_Y_MODAL · pedido abierto en el modal de solo lectura (o null)
-  const cargarPedidosVivos = React.useCallback(async () => {
+  const cargarPedidosVivos = React.useCallback(async ({ pagina = 0, append = false } = {}) => {
     if (!window.supa || !window.supa.auth) return;
-    {
-      try {
+    if (append) setCargandoMas(true); else { setCargandoPed(true); setErrorPed(null); }
+    try {
         const { data: s } = await window.supa.auth.getSession();
-        if (!s || !s.session) return;
-        const [{ data: p }, { data: it }] = await Promise.all([
-          window.supa.from("pedidos")
-            /* PED_NUMERO_Y_MODAL · se traen el número de pedido (numero_pedido, ya poblado por
-               Cowork para pedidos reales; null en demo) y los datos de entrega/cobro para el modal
-               de solo lectura. No se toca la base ni las RPC: solo se leen columnas ya existentes. */
-            .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq,clientes(nombre,razon_social,tipo),proveedores(nombre)")
-            .order("creado", { ascending: false }).limit(200),
-          window.supa.from("pedido_items")
-            .select("item_id,ped_id,prod_id,pres_cod,promo_id,condicion,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq,comision_usd").limit(1000),
-        ]);
-        if (!Array.isArray(p) || !Array.isArray(it)) return;
-        if (!p.length || !it.length) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); return; }
+        if (!s || !s.session) {
+          /* PED_FE_002 · sin sesión NO se calla: en demo se queda con los datos de muestra;
+             en vivo se marca el error y se ofrece «Reintentar» (no un falso «0 pedidos»). */
+          if (MODO_DEMO_WEB) return;
+          setErrorPed({ tipo:"sesion", msg:"Tu sesión expiró. Vuelve a entrar para ver los pedidos." });
+          if (!append) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); }
+          return;
+        }
+        /* PED_FE_002 · paginación de servidor: se pide SOLO la página pedida (~100) con .range,
+           en vez de bajar toda la base. La búsqueda filtrada de servidor es la tanda PED-FE-003. */
+        const desde = Math.max(0, pagina) * PAG_PED_WEB;
+        const hasta = desde + PAG_PED_WEB - 1;
+        const { data: p, error: ep } = await window.supa.from("pedidos")
+          /* PED_NUMERO_Y_MODAL · se traen el número de pedido (numero_pedido, ya poblado por
+             Cowork para pedidos reales; null en demo) y los datos de entrega/cobro para el modal
+             de solo lectura. No se toca la base ni las RPC: solo se leen columnas ya existentes. */
+          .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq,clientes(nombre,razon_social,tipo),proveedores(nombre)")
+          .order("creado", { ascending: false }).range(desde, hasta);
+        if (ep) throw new Error(ep.message || "no se pudieron leer los pedidos");
+        if (!Array.isArray(p)) throw new Error("respuesta inesperada al leer pedidos");
+        /* PED_FE_002 · las líneas SOLO de los pedidos de esta página (.in por ped_id), no un
+           tope suelto .limit(1000): así el detalle sale completo para lo que se muestra. */
+        const pedIds = p.map(x => x.ped_id).filter(Boolean);
+        let it = [];
+        if (pedIds.length) {
+          const { data: itd, error: ei } = await window.supa.from("pedido_items")
+            .select("item_id,ped_id,prod_id,pres_cod,promo_id,condicion,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq,comision_usd")
+            .in("ped_id", pedIds);
+          if (ei) throw new Error(ei.message || "no se pudieron leer las líneas");
+          it = Array.isArray(itd) ? itd : [];
+        }
+        setHayMasPed(p.length === PAG_PED_WEB);   // vino llena → puede haber otra página
+        setPagServidor(pagina);
         const ESTADO_LINDO = { ingresado:"Ingresado", esperando_aprobacion:"Esperando aprobación",
           enviado_proveedor:"Enviado al proveedor", facturado:"Facturado", despachado:"Despachado",
           entregado:"Entregado", cliente_pago:"Cliente pagó", cerrado:"Cerrado", anulado:"Anulado" };
@@ -5730,15 +5778,59 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
               tipo: x.tipo_precio || null })),
           });
         });
-        if (!filas.length) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); return; }
-        setPedidos(filas);
-        setItemsPorPed(porPed);
-        setPedMeta(meta);
+        /* PED_FE_002 · FIX del vaciado: un pedido SIN líneas SIGUE siendo un pedido y se muestra.
+           Ya no se depende de it.length (antes un pedido sin ítems desaparecía de la lista). */
+        if (append) {
+          /* «Ver más»: AGREGA la página nueva a lo ya cargado (sin duplicar por ped_id). */
+          setPedidos(prev => { const vistos = new Set(prev.map(x => x.id)); return prev.concat(filas.filter(f => !vistos.has(f.id))); });
+          setItemsPorPed(prev => ({ ...prev, ...porPed }));
+          setPedMeta(prev => ({ ...prev, ...meta }));
+        } else {
+          setPedidos(filas);
+          setItemsPorPed(porPed);
+          setPedMeta(meta);
+          setActualizadoPed(horaECWeb());   // hora EC de esta carga completa
+        }
         setFuentePed("vivo");
-      } catch (e) { registrarErrorWeb("pedidos.cargar",e); }
-    }
+      } catch (e) {
+        /* PED_FE_002 · se conserva la auditoría (registrarErrorWeb) Y se marca el estado de
+           error visible con «Reintentar»: un fallo de conexión/permiso NO se muestra como «0 pedidos». */
+        registrarErrorWeb("pedidos.cargar", e);
+        if (!MODO_DEMO_WEB) setErrorPed({ tipo:"conexion", msg:"No se pudieron cargar los pedidos. Revisa tu conexión e inténtalo de nuevo." });
+      } finally {
+        if (append) setCargandoMas(false); else setCargandoPed(false);
+      }
   }, []);
-  useEffect(() => { cargarPedidosVivos(); }, [cargarPedidosVivos]);
+  /* PED_FE_002 · CONTEOS REALES por pestaña: consulta LIVIANA aparte (sin joins ni items), con la
+     MISMA lógica canónica que la lista (clasificarTabPed) para que los números cuadren con las filas.
+     A gran escala (miles de pedidos) esto debería ser una vista/RPC de conteo en base (Cowork), no
+     traer filas; hoy se lee liviano con un tope de seguridad. */
+  const cargarConteos = React.useCallback(async () => {
+    if (!window.supa || !window.supa.auth) return;
+    try {
+      const { data: s } = await window.supa.auth.getSession();
+      if (!s || !s.session) return;
+      const { data, error } = await window.supa.from("pedidos")
+        .select("ped_id,estado,estado_logistico,es_demo").limit(5000);
+      if (error || !Array.isArray(data)) return;   // el conteo es de apoyo: si falla, se cuenta lo cargado
+      const c = { todos:data.length, pendientes:0, por_despachar:0, en_ruta:0, entregados:0, anulados:0, sin_clasificar:0 };
+      data.forEach(r => { const k = clasificarTabPed(r.estado, r.estado_logistico); c[k] = (c[k]||0) + 1; });
+      setConteosPed(c);
+    } catch (_) { /* apoyo: silencioso */ }
+  }, []);
+  /* PED_FE_002 · recarga la primera página + los conteos (botón «Actualizar» y al recuperar foco). */
+  const refrescarPedidos = React.useCallback(() => { cargarPedidosVivos({ pagina:0 }); cargarConteos(); }, [cargarPedidosVivos, cargarConteos]);
+  useEffect(() => { cargarPedidosVivos({ pagina:0 }); cargarConteos(); }, [cargarPedidosVivos, cargarConteos]);
+  /* PED_FE_002 · al volver a la pestaña del navegador se recarga, para reflejar cambios que
+     hicieron proveedor/logística/anulación mientras tanto. (Realtime NO en esta tanda.) */
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVis = () => { if (document.visibilityState === "visible") refrescarPedidos(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refrescarPedidos]);
+  /* PED_FE_002 · «Ver más» pide la SIGUIENTE página al servidor y la agrega. */
+  const verMasPed = () => cargarPedidosVivos({ pagina: pagServidor + 1, append: true });
   const [vista, setVista] = useState("lista");
   const [pTab, setPTab] = useState("pendientes");     // PED_FE_001 · todos|pendientes|por_despachar|en_ruta|entregados|anulados|sin_clasificar
   const [aviso, setAviso] = useState("");
@@ -6133,29 +6225,24 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
     const c = va < vb ? -1 : va > vb ? 1 : 0;
     return ordDir === "asc" ? c : -c;
   });
-  /* PED_FE_001 · reparto por CÓDIGO CANÓNICO (estadoCod/estadoLog), NO por la etiqueta visible.
-     Precedencia estricta; lo desconocido/nulo cae a 'sin_clasificar' (NUNCA a entregados). */
-  const tabDePed = (p) => {
-    const cod = String((p && p.estadoCod) || "");
-    const log = String((p && p.estadoLog) || "");
-    if (cod === "anulado") return "anulados";
-    if (log === "entregado" || cod === "entregado" || cod === "cliente_pago" || cod === "cerrado") return "entregados";
-    if (log === "despachado" || cod === "despachado") return "en_ruta";
-    if (cod === "facturado") return "por_despachar";   /* facturado sin viaje despachado (log sin_despachar/parcial) */
-    if (cod === "ingresado" || cod === "esperando_aprobacion" || cod === "enviado_proveedor") return "pendientes";
-    return "sin_clasificar";
-  };
-  const haySinClasificar = pedidos.some(p => tabDePed(p) === "sin_clasificar");
+  /* PED_FE_001/PED_FE_002 · reparto por CÓDIGO CANÓNICO (clasificarTabPed, definido arriba y
+     compartido con el conteo real, para que filas y números cuadren). */
+  const tabDePed = (p) => clasificarTabPed(p && p.estadoCod, p && p.estadoLog);
+  /* PED_FE_002 · «Sin clasificar» aparece si el conteo REAL del servidor tiene ≥1 (o, sin conteo, si
+     lo hay entre lo cargado). Así la pestaña sale aunque su primer pedido aún no se haya paginado. */
+  const haySinClasificar = conteosPed ? (conteosPed.sin_clasificar > 0) : pedidos.some(p => tabDePed(p) === "sin_clasificar");
   /* PED_PESTANAS_ESTADO · «Todos» incluye anulados; «Sin clasificar» solo aparece si hay ≥1 ahí. */
   const PTABS = [["todos","Todos"],["pendientes","Pendientes"],["por_despachar","Por despachar"],["en_ruta","En ruta"],["entregados","Entregados"],["anulados","Anulados"]]
     .concat(haySinClasificar ? [["sin_clasificar","Sin clasificar"]] : []);
-  const contarTab = (k) => k === "todos" ? pedidos.length : pedidos.filter(p => tabDePed(p) === k).length;
+  /* PED_FE_002 · el conteo por pestaña es el TOTAL REAL del servidor (conteosPed); si aún no llegó
+     (o en demo) se cuenta lo cargado. Así ningún pedido queda invisible al contador. */
+  const contarTab = (k) => conteosPed ? (conteosPed[k] || 0) : (k === "todos" ? pedidos.length : pedidos.filter(p => tabDePed(p) === k).length);
   const pedidosTab = (pTab === "todos") ? pedidosOrdenados : pedidosOrdenados.filter(p => tabDePed(p) === pTab);
   const porRevisarTab = pedidosTab.filter(p => p.estadoCod === "esperando_aprobacion").length;
   const clicOrden = (campo) => {
     if (ordCampo === campo) setOrdDir(d => d === "asc" ? "desc" : "asc");
     else { setOrdCampo(campo); setOrdDir(campo === "fecha" ? "desc" : "asc"); }
-    setPagP(0);
+    /* PED_FE_002 · el orden es sobre lo ya cargado (client-side); no reinicia la paginación de servidor. */
   };
   const flechaOrden = (campo) => ordCampo === campo ? (ordDir === "asc" ? " ▲" : " ▼") : "";
 
@@ -6315,8 +6402,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
     setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
     setVista("lista");
     setAviso(exito && res.pedId ? ("✓ Pedido " + res.pedId + " guardado.") : "");
-    /* TRAS ÉXITO: recargar para que la tarjeta y su fecha salgan de la base (fuente real). */
-    if (exito) cargarPedidosVivos();
+    /* TRAS ÉXITO: recargar lista + conteos para que la tarjeta y su fecha salgan de la base (fuente real). */
+    if (exito) refrescarPedidos();
   };
 
   /* ── #4 · Editar un pedido DENTRO de la pantalla de armado ─────────────── */
@@ -6382,7 +6469,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
       setAviso(""); setEditandoPed(null); setItemsOriginales([]); setLineaEdit(null);
       setCarrito([]); setCli(null); setCliTexto(""); setProvSel(null); setProvTexto(""); resetLinea();
       setVista("lista");
-      await cargarPedidosVivos();
+      refrescarPedidos();
     } catch (e) { setAviso("No se pudo guardar: " + (e.message||"error")); }
   };
 
@@ -6414,17 +6501,46 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           {/* PED_FE_001 · pestañas por estado (código canónico); cada una filtra la MISMA lista con su conteo.
               Trazabilidad se quitó de Pedidos: el seguimiento vive en Logística. */}
           {PTABS.map(([k,t])=>(
-            <button key={k} onClick={()=>{ setPTab(k); setPagP(0); }}
+            <button key={k} onClick={()=>setPTab(k)}
               style={{ border:"none", cursor:"pointer", borderRadius:20, padding:"9px 18px", fontSize:13.5, fontWeight:700,
                 background: pTab===k?COLOR.tealDark:"#eef1f4", color: pTab===k?"#fff":COLOR.muted }}>{t} ({contarTab(k)})</button>
           ))}
         </div>
-        {(
         <div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, marginBottom:18 }}>
-          <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidosTab.length} pedidos · {porRevisarTab} por revisar</p>{/* PED_PESTANAS_ESTADO · el rótulo respeta la pestaña activa */}
-          <button onClick={abrir} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700 }}>+ Nuevo pedido</button>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, marginBottom:18, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            {/* PED_PESTANAS_ESTADO · el rótulo respeta la pestaña activa · PED_FE_002 · muestra «de N» si hay más en el servidor sin cargar */}
+            <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidosTab.length}{contarTab(pTab)>pedidosTab.length?` de ${contarTab(pTab)}`:""} pedidos · {porRevisarTab} por revisar</p>
+            {actualizadoPed && <span style={{ fontSize:12, color:COLOR.muted }}>Actualizado a las {actualizadoPed}</span>}
+          </div>
+          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            {/* PED_FE_002 · recarga manual: lista (página 1) + conteos reales */}
+            <button onClick={refrescarPedidos} disabled={cargandoPed} title="Volver a leer los pedidos"
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"10px 16px", borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, cursor: cargandoPed?"default":"pointer", opacity: cargandoPed?.6:1, fontSize:13.5, fontWeight:700 }}>
+              {cargandoPed ? "Actualizando…" : "↻ Actualizar"}
+            </button>
+            <button onClick={abrir} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700 }}>+ Nuevo pedido</button>
+          </div>
         </div>
+        {/* PED_FE_002 · cuerpo con estados EXCLUYENTES: cargando · error+Reintentar · vacío · lista.
+            Un fallo de conexión/permiso/sesión NO se muestra como «0 pedidos». */}
+        {cargandoPed && !pedidos.length ? (
+          <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"40px 20px", textAlign:"center", color:COLOR.muted, fontSize:14 }}>Cargando pedidos…</div>
+        ) : errorPed ? (
+          <div style={{ background:"#FDECEC", border:"1px solid #f3c2c2", borderRadius:14, padding:"28px 20px", textAlign:"center" }}>
+            <p style={{ fontSize:14.5, fontWeight:700, color:"#b91c1c", margin:"0 0 6px" }}>{errorPed.msg}</p>
+            <button onClick={refrescarPedidos} style={{ marginTop:8, padding:"10px 22px", borderRadius:10, border:"none", background:COLOR.tealDark, color:"#fff", cursor:"pointer", fontSize:13.5, fontWeight:700 }}>Reintentar</button>
+          </div>
+        ) : pedidosTab.length === 0 ? (
+          <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"32px 20px", textAlign:"center", color:COLOR.muted, fontSize:14 }}>
+            {contarTab(pTab) > 0 ? (
+              <div>
+                <p style={{ margin:"0 0 10px" }}>Hay {contarTab(pTab)} pedido(s) en esta pestaña que aún no se han cargado.</p>
+                {hayMasPed && <button onClick={verMasPed} disabled={cargandoMas} style={{ padding:"10px 20px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#f3f5f7", color:COLOR.text, fontWeight:700, fontSize:13, cursor: cargandoMas?"default":"pointer" }}>{cargandoMas ? "Cargando…" : "Ver más pedidos"}</button>}
+              </div>
+            ) : contarTab("todos") > 0 ? "No hay pedidos con estos filtros." : "Aún no hay pedidos."}
+          </div>
+        ) : (<>
         {/* PED_P0_2_AGRUPAR_WEB · ACORDEÓN: una CABECERA por pedido; ningún producto hace de
            encabezado. Al tocar la cabecera se despliega/pliega su detalle con sus líneas
            (nombre a la izquierda; cantidad qq y precio a la derecha). */}
@@ -6438,7 +6554,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
             {th("fecha","Fecha")}{th("cliente","Cliente")}{th("numero","Pedido N.º")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
           </div>
-          {usarPaginacion(pedidosTab, pagP).filas.map((p, i) => { const ce = colorEstado(p);
+          {pedidosTab.map((p, i) => { const ce = colorEstado(p);
             return (
               <div key={p.id} style={{ borderTop: i>0 ? `1px solid ${COLOR.border}` : "none" }}>
                 {/* PED_NUMERO_Y_MODAL · CABECERA del pedido: clic en zona libre = abre el modal de solo lectura
@@ -6470,9 +6586,18 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
             </>);
           })()}
         </div>
-        <VerMas pg={usarPaginacion(pedidosTab, pagP)} onMas={setPagP} />
-        </div>
+        {/* PED_FE_002 · «Ver más» de SERVIDOR: trae la siguiente página (~100) y la agrega. */}
+        {hayMasPed && (
+          <div style={{ marginTop:12, textAlign:"center" }}>
+            <button onClick={verMasPed} disabled={cargandoMas}
+              style={{ border:`1px solid ${COLOR.border}`, background:"#f3f5f7", color:COLOR.text, borderRadius:9, padding:"10px 20px", fontSize:12.5, fontWeight:700, fontFamily:"inherit", cursor: cargandoMas?"default":"pointer" }}>
+              {cargandoMas ? "Cargando…" : "Ver más pedidos"}
+            </button>
+            <div className="num" style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>{pedidos.length} cargados{conteosPed?` de ${conteosPed.todos}`:""}</div>
+          </div>
         )}
+        </>)}
+        </div>
 
         {/* PED_NUMERO_Y_MODAL · modal de solo lectura del pedido (se abre al tocar la fila) */}
         {pedModal && (
