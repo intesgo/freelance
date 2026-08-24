@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"211"/.test(web),"Sistema Web debe anunciar b211");
-prueba(/const CACHE = "freelance-v316"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"212"/.test(web),"Sistema Web debe anunciar b212");
+prueba(/const CACHE = "freelance-v317"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
