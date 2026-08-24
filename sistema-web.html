@@ -524,7 +524,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"205", fecha:"24 ago 2026", desc:"En «Tarifas de logística» el estibador ahora tiene su tarifa POR ZONA (igual que el chofer), no una sola general: así se puede pagar distinto según la zona. Además, quien no es freelance (logística) ve las tarifas en modo SOLO LECTURA —los valores y el historial— pero sin botones de editar, para no toparse con el bloqueo de permisos." };
+const VERSION = { n:"206", fecha:"24 ago 2026", desc:"En Pagos, el freelance ahora ve «Convenios por autorizar»: cuando en el despacho se pactó un valor distinto del de tarifa, el pago queda por autorizar y debe aprobarlo antes de que Financiera pueda pagarlo. En Financiera, esos pagos salen con «⏳ por autorizar» y el botón de pagar queda bloqueado («Falta aprobar») hasta que el freelance los apruebe." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -16720,6 +16720,88 @@ function ConfiguracionWeb({ usuario }) {
 
 
 // ── Pagos (web): salidas a transportistas, estibadores y comisionistas. Control de lo que sale ──
+/* FE_TANDA4 · PANTALLA DEL FREELANCE · aprobar convenios de flete/estibada.
+   Cuando el despacho fija un valor de CONVENIO distinto del de tarifa, el pago nace
+   autorizado=false (por autorizar). Este panel —solo para el freelance— lista esos pagos
+   (por defecto vs convenio) y los APRUEBA con aprobar_pago_fe. La base también lo candó al
+   rol freelance. NUNCA inserta/actualiza directo. */
+function AprobarConveniosFE({ usuario }) {
+  const esFreelance = !!(usuario && String(usuario.rol||"").toLowerCase()==="freelance");
+  const [filas, setFilas] = useState(null);
+  const [error, setError] = useState("");
+  const [aprob, setAprob] = useState("");
+  const cargar = React.useCallback(async () => {
+    if (!window.supa) { setFilas([]); return; }
+    setError("");
+    try {
+      const org = await orgActivaWeb();
+      const { data, error:e } = await window.supa.from("pagos_fe")
+        .select("pago_id,viaje_id,guia_id,concepto,persona_id,qq_base,valor_qq,valor_default,monto,estado")
+        .eq("org_id", org).eq("es_demo", false).eq("autorizado", false).order("viaje_id", { ascending:false });
+      if (e) { setError("No se pudieron leer los convenios por autorizar: " + e.message); setFilas([]); return; }
+      const usrIds = [...new Set((data||[]).filter(f=>f.concepto==="flete").map(f=>f.persona_id).filter(Boolean))];
+      const estIds = [...new Set((data||[]).filter(f=>f.concepto==="estibada").map(f=>f.persona_id).filter(Boolean))];
+      const nom = {};
+      if (usrIds.length) { const { data:u } = await window.supa.from("usuarios").select("usr_id,nombre").in("usr_id", usrIds); (u||[]).forEach(x=>nom["u:"+x.usr_id]=x.nombre); }
+      if (estIds.length) { const { data:s } = await window.supa.from("estibadores").select("est_id,nombre").in("est_id", estIds); (s||[]).forEach(x=>nom["e:"+x.est_id]=x.nombre); }
+      setFilas((data||[]).map(f => ({ ...f, persona: nom[(f.concepto==="flete"?"u:":"e:")+f.persona_id] || f.persona_id || "—" })));
+    } catch (err) { setError(String(err && err.message || err)); setFilas([]); }
+  }, []);
+  React.useEffect(() => { if (esFreelance) cargar(); }, [cargar, esFreelance]);
+  if (!esFreelance) return null;
+
+  const aprobar = async (f) => {
+    if (!window.confirm("¿Aprobar este convenio?\n\n" + ((CONCEPTO_FE[f.concepto]||{}).t || f.concepto) + " · " + f.persona +
+      "\nConvenio " + fmtQqUnitFE(f.valor_qq) + "/qq (por defecto " + fmtQqUnitFE(f.valor_default) + ") · " + fmtMontoFE(f.monto) +
+      "\n\nAl aprobar, Financiera podrá pagarlo cuando esté firme.")) return;
+    setAprob(f.pago_id); setError("");
+    const { error:e } = await window.supa.rpc("aprobar_pago_fe", { p_pago_id: f.pago_id });
+    if (e) {
+      const cod = String((e && e.message) || "").trim().split(":")[0].split(/\s+/)[0];
+      const APR_ERR = {
+        PAGO_NO_ENCONTRADO: "Ese pago ya no existe.",
+        ROL_NO_AUTORIZADO:  "Solo el freelance puede aprobar convenios.",
+        SIN_SESION:         "Tu sesión terminó. Vuelve a entrar para continuar.",
+      };
+      setError("⚠ " + (APR_ERR[cod] || "No se pudo aprobar. Revisa tu señal e intenta de nuevo."));
+      setAprob(""); return;
+    }
+    await cargar(); setAprob("");
+  };
+
+  return (
+    <div style={{ background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:16, padding:"18px 20px", marginBottom:22 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:4, flexWrap:"wrap" }}>
+        <h3 style={{ fontSize:16, fontWeight:800, margin:0 }}>✋ Convenios por autorizar</h3>
+        <button onClick={cargar} style={{ border:`1px solid ${COLOR.border}`, background:"#fff", color:COLOR.text, borderRadius:8, padding:"6px 12px", fontSize:12.5, fontWeight:700, cursor:"pointer" }}>↻ Actualizar</button>
+      </div>
+      <p style={{ fontSize:12, color:COLOR.muted, margin:"0 0 14px" }}>Cuando en el despacho se pactó un valor distinto del de tarifa, el pago queda <b>por autorizar</b>. Aprueba para que Financiera pueda pagarlo cuando esté firme.</p>
+      {error && <div style={{ background:"#FBF2EE", border:"1px solid #E3C4B7", color:"#B5613C", borderRadius:9, padding:"10px 12px", fontSize:12.5, marginBottom:12 }}>{error}</div>}
+      {filas===null && <div style={{ padding:"14px 4px", color:COLOR.muted }}>Cargando convenios…</div>}
+      {filas!==null && !window.supa && <div style={{ padding:"14px 4px", color:COLOR.muted }}>Este panel trabaja con la base en línea.</div>}
+      {filas!==null && window.supa && !filas.length && <div style={{ padding:"14px 4px", color:COLOR.muted }}>No hay convenios por autorizar. 👍</div>}
+      {filas!==null && filas.length>0 && (
+        <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:".9fr 1.4fr .5fr .8fr .8fr .9fr .9fr", background:"#f7f9fb", padding:"8px 13px", fontSize:11, fontWeight:700, color:COLOR.muted }}>
+            <span>Viaje · Guía</span><span>Persona · concepto</span><span>qq</span><span>Por defecto</span><span>Convenio</span><span>Monto</span><span></span>
+          </div>
+          {filas.map(f => { const co = CONCEPTO_FE[f.concepto] || {t:f.concepto,ic:""}; return (
+            <div key={f.pago_id} style={{ display:"grid", gridTemplateColumns:".9fr 1.4fr .5fr .8fr .8fr .9fr .9fr", padding:"10px 13px", fontSize:12.5, borderTop:`1px solid ${COLOR.border}`, alignItems:"center" }}>
+              <span className="num">{f.viaje_id||"—"} · {f.guia_id||"—"}</span>
+              <span>{co.ic} {f.persona} <span style={{ color:COLOR.muted }}>· {co.t}</span></span>
+              <span className="num">{f.qq_base!=null ? f.qq_base : "—"}</span>
+              <span className="num" style={{ color:COLOR.muted }}>{fmtQqUnitFE(f.valor_default)}</span>
+              <span className="num" style={{ fontWeight:700, color:"#7a4fb0" }}>{fmtQqUnitFE(f.valor_qq)}</span>
+              <span className="num" style={{ fontWeight:700 }}>{fmtMontoFE(f.monto)}</span>
+              <span><button disabled={aprob===f.pago_id} onClick={()=>aprobar(f)} style={{ background:COLOR.tealDark, color:"#fff", border:"none", borderRadius:8, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", opacity:aprob===f.pago_id?.6:1 }}>{aprob===f.pago_id ? "…" : "Aprobar ✓"}</button></span>
+            </div>
+          ); })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* FE03_PAGOS_FINANCIERA · pagos de flete/estibada REALES desde pagos_fe.
    Va montado ARRIBA del módulo Pagos (la contadora ve «pagos», no «recepcion»).
    Lee pagos_fe (es_demo=false), agrupa por viaje → guía, paga solo los `firme`
@@ -16737,8 +16819,10 @@ function PagosFeVivos({ usuario }) {
     setError("");
     try {
       const org = await orgActivaWeb();
+      /* FE_TANDA4 · se traen `autorizado` y `valor_default`: un pago con CONVENIO nace
+         autorizado=false (por autorizar) y no se puede pagar hasta que el freelance lo apruebe. */
       const { data, error:e } = await window.supa.from("pagos_fe")
-        .select("pago_id,viaje_id,guia_id,ped_id,concepto,persona_id,qq_base,valor_qq,monto,estado")
+        .select("pago_id,viaje_id,guia_id,ped_id,concepto,persona_id,qq_base,valor_qq,valor_default,monto,estado,autorizado")
         .eq("org_id", org).eq("es_demo", false).order("viaje_id", { ascending:false });
       if (e) { setError("No se pudieron leer los pagos: " + e.message); setFilas([]); return; }
       const usrIds = [...new Set((data||[]).filter(f=>f.concepto==="flete").map(f=>f.persona_id).filter(Boolean))];
@@ -16754,6 +16838,8 @@ function PagosFeVivos({ usuario }) {
   /* supabase-js no lanza excepción en error de base: la devuelve en r.error. */
   const pagar = async (f) => {
     if (f.estado !== "firme" || soloLectura) return;
+    /* FE_TANDA4 · candado de convenio: un pago con convenio por autorizar no se paga hasta que el freelance lo apruebe. */
+    if (f.autorizado === false) { setError("⚠ Este pago tiene un convenio POR AUTORIZAR. El freelance debe aprobarlo antes de pagar."); return; }
     if (!window.confirm("¿Marcar como pagado?\n\n" + ((CONCEPTO_FE[f.concepto]||{}).t || f.concepto) + " · " + f.persona + " · " + fmtMontoFE(f.monto) + "\nGuía " + (f.guia_id||"—"))) return;
     setPagando(f.pago_id); setError("");
     const { error:e } = await window.supa.rpc("pagar_fe", { p_pago_id: f.pago_id });
@@ -16764,6 +16850,7 @@ function PagosFeVivos({ usuario }) {
       const PAGO_ERR = {
         PAGO_NO_ENCONTRADO: "Ese pago ya no existe.",
         PAGO_NO_LISTO:      "Este pago todavía no está firme: no se puede pagar.",
+        PAGO_POR_AUTORIZAR: "Este pago tiene un convenio POR AUTORIZAR. El freelance debe aprobarlo antes de pagar.",
         ROL_NO_AUTORIZADO:  "No tienes permiso para pagar. Solo Financiera, el freelance o el administrador.",
         SIN_SESION:         "Tu sesión terminó. Vuelve a entrar para continuar.",
       };
@@ -16826,10 +16913,14 @@ function PagosFeVivos({ usuario }) {
               <span className="num">{f.qq_base!=null ? f.qq_base : "—"}</span>
               <span className="num">{fmtQqUnitFE(f.valor_qq)}</span>
               <span className="num" style={{ fontWeight:700 }}>{fmtMontoFE(f.monto)}</span>
-              <span><span style={{ background:e.bg, color:e.c, borderRadius:7, padding:"3px 9px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{e.t}</span></span>
-              <span>{f.estado==="firme" && !soloLectura
+              <span style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+                <span style={{ background:e.bg, color:e.c, borderRadius:7, padding:"3px 9px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{e.t}</span>
+                {/* FE_TANDA4 · convenio por autorizar: el freelance debe aprobarlo antes de pagar */}
+                {f.autorizado===false && <span title={f.valor_default!=null?("Por defecto "+fmtQqUnitFE(f.valor_default)+" · convenio "+fmtQqUnitFE(f.valor_qq)):"Convenio por autorizar"} style={{ background:"#F3EDFB", color:"#7a4fb0", borderRadius:7, padding:"3px 9px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>⏳ por autorizar</span>}
+              </span>
+              <span>{f.estado==="firme" && !soloLectura && f.autorizado!==false
                 ? <button disabled={pagando===f.pago_id} onClick={()=>pagar(f)} style={{ background:COLOR.green, color:"#fff", border:"none", borderRadius:8, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", opacity:pagando===f.pago_id?.6:1 }}>{pagando===f.pago_id ? "…" : "Pagar 💵"}</button>
-                : null}</span>
+                : (f.estado==="firme" && f.autorizado===false ? <span style={{ fontSize:11, color:"#7a4fb0", fontWeight:700 }}>Falta aprobar</span> : null)}</span>
             </div>
           ); })}
         </div>
@@ -16897,6 +16988,8 @@ function PagosWeb({ usuario }) {
   return (
     <div style={{ padding:"22px 28px 40px" }}>
       {/* FE03_PAGOS_FINANCIERA · pagos reales (pagos_fe) arriba; abajo, los del demo */}
+      {/* TANDA4_APROBAR · el freelance aprueba los convenios (valor pactado) antes de que se puedan pagar */}
+      <AprobarConveniosFE usuario={usuario} />
       <PagosFeVivos usuario={usuario} />
       {/* Tarjetas de control */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14, marginBottom:22 }}>
