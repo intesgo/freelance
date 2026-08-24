@@ -442,6 +442,7 @@ const SECCIONES = [
   { key:"comisiones", ic:"chart",   icon:"📊", label:"Comisiones",           sub:"Cortes y anticipos" },
   { key:"conciliacion", ic:"scale", icon:"🤝", label:"Conciliación",         sub:"Cuenta corriente con piladoras" },
   { key:"catalogo", ic:"package",     icon:"🏭", label:"Productos",            sub:"Catálogo, precios y promociones" },
+  { key:"unidades", ic:"scale",       icon:"⚖️", label:"Unidades / Presentaciones", sub:"Catálogo de unidades y su peso en quintales" },   /* CAT_UNIDADES · solo freelance */
   /* PROMO-05 · 6 ago 2026. Hasta hoy las promociones SOLO se podían meter por
      SQL: la tabla estaba, el cerrojo del regalo estaba y el catálogo de las
      apps ya las mostraba en P4 y P6, pero nadie de oficina las podía cargar.
@@ -536,7 +537,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"210", fecha:"24 ago 2026", desc:"Despacho: el selector de placas ya no satura la vista. Por defecto muestra solo unas 4 placas (la sugerida marcada ✓ y las que alcanzan la carga); con «＋ ver todas» se despliega el resto de la flota. Se puede seguir escribiendo la placa a mano igual." };
+const VERSION = { n:"211", fecha:"24 ago 2026", desc:"Unidades / Presentaciones: al crear un producto, la unidad (Quintal, Arroba, 10 libras, 5 libras, Libra, Saco…) ahora sale del catálogo y se puede ajustar su peso en quintales para ese producto. Además, el freelance tiene una pantalla nueva «Unidades / Presentaciones» para agregar, editar u ocultar unidades del catálogo." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -668,7 +669,7 @@ const TODAS_LAS_SECCIONES = SECCIONES.map(s => s.key);
 const GRUPOS_MENU = [
   { titulo:"Principal",  keys:["dashboard"] },
   { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","tarifasfe","calidad"] },
-  { titulo:"Comercial",  keys:["clientes","catalogo","promos","emparejar","marcas","preciosvig","socio"] },
+  { titulo:"Comercial",  keys:["clientes","catalogo","unidades","promos","emparejar","marcas","preciosvig","socio"] },
   { titulo:"Finanzas",   keys:["cobranza","pagos","comisiones","conciliacion"] },
   { titulo:"Gestión",    keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
   { titulo:"Sistema",    keys:["config","fallos","cuentas","empresas","admin"] },
@@ -8674,6 +8675,143 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
 }
 
 // Modal simple de alta de nuevo producto (entra Por aprobar)
+/* CAT_UNIDADES · Administración del catálogo de unidades/presentaciones (catalogo_unidades).
+   Solo el freelance puede escribir (la RLS ya candó a freelance); los demás lo ven en solo lectura.
+   equiv_qq = «el peso en quintales» (10 libras = 0,10; arroba = 0,25; quintal = 1). No toca la base
+   más allá de esta tabla; el cod es la llave junto con la organización y no se cambia en una existente. */
+function CatalogoUnidadesWeb({ usuario }) {
+  const esFreelance = !!(usuario && String(usuario.rol||"").toLowerCase()==="freelance");
+  const soloLectura = !esFreelance;
+  const [filas, setFilas] = useState(null);   // null=cargando · []=vacío · [filas]=real
+  const [error, setError] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [edit, setEdit] = useState(null);      // { cod, nombre, equiv, orden } en edición
+  const [nuevo, setNuevo] = useState({ cod:"", nombre:"", equiv:"", orden:"" });
+  const [orgId, setOrgId] = useState(null);
+
+  const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, outline:"none" };
+  const btn = (bg, col) => ({ padding:"7px 12px", borderRadius:8, border:"none", background:bg, color:col, fontSize:12.5, fontWeight:700, cursor:"pointer" });
+
+  const cargar = React.useCallback(async () => {
+    if (!window.supa) { setFilas([]); return; }
+    setError("");
+    try {
+      const org = await orgActivaWeb(); setOrgId(org);
+      const { data, error:e } = await window.supa.from("catalogo_unidades")
+        .select("cod,org_id,nombre,equiv_qq,activo,orden").order("orden");
+      if (e) { setError("No se pudo cargar el catálogo: "+e.message); setFilas([]); return; }
+      setFilas(data || []);
+    } catch (ex) { setError("No se pudo cargar el catálogo."); setFilas([]); }
+  }, []);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  const numEquiv = (v) => { const n = Number(String(v).replace(",", ".")); return isFinite(n) ? n : NaN; };
+
+  const agregar = async () => {
+    if (soloLectura || guardando) return;
+    const cod = nuevo.cod.trim().toUpperCase(), nombre = nuevo.nombre.trim();
+    const eq = numEquiv(nuevo.equiv), orden = parseInt(nuevo.orden, 10);
+    if (!cod) { setError("Escribe el código de la unidad (ej.: QQ, ARR, L10)."); return; }
+    if (!nombre) { setError("Escribe el nombre de la unidad."); return; }
+    if (!(eq > 0)) { setError("El peso en quintales debe ser mayor a 0 (ej.: 10 libras = 0,10)."); return; }
+    if ((filas||[]).some(f => String(f.cod).toUpperCase() === cod)) { setError("Ya existe una unidad con ese código. Edítala o usa otro código."); return; }
+    setGuardando(true); setError("");
+    try {
+      const org = orgId || await orgActivaWeb();
+      const { error:e } = await window.supa.from("catalogo_unidades")
+        .insert({ cod, org_id: org, nombre, equiv_qq: eq, orden: isFinite(orden)?orden:(filas||[]).length+1, activo: true });
+      if (e) { setError("No se pudo agregar (revisa permisos): "+e.message); }
+      else { setNuevo({ cod:"", nombre:"", equiv:"", orden:"" }); await cargar(); }
+    } catch (ex) { setError("No se pudo agregar la unidad."); }
+    setGuardando(false);
+  };
+
+  const guardarUnidad = async () => {
+    if (soloLectura || guardando || !edit) return;
+    const nombre = edit.nombre.trim(); const eq = numEquiv(edit.equiv); const orden = parseInt(edit.orden, 10);
+    if (!nombre) { setError("El nombre no puede quedar vacío."); return; }
+    if (!(eq > 0)) { setError("El peso en quintales debe ser mayor a 0."); return; }
+    setGuardando(true); setError("");
+    try {
+      const org = orgId || await orgActivaWeb();
+      const { error:e } = await window.supa.from("catalogo_unidades")
+        .update({ nombre, equiv_qq: eq, orden: isFinite(orden)?orden:0 }).eq("cod", edit.cod).eq("org_id", org);
+      if (e) { setError("No se pudo guardar (revisa permisos): "+e.message); }
+      else { setEdit(null); await cargar(); }
+    } catch (ex) { setError("No se pudo guardar el cambio."); }
+    setGuardando(false);
+  };
+
+  const ocultar = async (f, ocultarla) => {
+    if (soloLectura || guardando) return;
+    setGuardando(true); setError("");
+    try {
+      const org = orgId || await orgActivaWeb();
+      const { error:e } = await window.supa.from("catalogo_unidades")
+        .update({ activo: !ocultarla }).eq("cod", f.cod).eq("org_id", org);
+      if (e) { setError("No se pudo cambiar (revisa permisos): "+e.message); }
+      else await cargar();
+    } catch (ex) { setError("No se pudo cambiar el estado."); }
+    setGuardando(false);
+  };
+
+  return (
+    <div style={{ padding:"22px 28px 40px", maxWidth:820 }}>
+      <h2 style={{ fontSize:20, fontWeight:800, color:COLOR.text, margin:"0 0 4px" }}>Unidades / Presentaciones</h2>
+      <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 16px" }}>
+        El catálogo de unidades para crear productos. <b>El peso en quintales</b> (equivalencia) dice cuánto pesa cada unidad:
+        10 libras = <b>0,10</b> · arroba = <b>0,25</b> · quintal = <b>1</b>.
+      </p>
+      {soloLectura && <div style={{ background:"#EEF1F5", color:COLOR.muted, borderRadius:10, padding:"9px 12px", fontSize:12.5, marginBottom:14 }}>👁 Solo lectura · solo el freelance puede agregar o editar unidades.</div>}
+      {error && <div style={{ background:"#fdecea", color:COLOR.red, borderRadius:10, padding:"9px 12px", fontSize:12.5, marginBottom:14 }}>{error}</div>}
+
+      {filas === null ? <p style={{ color:COLOR.muted, fontSize:13 }}>Cargando el catálogo…</p> : (<>
+        <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1.4fr .7fr .8fr .5fr auto", gap:8, padding:"10px 14px", background:"#f7f9fa", fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
+            <span>Nombre</span><span>Código</span><span>Peso (qq)</span><span>Orden</span><span></span>
+          </div>
+          {filas.length === 0 && <div style={{ padding:"16px 14px", fontSize:13, color:COLOR.muted }}>Sin unidades cargadas todavía.</div>}
+          {filas.map(f => {
+            const enEd = edit && edit.cod === f.cod;
+            return (
+              <div key={f.cod} style={{ display:"grid", gridTemplateColumns:"1.4fr .7fr .8fr .5fr auto", gap:8, alignItems:"center", padding:"10px 14px", borderTop:`1px solid ${COLOR.border}`, opacity: f.activo?1:.55 }}>
+                {enEd ? <input value={edit.nombre} onChange={e=>setEdit({...edit, nombre:e.target.value})} style={inp} />
+                      : <span style={{ fontSize:13.5, fontWeight:700, color:COLOR.text }}>{f.nombre}{!f.activo && <span style={{ fontSize:11, color:COLOR.muted, fontWeight:600 }}> · oculta</span>}</span>}
+                <span style={{ fontSize:12.5, color:COLOR.muted, fontFamily:"monospace" }}>{f.cod}</span>
+                {enEd ? <input type="number" step="0.01" min="0" value={edit.equiv} onChange={e=>setEdit({...edit, equiv:e.target.value})} style={{...inp, width:80}} />
+                      : <span className="num" style={{ fontSize:13, color:COLOR.text }}>{Number(f.equiv_qq)}</span>}
+                {enEd ? <input type="number" value={edit.orden} onChange={e=>setEdit({...edit, orden:e.target.value})} style={{...inp, width:60}} />
+                      : <span className="num" style={{ fontSize:13, color:COLOR.muted }}>{f.orden}</span>}
+                <div style={{ display:"flex", gap:6, justifyContent:"flex-end" }}>
+                  {!soloLectura && (enEd
+                    ? <><button style={btn(COLOR.teal, "#fff")} disabled={guardando} onClick={guardarUnidad}>Guardar</button>
+                        <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setEdit(null)}>Cancelar</button></>
+                    : <><button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setEdit({ cod:f.cod, nombre:f.nombre, equiv:String(Number(f.equiv_qq)), orden:String(f.orden) })}>Editar</button>
+                        <button style={btn("#f3f5f7", f.activo?COLOR.orange:COLOR.tealDark)} disabled={guardando} onClick={()=>ocultar(f, f.activo)}>{f.activo?"Ocultar":"Reactivar"}</button></>)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {!soloLectura && (
+          <div style={{ marginTop:18, border:`1px dashed ${COLOR.border}`, borderRadius:12, padding:"14px 16px" }}>
+            <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:"0 0 10px" }}>Agregar unidad</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1.4fr .8fr .8fr .6fr auto", gap:8, alignItems:"center" }}>
+              <input placeholder="Nombre (ej.: 10 libras)" value={nuevo.nombre} onChange={e=>setNuevo({...nuevo, nombre:e.target.value})} style={inp} />
+              <input placeholder="Código (L10)" value={nuevo.cod} onChange={e=>setNuevo({...nuevo, cod:e.target.value})} style={{...inp, fontFamily:"monospace"}} />
+              <input type="number" step="0.01" min="0" placeholder="Peso qq (0.10)" value={nuevo.equiv} onChange={e=>setNuevo({...nuevo, equiv:e.target.value})} style={inp} />
+              <input type="number" placeholder="Orden" value={nuevo.orden} onChange={e=>setNuevo({...nuevo, orden:e.target.value})} style={inp} />
+              <button style={btn(COLOR.teal, "#fff")} disabled={guardando} onClick={agregar}>Agregar</button>
+            </div>
+            <p style={{ fontSize:11, color:COLOR.muted, margin:"8px 0 0" }}>El código es la llave: no se cambia en una unidad ya creada (si hace falta, crea otra).</p>
+          </div>
+        )}
+      </>)}
+    </div>
+  );
+}
+
 function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const [nombre, setNombre] = useState("");
   const [provModo, setProvModo] = useState("existente");
@@ -8681,6 +8819,12 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const [provTexto, setProvTexto] = useState("");
   const [provNuevo, setProvNuevo] = useState("");
   const [unidad, setUnidad] = useState("qq");
+  /* CAT_UNIDADES · unidades del catálogo (catalogo_unidades). null=cargando · []=vacío/fallback (usa
+     PRES_MAP) · [filas]=catálogo real. uniSel = { cod, nombre, equiv_qq } de la elegida; equivAjuste
+     permite fijar un peso distinto para ESTE producto (por si un saco/caja pesa distinto). */
+  const [unidades, setUnidades] = useState(null);
+  const [uniSel, setUniSel] = useState(null);
+  const [equivAjuste, setEquivAjuste] = useState("");
   const [baseContado, setBaseContado] = useState("");
   const [baseCredito, setBaseCredito] = useState("");
   const [costoContado, setCostoContado] = useState("");
@@ -8727,6 +8871,23 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
     })();
   }, []);
 
+  /* CAT_UNIDADES · carga las unidades activas del catálogo. Si viene vacío o sin conexión, queda []
+     y el modal cae al selector fijo (PRES_MAP) para no bloquear el alta. */
+  React.useEffect(() => {
+    if (!window.supa) { setUnidades([]); return; }
+    (async () => {
+      try {
+        const { data, error } = await window.supa.from("catalogo_unidades")
+          .select("cod,nombre,equiv_qq,activo,orden").eq("activo", true).order("orden");
+        if (error || !data || !data.length) { setUnidades([]); return; }
+        setUnidades(data);
+        const qq = data.find(u => String(u.cod).toUpperCase() === "QQ") || data[0];
+        setUniSel({ cod: qq.cod, nombre: qq.nombre, equiv_qq: Number(qq.equiv_qq) });
+        setEquivAjuste(String(Number(qq.equiv_qq)));
+      } catch (e) { setUnidades([]); }
+    })();
+  }, []);
+
   const PRES_MAP = { qq:{cod:"QQ",nom:"Quintal",eq:1}, arroba:{cod:"ARR",nom:"Arroba",eq:0.25},
     saco:{cod:"SACO",nom:"Saco",eq:1}, caja:{cod:"CAJA",nom:"Caja",eq:1},
     funda:{cod:"FUNDA",nom:"Funda",eq:1}, unidad:{cod:"UND",nom:"Unidad",eq:1} };
@@ -8749,7 +8910,12 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
     setGuardando(true); setAviso("");
     try {
       const r2 = x => Math.round(x*100)/100;
-      const pres = PRES_MAP[unidad] || PRES_MAP.qq;
+      /* CAT_UNIDADES · si hay unidad del catálogo elegida, se usa esa (con el equiv ajustado para
+         este producto si el freelance lo cambió); si no, cae al selector fijo (fallback). */
+      const ajuste = Number(String(equivAjuste).replace(",", "."));
+      const pres = (unidades && unidades.length && uniSel)
+        ? { cod: uniSel.cod, nom: uniSel.nombre, eq: (isFinite(ajuste) && ajuste > 0 ? ajuste : Number(uniSel.equiv_qq)) }
+        : (PRES_MAP[unidad] || PRES_MAP.qq);
       const { data:ult } = await window.supa.from("productos").select("prod_id").like("prod_id","P-%").order("prod_id",{ascending:false}).limit(1);
       const n = ult && ult[0] ? (parseInt(String(ult[0].prod_id).replace(/\D/g,""),10)||0) : 0;
       const prodId = "P-"+String(n+1).padStart(5,"0");
@@ -8805,11 +8971,34 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                     : <input value={provNuevo} onChange={e=>setProvNuevo(e.target.value)} placeholder="Crear piladora nueva se hace aparte, por ahora elige de la lista" style={{ ...inp, marginBottom:0 }} />}
                 </div>
                 <label style={lbl}>Presentación / unidad</label>
-                <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:16 }}>
-                  {UNIDADES_MEDIDA.map(u => (
-                    <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{UNI_LABEL[u]||u}</button>
-                  ))}
-                </div>
+                {/* CAT_UNIDADES · selector desde el catálogo (catalogo_unidades). Fallback al selector
+                    fijo si el catálogo viene vacío o sin conexión, para no bloquear el alta. */}
+                {(unidades && unidades.length) ? (
+                  <div style={{ marginBottom:16 }}>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
+                      {unidades.map(u => {
+                        const act = uniSel && uniSel.cod === u.cod;
+                        return (
+                          <button key={u.cod} onClick={()=>{ setUniSel({ cod:u.cod, nombre:u.nombre, equiv_qq:Number(u.equiv_qq) }); setEquivAjuste(String(Number(u.equiv_qq))); }}
+                            style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${act?COLOR.teal:COLOR.border}`, background: act?COLOR.tealLight:"#fff", color: act?COLOR.tealDark:COLOR.text }}>{u.nombre}</button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:11.5, color:COLOR.muted }}>Peso en quintales (1 = un quintal):</span>
+                      <input type="number" step="0.01" min="0" value={equivAjuste} onChange={e=>setEquivAjuste(e.target.value)}
+                        style={{ width:90, padding:"7px 9px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, outline:"none" }} />
+                      <span style={{ fontSize:11, color:COLOR.muted }}>qq</span>
+                    </div>
+                    <p style={{ fontSize:11, color:COLOR.muted, margin:"6px 0 0" }}>Viene del catálogo; puedes ajustarlo solo para este producto (ej.: un saco que pesa distinto).</p>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:16 }}>
+                    {UNIDADES_MEDIDA.map(u => (
+                      <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{UNI_LABEL[u]||u}</button>
+                    ))}
+                  </div>
+                )}
                 <div style={{ display:"flex", gap:14 }}>
                   <div style={{ flex:1 }}>
                     <label style={lbl}>Precio base contado</label>
@@ -21019,6 +21208,8 @@ function App() {
         return <PiladorasWeb usuario={sesion} />;
       case "tarifasfe":
         return <TarifasFEWeb usuario={sesion} />;
+      case "unidades":
+        return <CatalogoUnidadesWeb usuario={sesion} />;
       case "documentos":
         return <CustodiaWeb usuario={sesion} />;
       case "auditoria":
