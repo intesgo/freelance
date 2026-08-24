@@ -524,7 +524,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"206", fecha:"24 ago 2026", desc:"En Pagos, el freelance ahora ve «Convenios por autorizar»: cuando en el despacho se pactó un valor distinto del de tarifa, el pago queda por autorizar y debe aprobarlo antes de que Financiera pueda pagarlo. En Financiera, esos pagos salen con «⏳ por autorizar» y el botón de pagar queda bloqueado («Falta aprobar») hasta que el freelance los apruebe." };
+const VERSION = { n:"207", fecha:"24 ago 2026", desc:"El despacho de Logística se rehízo por ZONA: al despachar una ruta ahora se ve el flete del transportista por cada zona (con su qq y su $/qq), se puede asignar 1 ó 2 estibadores (cada uno con su zona) y pactar convenios; si un convenio difiere de la tarifa, el pago nace «por autorizar». Todo sale en un solo guardado y con un resumen antes de dar el botón." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2694,6 +2694,8 @@ function TrazabilidadWeb({ usuario }) {
       /* DISENO_LOGISTICA_QQ_RECORTADO · qq realmente planificado por pedido (lo recortado con casilleros).
          null = la ruta no lo guardó (rutas viejas) → se cae a logQQ en qqRutaPed. */
       qqPlan: Object.fromEntries(rp.map(x => [x.ped_id, x.qq_planificado==null?null:Number(x.qq_planificado)])),
+      /* FE_TANDA3_DESPACHO · ciudad por pedido, para agrupar el flete/estibada por ZONA en el modal de despacho. */
+      ciuPlan: Object.fromEntries(rp.map(x => [x.ped_id, x.ciudad || ""])),
       viajeId: r.viaje_id || null,
       qq: Number(r.qq_total) || 0,
       destino: (rp[0] && rp[0].ciudad) || "—",
@@ -3596,11 +3598,16 @@ function TrazabilidadWeb({ usuario }) {
   const [dPlaca, setDPlaca] = useState("");
   const [dDia, setDDia] = useState(hoyECWeb());
   const [dHora, setDHora] = useState("08:00");
-  /* FE03_ESTIBADOR_RUTA · estibador del despacho (obligatorio: sin él no nace el
-     pago de estibada). Se alimenta de la tabla `estibadores` (activo, no demo). */
+  /* FE_TANDA3_DESPACHO · estibadores del despacho (1 ó 2). Sin al menos uno no nace
+     el pago de estibada. Se alimentan de la tabla `estibadores` (activo, no demo). */
   const [estCat, setEstCat] = useState([]);
-  const [dEst, setDEst] = useState(null);
-  const [dEstTxt, setDEstTxt] = useState("");
+  /* FE_TANDA3_DESPACHO · el despacho ahora arma DOS caras (flete del transportista por zona,
+     y estibador(es) por zona), con ajuste por convenio. `dTab` alterna las dos caras;
+     `dFleteConv` guarda el convenio de flete por zona; `dEsts` es la lista de 1 ó 2
+     estibadores, cada uno con su zona (vacío = toda la ruta) y su convenio. */
+  const [dTab, setDTab] = useState("transportista");
+  const [dFleteConv, setDFleteConv] = useState({});   // { zona_id: "convenio $/qq" }
+  const [dEsts, setDEsts] = useState([{ id:null, nombre:"", cedula:"", txt:"", zona:"", conv:"" }]);
   useEffect(() => {
     if (!window.supa) return;
     let vivo = true;
@@ -3615,6 +3622,62 @@ function TrazabilidadWeb({ usuario }) {
     })();
     return () => { vivo = false; };
   }, []);
+  /* FE_TANDA3_DESPACHO · zonas (ciudad→zona) y tarifas por persona+zona, para dibujar
+     los chips de zona con su flete/estibada por defecto y detectar el convenio.
+     Replica la base: zonaDeCiudad = ciudad dentro de zonas.ciudades[] (sin mayúsculas,
+     sin espacios), y tarifaDe = tarifa exacta de la zona, o la general (zona nula) si no hay. */
+  const [zonasCat, setZonasCat] = useState([]);       // [{zona_id,nombre,ciudades:[]}]
+  const [tarPersona, setTarPersona] = useState({});   // { "concepto|persona_id": { zona_id||"__all": valor } }
+  useEffect(() => {
+    if (!window.supa) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const org = await orgActivaWeb();
+        const { data: zs } = await window.supa.from("zonas")
+          .select("zona_id,nombre,ciudades,activo").eq("org_id", org).eq("activo", true).order("nombre");
+        if (vivo) setZonasCat((zs || []).map(z => ({ zona_id:z.zona_id, nombre:z.nombre, ciudades:z.ciudades || [] })));
+        const { data: ts } = await window.supa.from("tarifas_fe")
+          .select("concepto,persona_id,zona_id,valor_qq").eq("org_id", org).eq("ambito", "persona").is("vigente_hasta", null);
+        const m = {};
+        (ts || []).forEach(t => { const k = t.concepto + "|" + t.persona_id; (m[k] = m[k] || {})[t.zona_id == null ? "__all" : t.zona_id] = Number(t.valor_qq); });
+        if (vivo) setTarPersona(m);
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
+  const zonaDeCiudad = (ciudad) => {
+    const c = String(ciudad || "").trim().toLowerCase();
+    if (!c) return null;
+    const z = zonasCat.find(z => (z.ciudades || []).some(x => String(x || "").trim().toLowerCase() === c));
+    return z ? z.zona_id : null;
+  };
+  const nombreZona = (zid) => zid == null ? "Sin zona" : ((zonasCat.find(x => x.zona_id === zid) || {}).nombre || zid);
+  /* fe_tarifa_vigente: exacta de la zona, o la general (zona nula) si no hay exacta. */
+  const tarifaDe = (concepto, persona, zona) => {
+    const m = tarPersona[concepto + "|" + persona]; if (!m) return null;
+    if (zona != null && m[zona] != null) return m[zona];
+    return m["__all"] != null ? m["__all"] : null;
+  };
+  /* Agrupa los pedidos de la ruta por ZONA (igual que lo hará el disparador al despachar),
+     sumando el qq planificado de cada zona. La zona nula («Sin zona») son ciudades que
+     todavía no están en ninguna zona: el flete de esas cae a la tarifa general del chofer. */
+  const zonasRutaDe = (r) => {
+    if (!r || !r.pedidos) return [];
+    const acc = {};
+    r.pedidos.forEach(pid => {
+      const zid = zonaDeCiudad((r.ciuPlan && r.ciuPlan[pid]) || "");
+      const key = zid == null ? "__none" : zid;
+      if (!acc[key]) acc[key] = { zona_id: zid, qq: 0 };
+      /* qq del pedido: el planificado (lo que de verdad va), igual que hace la base con
+         coalesce(qq_planificado, _log_qq_pedido); si la ruta vieja no lo guardó, cae al pedido. */
+      let qp = (r.qqPlan && r.qqPlan[pid] != null) ? r.qqPlan[pid] : null;
+      if (qp == null) { const po = pedidos.find(x => x.id === pid); qp = po ? logQQ(po) : 0; }
+      acc[key].qq += qp;
+    });
+    return Object.values(acc).map(z => ({ zona_id: z.zona_id, nombre: nombreZona(z.zona_id), qq: z.qq }))
+      .sort((a, b) => b.qq - a.qq);
+  };
   /* FE03_PAGOS_VIAJE · panel SOLO LECTURA de los pagos que nacieron de un viaje.
      El nombre de la persona no está en pagos_fe: flete → usuarios.nombre por
      usr_id; estibada → estibadores.nombre por est_id. */
@@ -3861,7 +3924,7 @@ function TrazabilidadWeb({ usuario }) {
     rutas.forEach(r => { const n = parseInt((r.viajeId||"").replace("VJ-",""))||0; if(n>max) max=n; });
     return "VJ-" + String(max+1).padStart(5,"0");
   };
-  const abrirDespacho = (r) => { setDTr(null); setDTrTxt(""); setDNuevoTr(null); setDPlaca(""); setDEst(null); setDEstTxt(""); setDDia(hoyECWeb()); setDHora("08:00"); setDespachar(r); };
+  const abrirDespacho = (r) => { setDTr(null); setDTrTxt(""); setDNuevoTr(null); setDPlaca(""); setDTab("transportista"); setDFleteConv({}); setDEsts([{ id:null, nombre:"", cedula:"", txt:"", zona:"", conv:"" }]); setDDia(hoyECWeb()); setDHora("08:00"); setDespachar(r); };
   const crearTrDespacho = () => {
     if (!dNuevoTr || !dNuevoTr.nombre.trim() || !dNuevoTr.cedula.trim()) { toast("Nombre y cédula del transportista."); return; }
     if (trCat.some(t=>t.cedula===dNuevoTr.cedula.trim())) { toast("Ya existe un transportista con esa cédula."); return; }
@@ -3910,20 +3973,31 @@ function TrazabilidadWeb({ usuario }) {
         alert("⚠ EL DESPACHO NO SE GUARDÓ\n\nLos transportistas que ves son de demostración. Entra con tu cuenta para despachar de verdad.");
         return;
       }
-      /* FE03_ESTIBADOR_RUTA · el estibador se asigna ANTES de despachar. Si se
-         invierte el orden, la estibada nacería sin persona a quien pagarle. */
-      if (!dEst) { toast("Elige el estibador (para el pago de estibada)."); return; }
-      /* FE-03.1 · mensajes claros de asignar_estibador_ruta (como DESP_ERR/ANUL_VIAJE_ERR) */
-      const EST_ERR = {
-        ESTIBADOR_NO_ENCONTRADO: "Ese estibador no existe en el sistema.",
-        ESTIBADOR_OBLIGATORIO:   "Elige el estibador de la ruta.",
-        RUTA_NO_ENCONTRADA:      "No se encontró la ruta.",
-        RUTA_YA_DESPACHADA:      "Esta ruta ya salió: el estibador ya no se puede cambiar.",
-        ROL_NO_AUTORIZADO:       "No tienes permiso para asignar el estibador.",
-        SIN_SESION:              "Tu sesión terminó. Vuelve a entrar para continuar.",
+      /* FE_TANDA3_DESPACHO · al menos un estibador: sin él no nace el pago de estibada. */
+      const ests = dEsts.filter(e => e.id);
+      if (!ests.length) { toast("Elige al menos un estibador (para el pago de estibada)."); setDTab("estibadores"); return; }
+      /* Con dos estibadores, cada uno debe llevar su ZONA (y distinta): así la base sabe cuál
+         estiba cada pedido. Si los dos quedaran «toda la ruta», el pago sería ambiguo. */
+      if (ests.length === 2) {
+        if (ests.some(e => !e.zona)) { toast("Con dos estibadores, asigna una zona a cada uno."); setDTab("estibadores"); return; }
+        if (ests[0].zona === ests[1].zona) { toast("Los dos estibadores no pueden tener la misma zona."); setDTab("estibadores"); return; }
+      }
+      /* Un convenio, si se escribe, debe ser un número mayor que 0; si está mal, se para. */
+      const convMal = (v) => { const s = String(v||"").trim(); if (s==="") return false; const n = Number(s.replace(",",".")); return !(n>0); };
+      if (Object.values(dFleteConv).some(convMal)) { toast("Revisa el convenio de flete: debe ser un número mayor que 0."); setDTab("transportista"); return; }
+      if (ests.some(e => convMal(e.conv))) { toast("Revisa el convenio de estibada: debe ser un número mayor que 0."); setDTab("estibadores"); return; }
+      /* FE_TANDA3_DESPACHO · el sobre (jsonb `p_asignacion`) que arma flete/estibada por zona:
+         · flete: SOLO las zonas donde se pactó un convenio (sin convenio, la base usa la tarifa del chofer).
+         · estibadores: cada estibador elegido (zona vacía = toda la ruta), con su convenio si lo hubo.
+         El disparador de la base marca «por autorizar» cuando el convenio ≠ la tarifa por defecto. */
+      const num = (v) => Number(String(v||"").trim().replace(",","."));
+      const p_asignacion = {
+        flete: zonasRutaDe(despachar)
+          .filter(z => z.zona_id != null && String(dFleteConv[z.zona_id]||"").trim() !== "")
+          .map(z => ({ zona_id: z.zona_id, convenio: num(dFleteConv[z.zona_id]) })),
+        estibadores: ests.map(e => ({ zona_id: e.zona || "", estibador_id: e.id,
+          convenio: String(e.conv||"").trim() === "" ? null : num(e.conv) })),
       };
-      const rEst = await correrRpc("asignar_estibador_ruta", { p_ruta_id: despachar.id, p_estibador_id: dEst.id }, EST_ERR);
-      if (!rEst.ok) return;
       const salida = new Date(dDia + "T" + (dHora||"08:00") + ":00").toISOString();
       const opId = crypto.randomUUID();
       const r = await correrRpc("despachar_ruta", {
@@ -3933,6 +4007,7 @@ function TrazabilidadWeb({ usuario }) {
         p_capacidad_qq: (chofer && Number(chofer.capacidadQQ)) || null,
         p_salida: salida,
         p_op_id: opId,
+        p_asignacion,
       }, DESP_ERR);
       if (!r.ok) return;
       const vj = r.data && r.data.viaje_id;
@@ -4238,6 +4313,18 @@ function TrazabilidadWeb({ usuario }) {
               {despachar.pedidos.length} pedido(s) · {Math.round(qqRuta(despachar))} qq · Al guardar nace el viaje {proximoViaje()}.
             </p>
 
+            {/* FE_TANDA3_DESPACHO · dos caras del despacho: el flete del transportista (por zona)
+                y el/los estibador(es). Se alternan con estos dos botones; el resumen y el botón
+                de despachar quedan siempre abajo. Se ocultan con display (no se desmontan) para
+                no perder lo escrito al cambiar de cara. */}
+            <div style={{ display:"flex", gap:8, margin:"4px 0 14px" }}>
+              {[["transportista","🚚 Transportista y flete"],["estibadores","💪 Estibador(es)"]].map(([k,t])=>(
+                <button key={k} onClick={()=>setDTab(k)} style={{ flex:1, padding:"9px 10px", borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:700,
+                  border:`1px solid ${dTab===k?COLOR.tealDark:COLOR.border}`, background: dTab===k?COLOR.tealDark:"#fff", color: dTab===k?"#fff":COLOR.muted }}>{t}</button>
+              ))}
+            </div>
+
+            <div style={{ display: dTab==="transportista" ? "block" : "none" }}>
             <label style={{ fontSize:12, fontWeight:700, display:"block", marginBottom:6 }}>Transportista * (del padrón; su tarifa vive en Tarifas de logística)</label>
             {/* Un chofer con dos camiones tiene DOS fichas (decision del 01/08/2026).
                 Si la lista mostrara solo el nombre, las dos saldrian identicas y
@@ -4331,15 +4418,87 @@ function TrazabilidadWeb({ usuario }) {
               );
             })()}
 
-            {/* FE03_ESTIBADOR_RUTA · estibador obligatorio; alimenta el pago de estibada */}
-            <label style={{ fontSize:12, fontWeight:700, display:"block", margin:"14px 0 6px" }}>Estibador * (para el pago de estibada)</label>
-            <BuscadorPredictivo cat="estibadores" items={estCat} value={dEstTxt}
-              placeholder="Escribe para buscar…"
-              label={e=> e.cedula ? (e.nombre + " · " + e.cedula) : e.nombre}
-              onText={t=>{ setDEstTxt(t); if(t==="") setDEst(null); }}
-              onPick={e=>{ setDEst(e); setDEstTxt(e.nombre); }} />
-            {dEst && <p style={{ fontSize:11.5, color:COLOR.teal, margin:"4px 0 0" }}>✓ {dEst.nombre}{dEst.cedula ? " · cédula "+dEst.cedula : ""}</p>}
-            {!estCat.length && <p style={{ fontSize:11.5, color:COLOR.orange, margin:"6px 0 0" }}>No hay estibadores activos. Créalos en «Tarifas de logística».</p>}
+            {/* FE_TANDA3_DESPACHO · FLETE POR ZONA (tramos): cada zona de la ruta con su qq y el
+                $/qq del chofer. Se puede pactar un convenio; si difiere de la tarifa, nace «por autorizar». */}
+            <label style={{ fontSize:12, fontWeight:700, display:"block", margin:"16px 0 6px" }}>Flete por zona (tramos)</label>
+            {!dTr && <p style={{ fontSize:11.5, color:COLOR.muted, margin:"0 0 6px" }}>Elige primero el transportista para ver su flete por zona.</p>}
+            {dTr && zonasRutaDe(despachar).map(z => {
+              const def = tarifaDe("flete", dTr.id, z.zona_id);
+              const convStr = dFleteConv[z.zona_id] || "";
+              const conv = convStr.trim()!=="" ? Number(convStr.replace(",",".")) : null;
+              const usa = conv!=null ? conv : def;
+              const porAut = conv!=null && def!=null && conv!==def;
+              return (
+                <div key={z.zona_id||"__none"} style={{ border:`1px solid ${COLOR.border}`, borderRadius:10, padding:"10px 12px", marginBottom:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <b style={{ fontSize:13 }}>{z.nombre} <span className="num" style={{ color:COLOR.muted, fontWeight:600 }}>· {Math.round(z.qq)} qq</span></b>
+                    <span style={{ fontSize:11.5, color:COLOR.muted }}>Por defecto: {def!=null ? "$"+def.toFixed(2)+"/qq" : "sin tarifa"}</span>
+                  </div>
+                  {z.zona_id!=null
+                    ? <input value={convStr} onChange={e=>setDFleteConv(m=>({...m, [z.zona_id]: e.target.value}))}
+                        placeholder={def!=null ? ("Convenio $/qq (por defecto "+def.toFixed(2)+")") : "Convenio $/qq"}
+                        style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${porAut?"#C9A94F":COLOR.border}`, fontSize:13, marginTop:8 }} />
+                    : <p style={{ fontSize:11.5, color:COLOR.muted, margin:"6px 0 0" }}>Ciudades sin zona: el flete se paga con la tarifa general del chofer (aquí no se pacta convenio).</p>}
+                  <p className="num" style={{ fontSize:12, margin:"6px 0 0", color: usa==null?COLOR.orange:COLOR.text }}>
+                    {usa!=null ? "Estimado: $"+(z.qq*usa).toFixed(2) : "Sin tarifa → nace pendiente de tarifa"}
+                    {porAut && <span style={{ color:"#7a4fb0", fontWeight:700 }}> · ⏳ por autorizar</span>}
+                  </p>
+                </div>
+              );
+            })}
+            </div>{/* fin cara transportista */}
+
+            <div style={{ display: dTab==="estibadores" ? "block" : "none" }}>
+            {/* FE_TANDA3_DESPACHO · 1 ó 2 estibadores. Zona vacía = toda la ruta. Con dos, cada uno
+                lleva su zona (así se sabe quién estiba qué). Convenio opcional por estibador. */}
+            <label style={{ fontSize:12, fontWeight:700, display:"block", margin:"4px 0 6px" }}>Estibador(es) * (para el pago de estibada)</label>
+            {!estCat.length && <p style={{ fontSize:11.5, color:COLOR.orange, margin:"0 0 8px" }}>No hay estibadores activos. Créalos en «Tarifas de logística».</p>}
+            {dEsts.map((e, i) => {
+              const zonasR = zonasRutaDe(despachar).filter(z=>z.zona_id!=null);
+              const conv = String(e.conv||"").trim()!=="" ? Number(String(e.conv).replace(",",".")) : null;
+              const zc = e.zona ? zonasRutaDe(despachar).filter(z=>z.zona_id===e.zona) : zonasRutaDe(despachar);
+              let estTot=0, pend=false; zc.forEach(z=>{ const def=tarifaDe("estibada",e.id,z.zona_id); const u=conv!=null?conv:def; if(u==null) pend=true; else estTot+=z.qq*u; });
+              const defMuestra = e.id ? tarifaDe("estibada", e.id, e.zona||null) : null;
+              const porAut = conv!=null && defMuestra!=null && conv!==defMuestra;
+              return (
+                <div key={i} style={{ border:`1px solid ${COLOR.border}`, borderRadius:11, padding:"12px 13px", marginBottom:10 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                    <b style={{ fontSize:12.5 }}>Estibador {i+1}</b>
+                    {dEsts.length>1 && <button onClick={()=>setDEsts(a=>a.filter((_,j)=>j!==i))} style={{ border:"none", background:"none", color:COLOR.red, fontSize:12, fontWeight:700, cursor:"pointer" }}>Quitar</button>}
+                  </div>
+                  <BuscadorPredictivo cat={"estibadores-"+i} items={estCat} value={e.txt}
+                    placeholder="Escribe para buscar…"
+                    label={x=> x.cedula ? (x.nombre + " · " + x.cedula) : x.nombre}
+                    onText={t=>setDEsts(a=>a.map((x,j)=> j===i ? {...x, txt:t, ...(t===""?{id:null,nombre:"",cedula:""}:{})} : x))}
+                    onPick={x=>setDEsts(a=>a.map((y,j)=> j===i ? {...y, id:x.id, nombre:x.nombre, cedula:x.cedula||"", txt:x.nombre} : y))} />
+                  {e.id && <p style={{ fontSize:11.5, color:COLOR.teal, margin:"4px 0 0" }}>✓ {e.nombre}{e.cedula ? " · cédula "+e.cedula : ""}</p>}
+                  <div style={{ display:"flex", gap:10, marginTop:8, flexWrap:"wrap" }}>
+                    <div style={{ flex:"1 1 150px" }}>
+                      <label style={{ fontSize:11, fontWeight:700, color:COLOR.muted, display:"block", marginBottom:4 }}>Zona</label>
+                      <select value={e.zona} onChange={ev=>setDEsts(a=>a.map((x,j)=> j===i ? {...x, zona:ev.target.value} : x))}
+                        style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, background:"#fff" }}>
+                        <option value="">Toda la ruta</option>
+                        {zonasR.map(z=><option key={z.zona_id} value={z.zona_id}>{z.nombre} ({Math.round(z.qq)} qq)</option>)}
+                      </select>
+                    </div>
+                    <div style={{ flex:"1 1 150px" }}>
+                      <label style={{ fontSize:11, fontWeight:700, color:COLOR.muted, display:"block", marginBottom:4 }}>Convenio $/qq (opcional)</label>
+                      <input value={e.conv} onChange={ev=>setDEsts(a=>a.map((x,j)=> j===i ? {...x, conv:ev.target.value} : x))}
+                        placeholder={defMuestra!=null ? ("por defecto "+defMuestra.toFixed(2)) : "$/qq"}
+                        style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${porAut?"#C9A94F":COLOR.border}`, fontSize:13 }} />
+                    </div>
+                  </div>
+                  {e.id && <p className="num" style={{ fontSize:12, margin:"8px 0 0", color: pend?COLOR.orange:COLOR.text }}>
+                    {pend ? "Alguna zona sin tarifa de estibada → nace pendiente de tarifa" : "Estimado: $"+estTot.toFixed(2)}
+                    {porAut && <span style={{ color:"#7a4fb0", fontWeight:700 }}> · ⏳ por autorizar</span>}
+                  </p>}
+                </div>
+              );
+            })}
+            {dEsts.length<2 && <button onClick={()=>setDEsts(a=>[...a, { id:null, nombre:"", cedula:"", txt:"", zona:"", conv:"" }])}
+              style={{ ...btn(COLOR.tealLight, COLOR.tealDark), padding:"8px 13px", fontSize:12.5 }}>+ Agregar otro estibador</button>}
+            {dEsts.length===2 && <p style={{ fontSize:11.5, color:COLOR.muted, margin:"8px 0 0" }}>Con dos estibadores, asigna una zona distinta a cada uno para saber quién estiba qué.</p>}
+            </div>{/* fin cara estibadores */}
 
             <div style={{ display:"flex", gap:12, marginBottom:16 }}>
               <div style={{ flex:1 }}><label style={{ fontSize:12, fontWeight:700, display:"block", marginBottom:6 }}>Día de despacho</label>
@@ -4348,11 +4507,39 @@ function TrazabilidadWeb({ usuario }) {
                 <input type="time" value={dHora} onChange={e=>setDHora(e.target.value)} style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14 }} /></div>
             </div>
 
+            {/* FE_TANDA3_DESPACHO · RESUMEN · lo que va a nacer (estimado) de flete y estibada,
+                marcando cuántos renglones quedan «por autorizar». Los pagos reales los calcula la
+                base al despachar (por qq facturado); esto es una guía antes de dar el botón. */}
+            {fuenteLog==="vivo" && dTr && (() => {
+              const numC = (v) => { const s = String(v||"").trim(); return s===""?null:Number(s.replace(",",".")); };
+              const zr = zonasRutaDe(despachar);
+              let fTot=0, fPend=false, fAut=0;
+              zr.forEach(z => { const def=tarifaDe("flete", dTr.id, z.zona_id); const conv=z.zona_id!=null?numC(dFleteConv[z.zona_id]):null; const usa=conv!=null?conv:def; if(usa==null) fPend=true; else fTot+=z.qq*usa; if(conv!=null&&def!=null&&conv!==def) fAut++; });
+              let eTot=0, ePend=false, eAut=0;
+              dEsts.filter(e=>e.id).forEach(e => { const conv=numC(e.conv); const zc=e.zona?zr.filter(z=>z.zona_id===e.zona):zr; zc.forEach(z=>{ const def=tarifaDe("estibada", e.id, z.zona_id); const usa=conv!=null?conv:def; if(usa==null) ePend=true; else eTot+=z.qq*usa; if(conv!=null&&def!=null&&conv!==def) eAut++; }); });
+              const porAut = fAut + eAut;
+              return (
+                <div style={{ background:"#F7FAFC", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
+                  <p style={{ fontSize:12, fontWeight:800, margin:"0 0 6px", color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>Resumen del despacho</p>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"2px 0" }}><span>Flete (transportista)</span><b className="num">{fPend ? "$"+fTot.toFixed(2)+" + pend." : "$"+fTot.toFixed(2)}</b></div>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"2px 0" }}><span>Estibada ({dEsts.filter(e=>e.id).length} estibador(es))</span><b className="num">{ePend ? "$"+eTot.toFixed(2)+" + pend." : "$"+eTot.toFixed(2)}</b></div>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13.5, padding:"6px 0 0", marginTop:4, borderTop:`1px solid ${COLOR.border}`, fontWeight:800 }}><span>Total estimado</span><b className="num">${(fTot+eTot).toFixed(2)}</b></div>
+                  {porAut>0 && <p style={{ fontSize:12, color:"#7a4fb0", fontWeight:700, margin:"8px 0 0" }}>⏳ {porAut} renglón(es) con convenio quedarán «por autorizar» hasta que el freelance los apruebe.</p>}
+                  {(fPend||ePend) && <p style={{ fontSize:12, color:COLOR.orange, margin:"6px 0 0" }}>Hay zonas sin tarifa cargada: esos pagos nacen «pendiente de tarifa» hasta fijarla en «Tarifas de logística».</p>}
+                </div>
+              );
+            })()}
+
+            {(() => {
+              const bloqueado = rpcOn || (fuenteLog==="vivo" && (!dTr || !dPlaca.trim() || !dEsts.some(e=>e.id)));
+              return (
             <div style={{ display:"flex", justifyContent:"space-between" }}>
               <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setDespachar(null)}>Cancelar</button>
-              {/* FE03_ESTIBADOR_RUTA · sin estibador no se puede despachar (modo vivo) */}
-              <button disabled={rpcOn || (fuenteLog==="vivo" && !dEst)} style={{ ...btn(COLOR.green), opacity:(rpcOn || (fuenteLog==="vivo" && !dEst))?.55:1, cursor:(rpcOn || (fuenteLog==="vivo" && !dEst))?"not-allowed":"pointer" }} onClick={guardarDespacho}>Despachar ✓ · nace {proximoViaje()}</button>
+              {/* FE_TANDA3_DESPACHO · sin transportista, placa o al menos un estibador no se puede despachar (modo vivo) */}
+              <button disabled={bloqueado} style={{ ...btn(COLOR.green), opacity:bloqueado?.55:1, cursor:bloqueado?"not-allowed":"pointer" }} onClick={guardarDespacho}>Despachar ✓ · nace {proximoViaje()}</button>
             </div>
+              );
+            })()}
           </div>
         </div>
       )}
