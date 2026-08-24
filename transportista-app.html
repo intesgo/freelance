@@ -540,7 +540,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"36", fecha:"17 ago 2026", desc:"El flete ahora se cobra al entregar: mientras no cierres la parada, sale como «Se cobra al entregar» (no es un problema) y arriba ves cuánto se cobra al confirmar las entregas. Al confirmar, pasa a «Por cobrar»." };
+const VERSION = { n:"37", fecha:"24 ago 2026", desc:"En «Pagos por transporte», si un flete se pactó con un valor especial (convenio) que el freelance todavía no aprueba, ahora se ve la etiqueta «⏳ por autorizar»: se cobra recién cuando lo autoricen." };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -3455,7 +3455,7 @@ function SecPagos({ chofer }){
            NO es cosmético, es lo único que evita que un chofer vea la plata de los
            demás. No quitarlo. supabase-js no lanza excepción: el error va en r.error. */
         const { data, error } = await window.SB.from("pagos_fe")
-          .select("pago_id,viaje_id,guia_id,qq_base,valor_qq,monto,estado")
+          .select("pago_id,viaje_id,guia_id,qq_base,valor_qq,monto,estado,autorizado")
           .eq("concepto","flete").eq("persona_id", yo.usr_id).eq("es_demo", false)
           .neq("estado","anulado").order("viaje_id",{ ascending:false });
         if(error || !data || !data.length){ if(on) setVivo(false); return; }
@@ -3528,7 +3528,10 @@ function SecPagos({ chofer }){
             {pagado ? <span className="badge-est be-ok">Cobrado</span>
               : falta ? <span className="badge-est be-nov">Falta tarifa</span>
               : espera ? <span className="badge-est" style={{background:"#EEF1F5",color:"var(--muted)"}}>Se cobra al entregar</span>
-              : <span className="badge-est be-parcial">Por cobrar</span>}</div>
+              : <span className="badge-est be-parcial">Por cobrar</span>}
+            {/* FE_TANDA4_CHOFER · si el flete tiene un convenio (valor pactado) que el freelance
+                aún no aprueba, se avisa aquí: se paga recién cuando lo autorice. */}
+            {f.autorizado===false && !pagado && <span className="badge-est" style={{background:"#F3EDFB",color:"#7a4fb0"}}>⏳ por autorizar</span>}</div>
         </div>
       );
     })}

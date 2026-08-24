@@ -31,11 +31,17 @@ veía en ningún lado y Financiera podía pagar un convenio que nadie aprobó. A
   convenio no autorizado, corta antes de llamar al RPC con un aviso claro; y si el RPC
   devuelve `PAGO_POR_AUTORIZAR`, también se traduce a palabras.
 
+### C) App del transportista · etiqueta «por autorizar» (añadido después, mínimo)
+- `transportista-app.html` · `SecPagos` (ancla `FE_TANDA4_CHOFER`). El select de `pagos_fe` ahora
+  trae también `autorizado`. En cada flete, si `autorizado === false` y aún no está pagado, sale la
+  etiqueta **«⏳ por autorizar»** junto al estado: el chofer sabe que ese flete tiene un valor pactado
+  (convenio) que el freelance todavía no aprueba y se cobra recién cuando lo autoricen.
+- Solo lectura: la app del chofer nunca paga ni escribe `pagos_fe`; sigue filtrando por su `usr_id`.
+
 ## Qué NO se tocó
 La base (ningún insert/update/delete; todo por RPC ya aplicado), el pago normal de tarifa
-(los que nacen `autorizado = true` siguen igual), la app del chofer, el módulo de despacho
-(Etapa 2 de la Tanda 3), permisos ni reglas de negocio. La app transportista (parte C
-opcional: etiqueta «por autorizar») **no se incluyó** en esta tanda por ser mínima/opcional.
+(los que nacen `autorizado = true` siguen igual), el módulo de despacho, permisos ni reglas de
+negocio. La app del chofer solo suma la etiqueta informativa; no cambia cómo cobra.
 
 ## Cómo verificar
 1. `node scripts/compilar.js` + `node pruebas/pruebas.js rapido` en verde.

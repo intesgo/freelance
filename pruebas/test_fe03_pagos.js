@@ -11,8 +11,8 @@ let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
 ok(/const VERSION = \{ n:"207"/.test(web),"Sistema Web debe anunciar b207");
-ok(/const VERSION = \{ n:"36"/.test(tr),"la app del transportista debe anunciar v36");
-ok(/const CACHE = "freelance-v311"/.test(sw),"la caché debe renovarse a v311");
+ok(/const VERSION = \{ n:"37"/.test(tr),"la app del transportista debe anunciar v37");
+ok(/const CACHE = "freelance-v312"/.test(sw),"la caché debe renovarse a v312");
 
 /* ── FE-04 · mensaje claro al anular con pago pagado ── */
 ok(/VIAJE_CON_PAGOS_PAGADOS: "No se puede anular/.test(web),"Logística mapea el error VIAJE_CON_PAGOS_PAGADOS a un mensaje en palabras");
