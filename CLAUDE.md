@@ -55,6 +55,13 @@ Otras piezas:
   dependan de terceros; solo quedan en CDN piezas puntuales que **no** bloquean el
   arranque (jspdf, tesseract, xlsx). No sumes dependencias externas nuevas.
 
+### Reglas de UI / diseño
+
+- **No repetir el título del módulo dentro del componente** (Sistema Web): la cabecera del
+  menú (`SECCIONES`: `label` + `sub`, pintada por `Header`) ya lo muestra. El componente **NO**
+  debe pintar un `<h2>` (ni otro encabezado) con el mismo título del módulo. Conservar solo el
+  texto explicativo/ayuda si aporta. (Ancla usada al limpiar: `DISENO_TITULO_UNICO`.)
+
 ---
 
 ## 2. Antes de tocar nada: sincronízate con `main`
