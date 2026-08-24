@@ -137,6 +137,55 @@ function clasificarTabPed(cod, log){
   return "sin_clasificar";
 }
 const PAG_PED_WEB = 100;   /* PED_FE_002 · tamaño de página al leer pedidos del servidor (.range) */
+
+/* PED_FE_003 · búsqueda de SERVIDOR. Para cliente/RUC/vendedor NO se puede filtrar por texto
+   directo en «pedidos» (el nombre vive en otra tabla): se resuelven primero los ids que casan
+   (clientes por nombre/razón/RUC, usuarios por nombre) y luego se filtra por .in en pedidos.
+   Devuelve {cliIds, subIds} (null si no hay búsqueda). Solo lee columnas ya existentes. */
+async function resolverBusquedaPed(supa, texto) {
+  const t = String(texto || "").trim();
+  if (!t) return { cliIds:null, subIds:null };
+  const like = "%" + t.replace(/[%,()]/g, " ") + "%";   // se limpian los caracteres que rompen el .or de PostgREST
+  const [rc, ru] = await Promise.all([
+    supa.from("clientes").select("cli_id").or(`nombre.ilike.${like},razon_social.ilike.${like},ruc.ilike.${like}`).limit(300),
+    supa.from("usuarios").select("usr_id").ilike("nombre", like).limit(300),
+  ]);
+  return {
+    cliIds: ((rc && rc.data) || []).map(x => x.cli_id).filter(Boolean),
+    subIds: ((ru && ru.data) || []).map(x => x.usr_id).filter(Boolean),
+  };
+}
+/* PED_FE_003 · aplica los filtros (y la búsqueda ya resuelta) a una consulta de «pedidos».
+   Los mismos filtros valen para la lista y para el conteo, para que los números cuadren. */
+function aplicarFiltrosPed(q, c, cliIds, subIds) {
+  c = c || {};
+  if (c.fProv)   q = q.eq("prov_cod", c.fProv);
+  if (c.fVend)   q = q.eq("sub_id", c.fVend);
+  if (c.fCond)   q = q.eq("condicion", c.fCond);
+  if (c.fEstado) q = q.eq("estado", c.fEstado);
+  if (c.fCiudad) q = q.ilike("ciudad", "%" + String(c.fCiudad).replace(/[%,()]/g, " ") + "%");
+  if (c.fDesde)  q = q.gte("creado", c.fDesde);
+  if (c.fHasta)  q = q.lte("creado", c.fHasta + "T23:59:59");
+  if (c.buscar) {
+    const like = "%" + String(c.buscar).replace(/[%,()]/g, " ") + "%";
+    const partes = [`numero_pedido.ilike.${like}`, `factura.ilike.${like}`, `prov_cod.ilike.${like}`];
+    if (cliIds && cliIds.length) partes.push(`cli_id.in.(${cliIds.join(",")})`);
+    if (subIds && subIds.length) partes.push(`sub_id.in.(${subIds.join(",")})`);
+    q = q.or(partes.join(","));
+  }
+  return q;
+}
+/* PED_FE_003 · antigüedad legible de una fecha ISO (para «creado hace N días»). Sin fuente real
+   de cambio de estado en el listado (eso vive en el historial · Etapa 2), se mide desde `creado`. */
+function haceCuantoWeb(iso) {
+  if (!iso) return "";
+  const hoy = new Date(hoyECWeb() + "T12:00:00");
+  const d = new Date(hoyECWeb(new Date(iso)) + "T12:00:00");
+  const dias = Math.round((hoy - d) / 86400000);
+  if (isNaN(dias)) return "";
+  if (dias <= 0) return "hoy";
+  return "hace " + dias + (dias === 1 ? " día" : " días");
+}
 /* PED_EQUIV_OBLIGATORIA · la equivalencia de una presentación: si viene válida (>0)
    se respeta; si falta (0/null/NaN) NO se enmascara a 1 en silencio — solo el Quintal
    (1:1) vale 1, cualquier otra presentación queda en 0 para que el guardado la RECHACE
@@ -475,7 +524,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"202", fecha:"24 ago 2026", desc:"Pedidos ahora dice la verdad de la carga: mientras trae los datos avisa «Cargando…»; si falla la conexión, el permiso o la sesión muestra el motivo y un botón «Reintentar» (ya no un falso «0 pedidos»). Un pedido sin líneas ya no desaparece de la lista. Los números de cada pestaña reflejan el TOTAL real (no solo lo que se ve). «Ver más» trae otra tanda desde el servidor sin bajar toda la base, y cada pedido llega con su detalle completo. Botón «Actualizar» con la hora de la última carga, y la lista se refresca sola al volver a la pestaña." };
+const VERSION = { n:"203", fecha:"24 ago 2026", desc:"Pedidos ahora se busca y se filtra: una caja de búsqueda encuentra por N.º, factura, cliente, RUC, proveedor o vendedor (desde el servidor, salta a «Todos»), y una barra plegable filtra por fechas, proveedor, vendedor, condición, estado y ciudad. En el celular cada pedido se ve como una tarjeta (no una tabla apretada) y las pestañas se deslizan. En el escritorio la tabla muestra proveedor·ciudad bajo el cliente, la factura bajo el N.º, la antigüedad del pedido y acciones Ver/Editar. Cada pestaña muestra su dato clave (cuántos requieren aprobación, cuántos con saldo/parcial). El detalle del pedido suma proveedor, vendedor, factura y entrega." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5527,7 +5576,7 @@ function LoginWeb({ onAcceder }) {
    detalle de productos y resumen económico. No consulta nada nuevo: usa los datos ya en memoria
    (p.lineas y los totales que trae la fila). Cierra con X / Cerrar / Escape; foco atrapado dentro
    del diálogo y devuelto a la fila al cerrar; role="dialog" aria-modal. Solo muestra lo que existe. */
-function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente, abreviarPres, onIrLogistica }){
+function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente, abreviarPres, onIrLogistica, vendedor }){
   const cajaRef = React.useRef(null);
   const antesRef = React.useRef(null);
   React.useEffect(()=>{
@@ -5581,11 +5630,16 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
         </div>
 
         <div style={{ padding:"14px 20px 18px", overflowY:"auto" }}>
+          {/* PED_FE_003 · Resumen (A): datos generales del pedido. Entrega/Historial (B/C) es Etapa 2. */}
           <div style={{ display:"flex", flexWrap:"wrap", gap:14, marginBottom:16 }}>
             {dato("Fecha del pedido", p.fecha ? p.fecha.split("-").reverse().join("/") : "—")}
             {dato("Cliente", nombreCliente(p))}
+            {p.prov && dato("Proveedor", p.prov)}
+            {vendedor && dato("Vendedor", vendedor)}
             {dato("Condición", p.cond || "—")}
+            {p.factura && dato("Factura", p.factura)}
             {p.fechaEntrega && dato("Entrega deseada", String(p.fechaEntrega).slice(0,10).split("-").reverse().join("/"))}
+            {dato("Entrega", p.retiroBodega ? "Retiro en bodega" : (p.ciudad || "A domicilio"))}
           </div>
           {p.notaChofer && (
             <div style={{ marginBottom:16, background:"#F7F9FB", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"11px 13px" }}>
@@ -5668,6 +5722,17 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const [hayMasPed, setHayMasPed] = useState(false);     // la última página vino llena → puede haber más
   const [conteosPed, setConteosPed] = useState(null);    // {todos,pendientes,…} conteos REALES del servidor
   const [actualizadoPed, setActualizadoPed] = useState(""); // "HH:MM" (hora EC) de la última carga completa
+  /* PED_FE_003 · búsqueda global y barra de filtros, TODO de servidor (no en memoria). */
+  const [buscar, setBuscar] = useState("");
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
+  const [fDesde, setFDesde] = useState(""); const [fHasta, setFHasta] = useState("");
+  const [fProv, setFProv] = useState("");   const [fVend, setFVend] = useState("");
+  const [fCond, setFCond] = useState("");   const [fEstado, setFEstado] = useState("");
+  const [fCiudad, setFCiudad] = useState("");
+  const [usuariosMap, setUsuariosMap] = useState({});    // usr_id → nombre (vendedores, para mostrar y filtrar)
+  const criteriosRef = React.useRef({});
+  criteriosRef.current = { buscar: buscar.trim(), fDesde, fHasta, fProv, fVend, fCond, fEstado, fCiudad: fCiudad.trim() };
+  const hayFiltro = !!(fDesde || fHasta || fProv || fVend || fCond || fEstado || fCiudad.trim());
   /* ── FASE 4 (b37) · Pedidos VIVOS reparados. El cableado "listo y esperando" de Fase 1b
      tenía tres fallas descubiertas en la auditoría de los 57: (1) usaba el puente anónimo
      sbLeer y el RLS cierra pedidos/pedido_items a anon → jamás traía datos, ni con sesión;
@@ -5704,15 +5769,19 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           return;
         }
         /* PED_FE_002 · paginación de servidor: se pide SOLO la página pedida (~100) con .range,
-           en vez de bajar toda la base. La búsqueda filtrada de servidor es la tanda PED-FE-003. */
+           en vez de bajar toda la base. PED_FE_003 · con búsqueda y filtros aplicados en el servidor. */
         const desde = Math.max(0, pagina) * PAG_PED_WEB;
         const hasta = desde + PAG_PED_WEB - 1;
-        const { data: p, error: ep } = await window.supa.from("pedidos")
+        const crit = criteriosRef.current || {};
+        const { cliIds, subIds } = await resolverBusquedaPed(window.supa, crit.buscar);
+        let qPed = window.supa.from("pedidos")
           /* PED_NUMERO_Y_MODAL · se traen el número de pedido (numero_pedido, ya poblado por
              Cowork para pedidos reales; null en demo) y los datos de entrega/cobro para el modal
              de solo lectura. No se toca la base ni las RPC: solo se leen columnas ya existentes. */
           .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq,clientes(nombre,razon_social,tipo),proveedores(nombre)")
-          .order("creado", { ascending: false }).range(desde, hasta);
+          .order("creado", { ascending: false });
+        qPed = aplicarFiltrosPed(qPed, crit, cliIds, subIds);
+        const { data: p, error: ep } = await qPed.range(desde, hasta);
         if (ep) throw new Error(ep.message || "no se pudieron leer los pedidos");
         if (!Array.isArray(p)) throw new Error("respuesta inesperada al leer pedidos");
         /* PED_FE_002 · las líneas SOLO de los pedidos de esta página (.in por ped_id), no un
@@ -5767,6 +5836,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
             cli: cliNom, razon: razon, tipoCli: (pd.clientes && pd.clientes.tipo) || null,
             /* PED_FE_001 · el CÓDIGO crudo del estado manda la clasificación (no la etiqueta linda) */
             estadoCod: pd.estado || null, estadoLog: pd.estado_logistico || null,
+            /* PED_FE_003 · datos secundarios de la fila/modal + el vendedor (nombre por sub_id en render) */
+            sub: pd.sub_id || null, provCod: pd.prov_cod || null, factura: pd.factura || null, ciudad: pd.ciudad || null, creadoRaw: pd.creado || null,
             prov: provNom, cond: condTxt, estado: estadoTxt, fecha: pd.creado ? hoyECWeb(new Date(pd.creado)) : "",
             demo: !!pd.es_demo, editable: editable(pd),
             totalQq, nLineas, prodGuia, importe,
@@ -5810,8 +5881,13 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
     try {
       const { data: s } = await window.supa.auth.getSession();
       if (!s || !s.session) return;
-      const { data, error } = await window.supa.from("pedidos")
-        .select("ped_id,estado,estado_logistico,es_demo").limit(5000);
+      /* PED_FE_003 · el conteo usa los MISMOS filtros/búsqueda que la lista, para que los números
+         de las pestañas cuadren con lo que se muestra. */
+      const crit = criteriosRef.current || {};
+      const { cliIds, subIds } = await resolverBusquedaPed(window.supa, crit.buscar);
+      let qC = window.supa.from("pedidos").select("ped_id,estado,estado_logistico,es_demo");
+      qC = aplicarFiltrosPed(qC, crit, cliIds, subIds);
+      const { data, error } = await qC.limit(5000);
       if (error || !Array.isArray(data)) return;   // el conteo es de apoyo: si falla, se cuenta lo cargado
       const c = { todos:data.length, pendientes:0, por_despachar:0, en_ruta:0, entregados:0, anulados:0, sin_clasificar:0 };
       data.forEach(r => { const k = clasificarTabPed(r.estado, r.estado_logistico); c[k] = (c[k]||0) + 1; });
@@ -5831,6 +5907,31 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   }, [refrescarPedidos]);
   /* PED_FE_002 · «Ver más» pide la SIGUIENTE página al servidor y la agrega. */
   const verMasPed = () => cargarPedidosVivos({ pagina: pagServidor + 1, append: true });
+  /* PED_NUMERO_Y_MODAL · abrir el modal de solo lectura del pedido (fila o tarjeta, clic o teclado). */
+  const abrirModalPed = (p) => setPedModal(p);
+  /* PED_FE_003 · vendedores (usr_id → nombre) para mostrar la columna Vendedor y llenar su filtro. */
+  useEffect(() => {
+    if (!window.supa || !window.supa.auth) return; let vivo = true;
+    (async () => {
+      try {
+        const { data: s } = await window.supa.auth.getSession();
+        if (!s || !s.session) return;
+        const { data } = await window.supa.from("usuarios").select("usr_id,nombre,rol,activo").limit(2000);
+        if (!vivo) return;
+        const m = {}; (data || []).forEach(u => { if (u && u.usr_id) m[u.usr_id] = u.nombre || u.usr_id; });
+        setUsuariosMap(m);
+      } catch (_) { /* la columna Vendedor queda con «—» si no se pudo leer */ }
+    })();
+    return () => { vivo = false; };
+  }, []);
+  /* PED_FE_003 · búsqueda/filtros de servidor con debounce: al cambiar cualquier criterio se
+     recarga la primera página + los conteos (el montaje ya carga, así que la 1ª vez se salta). */
+  const primeraCargaRef = React.useRef(true);
+  useEffect(() => {
+    if (primeraCargaRef.current) { primeraCargaRef.current = false; return; }
+    const t = setTimeout(() => { cargarPedidosVivos({ pagina:0 }); cargarConteos(); }, 300);
+    return () => clearTimeout(t);
+  }, [buscar, fDesde, fHasta, fProv, fVend, fCond, fEstado, fCiudad, cargarPedidosVivos, cargarConteos]);
   const [vista, setVista] = useState("lista");
   const [pTab, setPTab] = useState("pendientes");     // PED_FE_001 · todos|pendientes|por_despachar|en_ruta|entregados|anulados|sin_clasificar
   const [aviso, setAviso] = useState("");
@@ -6494,15 +6595,61 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   // ════ VISTA LISTA ════
   /* PED_FE_001 · Trazabilidad ELIMINADA de Pedidos (vistaTraza/tzRecorrido/tzCandidatos y su buscador demo): el seguimiento vive en Logística. El demo (EF_VIAJES_INI y cía.) queda para otras pantallas. */
 
+  /* PED_FE_003 · responsive (tarjetas en móvil), vendedor por sub_id, opciones de filtro y métrica por pestaña. */
+  const movil = useEsMovil(760);
+  const vendedorDe = (p) => (p && p.sub && usuariosMap[p.sub]) || "";
+  const vendOpciones = Object.keys(usuariosMap).map(id => [id, usuariosMap[id]]).sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+  const provOpciones = (()=>{ const m={}; pedidos.forEach(p=>{ if(p.provCod) m[p.provCod]=p.prov||p.provCod; }); return Object.keys(m).map(k=>[k,m[k]]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]))); })();
+  const ESTADOS_FILTRO = [["","Todos los estados"],["ingresado","Ingresado"],["esperando_aprobacion","Esperando aprobación"],["enviado_proveedor","Enviado al proveedor"],["facturado","Facturado"],["despachado","Despachado"],["entregado","Entregado"],["cliente_pago","Cliente pagó"],["cerrado","Cerrado"],["anulado","Anulado"]];
+  const limpiarFiltros = () => { setFDesde(""); setFHasta(""); setFProv(""); setFVend(""); setFCond(""); setFEstado(""); setFCiudad(""); };
+  /* PED_FE_003 · métrica CONTEXTUAL por pestaña, SOLO con datos reales de lo cargado; si no hay, se omite.
+     (Las métricas que exigen ruta/fechas —«sin ruta», «con retraso»— quedan para cuando el modal
+     Entrega/Historial traiga esas lecturas · Etapa 2.) */
+  const metricaTab = (()=>{
+    if (pTab === "pendientes")   { const n = pedidosTab.filter(p=>p.estadoCod==="esperando_aprobacion").length; return n>0 ? `${n} requieren aprobación` : ""; }
+    if (pTab === "por_despachar"){ const n = pedidosTab.filter(p=>p.estadoLog==="parcial").length; return n>0 ? `${n} con saldo por enviar` : ""; }
+    if (pTab === "entregados")   { const n = pedidosTab.filter(p=>p.estadoLog==="parcial").length; return n>0 ? `${n} con entrega parcial` : ""; }
+    return "";
+  })();
+
   if (vista === "lista") {
     return (
       <div style={{ padding:"22px 28px 40px" }}>
-        <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+        {/* PED_FE_003 · búsqueda GLOBAL de servidor (N.º, factura, cliente, RUC, proveedor, vendedor). Al escribir salta a «Todos». */}
+        <div style={{ display:"flex", gap:10, marginBottom:12, flexWrap:"wrap", alignItems:"center" }}>
+          <div style={{ position:"relative", flex:"1 1 260px", minWidth:0 }}>
+            <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", fontSize:14, color:COLOR.muted }}>🔎</span>
+            <input value={buscar}
+              onChange={e=>{ const v=e.target.value; setBuscar(v); if(v.trim() && pTab!=="todos") setPTab("todos"); }}
+              placeholder="Buscar por N.º, factura, cliente, RUC, proveedor o vendedor…"
+              style={{ width:"100%", boxSizing:"border-box", padding:"11px 34px 11px 34px", borderRadius:10, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none" }} />
+            {buscar && <button onClick={()=>setBuscar("")} title="Limpiar búsqueda" style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", border:"none", background:"none", cursor:"pointer", fontSize:15, color:COLOR.muted }}>✕</button>}
+          </div>
+          <button onClick={()=>setFiltrosAbiertos(a=>!a)}
+            style={{ display:"flex", alignItems:"center", gap:6, padding:"11px 16px", borderRadius:10, border:`1px solid ${hayFiltro?COLOR.tealDark:COLOR.border}`, background: hayFiltro?"#EAF3EF":"#fff", color: hayFiltro?COLOR.tealDark:COLOR.text, cursor:"pointer", fontSize:13.5, fontWeight:700, whiteSpace:"nowrap" }}>
+            {filtrosAbiertos?"▲":"▾"} Filtros{hayFiltro?" ●":""}
+          </button>
+        </div>
+        {/* PED_FE_003 · barra de filtros PLEGABLE (cerrada por defecto). Filtros de servidor. */}
+        {filtrosAbiertos && (
+          <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"14px 16px", marginBottom:14,
+            display:"grid", gridTemplateColumns: movil?"1fr 1fr":"repeat(4, 1fr)", gap:10, alignItems:"end" }}>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Desde<input type="date" value={fDesde} onChange={e=>setFDesde(e.target.value)} style={{ ...inp, marginTop:4 }} /></label>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Hasta<input type="date" value={fHasta} onChange={e=>setFHasta(e.target.value)} style={{ ...inp, marginTop:4 }} /></label>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Proveedor<select value={fProv} onChange={e=>setFProv(e.target.value)} style={{ ...inp, marginTop:4 }}><option value="">Todos</option>{provOpciones.map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></label>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Vendedor<select value={fVend} onChange={e=>setFVend(e.target.value)} style={{ ...inp, marginTop:4 }}><option value="">Todos</option>{vendOpciones.map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></label>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Condición<select value={fCond} onChange={e=>setFCond(e.target.value)} style={{ ...inp, marginTop:4 }}><option value="">Todas</option><option value="contado">Contado</option><option value="credito">Crédito</option></select></label>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Estado<select value={fEstado} onChange={e=>setFEstado(e.target.value)} style={{ ...inp, marginTop:4 }}>{ESTADOS_FILTRO.map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></label>
+            <label style={{ fontSize:11.5, fontWeight:700, color:COLOR.muted }}>Ciudad<input value={fCiudad} onChange={e=>setFCiudad(e.target.value)} placeholder="Ciudad…" style={{ ...inp, marginTop:4 }} /></label>
+            <button onClick={limpiarFiltros} disabled={!hayFiltro} style={{ padding:"11px 14px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#fff", color: hayFiltro?COLOR.text:COLOR.muted, cursor: hayFiltro?"pointer":"default", fontSize:13, fontWeight:700 }}>Limpiar filtros</button>
+          </div>
+        )}
+        <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap: movil?"nowrap":"wrap", overflowX: movil?"auto":"visible", paddingBottom: movil?4:0, WebkitOverflowScrolling:"touch" }}>
           {/* PED_FE_001 · pestañas por estado (código canónico); cada una filtra la MISMA lista con su conteo.
-              Trazabilidad se quitó de Pedidos: el seguimiento vive en Logística. */}
+              PED_FE_003 · en móvil las pestañas se desplazan en horizontal (no se comprimen). */}
           {PTABS.map(([k,t])=>(
             <button key={k} onClick={()=>setPTab(k)}
-              style={{ border:"none", cursor:"pointer", borderRadius:20, padding:"9px 18px", fontSize:13.5, fontWeight:700,
+              style={{ border:"none", cursor:"pointer", borderRadius:20, padding:"9px 18px", fontSize:13.5, fontWeight:700, whiteSpace:"nowrap", flexShrink:0,
                 background: pTab===k?COLOR.tealDark:"#eef1f4", color: pTab===k?"#fff":COLOR.muted }}>{t} ({contarTab(k)})</button>
           ))}
         </div>
@@ -6511,6 +6658,8 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
             {/* PED_PESTANAS_ESTADO · el rótulo respeta la pestaña activa · PED_FE_002 · muestra «de N» si hay más en el servidor sin cargar */}
             <p style={{ fontSize:13.5, color:COLOR.muted, margin:0 }}>{pedidosTab.length}{contarTab(pTab)>pedidosTab.length?` de ${contarTab(pTab)}`:""} pedidos · {porRevisarTab} por revisar</p>
+            {/* PED_FE_003 · métrica contextual de la pestaña (solo si hay dato real) */}
+            {metricaTab && <span style={{ fontSize:12, fontWeight:700, color:COLOR.tealDark }}>{metricaTab}</span>}
             {actualizadoPed && <span style={{ fontSize:12, color:COLOR.muted }}>Actualizado a las {actualizadoPed}</span>}
           </div>
           <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
@@ -6538,42 +6687,96 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
                 <p style={{ margin:"0 0 10px" }}>Hay {contarTab(pTab)} pedido(s) en esta pestaña que aún no se han cargado.</p>
                 {hayMasPed && <button onClick={verMasPed} disabled={cargandoMas} style={{ padding:"10px 20px", borderRadius:9, border:`1px solid ${COLOR.border}`, background:"#f3f5f7", color:COLOR.text, fontWeight:700, fontSize:13, cursor: cargandoMas?"default":"pointer" }}>{cargandoMas ? "Cargando…" : "Ver más pedidos"}</button>}
               </div>
-            ) : contarTab("todos") > 0 ? "No hay pedidos con estos filtros." : "Aún no hay pedidos."}
+            ) : buscar.trim() ? `Sin resultados por la búsqueda «${buscar.trim()}».`
+              : hayFiltro ? "No hay pedidos con estos filtros."
+              : contarTab("todos") > 0 ? "No hay pedidos con estos filtros." : "Aún no hay pedidos."}
+          </div>
+        ) : movil ? (
+          /* PED_FE_003 · MÓVIL: una TARJETA por pedido (no se comprimen las 8 columnas). Toca la tarjeta → modal. */
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {pedidosTab.map((p) => { const ce = colorEstado(p); const vend = vendedorDe(p); const hace = haceCuantoWeb(p.creadoRaw);
+              return (
+                <div key={p.id} className="ped-cabecera" role="button" tabIndex={0}
+                  onClick={(e)=>{ e.currentTarget.focus(); abrirModalPed(p); }}
+                  onKeyDown={(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); abrirModalPed(p); } }}
+                  style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, padding:"13px 15px", cursor:"pointer", outline:"none" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontWeight:800, color:COLOR.text, textTransform:"uppercase", fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></div>
+                      <div style={{ fontSize:12, color:COLOR.muted, marginTop:2 }}>{p.prov}{p.ciudad?` · ${p.ciudad}`:""}</div>
+                    </div>
+                    <span style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3, flexShrink:0 }}>
+                      <span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{ce.icon} {p.estado}</span>
+                      {p.estadoLog==="parcial" && <span style={{ fontSize:10, fontWeight:800, color:"#b45309", background:"#FFF7E8", padding:"3px 7px", borderRadius:999 }}>⚠ saldo</span>}
+                    </span>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:10, fontSize:12.5 }}>
+                    <div style={{ color:COLOR.muted }}>
+                      <span className="num" style={{ fontWeight:700, color:COLOR.text }}>{p.numero || p.pedId || "—"}</span>
+                      {p.factura && <span className="num"> · Fact. {p.factura}</span>}
+                      {vend && <span> · {vend}</span>}
+                    </div>
+                    <div style={{ textAlign:"right", whiteSpace:"nowrap" }}>
+                      <span className="num" style={{ fontWeight:700 }}>{p.totalQq != null ? p.totalQq : p.cant} qq</span>
+                      <span className="num" style={{ fontWeight:800, color:COLOR.teal, marginLeft:8 }}>{money(p.importe != null ? p.importe : p.cant*p.precio)}</span>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:8 }}>
+                    <span style={{ fontSize:11.5, color:COLOR.muted }}>{p.cond}{hace?` · ${hace}`:""}</span>
+                    <span style={{ display:"flex", gap:8 }}>
+                      <button onClick={(e)=>{ e.stopPropagation(); setPedModal(p); }} title="Ver pedido" style={{ border:`1px solid ${COLOR.border}`, background:"#fff", borderRadius:8, padding:"7px 12px", fontSize:13, cursor:"pointer" }}>👁 Ver</button>
+                      {p.editable && p.pedId && !p.demo && (
+                        <button onClick={(e)=>{ e.stopPropagation(); abrirEdicionArmar(p.pedId); }} title="Editar pedido" style={{ border:`1px solid ${COLOR.border}`, background:"#fff", borderRadius:8, padding:"7px 12px", fontSize:13, color:COLOR.tealDark, cursor:"pointer" }}>✏️ Editar</button>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (<>
-        {/* PED_P0_2_AGRUPAR_WEB · ACORDEÓN: una CABECERA por pedido; ningún producto hace de
-           encabezado. Al tocar la cabecera se despliega/pliega su detalle con sus líneas
-           (nombre a la izquierda; cantidad qq y precio a la derecha). */}
+        {/* PED_FE_003 · ESCRITORIO: la tabla. Bajo Cliente va proveedor·ciudad; bajo «Pedido N.º» la factura;
+           bajo Estado la antigüedad. «Acciones» = Ver siempre + lápiz si es editable. */}
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
           {(() => {
-            const GC = ".62fr 2fr 1.1fr .55fr .8fr .5fr .9fr 54px";   // PED_NUMERO_Y_MODAL · Cliente ancho, Editar angosto · «Pedido N.º» más corto que la guía
+            const GC = ".62fr 2fr 1.1fr .55fr .8fr .5fr 1fr 78px";   // PED_NUMERO_Y_MODAL · Cliente ancho · «Acciones» para 2 botones
             const th = (campo, txt, extra) => (
               <span onClick={()=>clicOrden(campo)} style={{ cursor:"pointer", userSelect:"none", whiteSpace:"nowrap", ...(extra||{}) }}>{txt}{flechaOrden(campo)}</span>
             );
             return (<>
           <div style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"12px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("numero","Pedido N.º")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Editar</span>
+            {th("fecha","Fecha")}{th("cliente","Cliente")}{th("numero","Pedido N.º")}{th("cant","Total qq")}{th("total","Total")}{th("cond","Cond.")}{th("estado","Estado")}<span style={{ textAlign:"right" }}>Acciones</span>
           </div>
-          {pedidosTab.map((p, i) => { const ce = colorEstado(p);
+          {pedidosTab.map((p, i) => { const ce = colorEstado(p); const hace = haceCuantoWeb(p.creadoRaw);
             return (
               <div key={p.id} style={{ borderTop: i>0 ? `1px solid ${COLOR.border}` : "none" }}>
-                {/* PED_NUMERO_Y_MODAL · CABECERA del pedido: clic en zona libre = abre el modal de solo lectura
-                    (el detalle ya no vive en un acordeón inline). El lápiz sigue yendo directo a editar. */}
+                {/* PED_NUMERO_Y_MODAL · CABECERA del pedido: clic en zona libre = abre el modal de solo lectura. */}
                 <div className="ped-cabecera" role="button" tabIndex={0}
-                  onClick={(e)=>{ e.currentTarget.focus(); setPedModal(p); }}
-                  onKeyDown={(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); setPedModal(p); } }}
+                  onClick={(e)=>{ e.currentTarget.focus(); abrirModalPed(p); }}
+                  onKeyDown={(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); abrirModalPed(p); } }}
                   style={{ display:"grid", gridTemplateColumns:GC, gap:10, padding:"13px 18px", alignItems:"center", fontSize:13, cursor:"pointer", outline:"none" }}>
                   <span className="num" style={{ color:COLOR.muted, fontSize:12, whiteSpace:"nowrap" }}>{p.fecha ? p.fecha.split("-").reverse().join("/") : "—"}</span>
-                  <span style={{ fontWeight:700, color:COLOR.text, textTransform:"uppercase", minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></span>{/* DISENO_CLIENTE_MAYUSCULAS · uniforma la columna Cliente a mayúsculas (solo CSS, no toca el dato) */}
-                  <span className="num" style={{ fontWeight:700, color:COLOR.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.numero || p.pedId || "—"}</span>
+                  <span style={{ minWidth:0 }}>{/* PED_FE_003 · Cliente + línea secundaria proveedor·ciudad */}
+                    <span style={{ display:"block", fontWeight:700, color:COLOR.text, textTransform:"uppercase", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nombreClientePedido(p)}<ChipDemo si={p.demo}/></span>
+                    <span style={{ display:"block", fontSize:11, color:COLOR.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.prov}{p.ciudad?` · ${p.ciudad}`:""}</span>
+                  </span>
+                  <span style={{ minWidth:0 }}>{/* PED_FE_003 · N.º + factura debajo */}
+                    <span className="num" style={{ display:"block", fontWeight:700, color:COLOR.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.numero || p.pedId || "—"}</span>
+                    {p.factura && <span className="num" style={{ display:"block", fontSize:11, color:COLOR.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>Fact. {p.factura}</span>}
+                  </span>
                   <span className="num" style={{ whiteSpace:"nowrap" }}>{p.totalQq != null ? p.totalQq : p.cant} qq</span>
                   <span className="num" style={{ fontWeight:700, color:COLOR.teal, whiteSpace:"nowrap" }}>{money(p.importe != null ? p.importe : p.cant*p.precio)}</span>
                   <span style={{ color:COLOR.muted }}>{p.cond}</span>
-                  <span style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>{/* PED_FE_001 · icono + color por código; «Anulado» ya no se pinta azul */}
-                    <span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{ce.icon} {p.estado}</span>
-                    {p.estadoLog==="parcial" && <span title="Despacho parcial: queda saldo por enviar" style={{ fontSize:10, fontWeight:800, color:"#b45309", background:"#FFF7E8", padding:"3px 7px", borderRadius:999, whiteSpace:"nowrap" }}>⚠ saldo</span>}
+                  <span style={{ minWidth:0 }}>{/* PED_FE_001 · icono + color por código · PED_FE_003 · antigüedad debajo */}
+                    <span style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:10.5, fontWeight:700, color:ce.c, background:ce.bg, padding:"4px 9px", borderRadius:999, whiteSpace:"nowrap" }}>{ce.icon} {p.estado}</span>
+                      {p.estadoLog==="parcial" && <span title="Despacho parcial: queda saldo por enviar" style={{ fontSize:10, fontWeight:800, color:"#b45309", background:"#FFF7E8", padding:"3px 7px", borderRadius:999, whiteSpace:"nowrap" }}>⚠ saldo</span>}
+                    </span>
+                    {hace && <span style={{ display:"block", fontSize:10.5, color:COLOR.muted, marginTop:3 }}>{hace}</span>}
                   </span>
-                  <span style={{ textAlign:"right" }}>
+                  <span style={{ textAlign:"right", display:"flex", gap:6, justifyContent:"flex-end" }}>
+                    <button onClick={(e)=>{ e.stopPropagation(); setPedModal(p); }} title="Ver pedido"
+                      style={{ border:"none", background:"transparent", color:COLOR.muted, fontSize:15, cursor:"pointer", padding:0 }}>👁</button>
                     {p.editable && p.pedId && !p.demo && (
                       <button onClick={(e)=>{ e.stopPropagation(); abrirEdicionArmar(p.pedId); }} title="Editar pedido"
                         style={{ border:"none", background:"transparent", color:COLOR.tealDark, fontSize:14, cursor:"pointer", padding:0 }}>✏️</button>
@@ -6603,6 +6806,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
         {pedModal && (
           <ModalPedido p={pedModal} onCerrar={()=>setPedModal(null)}
             money={money} colorEstado={colorEstado} nombreCliente={nombreClientePedido} abreviarPres={abreviarPres}
+            vendedor={vendedorDe(pedModal)}
             onIrLogistica={onIrLogistica ? ()=>{ setPedModal(null); onIrLogistica(); } : null}
             onEditar={pd => { setPedModal(null); abrirEdicionArmar(pd.pedId); }} />
         )}
