@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"208"/.test(web),"Sistema Web debe anunciar b208");
-prueba(/const CACHE = "freelance-v313"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"209"/.test(web),"Sistema Web debe anunciar b209");
+prueba(/const CACHE = "freelance-v314"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -253,7 +253,8 @@ prueba(/estadoCod: pd\.estado \|\| null, estadoLog: pd\.estado_logistico \|\| nu
 /* tabDePed por código, con la precedencia y el default seguro */
 prueba(/const tabDePed = \(p\) =>/.test(web)&&/const cod = String\(\(p && p\.estadoCod\) \|\| ""\)/.test(web)&&/const log = String\(\(p && p\.estadoLog\) \|\| ""\)/.test(web),"web · tabDePed clasifica por estadoCod/estadoLog (código), no por la etiqueta");
 prueba(/if \(cod === "anulado"\) return "anulados";/.test(web),"web · anulado → 'anulados'");
-prueba(/if \(log === "entregado" \|\| cod === "entregado" \|\| cod === "cliente_pago" \|\| cod === "cerrado"\)\s+return "entregados";/.test(web),"web · entregado/cliente_pago/cerrado (o log entregado) → 'entregados'");
+prueba(/if \(cod === "cliente_pago" \|\| cod === "cerrado"\) return "entregados";\s*\n\s*if \(retiro\) return "retiros";/.test(web),"web · LOTE2 · el retiro PAGADO/CERRADO gana sobre «retiros» → 'entregados'");
+prueba(/if \(log === "entregado" \|\| cod === "entregado"\) return "entregados";/.test(web),"web · entregado (log o cod) → 'entregados' (tras retiros)");
 prueba(/if \(log === "despachado" \|\| cod === "despachado"\) return "en_ruta";/.test(web),"web · despachado (o log despachado) → 'en_ruta'");
 prueba(/if \(cod === "facturado"\) return "por_despachar";/.test(web),"web · facturado sin despachar → 'por_despachar'");
 prueba(/if \(cod === "ingresado" \|\| cod === "esperando_aprobacion" \|\| cod === "enviado_proveedor"\) return "pendientes";/.test(web),"web · ingresado/esperando_aprobacion/enviado_proveedor → 'pendientes'");
