@@ -128,6 +128,7 @@ const PLAN = [
   { arnes:"test_solic_rpc.js",        que:"SOLIC: resolver una solicitud pasa por el RPC responder_solicitud, no por UPDATE directo (3 apps)", apps:[null] },
   { arnes:"test_web_sin_fallback.js", que:"WEB 1A: en vivo sin datos demo, sin pedido fantasma sin sesión, y fecha real (no fija)", apps:[null] },
   { arnes:"test_estados_paridad_web.js", que:"WEB 2C: editar el pedido en la web con los mismos estados que la app (incluye enviado_proveedor; facturado no), recarga tras éxito y no confía en el optimista", apps:[null] },
+  { arnes:"test_pedidos_carga_web.js", que:"PED-FE-002: Pedidos web dice la verdad de la carga (error+Reintentar, pedido sin líneas se muestra, conteos reales, Ver más de servidor)", apps:[null] },
   { arnes:"test_equiv_obligatoria.js", que:"WEB 2D: una presentación no-Quintal sin equivalencia no deja guardar (nombra producto y presentación); tipo_precio se deriva de la condición; la cantidad admite decimales", apps:[null] },
   { arnes:"test_optimista_qq.js", que:"APP T3: la tarjeta optimista al guardar se muestra en quintales (50 arrobas → 12,5 qq a $40/qq; el dinero no cambia) en freelance y comisionista", apps:[null] },
   { arnes:"test_monto_suma_lineas.js", que:"PED: el «Monto del pedido» es la suma de las líneas (Σ round(qq×precio,2)), no cantidad × precio promedio (que pierde centavos)", apps:[null] },

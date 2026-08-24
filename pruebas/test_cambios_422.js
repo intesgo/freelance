@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"201"/.test(web),"Sistema Web debe anunciar b201");
-prueba(/const CACHE = "freelance-v305"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"202"/.test(web),"Sistema Web debe anunciar b202");
+prueba(/const CACHE = "freelance-v306"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -264,7 +264,7 @@ prueba(/\[\["todos","Todos"\],\["pendientes","Pendientes"\],\["por_despachar","P
 prueba(/haySinClasificar \? \[\["sin_clasificar","Sin clasificar"\]\] : \[\]/.test(web),"web · «Sin clasificar» solo aparece si hay ≥1 pedido ahí");
 prueba(/k === "todos" \? pedidos\.length/.test(web),"web · «Todos» cuenta todos (incluye anulados)");
 prueba(/const \[pTab, setPTab\] = useState\("pendientes"\)/.test(web),"web · la pestaña por defecto es Pendientes");
-prueba(/\{pedidosTab\.length\} pedidos · \{porRevisarTab\} por revisar/.test(web),"web · el rótulo «N pedidos · N por revisar» respeta la pestaña activa");
+prueba(/\{pedidosTab\.length\}[\s\S]{0,90}pedidos · \{porRevisarTab\} por revisar/.test(web),"web · el rótulo «N pedidos · N por revisar» respeta la pestaña activa");/* PED_FE_002 · admite el «de N» opcional del total del servidor entre length y «pedidos» */
 prueba(/p\.estadoLog==="parcial" &&/.test(web),"web · «Por despachar»: los pedidos en 'parcial' llevan alerta de saldo");
 /* colores por código: «Anulado» NO azul, con icono */
 prueba(/const colorEstado = \(p\) =>/.test(web),"web · colorEstado mapea por el objeto (código)");

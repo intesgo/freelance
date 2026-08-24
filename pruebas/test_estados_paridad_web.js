@@ -259,7 +259,9 @@ async function bateria(js, ruidoso) {
   /* Caso ÉXITO: el RPC editar_pedido_atomico responde {data:null,error:null}. */
   const mOk = await montarLista(js);
   const baseOk = mOk.estado.lecturasPedidos;
-  comprobar("B · el montaje lee «pedidos» una vez (fue: " + baseOk + ")", baseOk === 1);
+  /* PED_FE_002 · el montaje lee «pedidos» DOS veces: la página de la lista (.range) y el
+     conteo real por pestaña (consulta liviana aparte). */
+  comprobar("B · el montaje lee «pedidos» dos veces: lista + conteos (fue: " + baseOk + ")", baseOk === 2);
 
   mOk.estado.rpcResp = { data:null, error:null };
   correW(mOk, `window.__clickEditar("CLIENTE UNO")`);   // → abre la vista Armar con el carrito cargado
@@ -315,8 +317,8 @@ const MUTANTES = [
     `["ingresado","esperando_aprobacion","enviado_proveedor","facturado"].includes(pd.estado_comercial || pd.estado)`],
   /* (3) Tras guardar bien, NO recarga la lista: lo que ve el usuario deja de
          reflejar lo guardado → cae la Parte B (la recarga). */
-  ["tras guardar con éxito NO recarga la lista (quita cargarPedidosVivos)",
-    `setVista("lista");\n      await cargarPedidosVivos();`,
+  ["tras guardar con éxito NO recarga la lista (quita la recarga)",
+    `setVista("lista");\n      refrescarPedidos();`,
     `setVista("lista");`],
 ];
 
