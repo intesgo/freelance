@@ -18,8 +18,8 @@ prueba(/productos-scroll/.test(app)&&/padding-bottom:calc\(82px/.test(app),"prod
 prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
-prueba(/const VERSION = \{ n:"207"/.test(web),"Sistema Web debe anunciar b207");
-prueba(/const CACHE = "freelance-v312"/.test(sw),"la caché debe renovarse");
+prueba(/const VERSION = \{ n:"208"/.test(web),"Sistema Web debe anunciar b208");
+prueba(/const CACHE = "freelance-v313"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -260,7 +260,7 @@ prueba(/if \(cod === "ingresado" \|\| cod === "esperando_aprobacion" \|\| cod ==
 prueba(/return "sin_clasificar";/.test(web),"web · NEGATIVO: lo desconocido/nulo cae a 'sin_clasificar' (NUNCA a entregados)");
 prueba(!/return "entregados";\s*\/\* Entregado, Cliente pagó, Cerrado \*\//.test(web),"web · ya NO existe el default viejo a 'entregados'");
 /* pestañas: 6 base + Sin clasificar condicional; «Todos» incluye anulados */
-prueba(/\[\["todos","Todos"\],\["pendientes","Pendientes"\],\["por_despachar","Por despachar"\],\["en_ruta","En ruta"\],\["entregados","Entregados"\],\["anulados","Anulados"\]\]/.test(web),"web · las 6 pestañas base en orden (Todos/Pendientes/Por despachar/En ruta/Entregados/Anulados)");
+prueba(/\[\["todos","Todos"\],\["pendientes","Pendientes"\],\["por_despachar","Por despachar"\],\["en_ruta","En ruta"\],\["retiros","🏭 Retiros"\],\["entregados","Entregados"\],\["anulados","Anulados"\]\]/.test(web),"web · las 7 pestañas base en orden (Todos/Pendientes/Por despachar/En ruta/🏭 Retiros/Entregados/Anulados) · LOTE2");
 prueba(/haySinClasificar \? \[\["sin_clasificar","Sin clasificar"\]\] : \[\]/.test(web),"web · «Sin clasificar» solo aparece si hay ≥1 pedido ahí");
 prueba(/k === "todos" \? pedidos\.length/.test(web),"web · «Todos» cuenta todos (incluye anulados)");
 prueba(/const \[pTab, setPTab\] = useState\("pendientes"\)/.test(web),"web · la pestaña por defecto es Pendientes");
