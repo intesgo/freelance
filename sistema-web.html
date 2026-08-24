@@ -130,10 +130,12 @@ function horaECWeb(fecha=new Date()){
 function clasificarTabPed(cod, log, retiro){
   cod = String(cod || ""); log = String(log || "");
   if (cod === "anulado") return "anulados";
-  /* LOTE2_RETIROS · todo retiro no anulado vive en «Retiros» (facturado/por cobrar/pagado) y
-     sale de Por despachar, Pendientes y En ruta. Precedencia: después de anulados. */
+  /* LOTE2_RETIROS · el retiro PAGADO/CERRADO ya cerró su ciclo: pasa a «Entregados» (el pago
+     gana sobre «Retiros»). El resto de retiros no anulados (facturado / por cobrar) viven en
+     «Retiros» y salen de Por despachar, Pendientes y En ruta. Precedencia: tras anulados. */
+  if (cod === "cliente_pago" || cod === "cerrado") return "entregados";
   if (retiro) return "retiros";
-  if (log === "entregado" || cod === "entregado" || cod === "cliente_pago" || cod === "cerrado") return "entregados";
+  if (log === "entregado" || cod === "entregado") return "entregados";
   if (log === "despachado" || cod === "despachado") return "en_ruta";
   if (cod === "facturado") return "por_despachar";   /* facturado sin viaje despachado (log sin_despachar/parcial) */
   if (cod === "ingresado" || cod === "esperando_aprobacion" || cod === "enviado_proveedor") return "pendientes";
@@ -534,7 +536,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"208", fecha:"24 ago 2026", desc:"Pedidos: los retiros en bodega ahora tienen su propia pestaña «🏭 Retiros» (salen de Por despachar/Pendientes/En ruta y de Logística), con su marca en la fila. Además, «Todos», «Entregados», «Anulados» y «Retiros» abren mostrando los últimos 60 días (usa el buscador o el filtro de fecha para ver más); las pestañas de trabajo siguen mostrando todo. Y en Tarifas de logística, al guardar la tarifa por zona de un chofer el panel ya no se cierra." };
+const VERSION = { n:"209", fecha:"24 ago 2026", desc:"Pedidos: cuando un retiro en bodega ya está pagado, pasa a «Entregados» (cerró su ciclo); en «🏭 Retiros» quedan los que faltan cobrar. El resto igual: los retiros salen de Por despachar/Pendientes/En ruta y de Logística, con su marca en la fila; «Todos», «Entregados», «Anulados» y «Retiros» abren mostrando los últimos 60 días." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
