@@ -323,7 +323,7 @@ const MUTANTES = [
      `ofertas_piladora`, «from("ofertas_piladora")» a secas ya no es único */
   ["vuelve a leer la tabla `precios`",
     `window.SB.from("ofertas_piladora")
-          .select("prod_id,prov_cod,pres_cod,equiv_qq,precio_contado,precio_credito,costo,costo_contado,activo,vigente_desde,vigente_hasta")`,
+          .select("prod_id,prov_cod,pres_cod,presentacion,equiv_qq,precio_contado,precio_credito,costo,costo_contado,activo,vigente_desde,vigente_hasta")`,
     `window.SB.from("precios")
           .select("prod_id,base_contado,base_credito")`],
   ["se le olvida mirar si la oferta sigue activa",
@@ -332,11 +332,12 @@ const MUTANTES = [
     `(!o.vigente_desde || String(o.vigente_desde).slice(0,10) <= hoyISO) &&`, `true &&`],
   ["se le olvida la fecha en que la oferta deja de regir",
     `(!o.vigente_hasta || String(o.vigente_hasta).slice(0,10) >  hoyISO));`, `true);`],
-  ["no lleva el precio a quintales (se olvida del equiv_qq)",
-    `const c=(Number(o.precio_contado)||0)/eq; if(!(c>0)) return;`,
-    `const c=(Number(o.precio_contado)||0); if(!(c>0)) return;`],
-  ["no se queda con el más barato: agarra la última oferta que pase",
-    `if(!g || c < g.base_contado) precioDe[o.prod_id]=`, `if(true) precioDe[o.prod_id]=`],
+  /* PRESENTACIONES_REALES · la regla ya no vive en `precioDe` (borrado): cada presentación trae su
+     propio precio y se elige la piladora más barata POR presentación. Los mutantes apuntan ahí. */
+  ["no se queda con la piladora más barata: agarra la última oferta que pase",
+    `if(!g || r2(bc) < g.bc) porPres[o.pres_cod]=`, `if(true) porPres[o.pres_cod]=`],
+  ["vuelve a inventar el par fijo Quintal + Arroba en vez de leer las presentaciones reales",
+    `.sort((x,y)=>y.eq-x.eq)`, `.filter(x=>x.cod==="QQ").sort((x,y)=>y.eq-x.eq)`],
   ["el producto sin marca se queda en blanco",
     `nom=p.nombre||p.marca||p.prod_id;`, `nom=p.marca||"";`],
   ["el buscador deja de mirar la piladora",

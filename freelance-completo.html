@@ -3085,12 +3085,12 @@ async function cargarCatalogoReal(){
          estructura + precios + qué presentaciones YA tienen foto (bandera liviana, sin la imagen).
          La foto real se carga en la ficha del producto, bajo demanda, solo la de ese producto. */
       const [{ data:prods }, { data:presen }, { data:ofertasT }, { data:provsTbl }, { data:promos }, { data:tramos }] = await Promise.all([
-        window.SB.from("productos").select("prod_id,nombre,marca,linea,proveedor,proveedor_cod")
+        window.SB.from("productos").select("prod_id,nombre,marca,linea,proveedor,proveedor_cod,tipo_grano")
           .eq("estado","activo").order("nombre").limit(500),
         window.SB.from("presentaciones").select("pres_id,prod_id,presentacion_cod")
           .eq("activo",true).limit(2000),
         window.SB.from("ofertas_piladora")
-          .select("prod_id,prov_cod,pres_cod,equiv_qq,precio_contado,precio_credito,costo,costo_contado,activo,vigente_desde,vigente_hasta")
+          .select("prod_id,prov_cod,pres_cod,presentacion,equiv_qq,precio_contado,precio_credito,costo,costo_contado,activo,vigente_desde,vigente_hasta")
           .limit(4000),
         window.SB.from("proveedores").select("prov_cod,nombre").limit(500),
         /* PROMO-04 · las promociones también en la ficha de Productos y en lo que
@@ -3112,18 +3112,6 @@ async function cargarCatalogoReal(){
         o.activo !== false &&
         (!o.vigente_desde || String(o.vigente_desde).slice(0,10) <= hoyISO) &&
         (!o.vigente_hasta || String(o.vigente_hasta).slice(0,10) >  hoyISO));
-      /* PRECIO POR QUINTAL desde la oferta: cada presentación se lleva a quintales
-         (precio ÷ equiv_qq: la arroba de $4,75 con equiv 0,25 es $19 el quintal) y se guarda
-         el MÁS BARATO, que es el precio que el vendedor puede sostener cuando varias
-         piladoras surten el mismo producto. Un producto, un precio. */
-      const precioDe={};
-      ofertasV.forEach(o=>{
-        const eq=Number(o.equiv_qq)||0; if(!(eq>0)) return;
-        const c=(Number(o.precio_contado)||0)/eq; if(!(c>0)) return;
-        const k=(Number(o.precio_credito)||Number(o.precio_contado)||0)/eq;
-        const g=precioDe[o.prod_id];
-        if(!g || c < g.base_contado) precioDe[o.prod_id]={ base_contado:r2(c), base_credito:r2(k||c) };
-      });
       /* mapa por presentación: prod_id|cod -> pres_id */
       const presDe={}; (presen||[]).forEach(p=>{ presDe[p.prod_id+"|"+p.presentacion_cod]=p.pres_id; });
       const infoPres=(prodId,cod)=>{ const pid=presDe[prodId+"|"+cod]||null; return { pres_id:pid }; };
@@ -3147,26 +3135,38 @@ async function cargarCatalogoReal(){
         costoContado:Number(o.costo_contado)||0, costoCredito:Number(o.costo)||0 }));
       const lista=prods.map(p=>{
         if(p.proveedor_cod && p.proveedor) PROV_REAL_NOMBRES[p.proveedor_cod]=p.proveedor;
-        const pr=precioDe[p.prod_id];
-        if(!pr) return null;   // sin OFERTA vigente no se ofrece (no inventar precios)
-        const qqC=Number(pr.base_contado)||0, qqK=Number(pr.base_credito)||0;
-        const iQQ=infoPres(p.prod_id,"QQ"), iAR=infoPres(p.prod_id,"ARR");
         /* Un producto SIN MARCA no puede quedar en blanco ni invisible: manda su nombre,
            y si tampoco lo tuviera, el código. Así «Arroz Crecedor» (marca en NULL) se ve. */
         const provId=p.proveedor_cod||"", linea=p.linea||"Otros", nom=p.nombre||p.marca||p.prod_id;
         const piladoras=piladorasDe(p.prod_id, provId, p.proveedor||"");
         /* cada presentación lleva TODO lo que Tomar pedido necesita para venderla directo (foto se carga en la ficha) */
-        const base=(cod,tam,eq,bc,bk,info)=>{
+        const base=(cod,tam,eq,bc,bk)=>{
+          const info=infoPres(p.prod_id, cod);
           const prom=promosDe(p.prod_id, cod, null, eq, bc);
-          return { id:p.prod_id+"-"+(cod==="QQ"?"QQ":"AR"), presId:(info.pres_id||null), presCod:cod, foto:null,
+          return { id:p.prod_id+"-"+cod, presId:(info.pres_id||null), presCod:cod, foto:null,
           tam, prodId:p.prod_id, equiv:eq, provId, linea, marca:nom, nombre:nom+" · "+tam, unidad:tam,
           diasCredito:30, costo:null, baseContado:bc, baseCredito:bk, costos:costosDe(p.prod_id, cod),
           promosFreelance:prom.freelance, promosProveedor:prom.proveedor }; };
+        /* PRESENTACIONES_REALES · las presentaciones salen de las OFERTAS VIGENTES del producto
+           (una por cada pres_cod), quedándose con la piladora MÁS BARATA de esa presentación. Antes
+           se inventaba un par fijo Quintal+Arroba y el precio de la arroba se CALCULABA (quintal ×
+           0,25): así «10 libras», saco, funda o caja nunca aparecían en la app del dueño, y el
+           vendedor podía vender algo que el dueño no veía. Ahora cada presentación trae su propio
+           precio guardado. Un producto, un precio POR PRESENTACIÓN. */
+        const porPres={};
+        (ofertasDe[p.prod_id]||[]).forEach(o=>{
+          const eq=Number(o.equiv_qq)||0; if(!(eq>0)) return;       /* sin peso no se vende */
+          const bc=Number(o.precio_contado)||0; if(!(bc>0)) return; /* sin precio no se inventa uno */
+          const bk=Number(o.precio_credito)||bc;
+          const g=porPres[o.pres_cod];
+          if(!g || r2(bc) < g.bc) porPres[o.pres_cod]={ cod:o.pres_cod, tam:o.presentacion||o.pres_cod, eq, bc:r2(bc), bk:r2(bk) };
+        });
+        const listaPres=Object.keys(porPres).map(k=>porPres[k])
+          .sort((x,y)=>y.eq-x.eq)          /* el quintal primero, la funda al final */
+          .map(x=>base(x.cod, x.tam, x.eq, x.bc, x.bk));
+        if(!listaPres.length) return null; /* sin presentación vendible no se ofrece */
         return { id:p.prod_id, provId, provNombre:p.proveedor||"", piladoras,
-          marca:nom, linea, foto:null, presentaciones:[
-            base("QQ","Quintal",1,qqC,qqK,iQQ),
-            base("ARR","Arroba 25 lb",0.25,r2(qqC*.25),r2(qqK*.25),iAR),
-          ] };
+          marca:nom, linea, foto:null, tipoGrano:p.tipo_grano||"", presentaciones:listaPres };
       }).filter(Boolean);
       if(lista.length) CATALOGO_REAL = lista;
       return CATALOGO_REAL;
@@ -5962,21 +5962,8 @@ const VENTAS_PROVEEDOR = {
   },
 };
 
-const UNIDADES_MEDIDA = [
-  {id:"quintal", nombre:"Quintal (qq)", abrev:"qq"},
-  {id:"caja",    nombre:"Caja",         abrev:"cajas"},
-  {id:"fardo",   nombre:"Fardo",        abrev:"fardos"},
-  {id:"unidad",  nombre:"Unidad",       abrev:"u"},
-];
-const AGRUPACION_INI = {
-  "Arroz Gustadina":   {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:43},
-  "Arroz Conejo":      {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:45},
-  "Arroz Económico":   {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:33},
-  "Azúcar Valdez":     {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:48},
-  "Azúcar San Carlos": {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:47},
-  "Harina Ya":         {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:30},
-  "Maíz Agripac":      {base:"quintal", uxCaja:0,  uxFardo:0,  precioBase:28},
-};
+/* GRANO_EN_LA_FICHA · UNIDADES_MEDIDA y AGRUPACION_INI se retiraron: la tarjeta de agrupación (que
+   escribía en memoria y se perdía al cerrar la app) fue reemplazada por el Tipo de grano real. */
 
 const LINEAS_CFG = {
   "Arroz":          {unidad:"qq",   precio:43},
@@ -6127,7 +6114,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"474", fecha:"24 ago 2026", desc:"Se quitó el cobro de flete/estibada al cliente: ya va incluido en los precios base. El total del pedido es solo la base de productos." };
+const VERSION = { n:"475", fecha:"25 ago 2026", desc:"Productos ahora muestra las presentaciones REALES de cada marca (Quintal, Arroba, 10 libras, Saco…), cada una con su propio precio guardado —ya no calculado— así ves lo mismo que el vendedor. Y en la ficha de la marca, la tarjeta de agrupación (que no se guardaba) pasó a ser el Tipo de grano: se clasifica desde aquí y queda guardado de verdad." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -17448,12 +17435,23 @@ function Productos({vender}){
 
 function FichaMarca({marca, real, onFoto, volver, vender}){
   const activas=marca.presentaciones.filter(p=>!p.inhabilitada);
-  const ini=AGRUPACION_INI[marca.marca]||{base:"quintal", uxCaja:0, uxFardo:0, precioBase:40};
-  const [agr,setAgr]=useState(ini);
-  const [editAgr,setEditAgr]=useState(false);
+  /* GRANO_EN_LA_FICHA · la tarjeta de agrupación (que escribía en memoria y se perdía) pasa a ser el
+     TIPO DE GRANO real (productos.tipo_grano): sí manda (el ajuste de precios por bloque filtra por
+     familia+nivel) y hasta hoy solo se tocaba desde el Sistema Web. */
+  const [grano,setGrano]=useState(marca.tipoGrano||"");
+  const [granoSel,setGranoSel]=useState(marca.tipoGrano||"");
+  const [editGrano,setEditGrano]=useState(false);
   const [guardado,setGuardado]=useState(false);
-  const unidadNom=id=>UNIDADES_MEDIDA.find(u=>u.id===id)?.nombre||id;
-  const guardarAgr=()=>{ AGRUPACION_INI[marca.marca]={...agr}; setEditAgr(false); setGuardado(true); setTimeout(()=>setGuardado(false),2000); };
+  const [granoAviso,setGranoAviso]=useState("");
+  React.useEffect(()=>{ setGrano(marca.tipoGrano||""); setGranoSel(marca.tipoGrano||""); setEditGrano(false); }, [marca.id, marca.tipoGrano]);
+  const granoDesc=cod=>{ const v=VARIEDADES_GRANO.find(x=>x.cod===cod); return v?v.desc:""; };
+  const puedeGrano = !!(real && window.SB && window.SB.auth);
+  const guardarGrano = async () => {
+    const db = await window.SB.from("productos").update({tipo_grano:granoSel||null}).eq("prod_id", marca.id);
+    if(db.error){ setGranoAviso("No se pudo guardar: "+(db.error.message||"error")); return; }
+    setGrano(granoSel); marca.tipoGrano=granoSel;   /* el catálogo en memoria queda al día */
+    setEditGrano(false); setGuardado(true); setTimeout(()=>setGuardado(false),2200);
+  };
 
   /* Foto POR PRESENTACIÓN: se guarda en presentaciones.foto (por pres_id), por la vía de la base
      que sí reconoce al freelance (sin Storage). */
@@ -17576,28 +17574,26 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
       onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; const pr=presPend.current; presPend.current=null; if(ff && pr) subirFotoPres(pr, ff); }}/>}
     {avisoFoto && <div style={{position:"fixed",left:12,right:12,bottom:80,zIndex:9999,background:"#1E3A2B",color:"#EAF0EA",padding:"11px 14px",borderRadius:12,fontSize:13.5,fontWeight:600,textAlign:"center",whiteSpace:"pre-line",boxShadow:"0 8px 24px rgba(0,0,0,.28)"}}>{avisoFoto}</div>}
 
-    <div className="ficha-sec">Unidades y agrupación</div>
+    {/* GRANO_EN_LA_FICHA · reemplaza «Unidades y agrupación» (que escribía en memoria y se perdía). */}
+    <div className="ficha-sec">Tipo de grano</div>
     <div className="fcard" style={{marginBottom:14}}>
-      {!editAgr ? (<>
-        <div className="cu-line"><span>Unidad base de venta</span><b>{unidadNom(agr.base)}</b></div>
-        {agr.uxCaja>0 && <div className="cu-line"><span>1 caja contiene</span><b className="num">{agr.uxCaja} unidades</b></div>}
-        {agr.uxFardo>0 && <div className="cu-line"><span>1 fardo contiene</span><b className="num">{agr.uxFardo} unidades</b></div>}
-        {agr.uxCaja===0 && agr.uxFardo===0 && <div className="meta" style={{marginTop:4}}>Sin agrupación en cajas o fardos (se vende por {unidadNom(agr.base).toLowerCase()}).</div>}
-        <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>setEditAgr(true)}>Editar agrupación</button>
-        {guardado && <div className="part-ok" style={{marginTop:8}}>✓ Agrupación guardada</div>}
+      {!editGrano ? (<>
+        <div className="cu-line"><span>Variedad</span><b>{grano ? grano : "Sin clasificar"}</b></div>
+        {grano
+          ? <div className="meta" style={{marginTop:4}}>{granoDesc(grano)} · familia <b className="num">{grano.slice(0,3)}</b> — con esto entra en el ajuste de precios por bloque.</div>
+          : <div className="meta" style={{marginTop:4,color:"var(--clay)"}}>⚠ Sin clasificar: el ajuste de precios por bloque no lo alcanza.</div>}
+        {puedeGrano && <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{setGranoSel(grano);setGranoAviso("");setEditGrano(true);}}>{grano?"Cambiar tipo de grano":"Clasificar el grano"}</button>}
+        {guardado && <div className="part-ok" style={{marginTop:8}}>✓ Tipo de grano guardado</div>}
       </>) : (<>
-        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Unidad base de venta</div>
-          <FiltroBuscador obligatorio items={UNIDADES_MEDIDA.map(u=>u.id)} value={agr.base||""}
-            onPick={v=>setAgr({...agr,base:v==="__"?"":v})}
-            todos="__" etiquetaTodos="Elige unidad…"
-            render={id=>{const u=UNIDADES_MEDIDA.find(x=>x.id===id);return u?u.nombre:id;}}/></div>
-        <div className="field"><label>Unidades por caja (0 si no aplica)</label>
-          <input type="number" value={agr.uxCaja} onChange={e=>setAgr({...agr,uxCaja:Number(e.target.value)||0})} placeholder="Ej. 48"/></div>
-        <div className="field"><label>Unidades por fardo (0 si no aplica)</label>
-          <input type="number" value={agr.uxFardo} onChange={e=>setAgr({...agr,uxFardo:Number(e.target.value)||0})} placeholder="Ej. 20"/></div>
+        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Variedad de grano</div>
+          <FiltroBuscador cat="variedades" items={VARIEDADES_GRANO.map(v=>v.cod)} value={granoSel||"__"}
+            onPick={v=>setGranoSel(v==="__"?"":v)}
+            todos="__" etiquetaTodos="Sin clasificar"
+            render={cod=>{const v=VARIEDADES_GRANO.find(x=>x.cod===cod);return v?(v.cod+" · "+v.desc):cod;}}/></div>
+        {granoAviso && <div className="meta" style={{color:"var(--clay)",marginBottom:8}}>{granoAviso}</div>}
         <div style={{display:"flex",gap:8}}>
-          <button className="back" style={{flex:1}} onClick={()=>{setAgr(AGRUPACION_INI[marca.marca]||ini);setEditAgr(false);}}>Cancelar</button>
-          <button className="cta" style={{flex:1,margin:0}} onClick={guardarAgr}>Guardar</button>
+          <button className="back" style={{flex:1}} onClick={()=>{setGranoSel(grano);setGranoAviso("");setEditGrano(false);}}>Cancelar</button>
+          <button className="cta" style={{flex:1,margin:0}} onClick={guardarGrano}>Guardar</button>
         </div>
       </>)}
     </div>
