@@ -450,11 +450,11 @@ const MUTANTES = [
    `          precio_contado: c.contadoFinal + 1, precio_credito: c.creditoFinal,`],
 
   /* ── la que más importa: que alguien reintroduzca la escritura a `precios` ── */
+  /* PRECIO_UNA_SOLA_PUERTA · las tres pantallas escriben por versionarOfertaWeb; los mutantes de
+     versionado apuntan ahora a la puerta única (antes cada uno vivía en su copia). */
   ["vuelve a escribir en la tabla muerta `precios`",
-   `        const c2 = await window.supa.from("ofertas_piladora").insert({
-          oferta_id: nid, prod_id: c.prodId, pres_cod: c.presCod,`,
-   `        const c2 = await window.supa.from("precios").insert({
-          oferta_id: nid, prod_id: c.prodId, pres_cod: c.presCod,`],
+   `  const c2=await window.supa.from("ofertas_piladora").insert(fila);`,
+   `  const c2=await window.supa.from("precios").insert(fila);`],
   ["y la pantalla vuelve a LEER de `precios` en vez de las ofertas",
    `  let q = window.supa.from("v_ofertas_vigentes")`,
    `  let q = window.supa.from("precios")`],
@@ -496,12 +496,11 @@ const MUTANTES = [
 
   /* ── el versionado y los avisos ── */
   ["no cierra la oferta vieja: quedan dos ofertas vigentes peleándose",
-   `        const c1 = await window.supa.from("ofertas_piladora")
-          .update({ vigente_hasta: hoy }).eq("oferta_id", c.ofertaId);`,
-   `        const c1 = { error:null };`],
+   `  const c1=await window.supa.from("ofertas_piladora").update({vigente_hasta:hoy}).eq("oferta_id",o.ofertaId);`,
+   `  const c1={error:null};`],
   ["la oferta nueva nace con fecha vieja y el vendedor no la ve",
-   `          margen_min: c.margenMin, activo: true, vigente_desde: hoy, es_demo: false });`,
-   `          margen_min: c.margenMin, activo: true, vigente_desde: "2020-01-01", es_demo: false });`],
+   `    margen_min: o.margenMin!=null?o.margenMin:preMargenObjetivo(), activo:true, vigente_desde:hoy, es_demo:false,`,
+   `    margen_min: o.margenMin!=null?o.margenMin:preMargenObjetivo(), activo:true, vigente_desde:"2020-01-01", es_demo:false,`],
   ["deja de avisar que dos piladoras cobran distinto por lo mismo",
    `    }, {})).forEach(cs => { if (new Set(cs).size > 1) n++; });`,
    `    }, {})).forEach(cs => { if (false) n++; });`],
