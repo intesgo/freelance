@@ -947,6 +947,12 @@
   .calc .tot .v{font-size:19px;font-weight:700;color:var(--maize-deep);line-height:1.15}
   .mini-cta{margin-left:auto;background:var(--field);color:#EAF0EA;font-size:13px;font-weight:700;border-radius:9px;padding:8px 14px}
   .mini-cta:active{background:var(--field-700)}
+  /* VARIEDAD_CHIP · pastilla con el código de la variedad, igual en las tres pantallas.
+     Usa las variables de tema (Sol/Noche/normal), no colores fijos. */
+  .chip-var{display:inline-block;padding:2px 8px;border-radius:7px;background:var(--field-soft);
+    border:1px solid var(--field-soft-line);color:var(--field-soft-txt);
+    font-size:11.5px;font-weight:800;letter-spacing:.02em;margin-right:7px;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
   /* ficha del cliente */
   .ficha-sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
     color:var(--muted);margin:16px 4px 8px}
@@ -2874,6 +2880,20 @@ const VARIEDADES_GRANO = [
   {cod:"F1402", desc:"Grano Ferón · Bueno"},
   {cod:"F1403", desc:"Grano Ferón · Especial"},
 ];
+
+/* VARIEDAD_CHIP · lectura de un código de variedad, compartida por las TRES pantallas
+   (lista de Productos, Piladoras · Costos y precios, y la ficha de la marca).
+   El código son 5: familia(3) + nivel(2). */
+const varFamCod  = (cod) => String(cod||"").slice(0,3);
+const varNivCod  = (cod) => String(cod||"").slice(3,5);
+const varFamDesc = (cod) => (FAMILIAS_GRANO.find(f=>f.cod===varFamCod(cod))||{}).desc || "";
+const varNivDesc = (cod) => (NIVELES_GRANO.find(n=>n.cod===varNivCod(cod))||{}).n || "";
+/* «Largo 011 · Especial» — sin el «Grano » delante, que no aporta y ocupa */
+const varTexto = (cod) => {
+  const fam = varFamDesc(cod).replace(/^Grano\s+/i,"").replace(/^./,c=>c.toUpperCase());
+  const niv = varNivDesc(cod);
+  return fam ? (fam + (niv ? " · "+niv : "")) : "";
+};
 
 const STOCK_DEMO = { "AG-QQ":120, "AG-25":80, "AC-QQ":95, "AC-25":60, "AE-QQ":40, "AZ-50":150, "AZ-02":300, "HY-QQ":70, "HY-10":110, "MA-QQ":55 };
 const PRESENTACIONES = PRODUCTOS
@@ -6122,7 +6142,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"477", fecha:"25 ago 2026", desc:"Marca exclusiva por cliente: si una marca es propia de un cliente, solo aparece al armar el pedido cuando eliges a ese cliente; para los demás queda oculta. Las marcas normales se ven como siempre." };
+const VERSION = { n:"478", fecha:"25 ago 2026", desc:"La variedad del grano ahora se ve igual en las tres pantallas: en la lista de Productos aparece bajo la marca (antes no salía), en la ficha y en Piladoras · Costos y precios va una pastilla con el código y, al lado, la descripción. Todo se llama «Variedad»." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -17444,6 +17464,13 @@ function Productos({vender}){
                 <div style={{width:40,height:40,borderRadius:10,background:"var(--paper)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,marginRight:11}}>{EMOJI_LINEA[m.linea]||"📦"}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div className="cli">{m.marca||m.id||"Sin marca"}</div>
+                  {/* VARIEDAD_CHIP · la variedad faltaba en esta lista: se veía la marca pero no
+                      de qué grano es. Va en su propio renglón, con el código en pastilla. */}
+                  <div className="meta" style={{marginTop:2}}>
+                    {m.tipoGrano
+                      ? <><span className="chip-var">{m.tipoGrano}</span>{varTexto(m.tipoGrano)}</>
+                      : <span style={{color:"var(--clay)"}}>Sin variedad</span>}
+                  </div>
                   {/* CONTEO_NO_SE_PARTE · antes era un solo texto y se partía donde le alcanzaba,
                       dejando el número separado de lo que cuenta. */}
                   <div className="meta">{variasPilas ? `🏭 ${pilas.length} piladoras` : (pilas[0]?pilas[0].nombre:provName(m.provId))}</div>
@@ -17603,25 +17630,25 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     {avisoFoto && <div style={{position:"fixed",left:12,right:12,bottom:80,zIndex:9999,background:"#1E3A2B",color:"#EAF0EA",padding:"11px 14px",borderRadius:12,fontSize:13.5,fontWeight:600,textAlign:"center",whiteSpace:"pre-line",boxShadow:"0 8px 24px rgba(0,0,0,.28)"}}>{avisoFoto}</div>}
 
     {/* GRANO_EN_LA_FICHA · reemplaza «Unidades y agrupación» (que escribía en memoria y se perdía). */}
-    <div className="ficha-sec">Tipo de grano</div>
+    <div className="ficha-sec">Variedad</div>
     <div className="fcard" style={{marginBottom:14}}>
       {!editGrano ? (<>
-        {/* GRANO_A_LA_DERECHA · el valor pasa a dos renglones pegados al borde derecho.
-            Se fue la descripción larga; el aviso de «sin clasificar» SE QUEDA, que es el
-            que empuja a ponerlo (hoy 50 de 59 arroces están sin grano). */}
+        {/* VARIEDAD_CHIP · de tres renglones a uno: la pastilla con el código (que ya trae la
+            familia en sus 3 primeras letras) y la descripción debajo. El aviso «sin clasificar»
+            SE QUEDA, que es el que empuja a ponerlo (hoy 50 de 59 arroces están sin grano). */}
         <div className="cu-line" style={{alignItems:"flex-start"}}><span>Variedad</span>
           <div style={{textAlign:"right"}}>
             {grano ? (<>
-              <b>Tipo de Grano <span className="num">{grano}</span></b>
-              <div className="meta">Familia <b className="num">{grano.slice(0,3)}</b></div>
+              <span className="chip-var" style={{marginRight:0}}>{grano}</span>
+              <div className="meta" style={{marginTop:4}}>{varTexto(grano)}</div>
             </>) : <b>Sin clasificar</b>}
           </div>
         </div>
         {!grano && <div className="meta" style={{marginTop:4,color:"var(--clay)"}}>⚠ Sin clasificar: el ajuste de precios por bloque no lo alcanza.</div>}
-        {puedeGrano && <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{setGranoSel(grano);setGranoAviso("");setEditGrano(true);}}>{grano?"Cambiar tipo de grano":"Clasificar el grano"}</button>}
-        {guardado && <div className="part-ok" style={{marginTop:8}}>✓ Tipo de grano guardado</div>}
+        {puedeGrano && <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{setGranoSel(grano);setGranoAviso("");setEditGrano(true);}}>{grano?"Cambiar variedad":"Clasificar la variedad"}</button>}
+        {guardado && <div className="part-ok" style={{marginTop:8}}>✓ Variedad guardada</div>}
       </>) : (<>
-        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Variedad de grano</div>
+        <div style={{marginBottom:10}}><div className="ficha-sec" style={{marginBottom:6}}>Variedad</div>
           <FiltroBuscador cat="variedades" items={VARIEDADES_GRANO.map(v=>v.cod)} value={granoSel||"__"}
             onPick={v=>setGranoSel(v==="__"?"":v)}
             todos="__" etiquetaTodos="Sin clasificar"
@@ -23304,9 +23331,9 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
     try{
       /* GUARDA_TIPO_GRANO */
       const { error }=await window.SB.from("productos").update({tipo_grano:cod||null}).eq("prod_id",prodId);
-      if(error){ if(toast) toast("No se pudo guardar el tipo de grano: "+error.message); return; }
+      if(error){ if(toast) toast("No se pudo guardar la variedad: "+error.message); return; }
       setProdInfo(m=>({...m,[prodId]:{...(m[prodId]||{}),tipoGrano:cod||""}}));
-      if(toast) toast("Tipo de grano guardado");
+      if(toast) toast("Variedad guardada");
     }catch(e){ if(toast) toast(String((e&&e.message)||e)); }
   };
 
@@ -23445,8 +23472,9 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   const celdaCont={background:"var(--card)",border:"1px solid var(--line)",borderRadius:9,padding:"9px 8px",textAlign:"center",fontWeight:700,fontSize:14};
   const celdaCred={...CRED_AMBAR,border:"1px solid #EED9A8",borderRadius:9,padding:"9px 8px",textAlign:"center",fontWeight:800,fontSize:14};
   /* nombre corto de la familia de grano para el subtítulo (quita "Grano " y capitaliza) */
-  const familiaCorta=(cod)=>{ const d=(FAMILIAS_GRANO.find(f=>f.cod===String(cod||"").slice(0,3))||{}).desc||""; return d?d.replace(/^Grano\s+/i,"").replace(/^./,c=>c.toUpperCase()):""; };
-  const nivelDe=(cod)=>(NIVELES_GRANO.find(nv=>nv.cod===String(cod||"").slice(3,5))||{}).n||"";
+  /* VARIEDAD_CHIP · se apoyan en los helpers del módulo, para no tener dos lecturas del mismo código */
+  const familiaCorta=(cod)=>varFamDesc(cod).replace(/^Grano\s+/i,"").replace(/^./,c=>c.toUpperCase());
+  const nivelDe=(cod)=>varNivDesc(cod);
   /* resumen crédito costo–base de la presentación principal (la de mayor equivalencia en qq) */
   const numCorto=v=>{ v=Number(v)||0; if(!(v>0)) return null; return money(v).replace(/^\$/,"").replace(/,00$/,""); };
   const normG=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
@@ -23519,7 +23547,8 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                 {/* nombre + variedad (toca la variedad para reclasificar) */}
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{fontWeight:800,fontSize:16,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis"}}>{m.nombre}</div>
-                  <div onClick={()=>setTgSel(pid)} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"var(--field)":"var(--muted)",cursor:"pointer"}}>{subtVar}</div>
+                  {/* VARIEDAD_CHIP · pastilla con el código delante de la descripción; sin variedad no se pinta */}
+                  <div onClick={()=>setTgSel(pid)} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"var(--field)":"var(--muted)",cursor:"pointer"}}>{tgCod && <span className="chip-var">{tgCod}</span>}{subtVar}</div>
                 </div>
                 {/* RESUMEN_CRED: crédito costo–base + plegar (ámbar) */}
                 <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flexShrink:0}}>
@@ -23745,7 +23774,7 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
         return (
         <div className="ov" onClick={()=>setTgSel(null)}>
           <div className="sheet" onClick={e=>e.stopPropagation()}>
-            <h3>Variedad de grano</h3>
+            <h3>Variedad</h3>
             <div className="meta" style={{fontSize:11.5,margin:"0 2px 12px"}}>{nombreMarca} · elige familia y nivel</div>
             {FAMILIAS_GRANO.map(fam=>(
               <div key={fam.cod} style={{marginBottom:12}}>
