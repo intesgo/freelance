@@ -1582,7 +1582,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"60", fecha:"24 ago 2026", desc:"Se quitó el cobro de flete/estibada al cliente: ya va incluido en los precios base. El total del pedido es solo la base de productos." };
+const VERSION = { n:"61", fecha:"25 ago 2026", desc:"Marca exclusiva por cliente: si una marca es propia de un cliente, solo aparece al armar el pedido cuando eliges a ese cliente; para los demás queda oculta. Las marcas normales se ven como siempre." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -1823,6 +1823,14 @@ function construirCatalogoPedido(provs, ofertas, prods, presenTbl, promoTbl){
 
 /* nombre del cliente → su código real. Lo llena el módulo Pedido al cargar. */
 const CLI_ID_DE = {};
+/* MARCA_EXCLUSIVA_CLIENTE · prod_id -> Set(cli_id). Si una marca tiene clientes aquí,
+   SOLO se puede pedir para esos clientes. Vacío = marca normal, visible para todos. */
+const EXCLUSIVA_DE = {};
+const marcaVisibleParaCli = (prodId, cliId) => {
+  const duenos = EXCLUSIVA_DE[prodId];
+  if (!duenos || !duenos.size) return true;      /* sin dueños: de todos */
+  return !!cliId && duenos.has(cliId);           /* con dueños: solo ellos */
+};
 /* PED_CUPO_VIVO_PARIDAD · ficha de cupo REAL del armador, por nombre de cliente:
    cupo = clientes.cupo · debe = suma de cartera pendiente (no demo). En modo demo manda FICHA_CLIENTE. */
 let FICHA_VIVA_PED = {};
@@ -3340,6 +3348,14 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
         const cat=construirCatalogoPedido(provs, ofertas, prods, [], { promos, tramos });
         if(!cat.pres.length) return;
         (clis||[]).forEach(c=>{ CLI_ID_DE[c.nombre]=c.cli_id; if(c.razon_social && c.razon_social!==c.nombre) REFERENCIALES[c.nombre]=[c.razon_social]; });
+        /* MARCA_EXCLUSIVA_CLIENTE · va APARTE del Promise.all a propósito: si esta consulta
+           falla, el mapa queda VACÍO y todas las marcas se comportan como normales. Nunca al
+           revés — nadie pierde una venta porque la base no respondió. */
+        try{
+          const { data:mc } = await window.SB.from("marca_clientes").select("prod_id,cli_id");
+          Object.keys(EXCLUSIVA_DE).forEach(k=>{ delete EXCLUSIVA_DE[k]; });
+          (mc||[]).forEach(r=>{ (EXCLUSIVA_DE[r.prod_id]=EXCLUSIVA_DE[r.prod_id]||new Set()).add(r.cli_id); });
+        }catch(e){}
         cat.clis=(clis||[]).map(c=>c.nombre);
         /* PED_CUPO_VIVO_PARIDAD · usado real por cliente = suma de cartera PENDIENTE (no demo); cupo = clientes.cupo. */
         const usadoPorCli = {};
@@ -3380,7 +3396,10 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
   const totalQuintalesCarrito = totalQuintalesDeCarrito(carrito);
   /* FE01_QUITA_COBRO: el total del pedido es solo la base de productos (sin cobro de flete/estibada) */
   const totalConCobro = totalFacturaCarrito;
-  const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id) : [];
+  /* MARCA_EXCLUSIVA_CLIENTE · además de la piladora, se cuela por el cliente elegido:
+     una marca propia de un cliente no se le ofrece a otro. */
+  const cliIdPed = CLI_ID_DE[(cli && cli.nombre) || cli];
+  const productosDelProv = prov ? PRES_PED.filter(p=>p.provId===prov.id && marcaVisibleParaCli(p.prodId, cliIdPed)) : [];
   // Productos que ESE cliente ya compró antes (con este proveedor), según su historial.
   // Se ocultan los que ya están en el pedido para no elegirlos dos veces.
   const enCarrito = new Set(carrito.map(it=>it.prod?it.prod.id:it.prodId));

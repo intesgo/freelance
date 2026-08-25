@@ -537,7 +537,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"214", fecha:"25 ago 2026", desc:"Precios más seguros: el costo y la base de una piladora se guardan por un solo camino desde las tres pantallas (Piladoras, ficha del producto y alza en bloque), con fecha e historial y sin dejar dos precios del mismo día. En «Nuevo producto» la presentación/unidad se elige con un buscador y tres atajos (no diez botones), se elige el tipo de grano al crear, y si la marca ya existe en esa piladora se ofrece sumarle la presentación en vez de crear un producto repetido." };
+const VERSION = { n:"215", fecha:"25 ago 2026", desc:"Marca exclusiva por cliente: en el catálogo, al marcar una marca como «Del Cliente» ahora se elige de QUÉ cliente es (uno o varios) y se ve en la lista. Esa marca deja de ofrecerse a los demás al tomar pedido. Las marcas sin cliente asignado siguen igual." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -7580,6 +7580,13 @@ function CatalogoWeb({ usuario }) {
   const [avisoOk, setAvisoOk] = useState("");             // mensaje de confirmación flotante
   /* v54 · menuMarca eliminado: estado declarado que nadie activaba (menu de tipo de marca a medio hacer) */
   const [marcaModal, setMarcaModal] = useState([]);        // dueños elegidos en el modal (array, selección múltiple)
+  /* MARCA_EXCLUSIVA_CLIENTE · a QUÉ clientes queda amarrada la marca (cli_id[]), la lista de
+     clientes para el buscador, el texto del buscador, y el mapa prod_id -> [cli_id] ya
+     guardado (para pintar la etiqueta «Del Cliente · …» en el listado). */
+  const [clientesMarca, setClientesMarca] = useState([]);
+  const [clientesLista, setClientesLista] = useState([]);
+  const [textoCliMarca, setTextoCliMarca] = useState("");
+  const [vincPorProd, setVincPorProd] = useState({});
   const [pagina, setPagina] = useState(0);   /* b62 · tanda de "Ver más" (0 = primera) */
   /* ══ ASIGNACIÓN EN BLOQUE ══
      Con 179 productos sin piladora, hacerlo uno por uno desde el celular es
@@ -7639,6 +7646,18 @@ function CatalogoWeb({ usuario }) {
               setPresPorProd(cuenta);
             }
           } catch (e) { /* si falla, se muestra 0 */ }
+          /* MARCA_EXCLUSIVA_CLIENTE · lista de clientes (para el buscador del modal) y
+             vínculos marca↔cliente ya guardados (para pintar la etiqueta en el listado).
+             Cada uno en su try: si falla, solo se queda sin esa ayuda, no rompe el catálogo. */
+          try {
+            const { data: clis } = await window.supa.from("clientes").select("cli_id,nombre").eq("es_demo",false).eq("activo",true).order("nombre");
+            if (clis) setClientesLista(clis);
+          } catch (e) { /* sin lista: el buscador sale vacío, nada más */ }
+          try {
+            const { data: mc } = await window.supa.from("marca_clientes").select("prod_id,cli_id");
+            const mapv = {}; (mc||[]).forEach(r=>{ (mapv[r.prod_id]=mapv[r.prod_id]||[]).push(r.cli_id); });
+            setVincPorProd(mapv);
+          } catch (e) { /* sin vínculos: las etiquetas no muestran el cliente */ }
         } else { setProdsReales([]); }
       } catch (e) { setProdsReales([]); }
     })();
@@ -7735,6 +7754,16 @@ function CatalogoWeb({ usuario }) {
       setTimeout(()=>setAvisoOk(""), 4500);
       return;
     }
+    /* MARCA_EXCLUSIVA_CLIENTE · corte: si es «Del Cliente» pero no se eligió ningún cliente,
+       NO se guarda. Si no, quedaría una marca a medio configurar que no filtra nada y nadie
+       se entera. La exclusividad la manda el vínculo en marca_clientes, no la etiqueta. */
+    const esCliente = lista.includes("cliente");
+    if (esCliente && clientesMarca.length===0) {
+      setAvisoOk("Marca «Del Cliente»: elige al menos un cliente antes de guardar.");
+      setTimeout(()=>setAvisoOk(""), 4500);
+      return;
+    }
+    const nuevosCreados = [];   /* prod_id de las copias creadas: heredan los mismos clientes */
     // Doble protección: descartar piladoras donde ya existe ese producto (nombre+marca)
     const norm2 = s => (s||"").trim().toLowerCase();
     const yaExisten = new Set(
@@ -7766,6 +7795,7 @@ function CatalogoWeb({ usuario }) {
         codsLimpios.forEach(provCod => {
           num += 1;
           const next = "P-" + String(num).padStart(5,"0");
+          nuevosCreados.push(next);   /* MARCA_EXCLUSIVA_CLIENTE · heredará los clientes de la marca */
           const prov = proveedores.find(x => x.prov_cod === provCod);
           nuevosDB.push({
             prod_id: next, linea_cod: prod.lineaCod, linea: prod.linea,
@@ -7783,11 +7813,26 @@ function CatalogoWeb({ usuario }) {
         window.avisarSiFallo(await window.supa.from("productos").insert(nuevosDB), "los productos replicados");
         setProdsReales(prev => [...(prev||[]), ...nuevosUI]);
       }
+      /* MARCA_EXCLUSIVA_CLIENTE · rehacer los vínculos marca↔cliente por prod_id (DELETE +
+         INSERT), igual que vinculos_cliente. El original y TODAS las copias llevan los MISMOS
+         clientes: es la misma marca, solo cambia la piladora. Si «Del Cliente» quedó
+         desmarcado, cliSel va vacío y solo se borra: la marca vuelve a ser normal. */
+      const idsMarca = [prod.id, ...nuevosCreados];
+      const cliSel = esCliente ? clientesMarca : [];
+      try {
+        for (const pid of idsMarca) {
+          await window.supa.from("marca_clientes").delete().eq("prod_id", pid);
+          if (cliSel.length > 0) {
+            await window.supa.from("marca_clientes").insert(cliSel.map(cid => ({ prod_id: pid, cli_id: cid })));
+          }
+        }
+        setVincPorProd(prev => { const n = { ...prev }; idsMarca.forEach(pid => { if (cliSel.length>0) n[pid] = [...cliSel]; else delete n[pid]; }); return n; });
+      } catch (e) { /* si falla, el tipo de marca sí quedó; los vínculos se reintentan al reabrir */ }
       const total = asignadas + codsLimpios.length;
       setAvisoOk(total > 0 ? ("✓ Guardado · " + total + " piladora" + (total===1?"":"s")) : "✓ Marca actualizada");
       setTimeout(()=>setAvisoOk(""), 2500);
-      setReplicar(null); setSelPiladoras([]); setMarcaModal([]);
-    } catch (e) { setReplicar(null); setSelPiladoras([]); setMarcaModal([]); }
+      setReplicar(null); setSelPiladoras([]); setMarcaModal([]); setClientesMarca([]); setTextoCliMarca("");
+    } catch (e) { setReplicar(null); setSelPiladoras([]); setMarcaModal([]); setClientesMarca([]); setTextoCliMarca(""); }
   };
 
   // Replicar un producto en otra piladora (genera nuevo P-xxxxx, misma info, distinta piladora)
@@ -8000,8 +8045,17 @@ function CatalogoWeb({ usuario }) {
                           {p.nombre}
                           {fuente==="supabase" && (() => {
                             const ds = duenosArray(p.tipoMarca);
-                            return ds.map((dv,di) => { const ti = tipoMarcaInfo(dv); return (
-                              <span key={di} style={{ fontSize:10, fontWeight:800, color:ti.c, background:ti.bg, padding:"2px 8px", borderRadius:999 }}>● {ti.corto}</span>
+                            return ds.map((dv,di) => { const ti = tipoMarcaInfo(dv);
+                              /* MARCA_EXCLUSIVA_CLIENTE · si es del cliente, decir de QUIÉN, para
+                                 saber a quién quedó amarrada sin abrir el modal. */
+                              let etq = ti.corto;
+                              if (dv==="cliente") {
+                                const cids = vincPorProd[p.id]||[];
+                                if (cids.length===1) { const c = clientesLista.find(x=>x.cli_id===cids[0]); etq = "Cliente · " + (c?c.nombre:cids[0]); }
+                                else if (cids.length>1) etq = "Cliente · " + cids.length + " clientes";
+                              }
+                              return (
+                              <span key={di} style={{ fontSize:10, fontWeight:800, color:ti.c, background:ti.bg, padding:"2px 8px", borderRadius:999 }}>● {etq}</span>
                             ); });
                           })()}
                           {f.oculto && <span style={{ fontSize:10.5, fontWeight:700, color:COLOR.muted, background:"#eef1f4", padding:"2px 7px", borderRadius:999 }}>oculto</span>}
@@ -8028,7 +8082,7 @@ function CatalogoWeb({ usuario }) {
                               ));
                             })()}
                           </div>
-                          <button onClick={()=>{ setReplicar(p); setMarcaModal(duenosArray(p.tipoMarca)); }} title="Asignar / cambiar piladoras" style={{ border:`1px solid ${COLOR.border}`, background:"#fff", borderRadius:8, padding:"7px 9px", cursor:"pointer", fontSize:13, flexShrink:0 }}>⧉</button>
+                          <button onClick={()=>{ setReplicar(p); setMarcaModal(duenosArray(p.tipoMarca)); setClientesMarca(vincPorProd[p.id]||[]); setTextoCliMarca(""); }} title="Asignar / cambiar piladoras" style={{ border:`1px solid ${COLOR.border}`, background:"#fff", borderRadius:8, padding:"7px 9px", cursor:"pointer", fontSize:13, flexShrink:0 }}>⧉</button>
                         </div>
                       : <span style={{ fontSize:12, color:COLOR.muted }}>{p.prov}</span>}
                   </div>
@@ -8062,11 +8116,11 @@ function CatalogoWeb({ usuario }) {
         const todasSel = faltan.length>0 && selPiladoras.length===faltan.length;
         const toggle = cod => setSelPiladoras(prev => prev.includes(cod) ? prev.filter(c=>c!==cod) : [...prev, cod]);
         return (
-        <div onClick={()=>{ setReplicar(null); setSelPiladoras([]); }} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:50, padding:20 }}>
+        <div onClick={()=>{ setReplicar(null); setSelPiladoras([]); setClientesMarca([]); setTextoCliMarca(""); }} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:50, padding:20 }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"24px", width:"min(460px, 92vw)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
               <h3 style={{ fontSize:17, fontWeight:800, color:COLOR.text }}>{replicar.provCod ? "Replicar en piladoras" : "Asignar piladoras"}</h3>
-              <button onClick={()=>{ setReplicar(null); setSelPiladoras([]); }} style={{ border:"none", background:"none", fontSize:22, color:COLOR.muted, cursor:"pointer" }}>×</button>
+              <button onClick={()=>{ setReplicar(null); setSelPiladoras([]); setClientesMarca([]); setTextoCliMarca(""); }} style={{ border:"none", background:"none", fontSize:22, color:COLOR.muted, cursor:"pointer" }}>×</button>
             </div>
             <p style={{ fontSize:13, color:COLOR.muted, marginBottom:4 }}>{replicar.provCod ? "Se creará una copia (nuevo código) en cada piladora marcada de:" : "Marca todas las piladoras de donde traes este producto:"}</p>
             <p style={{ fontSize:14, fontWeight:700, color:COLOR.text, marginBottom:14 }}>🌾 {replicar.nombre}</p>
@@ -8085,6 +8139,30 @@ function CatalogoWeb({ usuario }) {
               })}
             </div>
             {marcaModal.length>=2 && <p style={{ fontSize:11.5, color:COLOR.tealDark, marginTop:-8, marginBottom:14, fontWeight:700 }}>● Marca compartida entre {marcaModal.length} dueños</p>}
+
+            {/* MARCA_EXCLUSIVA_CLIENTE · si es «Del Cliente», decir de QUIÉN. Solo a esos
+                clientes se les ofrece la marca al tomar pedido. */}
+            {marcaModal.includes("cliente") && (
+              <div style={{ marginTop:-4, marginBottom:16 }}>
+                <p style={{ fontSize:12, fontWeight:700, color:COLOR.muted, marginBottom:7 }}>¿De qué cliente es? <span style={{ fontWeight:500 }}>(solo a él se le ofrece al tomar pedido)</span></p>
+                <BuscadorPredictivo cat="clientes" items={clientesLista.filter(c=>!clientesMarca.includes(c.cli_id))}
+                  value={textoCliMarca} onText={setTextoCliMarca}
+                  placeholder="Escribe para buscar un cliente…"
+                  label={c=>c.nombre} sub={c=>c.cli_id}
+                  onPick={c=>{ setClientesMarca(prev => prev.includes(c.cli_id)?prev:[...prev,c.cli_id]); setTextoCliMarca(""); }} />
+                {clientesMarca.length>0 && (
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:10 }}>
+                    {clientesMarca.map(cid => { const c = clientesLista.find(x=>x.cli_id===cid); return (
+                      <span key={cid} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 10px", borderRadius:999, background:"#fdeede", color:"#c2701c", fontSize:12, fontWeight:700 }}>
+                        {c?c.nombre:cid}
+                        <button onClick={()=>setClientesMarca(prev=>prev.filter(x=>x!==cid))} style={{ border:"none", background:"none", color:"#c2701c", cursor:"pointer", fontSize:14, lineHeight:1, padding:0 }}>×</button>
+                      </span>
+                    ); })}
+                  </div>
+                )}
+                {clientesMarca.length===0 && <p style={{ fontSize:11.5, color:COLOR.orange, marginTop:8, fontWeight:700 }}>⚠ Elige al menos un cliente: si no, la marca no queda amarrada a nadie y no se puede guardar.</p>}
+              </div>
+            )}
 
             {/* La marca de la piladora no se maquila en otra: cada una saca la suya.
                 Se avisa ANTES de que marque piladoras, no al intentar guardar. */}
