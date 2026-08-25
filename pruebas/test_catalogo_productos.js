@@ -276,8 +276,10 @@ async function bateria(js, ruidoso) {
   pintar(m);
   await esperar(300);
   const t0 = txt(m);
-  comprobar("en pantalla: el sello verde cuenta los 2 productos de la base",
-    /Cat[áa]logo y precios vivos de la base · 2 productos/.test(t0));
+  /* CABECERA_COMPACTA · la píldora se cambió por un chip «NP» junto al título. Sigue
+     midiendo lo mismo: el número mostrado es el de las marcas que se ven. */
+  comprobar("en pantalla: el chip cuenta las 2 marcas de la base",
+    /2P/.test(t0));
   comprobar("en pantalla: el número del sello CUADRA con las tarjetas que se ven",
     tarjetas(m) === prods.length);
   comprobar("en pantalla: «Arroz Crecedor» se ve sin buscar nada", /Arroz Crecedor/.test(t0));
@@ -342,11 +344,9 @@ const MUTANTES = [
     `nom=p.nombre||p.marca||p.prod_id;`, `nom=p.marca||"";`],
   ["el buscador deja de mirar la piladora",
     `const pilas=(m.piladoras||[]).map(x=>x.nombre).join(" ");`, `const pilas="";`],
-  ["el sello verde cuenta otra cosa que lo que se muestra",
-    `background:"rgba(28,122,68,.13)",color:"#1c7a44",margin:"0 0 12px"}}>
-      🟢 Catálogo y precios vivos de la base · {reales.length} productos</div>}`,
-    `background:"rgba(28,122,68,.13)",color:"#1c7a44",margin:"0 0 12px"}}>
-      🟢 Catálogo y precios vivos de la base · {reales.length + 1} productos</div>}`],
+  ["el chip del título cuenta otra cosa que lo que se muestra",
+    `color: reales?"#1c7a44":"var(--muted)"}}>{lista.length}P</span>`,
+    `color: reales?"#1c7a44":"var(--muted)"}}>{lista.length + 1}P</span>`],
 ];
 
 (async () => {
