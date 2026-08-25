@@ -537,7 +537,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"213", fecha:"25 ago 2026", desc:"Unidades de peso variable: los envases (caja, funda, saco, unidad) ya no asumen 1 quintal. Al crear un producto en una de esas unidades, el sistema obliga a escribir su peso en quintales para ese producto (dos cajas distintas pueden pesar diferente). Las unidades de peso fijo (quintal, arroba, 10/5 libras, 1 kg) siguen tomando el peso del catálogo. En «Unidades / Presentaciones» el freelance marca cuáles son de peso variable." };
+const VERSION = { n:"214", fecha:"25 ago 2026", desc:"Precios más seguros: el costo y la base de una piladora se guardan por un solo camino desde las tres pantallas (Piladoras, ficha del producto y alza en bloque), con fecha e historial y sin dejar dos precios del mismo día. En «Nuevo producto» la presentación/unidad se elige con un buscador y tres atajos (no diez botones), se elige el tipo de grano al crear, y si la marca ya existe en esa piladora se ofrece sumarle la presentación en vez de crear un producto repetido." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8340,8 +8340,8 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
     (async () => {
       try {
         const { data: ofs } = await window.supa.from("v_ofertas_vigentes")
-          .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min")
-          .eq("prod_id", prod.id);
+          .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min,vigente_desde")
+          .eq("prod_id", prod.id);   /* PRECIO_UNA_SOLA_PUERTA · vigente_desde alimenta la regla del mismo día */
         const { data: provs } = await window.supa.from("proveedores").select("prov_cod,nombre");
         const nomProv = {}; (provs||[]).forEach(p => { nomProv[p.prov_cod] = p.nombre; });
         /* Margen real de una oferta: (venta contado − costo) / venta contado */
@@ -8367,6 +8367,8 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
             baseContado: contado,                           // precio base contado (por piladora)
             baseCredito: Number(o.precio_credito)||0,       // precio base crédito (por piladora)
             margen: margenDeOferta(contado, costo),
+            desde: o.vigente_desde || "",                   // PRECIO_UNA_SOLA_PUERTA · regla del mismo día
+            margenMin: Number(o.margen_min)||0,
           });
         });
         const arma = Object.values(mapa).map(pr => ({
@@ -8403,7 +8405,6 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
     setGuardandoPrecios(true); setAvisoPrecios("");
     try {
       const r2 = x => Math.round(x*100)/100;
-      const hoy = hoyECWeb();
       let cambios = 0;
       for (const f of (ofertas||[])) {
         for (const pl of f.piladoras) {
@@ -8413,17 +8414,18 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
           const igual = bc===r2(pl.baseContado) && bcr===r2(pl.baseCredito) && cc===r2(pl.costoContado) && ccr===r2(pl.costo);
           if (igual) continue;
           if (!(bc>0) || !(ccr>0 || cc>0)) { throw new Error(`${f.presentacion} · ${pl.piladora}: base contado y costo deben ser mayores a 0.`); }
-          // 1) cerrar la oferta vigente con fecha de hoy
-          const c1 = await window.supa.from("ofertas_piladora").update({ vigente_hasta: hoy }).eq("oferta_id", pl.ofertaId);
-          if (c1.error) throw new Error(c1.error.message);
-          // 2) nace la nueva versión con la fecha de hoy
-          const nid = prod.id + "-" + f.presCod + "-" + pl.provCod + "-" + Date.now();
-          const c2 = await window.supa.from("ofertas_piladora").insert({
-            oferta_id: nid, prod_id: prod.id, pres_cod: f.presCod, presentacion: f.presentacion, equiv_qq: f.equivQq,
-            prov_cod: pl.provCod, precio_contado: bc, precio_credito: bcr>0?bcr:bc,
-            costo: ccr>0?ccr:cc, costo_contado: cc>0?cc:ccr, margen_min: f.margenMin||8,
-            activo: true, vigente_desde: hoy, es_demo: false });
-          if (c2.error) throw new Error(c2.error.message);
+          /* PRECIO_UNA_SOLA_PUERTA · la ficha entra por la puerta única (versiona con fecha, deja
+             historial y aplica la regla del mismo día en vez de su copia propia). */
+          await versionarOfertaWeb({
+            ofertaId: pl.ofertaId, prodId: prod.id, presCod: f.presCod, presentacion: f.presentacion,
+            equivQq: f.equivQq, provCod: pl.provCod,
+            costo: pl.costo, costoContado: pl.costoContado, contado: pl.baseContado, credito: pl.baseCredito,
+            margenMin: pl.margenMin || f.margenMin || 8, desde: pl.desde || "",
+          }, {
+            precio_contado: bc, precio_credito: bcr>0?bcr:bc,
+            costo: ccr>0?ccr:cc, costo_contado: cc>0?cc:ccr,
+            operacion: "Costo/Base desde la ficha del producto",
+          }, usuario);
           cambios++;
         }
       }
@@ -8432,14 +8434,14 @@ function FichaProducto({ prod, ficha, rent, soloLectura, money, costo, usuario, 
         // recargar ofertas para ver los nuevos precios/fechas
         try {
           const { data: ofs } = await window.supa.from("v_ofertas_vigentes")
-            .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min")
-            .eq("prod_id", prod.id);
+            .select("oferta_id,pres_cod,presentacion,equiv_qq,prov_cod,costo,costo_contado,precio_contado,precio_credito,margen_min,vigente_desde")
+            .eq("prod_id", prod.id);   /* PRECIO_UNA_SOLA_PUERTA · vigente_desde también en la recarga (dos guardados seguidos sin salir de la ficha) */
           const { data: provs } = await window.supa.from("proveedores").select("prov_cod,nombre");
           const nomProv = {}; (provs||[]).forEach(p => { nomProv[p.prov_cod]=p.nombre; });
           const md = {};
           (ofs||[]).forEach(o => { const contado=Number(o.precio_contado)||0, costo=Number(o.costo)||0;
             if (!md[o.pres_cod]) md[o.pres_cod] = { presCod:o.pres_cod, presentacion:o.presentacion||o.pres_cod, equivQq:Number(o.equiv_qq)||0, contado, credito:Number(o.precio_credito)||0, margenMin:Number(o.margen_min)||0, piladoras:[] };
-            md[o.pres_cod].piladoras.push({ ofertaId:o.oferta_id, provCod:o.prov_cod, piladora:nomProv[o.prov_cod]||o.prov_cod, costo, costoContado:Number(o.costo_contado)||0, baseContado:contado, baseCredito:Number(o.precio_credito)||0, margen: contado>0?((contado-costo)/contado)*100:0 });
+            md[o.pres_cod].piladoras.push({ ofertaId:o.oferta_id, provCod:o.prov_cod, piladora:nomProv[o.prov_cod]||o.prov_cod, costo, costoContado:Number(o.costo_contado)||0, baseContado:contado, baseCredito:Number(o.precio_credito)||0, margen: contado>0?((contado-costo)/contado)*100:0, desde:o.vigente_desde||"", margenMin:Number(o.margen_min)||0 });
           });
           setOfertas(Object.values(md).map(pr=>({ ...pr, piladoras: pr.piladoras.slice().sort((a,b)=>b.costo-a.costo) })).sort((a,b)=>b.equivQq-a.equivQq));
         } catch(e){}
@@ -8832,6 +8834,8 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const [unidades, setUnidades] = useState(null);
   const [uniSel, setUniSel] = useState(null);
   const [equivAjuste, setEquivAjuste] = useState("");
+  /* UNIDAD_BUSCADOR · texto que se teclea en el buscador de presentación (manda uniSel, no esto). */
+  const [uniTexto, setUniTexto] = useState("");
   const [baseContado, setBaseContado] = useState("");
   const [baseCredito, setBaseCredito] = useState("");
   const [costoContado, setCostoContado] = useState("");
@@ -8842,6 +8846,13 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const [provsReales, setProvsReales] = useState([]);
   const [fotoData, setFotoData] = useState(null);   // imagen del producto (data URL) · opcional
   const fileRef = React.useRef(null);
+  /* GRANO_DESDE_EL_ALTA · el tipo de grano se elige al crear, no después. */
+  const [variedad, setVariedad] = useState("");
+  /* MARCA_UNA_SOLA_FICHA · si ya existe esta marca en esta piladora, se ofrece sumar la presentación
+     a esa ficha en vez de crear otro producto. */
+  const [gemelo, setGemelo] = useState(null);   // { prodId, nombre, tipoGrano, pres:[{cod,nombre}] }
+  const [sumarAGemelo, setSumarAGemelo] = useState(false);
+  const [sumaOk, setSumaOk] = useState(null);   // al terminar: {nombre} si se sumó a una marca; null si fue alta nueva
 
   const imagenAData = (file, lado, calidad) => new Promise((resolve, reject) => {
     try {
@@ -8892,6 +8903,7 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
         setUniSel({ cod: qq.cod, nombre: qq.nombre, equiv_qq: Number(qq.equiv_qq), variable: !!qq.peso_variable });
         /* CAT_UNIDADES · peso variable (envases): no precargar; se escribe por producto. */
         setEquivAjuste(qq.peso_variable ? "" : String(Number(qq.equiv_qq)));
+        setUniTexto(qq.nombre);   /* UNIDAD_BUSCADOR · el buscador arranca mostrando la elegida, no vacío */
       } catch (e) { setUnidades([]); }
     })();
   }, []);
@@ -8901,8 +8913,61 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
     funda:{cod:"FUNDA",nom:"Funda",eq:1}, unidad:{cod:"UND",nom:"Unidad",eq:1} };
   const UNI_LABEL = { qq:"Quintal (qq)", arroba:"Arroba (@)" };
 
+  /* UNIDAD_BUSCADOR · rótulo legible para las unidades fijas del fallback. */
+  const uniLabelFijo = u => UNI_LABEL[u] || (String(u||"").charAt(0).toUpperCase() + String(u||"").slice(1));
+
+  /* un solo camino para elegir, lo llamen el atajo o el buscador. Preserva el peso variable:
+     si el envase es de peso variable, NO precarga el peso (se escribe por producto). */
+  const elegirUnidad = (u) => {
+    setUniSel({ cod:u.cod, nombre:u.nombre, equiv_qq:Number(u.equiv_qq), variable:!!u.peso_variable });
+    setEquivAjuste(u.peso_variable ? "" : String(Number(u.equiv_qq)));
+    setUniTexto(u.nombre);
+  };
+
+  /* los tres atajos: primero lo más elegido en este navegador (USOS); si todavía no hay historia,
+     las tres primeras del catálogo (que ya viene ordenado por `orden`). Se calcula al abrir y NO se
+     remueve mientras el modal está abierto (useMemo sobre [unidades]), para que los botones no bailen
+     bajo el dedo justo cuando vas a tocar. */
+  const rapidas = React.useMemo(() => {
+    const lista = (unidades || []).slice();
+    const c = (USOS && USOS["unidades"]) || {};
+    const usadas = lista.filter(u => (c[u.cod] || 0) > 0).sort((a,b) => (c[b.cod]||0) - (c[a.cod]||0));
+    const resto  = lista.filter(u => !usadas.includes(u));
+    return usadas.concat(resto).slice(0,3);
+  }, [unidades]);
+
   const inp = { width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, marginBottom:16, outline:"none" };
   const lbl = { fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 };
+
+  /* MARCA_UNA_SOLA_FICHA · busca un producto ACTIVO con el mismo nombre (normalizado) y el mismo
+     proveedor_cod. La consulta es por proveedor_cod, NO por nombre de piladora: dos piladoras pueden
+     vender la misma marca y esas SÍ son dos fichas distintas. Bandera `vivo` + clearTimeout para que
+     una respuesta lenta no pise un nombre ya cambiado. Si falla o no hay conexión, gemelo = null. */
+  React.useEffect(() => {
+    const nom = nombre.trim(), prov = provSel && provSel.prov_cod;
+    setGemelo(null); setSumarAGemelo(false);   /* al cambiar el nombre o la piladora, se olvida el gemelo */
+    if (!window.supa || !nom || !prov) return;
+    let vivo = true;
+    const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await window.supa.from("productos")
+          .select("prod_id,nombre,tipo_grano").eq("proveedor_cod", prov).eq("estado","activo");
+        if (!vivo) return;
+        const g = (data||[]).find(p => norm(p.nombre) === norm(nom));
+        if (!g) { setGemelo(null); return; }
+        const { data:prs } = await window.supa.from("presentaciones")
+          .select("presentacion_cod,presentacion").eq("prod_id", g.prod_id).eq("activo", true);
+        if (!vivo) return;
+        setGemelo({ prodId:g.prod_id, nombre:g.nombre, tipoGrano:g.tipo_grano || "",
+          pres:(prs||[]).map(x => ({ cod:x.presentacion_cod, nombre:x.presentacion||x.presentacion_cod })) });
+      } catch (e) { if (vivo) setGemelo(null); }
+    }, 400);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [nombre, provSel]);
+
+  /* si se va a sumar a la marca existente y esa marca ya tiene grano, el grano se HEREDA (no se pregunta). */
+  const granoHeredado = !!(sumarAGemelo && gemelo && gemelo.tipoGrano);
 
   const guardar = async () => {
     if (guardando) return;
@@ -8911,9 +8976,19 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
     if (!nombre.trim()) { setAviso("Escribe el nombre del producto."); return; }
     if (provModo==="nuevo") { setAviso("Por ahora elige una piladora de la lista. Crear una piladora nueva se hace aparte."); return; }
     if (!provCod) { setAviso("Elige una piladora de la lista."); return; }
+    /* UNIDAD_BUSCADOR · con buscador se puede borrar el texto y quedarse sin unidad; con los botones
+       eso no pasaba. Se corta antes de guardar para no crear el producto en quintales calladamente. */
+    if (unidades && unidades.length && !uniSel) { setAviso("Elige la presentación / unidad."); return; }
     const bc = parseFloat(baseContado)||0, bcr = parseFloat(baseCredito)||0;
     const cc = parseFloat(costoContado)||0, ccr = parseFloat(costoCredito)||0;
     if (!(bc>0)) { setAviso("Falta el precio base contado."); return; }
+    /* MARCA_UNA_SOLA_FICHA · sumar una presentación que la marca YA tiene sería pisar su precio sin
+       historial: se corta y se manda a Piladoras · Costos y Base. */
+    const presCodElegido = (unidades && unidades.length && uniSel) ? uniSel.cod : ((PRES_MAP[unidad]||PRES_MAP.qq).cod);
+    if (sumarAGemelo && gemelo && gemelo.pres.some(x => x.cod === presCodElegido)) {
+      setAviso("«"+gemelo.nombre+"» ya tiene esa presentación. Para cambiarle el precio usa Piladoras · Costos y Base.");
+      return;
+    }
     /* CAT_UNIDADES · unidad de peso VARIABLE (envase): el peso en quintales es obligatorio POR PRODUCTO. */
     if (unidades && unidades.length && uniSel && uniSel.variable) {
       const av = Number(String(equivAjuste).replace(",", "."));
@@ -8929,16 +9004,33 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
       const pres = (unidades && unidades.length && uniSel)
         ? { cod: uniSel.cod, nom: uniSel.nombre, eq: (isFinite(ajuste) && ajuste > 0 ? ajuste : Number(uniSel.equiv_qq)) }
         : (PRES_MAP[unidad] || PRES_MAP.qq);
-      const { data:ult } = await window.supa.from("productos").select("prod_id").like("prod_id","P-%").order("prod_id",{ascending:false}).limit(1);
-      const n = ult && ult[0] ? (parseInt(String(ult[0].prod_id).replace(/\D/g,""),10)||0) : 0;
-      const prodId = "P-"+String(n+1).padStart(5,"0");
+      /* MARCA_UNA_SOLA_FICHA · si se suma a una marca existente, se reusa su prod_id (una sola ficha
+         con varias presentaciones); si es marca nueva, se genera el siguiente P-xxxxx. */
+      const sumando = !!(sumarAGemelo && gemelo);
+      let prodId;
+      if (sumando) {
+        prodId = gemelo.prodId;
+      } else {
+        const { data:ult } = await window.supa.from("productos").select("prod_id").like("prod_id","P-%").order("prod_id",{ascending:false}).limit(1);
+        const n = ult && ult[0] ? (parseInt(String(ult[0].prod_id).replace(/\D/g,""),10)||0) : 0;
+        prodId = "P-"+String(n+1).padStart(5,"0");
+      }
       const presId = prodId+"-"+pres.cod;
       const ofertaId = prodId+"-"+pres.cod+"-"+provCod;
       const orgId=await orgActivaWeb();
-      const { error:e1 } = await window.supa.from("productos").insert({
-        prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo",
-        org_id: orgId, proveedor_cod: provCod, proveedor: provNom, foto: fotoData || null, es_demo: false });
-      if (e1) throw new Error("producto: "+e1.message);
+      if (sumando) {
+        /* GRANO_DESDE_EL_ALTA · si la marca estaba sin clasificar y aquí se eligió el grano, se le pone
+           al PRODUCTO: queda para TODAS sus presentaciones (tipo_grano vive en productos, se hereda). */
+        if (!gemelo.tipoGrano && variedad) {
+          const { error:eg } = await window.supa.from("productos").update({ tipo_grano: variedad }).eq("prod_id", prodId);
+          if (eg) throw new Error("tipo de grano: "+eg.message);
+        }
+      } else {
+        const { error:e1 } = await window.supa.from("productos").insert({
+          prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo", tipo_grano: variedad || null,
+          org_id: orgId, proveedor_cod: provCod, proveedor: provNom, foto: fotoData || null, es_demo: false });
+        if (e1) throw new Error("producto: "+e1.message);
+      }
       const { error:e2 } = await window.supa.from("presentaciones").insert({
         pres_id: presId,org_id:orgId,prod_id: prodId, producto: nombre.trim(), presentacion_cod: pres.cod, presentacion: pres.nom,
         equiv_qq: pres.eq, precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), foto: fotoData || null, activo: true, es_demo: false });
@@ -8949,6 +9041,7 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
         precio_contado: r2(bc), precio_credito: r2(bcr>0?bcr:bc), margen_min: 8,
         activo: true, vigente_desde: hoyECWeb(), es_demo: false });
       if (e3) throw new Error("oferta: "+e3.message);
+      setSumaOk(sumando ? { nombre: gemelo.nombre } : null);
       setListo(true);
     } catch (e) { setAviso("No se pudo crear: " + (e.message||"error")); }
     setGuardando(false);
@@ -8965,8 +9058,10 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
           {listo
             ? <div style={{ textAlign:"center", padding:"20px 0" }}>
                 <div style={{ fontSize:40, marginBottom:10 }}>✅</div>
-                <p style={{ fontSize:15, fontWeight:700, color:COLOR.text }}>Producto creado</p>
-                <p style={{ fontSize:13, color:COLOR.muted, marginTop:6 }}>Quedó <b>activo</b> y disponible para pedidos con la piladora y precios que ingresaste.</p>
+                <p style={{ fontSize:15, fontWeight:700, color:COLOR.text }}>{sumaOk ? "Presentación agregada" : "Producto creado"}</p>
+                <p style={{ fontSize:13, color:COLOR.muted, marginTop:6 }}>{sumaOk
+                  ? <span>Se sumó a «<b>{sumaOk.nombre}</b>», que ahora tiene una presentación más. No se creó un producto aparte.</span>
+                  : <span>Quedó <b>activo</b> y disponible para pedidos con la piladora y precios que ingresaste.</span>}</p>
                 <button onClick={onCerrar} style={{ marginTop:18, padding:"11px 24px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" }}>Entendido</button>
               </div>
             : <>
@@ -8983,20 +9078,68 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                     ? <BuscadorPredictivo cat="proveedores" items={provsReales} value={provTexto} placeholder="Escribe para buscar una piladora…" label={p=>p.nombre} onText={t=>{ setProvTexto(t); if(t==="") setProvSel(null); }} onPick={p=>{ setProvSel(p); setProvTexto(p.nombre); }} />
                     : <input value={provNuevo} onChange={e=>setProvNuevo(e.target.value)} placeholder="Crear piladora nueva se hace aparte, por ahora elige de la lista" style={{ ...inp, marginBottom:0 }} />}
                 </div>
+                {/* MARCA_UNA_SOLA_FICHA · si ya existe esta marca en esta piladora, se avisa y se ofrece
+                    sumar la presentación a esa ficha en vez de crear otro producto. */}
+                {gemelo && (
+                  <div style={{ background:"#FFF7E8", border:"1px solid #F0D9A8", borderRadius:10, padding:"11px 13px", marginBottom:14 }}>
+                    <p style={{ fontSize:12.5, color:"#8a6100", margin:0, lineHeight:1.45 }}>
+                      Ya existe «<b>{gemelo.nombre}</b>» en esta piladora con <b>{gemelo.pres.length}</b> presentación(es){gemelo.pres.length?": "+gemelo.pres.map(x=>x.nombre).join(", "):""}.
+                    </p>
+                    <p style={{ fontSize:12.5, color:"#8a6100", margin:"6px 0 8px", lineHeight:1.45 }}>
+                      Si es la misma marca en otra presentación, súmala a la ficha que ya está: así queda un solo producto con varias presentaciones.
+                    </p>
+                    <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12.5, fontWeight:700, color:"#8a6100", cursor:"pointer" }}>
+                      <input type="checkbox" checked={sumarAGemelo} onChange={e=>setSumarAGemelo(e.target.checked)} />
+                      Agregar esta presentación a «{gemelo.nombre}» ({gemelo.prodId})
+                    </label>
+                  </div>
+                )}
+                {/* GRANO_DESDE_EL_ALTA · el tipo de grano se elige al crear (antes nacía «sin clasificar»).
+                    Si se suma a una marca que ya tiene grano, se hereda (no se pregunta). */}
+                <label style={lbl}>Tipo de grano (variedad)</label>
+                {granoHeredado ? (
+                  <div style={{ ...inp, background:"#f3f5f7", color:COLOR.muted, display:"flex", alignItems:"center", gap:8 }}>
+                    <b className="num" style={{ color:COLOR.text }}>{gemelo.tipoGrano}</b> · heredado de «{gemelo.nombre}»
+                  </div>
+                ) : (
+                  <select value={variedad} onChange={e=>setVariedad(regUso("variedades",e.target.value))} style={{ ...inp, cursor:"pointer" }}>
+                    <option value="">— Sin asignar —</option>
+                    {ordUso("variedades",VARIEDADES_GRANO).map(v => <option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
+                  </select>
+                )}
+                <p style={{ fontSize:11.5, margin:"-8px 0 16px",
+                  color: granoHeredado ? COLOR.muted : (variedad ? COLOR.muted : "#b9770e"),
+                  fontWeight: (granoHeredado||variedad) ? 400 : 700 }}>
+                  {granoHeredado
+                    ? "Es del producto, no de la presentación: ya rige para todas las de esta marca."
+                    : variedad
+                      ? <span>Familia: <b className="num">{variedad.slice(0,3)}</b> — con esto el producto entra en el ajuste de precios por bloque.</span>
+                      : "⚠ Sin esto el producto nace «sin clasificar» y el ajuste por bloque de Piladoras no lo alcanza."}
+                </p>
                 <label style={lbl}>Presentación / unidad</label>
                 {/* CAT_UNIDADES · selector desde el catálogo (catalogo_unidades). Fallback al selector
                     fijo si el catálogo viene vacío o sin conexión, para no bloquear el alta. */}
                 {(unidades && unidades.length) ? (
                   <div style={{ marginBottom:16 }}>
-                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
-                      {unidades.map(u => {
+                    {/* UNIDAD_BUSCADOR · tres atajos (lo más usado) + buscador, en vez de diez botones que
+                        empujaban los precios fuera de vista en el celular. El peso va en la línea
+                        secundaria de cada opción porque es el dato que más engaña. */}
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:8 }}>
+                      {rapidas.map(u => {
                         const act = uniSel && uniSel.cod === u.cod;
                         return (
-                          <button key={u.cod} onClick={()=>{ setUniSel({ cod:u.cod, nombre:u.nombre, equiv_qq:Number(u.equiv_qq), variable:!!u.peso_variable }); setEquivAjuste(u.peso_variable ? "" : String(Number(u.equiv_qq))); }}
+                          <button key={u.cod} onClick={()=>elegirUnidad(u)}
                             style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${act?COLOR.teal:COLOR.border}`, background: act?COLOR.tealLight:"#fff", color: act?COLOR.tealDark:COLOR.text }}>{u.nombre}</button>
                         );
                       })}
                     </div>
+                    <BuscadorPredictivo cat="unidades" items={unidades} value={uniTexto}
+                      placeholder="Escribe para buscar una presentación…"
+                      label={u=>u.nombre} sub={u=>"Peso: "+Number(u.equiv_qq)+" qq"} right={u=>u.cod} extra={u=>u.cod}
+                      onText={t=>setUniTexto(t)} onPick={u=>elegirUnidad(u)} />
+                    <p style={{ fontSize:11.5, color: uniSel?COLOR.tealDark:COLOR.red, fontWeight:700, margin:"7px 0 10px" }}>
+                      {uniSel ? "Elegida: "+uniSel.nombre : "Todavía no eliges la presentación."}
+                    </p>
                     {/* CAT_UNIDADES · peso fijo = viene del catálogo (ajuste opcional); peso variable = obligatorio por producto */}
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                       <span style={{ fontSize:11.5, color: (uniSel && uniSel.variable) ? COLOR.text : COLOR.muted, fontWeight:(uniSel && uniSel.variable)?700:400 }}>
@@ -9014,12 +9157,24 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                     </p>
                   </div>
                 ) : (
-                  <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:16 }}>
-                    {UNIDADES_MEDIDA.map(u => (
-                      <button key={u} onClick={()=>setUnidad(u)} style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{UNI_LABEL[u]||u}</button>
-                    ))}
+                  /* UNIDAD_BUSCADOR · rama de respaldo (sin catálogo): mismo patrón para que la pantalla
+                     no cambie de modo según haya o no conexión. Los tres primeros como atajo + buscador. */
+                  <div style={{ marginBottom:16 }}>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:8 }}>
+                      {UNIDADES_MEDIDA.slice(0,3).map(u => (
+                        <button key={u} onClick={()=>{ setUnidad(u); setUniTexto(uniLabelFijo(u)); }}
+                          style={{ padding:"8px 12px", borderRadius:8, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1px solid ${unidad===u?COLOR.teal:COLOR.border}`, background: unidad===u?COLOR.tealLight:"#fff", color: unidad===u?COLOR.tealDark:COLOR.text }}>{uniLabelFijo(u)}</button>
+                      ))}
+                    </div>
+                    <BuscadorPredictivo cat="unidades" items={UNIDADES_MEDIDA} value={uniTexto}
+                      placeholder="Escribe para buscar una presentación…"
+                      label={u=>uniLabelFijo(u)} extra={u=>u}
+                      onText={t=>setUniTexto(t)} onPick={u=>{ setUnidad(u); setUniTexto(uniLabelFijo(u)); }} />
                   </div>
                 )}
+                {/* PRECIO_UNA_SOLA_PUERTA · el alta nace con estos precios; después se cambian por la puerta única */}
+                <label style={{ ...lbl, marginTop:4 }}>Precios iniciales</label>
+                <p style={{ fontSize:11.5, color:COLOR.muted, margin:"0 0 12px" }}>Con estos nace el producto. Para cambiarlos después se usa Piladoras · Costos y Base (o «Editar precios» en la ficha), que guarda con fecha y deja historial.</p>
                 <div style={{ display:"flex", gap:14 }}>
                   <div style={{ flex:1 }}>
                     <label style={lbl}>Precio base contado</label>
@@ -9892,6 +10047,55 @@ function preSubirCosto(o, { pct, porQq }) {
    Ej.: 18 + 12% = 20,16 ; 26,50 + 30% = 34,45. */
 const BASE_PCT_SOBRE_COSTO = 12;
 function baseDesdeCosto(costo, pct){ return Math.round((Number(costo)||0)*(1+(Number(pct)||0)/100)*10000)/10000; }
+
+/* PRECIO_UNA_SOLA_PUERTA · única forma de versionar el costo/base de una oferta de piladora.
+   La usan las TRES pantallas que antes tenían su copia: Piladoras (Costos y Base), la ficha del
+   producto («Editar precios») y el alza de costo en bloque. Antes cada una cerraba/insertaba a su
+   manera y dos retoques del mismo día dejaban DOS filas vigentes; v_ofertas_vigentes podía devolver
+   la que no es. Aquí se conserva el camino correcto: MISMO_DIA_ACTUALIZA (si la vigente ya es de HOY,
+   se corrige en su sitio), el cierre con vigente_hasta=hoy + insert de la nueva versión, y el
+   try/catch que impide que un fallo de auditoría tumbe un cambio ya guardado.
+   DECLARADA CON `function` (hoisting): la usa FichaProducto, ~1.600 líneas más arriba.
+   `nuevos` trae solo lo que cambia + operacion/motivo/codigo para la auditoría. */
+async function versionarOfertaWeb(o, nuevos, usuario){
+  const hoy = preHoy();
+  const val = {
+    costo: nuevos.costo!=null?nuevos.costo:o.costo,
+    costo_contado: nuevos.costo_contado!=null?nuevos.costo_contado:o.costoContado,
+    precio_contado: nuevos.precio_contado!=null?nuevos.precio_contado:o.contado,
+    precio_credito: nuevos.precio_credito!=null?nuevos.precio_credito:o.credito,
+  };
+  const operacion = nuevos.operacion || "Costo/Base";
+  const codigo = nuevos.codigo || preAu();   /* el alza en bloque pasa un solo código para toda la tanda */
+  const auditar = async (fila) => { try { await window.supa.from("auditoria").insert({ org_id:await orgActivaWeb(), codigo,
+    usuario:(usuario&&usuario.nombre)||"", tabla:"ofertas_piladora", operacion,
+    registro_id:o.ofertaId, fecha:new Date().toISOString(),
+    valor_anterior:JSON.stringify({costo:o.costo,costo_contado:o.costoContado,precio_contado:o.contado,precio_credito:o.credito}),
+    valor_nuevo:JSON.stringify(nuevos.motivo?{...fila, motivo:nuevos.motivo}:fila) }); } catch(e){} };
+  /* MISMO_DIA_ACTUALIZA: si la fila vigente ya es de HOY, se corrige en su sitio (no se apila otra
+     versión por cada retoque del mismo día). */
+  const MISMO_DIA_ACTUALIZA = (String(o.desde||"").slice(0,10) === hoy);
+  if(MISMO_DIA_ACTUALIZA){
+    const u=await window.supa.from("ofertas_piladora").update(val).eq("oferta_id",o.ofertaId);
+    if(u.error) throw new Error(u.error.message);
+    await auditar({oferta_id:o.ofertaId, ...val, mismoDia:true});
+    return {...o, ...val};
+  }
+  /* Día distinto: se VERSIONA — cierra la vigente e inserta una nueva. */
+  const c1=await window.supa.from("ofertas_piladora").update({vigente_hasta:hoy}).eq("oferta_id",o.ofertaId);
+  if(c1.error) throw new Error(c1.error.message);
+  const nid=o.prodId+"-"+o.presCod+"-"+o.provCod+"-"+Date.now();
+  const fila={
+    oferta_id:nid, prod_id:o.prodId, pres_cod:o.presCod, presentacion:o.presentacion,
+    equiv_qq:o.equivQq, prov_cod:o.provCod, ...val,
+    margen_min: o.margenMin!=null?o.margenMin:preMargenObjetivo(), activo:true, vigente_desde:hoy, es_demo:false,
+  };
+  const c2=await window.supa.from("ofertas_piladora").insert(fila);
+  if(c2.error) throw new Error(c2.error.message);
+  await auditar(fila);
+  return fila;
+}
+
 function PiladorasWeb({ usuario }){
   const [ofertas,setOfertas]=useState(null);   // null = cargando; array normalizado (preLeerOfertas)
   const [prodInfo,setProdInfo]=useState({});   // prodId -> {nombre, marca, linea}
@@ -10054,42 +10258,9 @@ function PiladorasWeb({ usuario }){
   /* Versiona una oferta (objeto normalizado de preLeerOfertas) en
      ofertas_piladora: cierra la vigente (vigente_hasta=hoy) e inserta una nueva
      (vigente_desde=hoy). Nunca sobrescribe. Igual patrón que ModalCostoBloque. */
-  const versionar=async(o,nuevos)=>{
-    const hoy=preHoy();
-    const val={
-      costo: nuevos.costo!=null?nuevos.costo:o.costo,
-      costo_contado: nuevos.costo_contado!=null?nuevos.costo_contado:o.costoContado,
-      precio_contado: nuevos.precio_contado!=null?nuevos.precio_contado:o.contado,
-      precio_credito: nuevos.precio_credito!=null?nuevos.precio_credito:o.credito,
-    };
-    const auditar=async(fila)=>{ try{ await window.supa.from("auditoria").insert({ org_id:await orgActivaWeb(), codigo:preAu(),
-      usuario:(usuario&&usuario.nombre)||"", tabla:"ofertas_piladora", operacion:"Costo/Base por piladora",
-      registro_id:o.ofertaId, fecha:new Date().toISOString(),
-      valor_anterior:JSON.stringify({costo:o.costo,costo_contado:o.costoContado,precio_contado:o.contado,precio_credito:o.credito}),
-      valor_nuevo:JSON.stringify(fila) }); }catch(e){} };
-    /* MISMO_DIA_ACTUALIZA: si la fila vigente ya es de HOY, se corrige en su
-       sitio (no se apila otra versión por cada retoque del mismo día). */
-    const MISMO_DIA_ACTUALIZA = (String(o.desde||"").slice(0,10) === hoy);
-    if(MISMO_DIA_ACTUALIZA){
-      const u=await window.supa.from("ofertas_piladora").update(val).eq("oferta_id",o.ofertaId);
-      if(u.error) throw new Error(u.error.message);
-      await auditar({oferta_id:o.ofertaId, ...val, mismoDia:true});
-      return {...o, ...val};
-    }
-    /* Día distinto: se VERSIONA — cierra la vigente e inserta una nueva. */
-    const c1=await window.supa.from("ofertas_piladora").update({vigente_hasta:hoy}).eq("oferta_id",o.ofertaId);
-    if(c1.error) throw new Error(c1.error.message);
-    const nid=o.prodId+"-"+o.presCod+"-"+o.provCod+"-"+Date.now();
-    const fila={
-      oferta_id:nid, prod_id:o.prodId, pres_cod:o.presCod, presentacion:o.presentacion,
-      equiv_qq:o.equivQq, prov_cod:o.provCod, ...val,
-      margen_min: o.margenMin!=null?o.margenMin:preMargenObjetivo(), activo:true, vigente_desde:hoy, es_demo:false,
-    };
-    const c2=await window.supa.from("ofertas_piladora").insert(fila);
-    if(c2.error) throw new Error(c2.error.message);
-    await auditar(fila);
-    return fila;
-  };
+  /* PRECIO_UNA_SOLA_PUERTA · Piladoras pasa a ser un envoltorio de la puerta única (mismo trabajo
+     que hacía; nada cambia en lo visible de esta pantalla). */
+  const versionar=(o,nuevos)=>versionarOfertaWeb(o,{...nuevos, operacion:"Costo/Base por piladora"},usuario);
 
   const guardarFila=async()=>{
     const o=(ofertas||[]).find(x=>x.ofertaId===edit); if(!o||!form) return;
@@ -11421,8 +11592,7 @@ function ModalCostoBloque({ ids, usuario, onCerrar, onAplicado }) {
   const aplicar = async () => {
     if (guardando || !activas.length) return;
     setGuardando(true); setAviso(""); setHechos(0);
-    const hoy = preHoy();
-    const au = preAu();
+    const au = preAu();   /* un solo código de auditoría para toda la tanda (se pasa como `codigo` a la puerta) */
     const mot = motivo.trim() || (modo==="pct"
       ? `Costo de ${nomProv[prov]||prov} +${pct}%`
       : `Costo de ${nomProv[prov]||prov} ${(parseFloat(porQq)||0)>0?"+":""}${preMoney(parseFloat(porQq)||0)} por quintal`);
@@ -11430,28 +11600,14 @@ function ModalCostoBloque({ ids, usuario, onCerrar, onAplicado }) {
     for (let i = 0; i < activas.length; i++) {
       const c = activas[i];
       try {
-        const c1 = await window.supa.from("ofertas_piladora")
-          .update({ vigente_hasta: hoy }).eq("oferta_id", c.ofertaId);
-        if (c1.error) throw new Error(c1.error.message);
-        const nid = c.prodId + "-" + c.presCod + "-" + c.provCod + "-" + Date.now() + "-" + i;
-        const c2 = await window.supa.from("ofertas_piladora").insert({
-          oferta_id: nid, prod_id: c.prodId, pres_cod: c.presCod,
-          presentacion: c.presentacion, equiv_qq: c.equivQq, prov_cod: c.provCod,
+        /* PRECIO_UNA_SOLA_PUERTA · el alza en bloque entra por la puerta única (versiona con la regla
+           del mismo día y audita con un solo código para toda la tanda). */
+        await versionarOfertaWeb(c, {
           costo: c.costoNuevo, costo_contado: c.costoContadoNuevo,
           precio_contado: c.contadoFinal, precio_credito: c.creditoFinal,
-          margen_min: c.margenMin, activo: true, vigente_desde: hoy, es_demo: false });
-        if (c2.error) throw new Error(c2.error.message);
+          operacion: "Alza de costo por piladora", motivo: mot, codigo: au,
+        }, usuario);
         ok++; setHechos(ok);
-        try {
-          await window.supa.from("auditoria").insert({
-            org_id: await orgActivaWeb(), codigo: au,
-            usuario: usuario && usuario.nombre ? usuario.nombre : "",
-            tabla: "ofertas_piladora", operacion: "Alza de costo por piladora",
-            registro_id: c.ofertaId, fecha: new Date().toISOString(),
-            valor_anterior: JSON.stringify({ costo:c.costo, costoContado:c.costoContado, contado:c.contado, credito:c.credito }),
-            valor_nuevo:    JSON.stringify({ costo:c.costoNuevo, costoContado:c.costoContadoNuevo, contado:c.contadoFinal, credito:c.creditoFinal, motivo:mot }),
-          });
-        } catch (x) { /* la auditoría no puede tumbar el cambio ya guardado */ }
       } catch (e) { ultimoError = (e && e.message) || ""; }
     }
     if (ok === 0) {
