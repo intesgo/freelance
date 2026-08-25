@@ -6114,7 +6114,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"475", fecha:"25 ago 2026", desc:"Productos ahora muestra las presentaciones REALES de cada marca (Quintal, Arroba, 10 libras, Saco…), cada una con su propio precio guardado —ya no calculado— así ves lo mismo que el vendedor. Y en la ficha de la marca, la tarjeta de agrupación (que no se guardaba) pasó a ser el Tipo de grano: se clasifica desde aquí y queda guardado de verdad." };
+const VERSION = { n:"476", fecha:"25 ago 2026", desc:"Productos: la cabecera quedó en un solo renglón (con un chip que dice cuántas marcas estás viendo), el conteo de presentaciones ya no se parte a media palabra, y en la ficha de la marca el tipo de grano se lee más limpio a la derecha." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -17394,11 +17394,16 @@ function Productos({vender}){
   const lineasOrd=Object.keys(porLinea).sort();
 
   return (<>
-    <div className="h1">Productos</div>
-    <div className="sub">Marcas por línea de grano. Toca una marca para ver sus presentaciones.</div>
-    {reales && <div style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-      background:"rgba(28,122,68,.13)",color:"#1c7a44",margin:"0 0 12px"}}>
-      🟢 Catálogo y precios vivos de la base · {reales.length} productos</div>}
+    {/* CABECERA_COMPACTA · antes eran tres renglones antes de llegar al buscador. Ahora
+        uno: el título y, a la derecha, cuántas marcas estás viendo. El chip conserva la
+        señal que daba la píldora — verde cuando el catálogo viene de la base, gris
+        cuando es la demostración. */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12}}>
+      <div className="h1" style={{margin:0}}>Productos</div>
+      <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:800,whiteSpace:"nowrap",
+        background: reales?"rgba(28,122,68,.13)":"rgba(90,100,110,.12)",
+        color: reales?"#1c7a44":"var(--muted)"}}>{lista.length}P</span>
+    </div>
     <div className="ss" style={{marginBottom:16}}>
       <div className="box"><span className="mag">⌕</span>
         <input value={q} placeholder="Buscar por producto, línea o piladora…" onChange={e=>setQ(e.target.value)}/>
@@ -17420,7 +17425,10 @@ function Productos({vender}){
                 <div style={{width:40,height:40,borderRadius:10,background:"var(--paper)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,marginRight:11}}>{EMOJI_LINEA[m.linea]||"📦"}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div className="cli">{m.marca||m.id||"Sin marca"}</div>
-                  <div className="meta">{variasPilas ? `🏭 ${pilas.length} piladoras` : (pilas[0]?pilas[0].nombre:provName(m.provId))} · {nPres} presentación(es)</div>
+                  {/* CONTEO_NO_SE_PARTE · antes era un solo texto y se partía donde le alcanzaba,
+                      dejando el número separado de lo que cuenta. */}
+                  <div className="meta">{variasPilas ? `🏭 ${pilas.length} piladoras` : (pilas[0]?pilas[0].nombre:provName(m.provId))}</div>
+                  <div className="meta">{nPres} {nPres===1 ? "presentación" : "presentaciones"}</div>
                 </div>
                 <span className="meta" style={{fontSize:18,color:"var(--muted)",marginLeft:8}}>›</span>
               </div>
@@ -17567,9 +17575,10 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
   return (<>
     <span className="prod-linea">{marca.linea}</span>
     <div className="h1" style={{marginTop:8,marginBottom:4}}>{marca.marca||marca.id||"Sin marca"}</div>
-    <div className="sub">{provName(marca.provId)} · {activas.length} presentación(es)</div>
+    <div className="sub">{provName(marca.provId)} · {activas.length} {activas.length===1 ? "presentación" : "presentaciones"}</div>
 
-    {puedeFoto && <div className="meta" style={{margin:"8px 2px 2px"}}>📷 Cada presentación tiene su propia foto. Tócala abajo para subir o cambiar (se ajusta en cuadro sola).</div>}
+    {/* GRANO_A_LA_DERECHA · se quitó el aviso «📷 Cada presentación tiene su propia foto…»; la subida
+        por presentación (subirFotoPres / input file oculto / fotoRef / presPend) sigue igual. */}
     {puedeFoto && <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}}
       onChange={e=>{ const ff=e.target.files&&e.target.files[0]; e.target.value=""; const pr=presPend.current; presPend.current=null; if(ff && pr) subirFotoPres(pr, ff); }}/>}
     {avisoFoto && <div style={{position:"fixed",left:12,right:12,bottom:80,zIndex:9999,background:"#1E3A2B",color:"#EAF0EA",padding:"11px 14px",borderRadius:12,fontSize:13.5,fontWeight:600,textAlign:"center",whiteSpace:"pre-line",boxShadow:"0 8px 24px rgba(0,0,0,.28)"}}>{avisoFoto}</div>}
@@ -17578,10 +17587,18 @@ function FichaMarca({marca, real, onFoto, volver, vender}){
     <div className="ficha-sec">Tipo de grano</div>
     <div className="fcard" style={{marginBottom:14}}>
       {!editGrano ? (<>
-        <div className="cu-line"><span>Variedad</span><b>{grano ? grano : "Sin clasificar"}</b></div>
-        {grano
-          ? <div className="meta" style={{marginTop:4}}>{granoDesc(grano)} · familia <b className="num">{grano.slice(0,3)}</b> — con esto entra en el ajuste de precios por bloque.</div>
-          : <div className="meta" style={{marginTop:4,color:"var(--clay)"}}>⚠ Sin clasificar: el ajuste de precios por bloque no lo alcanza.</div>}
+        {/* GRANO_A_LA_DERECHA · el valor pasa a dos renglones pegados al borde derecho.
+            Se fue la descripción larga; el aviso de «sin clasificar» SE QUEDA, que es el
+            que empuja a ponerlo (hoy 50 de 59 arroces están sin grano). */}
+        <div className="cu-line" style={{alignItems:"flex-start"}}><span>Variedad</span>
+          <div style={{textAlign:"right"}}>
+            {grano ? (<>
+              <b>Tipo de Grano <span className="num">{grano}</span></b>
+              <div className="meta">Familia <b className="num">{grano.slice(0,3)}</b></div>
+            </>) : <b>Sin clasificar</b>}
+          </div>
+        </div>
+        {!grano && <div className="meta" style={{marginTop:4,color:"var(--clay)"}}>⚠ Sin clasificar: el ajuste de precios por bloque no lo alcanza.</div>}
         {puedeGrano && <button className="ghost" style={{width:"100%",marginTop:10}} onClick={()=>{setGranoSel(grano);setGranoAviso("");setEditGrano(true);}}>{grano?"Cambiar tipo de grano":"Clasificar el grano"}</button>}
         {guardado && <div className="part-ok" style={{marginTop:8}}>✓ Tipo de grano guardado</div>}
       </>) : (<>
@@ -24165,7 +24182,7 @@ function Proveedores({toast, usuario}){
               <div className="card" key={i}>
                 <div className="row" style={{alignItems:"center"}}>
                   <div style={{flex:1}}><div className="cli">{m.marca}</div>
-                    <div className="meta">{m.linea} · {activas.length} presentación(es)</div></div>
+                    <div className="meta">{m.linea} · {activas.length} {activas.length===1 ? "presentación" : "presentaciones"}</div></div>
                   <div style={{textAlign:"right"}}><div className="amt num">{money(desde)}</div>
                     <div className="meta">desde</div></div>
                 </div>
