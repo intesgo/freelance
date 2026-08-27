@@ -537,7 +537,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"218", fecha:"27 ago 2026", desc:"Seguridad: el Sistema Web es solo para la oficina (freelance, administrador, financiero y logística). Si entra una cuenta de otro rol, se cierra la sesión y se le pide entrar a la app que le corresponde." };
+const VERSION = { n:"219", fecha:"27 ago 2026", desc:"Pedidos respeta la marca exclusiva por cliente: una marca amarrada a un cliente (p. ej. Arroz Crecedor de Supermercado Castillo) solo aparece al tomar pedido para ese cliente; para los demás queda oculta, igual que en las apps móviles." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5925,6 +5925,20 @@ function ModalPedido({ p, onCerrar, onEditar, money, colorEstado, nombreCliente,
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   MARCA EXCLUSIVA POR CLIENTE (mismo criterio que el móvil, Comisionista ≈4821)
+   La exclusividad la manda el vínculo en `marca_clientes`: si un prod_id está ahí,
+   SOLO es visible para esos cli_id; si no está, es normal (para todos). El móvil ya
+   lo aplica; el Sistema Web (Pedidos) le faltaba y ofrecía marcas ajenas.
+   Defensivo: si la consulta falla, el mapa queda VACÍO y todo se comporta normal
+   (nadie pierde una venta por un fallo de red). ═══════════════════════════════ */
+const EXCLUSIVA_DE = {};
+const marcaVisibleParaCli = (prodId, cliId) => {
+  const duenos = EXCLUSIVA_DE[prodId];
+  if (!duenos || !duenos.size) return true;      /* sin dueños: de todos */
+  return !!cliId && duenos.has(cliId);           /* con dueños: solo ellos */
+};
+
 function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const [pedidos, setPedidos] = useState(()=>MODO_DEMO_WEB?PEDIDOS_WEB_INI:[]);
@@ -6237,13 +6251,19 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
     setErrProds(null);
     (async () => {
       try {
-        const [{ data: prods }, { data: ofertas }, { data: provs }, { data: presFotos }] = await Promise.all([
+        const [{ data: prods }, { data: ofertas }, { data: provs }, { data: presFotos }, { data: mc }] = await Promise.all([
           window.supa.from("productos").select("prod_id, nombre, linea").eq("estado", "activo"),
           window.supa.from("v_ofertas_vigentes").select("prod_id, prov_cod, pres_cod, presentacion, equiv_qq, costo, costo_contado, margen_min, precio_contado, precio_credito").limit(4000),
           window.supa.from("proveedores").select("prov_cod, nombre").eq("es_demo", false).limit(500),
           // Fotos reales por presentación (Quintal, Arroba…). Solo las que tienen foto, para no pesar.
           window.supa.from("presentaciones").select("prod_id, presentacion_cod, foto").not("foto", "is", null).limit(4000),
+          // Marca exclusiva por cliente: qué productos están amarrados a qué clientes.
+          window.supa.from("marca_clientes").select("prod_id,cli_id"),
         ]);
+        /* Mapa de exclusividad (prod_id → Set de cli_id). Se reconstruye en cada carga.
+           Defensivo: si la consulta falló, mc viene null y el mapa queda vacío (todo normal). */
+        Object.keys(EXCLUSIVA_DE).forEach(k => { delete EXCLUSIVA_DE[k]; });
+        (mc || []).forEach(r => { (EXCLUSIVA_DE[r.prod_id] = EXCLUSIVA_DE[r.prod_id] || new Set()).add(r.cli_id); });
         if (prods && prods.length && ofertas && ofertas.length) {
           const nombreProd = {}, lineaProd = {};
           prods.forEach(p => { nombreProd[p.prod_id] = p.nombre; lineaProd[p.prod_id] = p.linea; });
@@ -6493,7 +6513,12 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const valido = cli && !cli.bloqueado && prod && cantNum>0 && baseLista && precioOk && p5Ok && !bajoPiso;   /* PED_CUPO_WEB: el exceso de cupo YA NO bloquea (va a autorización) */
 
   const PROVEEDORES_LISTA = [...new Set(PRODS_PED.map(p=>p.prov))].filter(p=>p!=="POR ASIGNAR");     // proveedores disponibles
-  const productosDelProv = provSel ? PRODS_PED.filter(p=>p.prov===provSel) : [];
+  /* MARCA_EXCLUSIVA_WEB · además del proveedor, respeta la marca exclusiva del cliente
+     elegido (cli): una marca amarrada a un cliente en marca_clientes NO se ofrece a otro.
+     En demo el mapa está vacío, así que no oculta nada (a propósito). */
+  const productosDelProv = provSel
+    ? PRODS_PED.filter(p => p.prov===provSel && marcaVisibleParaCli(p.prodId, cli && cli.id))
+    : [];
 
   /* Nombre a mostrar en la columna Cliente (#5):
      · persona jurídica → razón social completa
