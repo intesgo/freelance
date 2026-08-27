@@ -10,8 +10,8 @@ const sw =fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
 /* ── versión y caché ── */
-ok(/const VERSION = \{ n:"224"/.test(web),"Sistema Web debe anunciar b224");
-ok(/const CACHE = "freelance-v334"/.test(sw),"la caché debe renovarse a v334");
+ok(/const VERSION = \{ n:"225"/.test(web),"Sistema Web debe anunciar b225");
+ok(/const CACHE = "freelance-v335"/.test(sw),"la caché debe renovarse a v335");
 
 /* ── el módulo existe y está enrutado ── */
 ok(/function TarifasFEWeb\(\{ usuario \}\)\{/.test(web),"existe el módulo TarifasFEWeb");

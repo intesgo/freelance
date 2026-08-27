@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"224", fecha:"27 ago 2026", desc:"Detalles del pedido · Precio: nuevo diseño. Las dos bases (Crédito en verde / Contado en azul) se ven como tarjetas grandes, y debajo una tabla que compara «Precio sugerido» y «Tu comisión» en las dos condiciones. Más claro para elegir." };
+const VERSION = { n:"225", fecha:"27 ago 2026", desc:"Detalles del pedido · Precio: el resalte ahora «juega» con lo elegido. Al elegir Crédito se enciende la tarjeta CRÉDITO (verde) y se apaga CONTADO; al elegir Contado se enciende CONTADO (azul) y se apaga CRÉDITO. Solo una activa a la vez." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -7403,31 +7403,39 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
                 <div>
                   <label style={lblM}>Tipo de precio</label>
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-                    {TIPOS_PRECIO_WEB.map(t => { const on=tipo===t.id; return (
-                      <button key={t.id} onClick={()=>{ setTipo(t.id); setPrecio(""); setPromoF(null); setPromoP(null); }} title={t.desc} style={{ padding:"11px 5px", borderRadius:10, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t.nombre}</button>
+                    {TIPOS_PRECIO_WEB.map(t => { const on=tipo===t.id; const az=on&&t.id==="P2"; /* Contado activo = azul */ return (
+                      <button key={t.id} onClick={()=>{ setTipo(t.id); setPrecio(""); setPromoF(null); setPromoP(null); }} title={t.desc} style={{ padding:"11px 5px", borderRadius:10, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2,
+                        border:`1px solid ${az?"#2b6cb0":(on?COLOR.teal:COLOR.border)}`,
+                        background: az?"#eef4fb":(on?COLOR.tealLight:"#fff"),
+                        color: az?"#2b6cb0":(on?COLOR.tealDark:COLOR.text) }}>{t.nombre}</button>
                     );})}
                   </div>
-                  {/* BASE_DOS_TARJETAS_WEB · las dos bases (crédito verde / contado azul) lado a lado */}
-                  {prod && (Number(prod.baseContado)>0 || Number(prod.baseCredito)>0) && (
-                    <div style={{ display:"flex", gap:12, marginTop:12 }}>
-                      <div style={{ flex:1, minWidth:0, border:`1px solid ${COLOR.teal}`, background:COLOR.tealLight, borderRadius:14, padding:"14px 16px" }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
-                          <span style={{ width:34, height:34, borderRadius:10, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico name="creditCard" size={17} color={COLOR.tealDark}/></span>
-                          <span style={{ fontSize:13, fontWeight:800, letterSpacing:".04em", color:COLOR.tealDark }}>CRÉDITO</span>
+                  {/* BASE_DOS_TARJETAS_WEB · resalte según la condición elegida (esCredito): solo una activa */}
+                  {prod && (Number(prod.baseContado)>0 || Number(prod.baseCredito)>0) && (() => {
+                    const credOn = esCredito, contOn = !esCredito;
+                    return (
+                      <div style={{ display:"flex", gap:12, marginTop:12 }}>
+                        <div style={{ flex:1, minWidth:0, borderRadius:14, padding:"14px 16px",
+                          border:`1px solid ${credOn?COLOR.teal:COLOR.border}`, background: credOn?COLOR.tealLight:"#fff", opacity: credOn?1:.5 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
+                            <span style={{ width:34, height:34, borderRadius:10, background: credOn?"#fff":COLOR.bg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico name="creditCard" size={17} color={credOn?COLOR.tealDark:COLOR.muted}/></span>
+                            <span style={{ fontSize:13, fontWeight:800, letterSpacing:".04em", color: credOn?COLOR.tealDark:COLOR.muted }}>CRÉDITO</span>
+                          </div>
+                          <div style={{ fontSize:12, color:COLOR.muted }}>Precio base de referencia</div>
+                          <div className="num" style={{ fontSize:26, fontWeight:800, color: credOn?COLOR.tealDark:COLOR.muted, marginTop:2 }}>{Number(prod.baseCredito)>0?money(prod.baseCredito):"—"}</div>
                         </div>
-                        <div style={{ fontSize:12, color:COLOR.muted }}>Precio base de referencia</div>
-                        <div className="num" style={{ fontSize:26, fontWeight:800, color:COLOR.tealDark, marginTop:2 }}>{Number(prod.baseCredito)>0?money(prod.baseCredito):"—"}</div>
-                      </div>
-                      <div style={{ flex:1, minWidth:0, border:"1px solid #b8d0ea", background:"#eef4fb", borderRadius:14, padding:"14px 16px" }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
-                          <span style={{ width:34, height:34, borderRadius:10, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico name="banknote" size={17} color="#2b6cb0"/></span>
-                          <span style={{ fontSize:13, fontWeight:800, letterSpacing:".04em", color:"#2b6cb0" }}>CONTADO</span>
+                        <div style={{ flex:1, minWidth:0, borderRadius:14, padding:"14px 16px",
+                          border:`1px solid ${contOn?"#b8d0ea":COLOR.border}`, background: contOn?"#eef4fb":"#fff", opacity: contOn?1:.5 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
+                            <span style={{ width:34, height:34, borderRadius:10, background: contOn?"#fff":COLOR.bg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico name="banknote" size={17} color={contOn?"#2b6cb0":COLOR.muted}/></span>
+                            <span style={{ fontSize:13, fontWeight:800, letterSpacing:".04em", color: contOn?"#2b6cb0":COLOR.muted }}>CONTADO</span>
+                          </div>
+                          <div style={{ fontSize:12, color:COLOR.muted }}>Precio base de referencia</div>
+                          <div className="num" style={{ fontSize:26, fontWeight:800, color: contOn?"#2b6cb0":COLOR.muted, marginTop:2 }}>{Number(prod.baseContado)>0?money(prod.baseContado):"—"}</div>
                         </div>
-                        <div style={{ fontSize:12, color:COLOR.muted }}>Precio base de referencia</div>
-                        <div className="num" style={{ fontSize:26, fontWeight:800, color:"#2b6cb0", marginTop:2 }}>{Number(prod.baseContado)>0?money(prod.baseContado):"—"}</div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {tipo==="P3" && (<React.Fragment>
                     <label style={{...lblM, marginTop:16}}>Piso del precio</label>
                     <div style={{ display:"flex", gap:8 }}>{segBtn(condP3==="contado","Piso contado",()=>setCondP3("contado"))}{segBtn(condP3==="credito","Piso crédito",()=>setCondP3("credito"))}</div>
