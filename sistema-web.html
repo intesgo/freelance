@@ -537,7 +537,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"216", fecha:"25 ago 2026", desc:"El campo del grano ahora se llama «Variedad» en la ficha del producto y en Nuevo producto (antes «Tipo de grano»)." };
+const VERSION = { n:"217", fecha:"27 ago 2026", desc:"Seguridad: cada cuenta se usa en un solo equipo a la vez. Si entras en otra computadora o teléfono, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -21313,6 +21313,56 @@ function useEsMovil(bp){
   React.useEffect(()=>{ const f=()=>setM(window.innerWidth<=bp); window.addEventListener("resize",f); f(); return ()=>window.removeEventListener("resize",f); },[bp]);
   return m;
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   UNA SOLA SESIÓN POR CUENTA · un dispositivo a la vez (salvo el dueño)
+   «Gana el último»: quien entra de nuevo cierra la sesión anterior. El
+   freelance/admin no tiene control (la base devuelve NULL y aquí no se activa).
+   DEFENSIVO: si la base aún no tiene la función/columna, no se guarda nada y el
+   sistema entra igual que siempre. Variante Sistema Web: usa window.supa.
+   ═══════════════════════════════════════════════════════════════════════ */
+var SES_KEY_UNICA = "sesion_id_web";
+var SES_WATCH_UNICA = null, SES_VIS_UNICA = false;
+function cerrarPorOtroDispositivo(){
+  try{ localStorage.removeItem(SES_KEY_UNICA); }catch(e){}
+  try{ if(SES_WATCH_UNICA && window.supa){ window.supa.removeChannel(SES_WATCH_UNICA); } }catch(e){}
+  SES_WATCH_UNICA = null;
+  try{ alert("Tu cuenta se abrió en otro dispositivo. Esta sesión se cerró."); }catch(e){}
+  try{ if(window.supa && window.supa.auth){ window.supa.auth.signOut().then(()=>location.reload()).catch(()=>location.reload()); return; } }catch(e){}
+  try{ location.reload(); }catch(e){}
+}
+async function chequearSesionUnica(){
+  var local=null; try{ local=localStorage.getItem(SES_KEY_UNICA); }catch(e){}
+  if(!local) return;
+  try{
+    const { data:s } = await window.supa.auth.getSession();
+    const uid = s && s.session && s.session.user && s.session.user.id;
+    if(!uid) return;
+    const { data:f, error } = await window.supa.from("usuarios").select("sesion_id").eq("auth_uid", uid).maybeSingle();
+    if(error) return;
+    if(f && f.sesion_id && f.sesion_id !== local) cerrarPorOtroDispositivo();
+  }catch(e){}
+}
+async function iniciarSesionUnica(){
+  try{
+    if(!window.supa) return;
+    const { data, error } = await window.supa.rpc("reclamar_sesion");
+    if(error || !data){ try{ localStorage.removeItem(SES_KEY_UNICA); }catch(e){} return; }
+    try{ localStorage.setItem(SES_KEY_UNICA, data); }catch(e){}
+    try{
+      const { data:s } = await window.supa.auth.getSession();
+      const uid = s && s.session && s.session.user && s.session.user.id;
+      if(uid && !SES_WATCH_UNICA){
+        SES_WATCH_UNICA = window.supa.channel("sesion_unica_"+uid)
+          .on("postgres_changes", { event:"UPDATE", schema:"public", table:"usuarios", filter:"auth_uid=eq."+uid },
+            (p)=>{ const nu = p && p.new && p.new.sesion_id; var loc=null; try{ loc=localStorage.getItem(SES_KEY_UNICA); }catch(e){}
+                   if(loc && nu && nu !== loc) cerrarPorOtroDispositivo(); })
+          .subscribe();
+      }
+    }catch(e){}
+    try{ if(!SES_VIS_UNICA){ SES_VIS_UNICA=true; document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) chequearSesionUnica(); }); } }catch(e){}
+  }catch(e){}
+}
+
 function App() {
   // ⚠ DESARROLLO: ingreso automático como admin (sin login). Para reactivar el login, poner: useState(null)
   const [sesion, setSesion] = useState(null);  // FASE 4: login normal (Supabase Auth con correo, o usuario demo de respaldo)
@@ -21334,6 +21384,7 @@ function App() {
           if (per && per.activo) {
             setSesion(resolverSesion({ usuario: usr.email, clave: "", nombre: per.nombre,
               cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
+            try{ iniciarSesionUnica(); }catch(e){}
           }
         }
       } catch (e) {}
@@ -21365,6 +21416,8 @@ function App() {
     const ini = u.secciones.includes("dashboard") ? "dashboard" : u.secciones[0];
     setSeccion(ini);
     setTabs([ini]);
+    /* una sola sesión por cuenta (salvo dueño): reclama y vigila · defensivo */
+    if (u && u.real) { try{ iniciarSesionUnica(); }catch(e){} }
   };
   const salir = () => {
     /* cierra también la sesión de Supabase Auth para que el JWT no quede vivo */
