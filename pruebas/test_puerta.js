@@ -8,6 +8,12 @@ const ruta=process.argv[2], nombre=ruta.split("/").pop();
 /* PROVEEDOR_LOGIN_PROPIO · la app del proveedor tiene su propio login (correo + clave dentro
    de la app), no el enlace al portal. El resto de apps siguen con el portal. */
 const esProv=/proveedor/i.test(nombre);
+/* CANDADO_POR_ROL · cada app solo deja entrar a su rol. El padrón simulado debe
+   traer el rol que ESA app permite, o el candado la mandaría al portal. */
+const rolApp = /proveedor/i.test(nombre) ? "proveedor"
+  : /socio/i.test(nombre) ? "socio"
+  : /transportista/i.test(nombre) ? "transportista"
+  : "comisionista";
 const html=fs.readFileSync(ruta,"utf-8");
 const jsx=html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 const js=Babel.transform(jsx,{presets:["react"]}).code;
@@ -41,9 +47,14 @@ if(esProv){
 comprobar("cerrar sesión cierra de verdad (signOut)",
   /function salirDeVerdad/.test(html) && /auth\.signOut\(\)/.test(html));
 comprobar("la puerta comprueba que la cuenta siga activa", /activo === false/.test(html));
+/* CANDADO_POR_ROL · cada app trae su candado por rol y lo aplica tras autenticar */
+comprobar("existe el candado por rol (ROLES_APP + rolPermitidoApp + cerrarPorRolAjeno)",
+  /var ROLES_APP\s*=/.test(html) && /function rolPermitidoApp/.test(html) && /function cerrarPorRolAjeno/.test(html));
+comprobar("el candado se aplica en la puerta (llama a rolPermitidoApp)",
+  /rolPermitidoApp\(/.test(html));
 
 /* ── comportamiento real ── */
-function montar(conSesion, activo){
+function montar(conSesion, activo, rol){
   const dom=new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`,
     { url:"https://intesgo.github.io/freelance/", runScripts:"outside-only", pretendToBeVisual:true });
   const w=dom.window;
@@ -52,8 +63,9 @@ function montar(conSesion, activo){
   w.speechSynthesis={speak(){},cancel(){},getVoices:()=>[]};
   w.Notification=function(){}; w.Notification.permission="denied"; w.Notification.requestPermission=async()=>"denied";
   const salidas=[];
+  const rolUsa = rol || rolApp;
   const q=(tabla)=>{ const datos = tabla==="usuarios"
-      ? [{usr_id:"SC-D1",nombre:"Luis Paredes",rol:"comisionista",activo:activo}] : [];
+      ? [{usr_id:"SC-D1",nombre:"Luis Paredes",rol:rolUsa,activo:activo}] : [];
     const p=Promise.resolve({data:datos,error:null,count:0});
     ["select","eq","neq","in","order","limit","like","not","is"].forEach(m=>{p[m]=()=>q(tabla);});
     p.maybeSingle=()=>Promise.resolve({data:datos[0]||null,error:null}); p.single=p.maybeSingle;
@@ -97,6 +109,13 @@ const guion = `(async()=>{
   const t = await vm.runInContext(guion, baja.ctx);
   comprobar("cuenta dada de baja: no entra y se le cierra la sesión",
     (esProv ? /Ingresar/i.test(t) : /portal/i.test(t)) && baja.salidas.indexOf("signOut") >= 0);
+
+  /* CANDADO_POR_ROL · una cuenta de OTRO rol (financiero, que ninguna app móvil
+     permite) no entra y se le cierra la sesión. */
+  const ajeno = montar(true, true, "financiero");
+  await vm.runInContext(guion, ajeno.ctx);
+  comprobar("candado por rol: una cuenta de otro rol no entra y se le cierra la sesión",
+    ajeno.salidas.indexOf("signOut") >= 0);
 
   console.log("Resultado "+nombre+": "+ok+" ✓ · "+mal+" ✗");
   process.exit(mal?1:0);
