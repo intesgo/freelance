@@ -45,7 +45,7 @@ const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1
 
 /* Cuántas comprobaciones y mutantes se esperan. Se declaran ANTES de correr
    para que una que se borre sin querer no pase inadvertida. */
-const ESPERADAS = 10;
+const ESPERADAS = 11;
 const MUTANTES_ESPERADOS = 3;
 
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 80));
@@ -320,6 +320,19 @@ async function bateria(js, ruidoso) {
     corre(m, `window.__render()`);
     await esperar(280); corre(m, `window.__flush()`);
     const errs = await armarPedidoNormal(m);
+    /* DISENO_PED_MANTIENE_PROV · tras «Agregar al pedido», la piladora queda FIJA: se puede
+       agregar un 2º producto SIN volver a elegir proveedor. Antes se borraba (resetLinea) y
+       el carrito quedaba trabado. */
+    corre(m, `window.__buscarEscribir("catálogo", "Arroz")`);
+    await esperar(120); corre(m, `window.__flush()`);
+    corre(m, `window.__buscarOpcion("catálogo", "Arroz Sin Sesion")`);
+    await esperar(140); corre(m, `window.__flush()`);
+    corre(m, `window.__rowab(0, 5)`);  await esperar(80); corre(m, `window.__flush()`);
+    corre(m, `window.__rowab(1, 40)`); await esperar(80); corre(m, `window.__flush()`);
+    const agr2 = corre(m, `window.__botonPorTexto("Agregar al pedido")`);
+    await esperar(120); corre(m, `window.__flush()`);
+    comprobar("(a) tras agregar, la piladora sigue fija: se agrega un 2º producto sin re-elegir proveedor",
+      agr2 === "ok");
     // Subir pedido (la RPC devolverá sin_sesion)
     corre(m, `window.__botonPorTexto("Subir pedido")`);
     await esperar(200); corre(m, `window.__flush()`);
