@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"216"/.test(web),"Sistema Web debe anunciar b216");
-prueba(/const CACHE = "freelance-v323"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v324"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -326,7 +326,7 @@ prueba((prov.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=6,"proveedor · 
 prueba((socio.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"socio · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
 prueba((comi.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"comisionista · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
 /* versiones de las tres apps tocadas */
-prueba(/const VERSION = \{ n:"71"/.test(prov),"proveedor debe anunciar v71");
+prueba(/const VERSION = \{ n:"72"/.test(prov),"proveedor debe anunciar v72");
 prueba(/const VERSION = \{ n:"61"/.test(socio),"socio debe anunciar v61");
 prueba(/const VERSION = \{ n:"194"/.test(comi),"comisionista debe anunciar v194");
 
