@@ -236,10 +236,20 @@ async function sbLeer(recurso, params = "") {
   /* Lee una vista/tabla vía PostgREST. Devuelve {ok, datos|error}. Jamás rompe la pantalla:
      si no hay internet o la base no responde, el sistema sigue en modo demostración. */
   try {
+    /* SBLEER_SESION · usar el token de la sesión del usuario como Bearer. Por seguridad,
+       anon ya NO puede leer las vistas/tablas, así que con la llave pública sbLeer volvía
+       vacío aunque el usuario estuviera logueado (indicador pegado en «demostración»,
+       módulo Marcas sin datos). El header apikey se queda con anon —PostgREST lo exige—;
+       lo que cambia es el Authorization. Sin sesión cae a anon → vacío → demo (correcto). */
+    let token = SUPABASE_ANON;
+    try {
+      const { data:s } = await window.supa.auth.getSession();
+      if (s && s.session && s.session.access_token) token = s.session.access_token;
+    } catch(e) {}
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 6000);
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${recurso}${params ? "?" + params : ""}`, {
-      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` },
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` },
       signal: ctl.signal,
     });
     clearTimeout(t);
@@ -395,12 +405,25 @@ function EstadoConexion(){
   const [verDetalle, setVerDetalle] = useState(false);
   useEffect(() => {
     let activo = true;
-    sbLeer("v_salud_sistema", "limit=1").then(r => {
-      if (!activo) return;
-      if (r.ok && r.datos && r.datos.length) { setEstado("vivo"); setSalud(r.datos[0]); }
-      else setEstado("demo");
-    });
-    return () => { activo = false; };
+    const probar = () => {
+      sbLeer("v_salud_sistema", "limit=1").then(r => {
+        if (!activo) return;
+        if (r.ok && r.datos && r.datos.length) { setEstado("vivo"); setSalud(r.datos[0]); }
+        else setEstado("demo");
+      });
+    };
+    probar();
+    /* SBLEER_SESION · si la primera lectura corrió antes de tener sesión, reintenta al
+       entrar (o cambiar) la sesión para que el indicador pase a «Conectado». Guardado:
+       si no hay cliente real (solo el puente), no hay onAuthStateChange y no pasa nada. */
+    let sub = null;
+    try {
+      const res = window.supa && window.supa.auth && window.supa.auth.onAuthStateChange
+        ? window.supa.auth.onAuthStateChange((_ev, sesion) => { if (activo && sesion) probar(); })
+        : null;
+      sub = res && res.data && res.data.subscription;
+    } catch(e) {}
+    return () => { activo = false; try { sub && sub.unsubscribe(); } catch(e){} };
   }, []);
   const pinta = { probando:["#8a8a95","⏳ Conectando…"], vivo:["#22c55e","🟢 Conectado a la base"], demo:["#8a8a95","⚪ Modo demostración"] };
   const [colr, texto] = pinta[estado];
@@ -537,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"219", fecha:"27 ago 2026", desc:"Pedidos respeta la marca exclusiva por cliente: una marca amarrada a un cliente (p. ej. Arroz Crecedor de Supermercado Castillo) solo aparece al tomar pedido para ese cliente; para los demás queda oculta, igual que en las apps móviles." };
+const VERSION = { n:"220", fecha:"27 ago 2026", desc:"Conexión con la base: las lecturas del Sistema Web ahora usan la sesión del usuario. El indicador de arriba pasa a «Conectado a la base» al iniciar sesión y el módulo Marcas muestra datos reales (antes, con la llave pública, se quedaba en «modo demostración»)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
