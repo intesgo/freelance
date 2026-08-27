@@ -3316,7 +3316,9 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
       })),
     };
     const {data,error}=await window.SB.rpc("registrar_pedido_atomico",{p_payload:payload,p_op_id:opId});
-    if(error) return {ok:false,motivo:error.message||"error_pedido",error};
+    /* P0C_VENCIDAS · rechazo DURO por facturas vencidas = regla de negocio, no conexión:
+       el pedido NO nació y NO sirve encolar/reintentar. */
+    if(error){ const msg=error.message||"error_pedido"; return {ok:false,motivo:msg,error,reglaNegocio:/vencid/i.test(msg)}; }
     const r=(data&&data[0])||data||{};
     return {ok:true,pedId:r.ped_id||opId,repetido:!!r.repetido,resumen:r.resumen||null};
   }catch(e){ registrarError("pedido.guardar",e); return { ok:false, motivo:navigator.onLine===false?"sin_conexion":"error", error:e }; }
@@ -6142,7 +6144,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"478", fecha:"25 ago 2026", desc:"La variedad del grano ahora se ve igual en las tres pantallas: en la lista de Productos aparece bajo la marca (antes no salía), en la ficha y en Piladoras · Costos y precios va una pastilla con el código y, al lado, la descripción. Todo se llama «Variedad»." };
+const VERSION = { n:"479", fecha:"27 ago 2026", desc:"Cliente con facturas vencidas: al ingresar el pedido, si el cliente tiene facturas vencidas se bloquea con el motivo claro; el pedido no se guarda ni queda en la cola esperando subir (nunca subiría)." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -25961,6 +25963,11 @@ function App({usuario, onSalir}){
     }else if(["sin_sesion","cliente_demo","producto_demo"].includes(r.motivo)){
       show(MODO_DEMO_ACTIVO?"Pedido de demostración: no se envió a la base.":"No se guardó: la sesión o los datos del pedido no son válidos.");
       if(!MODO_DEMO_ACTIVO) return false;
+    }else if(r.reglaNegocio){
+      /* P0C_VENCIDAS · bloqueo DURO de la base (facturas vencidas): el pedido NO nació y NO se
+         encola. Se quita la tarjeta optimista para no mostrarlo como guardado y se avisa claro. */
+      setPedidos(prev=>prev.filter(p=>p.offlineId!==idempotencia));
+      show("⛔ "+r.motivo); return false;
     }else{
       registrarError("pedido.respuesta",r.error||new Error(r.motivo),{toast:show}); return false;
     }

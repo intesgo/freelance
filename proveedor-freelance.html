@@ -1276,7 +1276,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"72", fecha:"27 ago 2026", desc:"Ahora la app del proveedor guarda su propia sesión, aparte de las demás apps del mismo sitio. Así puedes tenerla instalada junto a la del freelance en un mismo teléfono/navegador sin que una cierre la sesión de la otra. La primera vez tendrás que iniciar sesión de nuevo (una sola vez)." };
+const VERSION = { n:"73", fecha:"27 ago 2026", desc:"Autorización de crédito: cuando un pedido pasa el cupo (o el máximo de facturas / un cheque protestado) te llega para autorizar. Al tocar «Autorizar crédito», el pedido avanza solo. La app espera la confirmación real de la base antes de marcarla aprobada/rechazada." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1516,7 +1516,10 @@ const soloDia = (iso)=> String(iso||"").slice(0,10);
    Lo que espera tu firma: pedidos por facturar y solicitudes del freelance. */
 const TIPO_SOL_PROV={ credito:"💳 Ampliación de crédito", cupo:"💳 Ampliación de cupo",
   devolucion:"↩ Devolución", precio:"🏷 Precio especial", descuento:"🏷 Descuento",
-  posfechar:"📅 Posfechar cheque", muestras:"🎁 Muestras", nc:"🧾 Nota de crédito" };
+  posfechar:"📅 Posfechar cheque", muestras:"🎁 Muestras", nc:"🧾 Nota de crédito",
+  /* P0C_EXCEPCION_CREDITO · un pedido que pasó el cupo / máx. facturas / cheque protestado
+     espera tu autorización. Al aprobarla, la base mueve el pedido sola. */
+  excepcion_credito:"🔐 Autorización de crédito" };
 /* NOMBRE_CLIENTE_INTEGRIDAD · FUENTE ÚNICA del nombre del cliente para MOSTRAR (una sola verdad).
    Acepta el pedido {cli, razon, tipoCli, ruc} y la ficha de cliente {nombre, razon_social/
    razonSocial, tipo, ruc}. Reglas: jurídica si 3.er dígito del RUC 9/6, o tipo empresa/jurídica,
@@ -2010,9 +2013,20 @@ function Decisiones({ctx, datos}){
       toca("Devolución aceptada ✓ Ahora anula la factura para que se borre la deuda del cliente.");
       return;
     }
+    /* P0C_EXCEPCION_CREDITO · esperar el resultado REAL antes de pintar. Ahora importa de
+       verdad: al aprobar una excepcion_credito la base MUEVE el pedido (→ enviado_proveedor,
+       o → ingresado). Si el RPC falla, no se pinta "aprobada". En demo se pinta optimista. */
+    if(!datos){
+      setSolics(ss=>ss.map(x=>x.id===s.id?{...x,estado:"aprobada",motivoResp:"Aprobada"}:x));
+      toca("Estás viendo datos de demostración: entra con tu cuenta para aprobar de verdad.");
+      return;
+    }
+    setRespondiendo(s.id);
+    const ok=await responderSolicitud(s.id,"aprobada","Aprobada");
+    setRespondiendo(null);
+    if(!ok){ toca("No se pudo aprobar la solicitud: revisa la conexión e inténtalo de nuevo."); return; }
     setSolics(ss=>ss.map(x=>x.id===s.id?{...x,estado:"aprobada",motivoResp:"Aprobada"}:x));
-    if(datos) responderSolicitud(s.id,"aprobada","Aprobada");
-    toca("Solicitud aprobada · Daniel lo ve en su sistema.");
+    toca(s.tipoRaw==="excepcion_credito" ? "Crédito autorizado ✓ El pedido avanza solo." : "Solicitud aprobada · Daniel lo ve en su sistema.");
   };
   const confirmarRechazo=async()=>{
     if(!rechazo.motivo.trim()){ toca("El motivo es obligatorio: Daniel lo leerá tal cual."); return; }
@@ -2028,8 +2042,17 @@ function Decisiones({ctx, datos}){
       toca("Devolución rechazada · la factura sigue vigente y el vendedor ve tu motivo.");
       return;
     }
+    /* P0C_EXCEPCION_CREDITO · igual que aprobar: esperar el resultado real antes de pintar. */
+    if(!datos){
+      setSolics(ss=>ss.map(x=>x.id===rechazo.id?{...x,estado:"rechazada",motivoResp:rechazo.motivo.trim()}:x));
+      setRechazo(null); toca("Datos de demostración: entra con tu cuenta para rechazar de verdad.");
+      return;
+    }
+    setRespondiendo(rechazo.id);
+    const ok=await responderSolicitud(rechazo.id,"rechazada",rechazo.motivo.trim());
+    setRespondiendo(null);
+    if(!ok){ toca("No se pudo rechazar la solicitud: revisa la conexión e inténtalo de nuevo."); return; }
     setSolics(ss=>ss.map(x=>x.id===rechazo.id?{...x,estado:"rechazada",motivoResp:rechazo.motivo.trim()}:x));
-    if(datos) responderSolicitud(rechazo.id,"rechazada",rechazo.motivo.trim());
     setRechazo(null); toca("Rechazada con motivo · queda en el historial.");
   };
 
@@ -2443,7 +2466,7 @@ function Decisiones({ctx, datos}){
               <button style={{...btn2,background:"var(--ok)",color:"#fff",border:"none",
                 opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
                 onClick={()=>aprobarSol(s)}>
-                {respondiendo===s.id ? "Guardando…" : (s.tipoRaw==="devolucion" ? "Aceptar devolución ✓" : "Aprobar ✓")}</button>
+                {respondiendo===s.id ? "Guardando…" : (s.tipoRaw==="devolucion" ? "Aceptar devolución ✓" : s.tipoRaw==="excepcion_credito" ? "Autorizar crédito ✓" : "Aprobar ✓")}</button>
             </div>
           )}
         </div>
