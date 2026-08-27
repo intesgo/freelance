@@ -1304,6 +1304,55 @@ const HuellaIcono = ({ t = 22, c = "currentColor", g = 1.7, marco = false }) => 
    Ahora: se entra por el portal, con la cuenta de verdad. Si ya hay sesión
    abierta, esta pantalla ni se ve — la app entra sola, como siempre.
    ═══════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UNA SOLA SESIÓN POR CUENTA · un dispositivo a la vez (salvo el dueño)
+   «Gana el último»: quien entra de nuevo cierra la sesión anterior. El
+   freelance/admin no tiene control (la base devuelve NULL y aquí no se activa).
+   DEFENSIVO: si la base aún no tiene la función/columna, no se guarda nada y la
+   app entra igual que siempre. ═══════════════════════════════════════════ */
+var SES_KEY_UNICA = "sesion_id_socio";
+var SES_WATCH_UNICA = null, SES_VIS_UNICA = false;
+function cerrarPorOtroDispositivo(){
+  try{ localStorage.removeItem(SES_KEY_UNICA); }catch(e){}
+  try{ if(SES_WATCH_UNICA && window.SB){ window.SB.removeChannel(SES_WATCH_UNICA); } }catch(e){}
+  SES_WATCH_UNICA = null;
+  try{ alert("Tu cuenta se abrió en otro dispositivo. Esta sesión se cerró."); }catch(e){}
+  try{ if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(()=>location.reload()).catch(()=>location.reload()); return; } }catch(e){}
+  try{ location.reload(); }catch(e){}
+}
+async function chequearSesionUnica(){
+  var local=null; try{ local=localStorage.getItem(SES_KEY_UNICA); }catch(e){}
+  if(!local) return;
+  try{
+    const { data:s } = await window.SB.auth.getSession();
+    const uid = s && s.session && s.session.user && s.session.user.id;
+    if(!uid) return;
+    const { data:f, error } = await window.SB.from("usuarios").select("sesion_id").eq("auth_uid", uid).maybeSingle();
+    if(error) return;
+    if(f && f.sesion_id && f.sesion_id !== local) cerrarPorOtroDispositivo();
+  }catch(e){}
+}
+async function iniciarSesionUnica(){
+  try{
+    const { data, error } = await window.SB.rpc("reclamar_sesion");
+    if(error || !data){ try{ localStorage.removeItem(SES_KEY_UNICA); }catch(e){} return; }
+    try{ localStorage.setItem(SES_KEY_UNICA, data); }catch(e){}
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      const uid = s && s.session && s.session.user && s.session.user.id;
+      if(uid && !SES_WATCH_UNICA){
+        SES_WATCH_UNICA = window.SB.channel("sesion_unica_"+uid)
+          .on("postgres_changes", { event:"UPDATE", schema:"public", table:"usuarios", filter:"auth_uid=eq."+uid },
+            (p)=>{ const nu = p && p.new && p.new.sesion_id; var loc=null; try{ loc=localStorage.getItem(SES_KEY_UNICA); }catch(e){}
+                   if(loc && nu && nu !== loc) cerrarPorOtroDispositivo(); })
+          .subscribe();
+      }
+    }catch(e){}
+    try{ if(!SES_VIS_UNICA){ SES_VIS_UNICA=true; document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) chequearSesionUnica(); }); } }catch(e){}
+  }catch(e){}
+}
+
 function PuertaPortal({ onAutenticado }){
   const [mirando, setMirando] = React.useState(true);
   React.useEffect(()=>{
@@ -1323,6 +1372,7 @@ function PuertaPortal({ onAutenticado }){
             rol: (f && f.rol) || "",      /* el rol lo dice el padrón, no el código */
             zona: "Sesión real", real: true, correo: s.session.user.email,
           });
+          try{ iniciarSesionUnica(); }catch(e){}
           return;
         }
       }catch(e){}
@@ -1582,7 +1632,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"62", fecha:"27 ago 2026", desc:"Cliente con facturas vencidas: al tomar el pedido, si el cliente tiene facturas vencidas la venta se bloquea con el motivo claro; el pedido no se guarda ni queda en la cola esperando subir (nunca subiría)." };
+const VERSION = { n:"63", fecha:"27 ago 2026", desc:"Seguridad: tu cuenta ahora se usa en un solo teléfono a la vez. Si entras en otro equipo, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.

@@ -553,6 +553,63 @@ async function verificarHuellaP(credId){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   UNA SOLA SESIÓN POR CUENTA · un dispositivo a la vez (salvo el dueño)
+   Decisión: «gana el último» — quien entra de nuevo cierra la sesión anterior.
+   No aplica al freelance/admin (puede usar varios equipos): para él la base
+   devuelve NULL y aquí no se activa ningún control.
+
+   Cómo funciona, sin misterio:
+   · Al entrar, se le pide a la base un «reclamar_sesion»: devuelve un id nuevo
+     (o NULL si es el dueño). Ese id se guarda en el teléfono y en la base.
+   · Si otro teléfono entra con la misma cuenta, la base cambia ese id. Esta app
+     se entera (por Realtime o al reabrir/volver) y, como ya no coincide, cierra
+     la sesión con un aviso claro.
+   DEFENSIVO: si la base todavía no tiene la función/columna, `reclamar_sesion`
+   no devuelve id, no se guarda nada y la app entra igual que siempre. Nunca
+   deja a nadie afuera por esto. ═══════════════════════════════════════════ */
+var SES_KEY_UNICA = "sesion_id_prov";
+var SES_WATCH_UNICA = null, SES_VIS_UNICA = false;
+function cerrarPorOtroDispositivo(){
+  try{ localStorage.removeItem(SES_KEY_UNICA); }catch(e){}
+  try{ if(SES_WATCH_UNICA && window.SB){ window.SB.removeChannel(SES_WATCH_UNICA); } }catch(e){}
+  SES_WATCH_UNICA = null;
+  try{ alert("Tu cuenta se abrió en otro dispositivo. Esta sesión se cerró."); }catch(e){}
+  try{ if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(()=>location.reload()).catch(()=>location.reload()); return; } }catch(e){}
+  try{ location.reload(); }catch(e){}
+}
+async function chequearSesionUnica(){
+  var local=null; try{ local=localStorage.getItem(SES_KEY_UNICA); }catch(e){}
+  if(!local) return;
+  try{
+    const { data:s } = await window.SB.auth.getSession();
+    const uid = s && s.session && s.session.user && s.session.user.id;
+    if(!uid) return;
+    const { data:f, error } = await window.SB.from("usuarios").select("sesion_id").eq("auth_uid", uid).maybeSingle();
+    if(error) return;
+    if(f && f.sesion_id && f.sesion_id !== local) cerrarPorOtroDispositivo();
+  }catch(e){}
+}
+async function iniciarSesionUnica(){
+  try{
+    const { data, error } = await window.SB.rpc("reclamar_sesion");
+    if(error || !data){ try{ localStorage.removeItem(SES_KEY_UNICA); }catch(e){} return; }
+    try{ localStorage.setItem(SES_KEY_UNICA, data); }catch(e){}
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      const uid = s && s.session && s.session.user && s.session.user.id;
+      if(uid && !SES_WATCH_UNICA){
+        SES_WATCH_UNICA = window.SB.channel("sesion_unica_"+uid)
+          .on("postgres_changes", { event:"UPDATE", schema:"public", table:"usuarios", filter:"auth_uid=eq."+uid },
+            (p)=>{ const nu = p && p.new && p.new.sesion_id; var loc=null; try{ loc=localStorage.getItem(SES_KEY_UNICA); }catch(e){}
+                   if(loc && nu && nu !== loc) cerrarPorOtroDispositivo(); })
+          .subscribe();
+      }
+    }catch(e){}
+    try{ if(!SES_VIS_UNICA){ SES_VIS_UNICA=true; document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) chequearSesionUnica(); }); } }catch(e){}
+  }catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    UNA SOLA PUERTA (26 jul 2026 · decisión de Richard)
 
    Esta app ya no tiene ingreso propio. Antes traía usuarios y claves escritos
@@ -590,6 +647,7 @@ function PuertaPortal({ onAutenticado }){
           rol: (f && f.rol) || "",      /* el rol lo dice el padrón, no el código */
           zona: "Sesión real", real: true, correo: s.session.user.email,
         });
+        try{ iniciarSesionUnica(); }catch(e){}
         return true;
       }
     }catch(e){}
@@ -1318,7 +1376,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"74", fecha:"27 ago 2026", desc:"Arreglo: la app del proveedor ya vuelve a dejar entrar. Ahora tiene su propia pantalla de ingreso con correo y clave dentro de la misma app (antes te mandaba al portal y no reconocía la sesión). Al cerrar sesión vuelves a esa misma pantalla." };
+const VERSION = { n:"75", fecha:"27 ago 2026", desc:"Seguridad: tu cuenta ahora se usa en un solo teléfono a la vez. Si entras en otro equipo, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
