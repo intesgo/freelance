@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"223", fecha:"27 ago 2026", desc:"Pedidos: al «Agregar al pedido» ya no se borra la piladora. Se limpia solo el producto y la piladora queda fija, para seguir agregando productos de la misma sin quedar trabado. Al subir el pedido y abrir uno nuevo, la piladora se pide otra vez." };
+const VERSION = { n:"224", fecha:"27 ago 2026", desc:"Detalles del pedido · Precio: nuevo diseño. Las dos bases (Crédito en verde / Contado en azul) se ven como tarjetas grandes, y debajo una tabla que compara «Precio sugerido» y «Tu comisión» en las dos condiciones. Más claro para elegir." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -7118,7 +7118,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
     + " · Estibada: " + (asumeEstibada==="cliente"?"Cliente":"Freelance");
   const resumenPrecio = (TIPOS_PRECIO_WEB.find(t=>t.id===tipo)||{}).nombre + (precio!=="" ? " · " + money(parseFloat(String(precio).replace(",","."))||0) : "");
   const canalF = { "Subdistribuidor":1.00, "Distribuidor":1.00, "Mayorista":1.03, "Supermercado":1.05, "Tienda":1.07, "tradicional":1.07, "Bodega":1.08 };
-  const sugerido = (prod && cli && canalF[cli.canal]!=null) ? Math.round((Number(prod.baseCredito)||0)*canalF[cli.canal]*100)/100 : 0;
+  /* el «precio sugerido» ahora se calcula por columna (crédito/contado) dentro de COMPARA_CRED_CONTADO_WEB */
 
   return (
     <div style={{ padding:"12px 28px 40px" }}>
@@ -7407,16 +7407,24 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
                       <button key={t.id} onClick={()=>{ setTipo(t.id); setPrecio(""); setPromoF(null); setPromoP(null); }} title={t.desc} style={{ padding:"11px 5px", borderRadius:10, cursor:"pointer", fontSize:12.5, fontWeight:700, lineHeight:1.2, border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t.nombre}</button>
                     );})}
                   </div>
-                  {/* BASE_EN_CHIPS_WEB: las DOS bases del producto (contado y crédito) a la vista, para no adivinar */}
+                  {/* BASE_DOS_TARJETAS_WEB · las dos bases (crédito verde / contado azul) lado a lado */}
                   {prod && (Number(prod.baseContado)>0 || Number(prod.baseCredito)>0) && (
-                    <div style={{ display:"flex", gap:8, marginTop:10 }}>
-                      <div style={{ flex:1, border:`1px solid ${tipo==="P2"?COLOR.teal:COLOR.border}`, background:tipo==="P2"?COLOR.tealLight:"#fff", borderRadius:10, padding:"8px 10px" }}>
-                        <div style={{ fontSize:10, textTransform:"uppercase", letterSpacing:".03em", color:COLOR.muted }}>Base contado</div>
-                        <div style={{ fontSize:15, fontWeight:800, color:COLOR.tealDark }}>{Number(prod.baseContado)>0?money(prod.baseContado):"—"}</div>
+                    <div style={{ display:"flex", gap:12, marginTop:12 }}>
+                      <div style={{ flex:1, minWidth:0, border:`1px solid ${COLOR.teal}`, background:COLOR.tealLight, borderRadius:14, padding:"14px 16px" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
+                          <span style={{ width:34, height:34, borderRadius:10, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico name="creditCard" size={17} color={COLOR.tealDark}/></span>
+                          <span style={{ fontSize:13, fontWeight:800, letterSpacing:".04em", color:COLOR.tealDark }}>CRÉDITO</span>
+                        </div>
+                        <div style={{ fontSize:12, color:COLOR.muted }}>Precio base de referencia</div>
+                        <div className="num" style={{ fontSize:26, fontWeight:800, color:COLOR.tealDark, marginTop:2 }}>{Number(prod.baseCredito)>0?money(prod.baseCredito):"—"}</div>
                       </div>
-                      <div style={{ flex:1, border:`1px solid ${tipo==="P1"?COLOR.teal:COLOR.border}`, background:tipo==="P1"?COLOR.tealLight:"#fff", borderRadius:10, padding:"8px 10px" }}>
-                        <div style={{ fontSize:10, textTransform:"uppercase", letterSpacing:".03em", color:COLOR.muted }}>Base crédito</div>
-                        <div style={{ fontSize:15, fontWeight:800, color:"#8A5A00" }}>{Number(prod.baseCredito)>0?money(prod.baseCredito):"—"}</div>
+                      <div style={{ flex:1, minWidth:0, border:"1px solid #b8d0ea", background:"#eef4fb", borderRadius:14, padding:"14px 16px" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
+                          <span style={{ width:34, height:34, borderRadius:10, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico name="banknote" size={17} color="#2b6cb0"/></span>
+                          <span style={{ fontSize:13, fontWeight:800, letterSpacing:".04em", color:"#2b6cb0" }}>CONTADO</span>
+                        </div>
+                        <div style={{ fontSize:12, color:COLOR.muted }}>Precio base de referencia</div>
+                        <div className="num" style={{ fontSize:26, fontWeight:800, color:"#2b6cb0", marginTop:2 }}>{Number(prod.baseContado)>0?money(prod.baseContado):"—"}</div>
                       </div>
                     </div>
                   )}
@@ -7462,14 +7470,34 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
                       <input value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Ej: cliente mayorista, volumen alto" style={{ width:"100%", padding:"11px 13px", borderRadius:10, border:`1px solid ${COLOR.border}`, fontSize:14, outline:"none" }} />
                     </React.Fragment>
                   )}
-                  <div style={{ marginTop:16, background:COLOR.bg, borderRadius:12, padding:"12px 14px", fontSize:13 }}>
-                    {tipo!=="P5" && base>0 && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{color:COLOR.muted}}>Base de referencia</span><b className="num">{money(base)}</b></div>}
-                    {sugerido>0 && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{color:COLOR.muted}}>Precio sugerido{cli&&cli.canal?" ("+cli.canal+")":""}</span><b className="num">{money(sugerido)}</b></div>}
-                    <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0", borderTop:`1px solid ${COLOR.border}`, marginTop:4, paddingTop:8 }}><span style={{fontWeight:700}}>Tu comisión{precio!==""?" con "+money(parseFloat(String(precio).replace(",","."))||0):""}</span><b className="num" style={{ color: comisionTotal>=0?COLOR.tealDark:COLOR.red }}>{money(comisionTotal)}</b></div>
-                    {requiereAutorizacion && <p style={{ fontSize:11.5, color:"#7a4fb0", fontWeight:600, marginTop:6, display:"flex", alignItems:"flex-start", gap:6 }}><Ico name="alertTriangle" size={14} color="#7a4fb0"/><span>Requiere autorización del freelance (precio especial).</span></p>}
-                    {bajoPiso && <p style={{ fontSize:11.5, color:COLOR.red, fontWeight:700, marginTop:6, display:"flex", alignItems:"flex-start", gap:6 }}><Ico name="alertTriangle" size={14} color={COLOR.red}/><span>El precio ({money(precioNum)}) queda por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo de la piladora + margen mínimo, según la condición). Necesita autorización del proveedor, aún no disponible: sube el precio para continuar.</span></p>}
+                  <div style={{ marginTop:16 }}>
+                    {/* COMPARA_CRED_CONTADO_WEB · precio sugerido y comisión · crédito (verde) / contado (azul) */}
+                    {prod && (() => {
+                      const fCanal = (cli && canalF[cli.canal]!=null) ? canalF[cli.canal] : 1;
+                      const sugCred = Math.round((Number(prod.baseCredito)||0)*fCanal*100)/100;
+                      const sugCont = Math.round((Number(prod.baseContado)||0)*fCanal*100)/100;
+                      const fila = (etq, valCred, valCont, primera) => (
+                        <div style={{ display:"flex", alignItems:"center", padding:"11px 14px", borderTop: primera?"none":`1px solid ${COLOR.bg}` }}>
+                          <span style={{ flex:1, fontSize:13, color:COLOR.muted }}>{etq}</span>
+                          <b className="num" style={{ width:96, textAlign:"right", color:COLOR.tealDark, fontSize:14 }}>{valCred}</b>
+                          <b className="num" style={{ width:96, textAlign:"right", color:"#2b6cb0", fontSize:14 }}>{valCont}</b>
+                        </div>
+                      );
+                      return (
+                        <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden" }}>
+                          {fila("Precio sugerido"+(cli&&cli.canal?" ("+cli.canal+")":""), sugCred>0?money(sugCred):"—", sugCont>0?money(sugCont):"—", true)}
+                          {fila("Tu comisión", esCredito?money(comisionTotal):"—", !esCredito?money(comisionTotal):"—", false)}
+                        </div>
+                      );
+                    })()}
+                    {requiereAutorizacion && <p style={{ fontSize:11.5, color:"#7a4fb0", fontWeight:600, marginTop:10, display:"flex", alignItems:"flex-start", gap:6 }}><Ico name="alertTriangle" size={14} color="#7a4fb0"/><span>Requiere autorización del freelance (precio especial).</span></p>}
+                    {bajoPiso && <p style={{ fontSize:11.5, color:COLOR.red, fontWeight:700, marginTop:10, display:"flex", alignItems:"flex-start", gap:6 }}><Ico name="alertTriangle" size={14} color={COLOR.red}/><span>El precio ({money(precioNum)}) queda por debajo del piso {money(pisoUnidad)}/{prod?prod.unidad:"qq"} (costo de la piladora + margen mínimo, según la condición). Necesita autorización del proveedor, aún no disponible: sube el precio para continuar.</span></p>}
                   </div>
-                  <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:10 }}>La cantidad y el precio se ponen en la fila de abajo, al cerrar este cuadro.</p>
+                  {/* INFO_BANNER_WEB */}
+                  <div style={{ marginTop:14, display:"flex", alignItems:"flex-start", gap:9, background:"#eef4fb", border:"1px solid #cfe0f2", borderRadius:12, padding:"12px 14px" }}>
+                    <Ico name="messageCircle" size={16} color="#2b6cb0"/>
+                    <span style={{ fontSize:12.5, color:"#2b5a86", lineHeight:1.35 }}>La cantidad y el precio se ponen en la fila de abajo, al cerrar este cuadro.</span>
+                  </div>
                 </div>
               )}
               {modalPed==="historial" && (()=>{
