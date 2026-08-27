@@ -5,6 +5,9 @@ const { JSDOM } = require("jsdom");
 const Babel=require("./rutas").Babel;
 
 const ruta=process.argv[2], nombre=ruta.split("/").pop();
+/* PROVEEDOR_LOGIN_PROPIO · la app del proveedor tiene su propio login (correo + clave dentro
+   de la app), no el enlace al portal. El resto de apps siguen con el portal. */
+const esProv=/proveedor/i.test(nombre);
 const html=fs.readFileSync(ruta,"utf-8");
 const jsx=html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 const js=Babel.transform(jsx,{presets:["react"]}).code;
@@ -25,9 +28,16 @@ comprobar("ya no hay lista de usuarios embebida",
   !/const\s+USUARIOS\s*=\s*\{/.test(html));
 comprobar("la huella dejó de ser puerta de entrada",
   !/verificarHuella\([^)]*\)\.then\([^)]*setPaso\("sync"\)/s.test(html));
-comprobar("existe la puerta al portal", /function PuertaPortal/.test(html));
-comprobar("el enlace lleva al portal", /href="\.\/index\.html"/.test(html));
-comprobar("hay recuperación de clave", /index\.html#olvido/.test(html));
+comprobar("existe la puerta (PuertaPortal)", /function PuertaPortal/.test(html));
+if(esProv){
+  comprobar("proveedor · login propio (correo + clave), sin enlace al portal",
+    /signInWithPassword/.test(html) && !/href="\.\/index\.html"/.test(html));
+  comprobar("proveedor · recuperación de clave propia (resetPasswordForEmail)",
+    /resetPasswordForEmail/.test(html));
+}else{
+  comprobar("el enlace lleva al portal", /href="\.\/index\.html"/.test(html));
+  comprobar("hay recuperación de clave", /index\.html#olvido/.test(html));
+}
 comprobar("cerrar sesión cierra de verdad (signOut)",
   /function salirDeVerdad/.test(html) && /auth\.signOut\(\)/.test(html));
 comprobar("la puerta comprueba que la cuenta siga activa", /activo === false/.test(html));
@@ -73,8 +83,12 @@ const guion = `(async()=>{
 
 (async()=>{
   const sin = await vm.runInContext(guion, montar(false,true).ctx);
-  comprobar("SIN sesión: se ve la invitación a entrar por el portal", /portal/i.test(sin));
-  comprobar("SIN sesión: no pide usuario ni clave aquí", !/contrase|Iniciar sesi/i.test(sin));
+  if(esProv){
+    comprobar("SIN sesión (proveedor): se ve el formulario de correo y clave (botón Ingresar)", /Ingresar/i.test(sin));
+  }else{
+    comprobar("SIN sesión: se ve la invitación a entrar por el portal", /portal/i.test(sin));
+    comprobar("SIN sesión: no pide usuario ni clave aquí", !/contrase|Iniciar sesi/i.test(sin));
+  }
 
   const con = await vm.runInContext(guion, montar(true,true).ctx);
   comprobar("CON sesión: entra sin preguntar nada", !/Ir al portal/i.test(con) && con.length > 200);
@@ -82,7 +96,7 @@ const guion = `(async()=>{
   const baja = montar(true,false);
   const t = await vm.runInContext(guion, baja.ctx);
   comprobar("cuenta dada de baja: no entra y se le cierra la sesión",
-    /portal/i.test(t) && baja.salidas.indexOf("signOut") >= 0);
+    (esProv ? /Ingresar/i.test(t) : /portal/i.test(t)) && baja.salidas.indexOf("signOut") >= 0);
 
   console.log("Resultado "+nombre+": "+ok+" ✓ · "+mal+" ✗");
   process.exit(mal?1:0);

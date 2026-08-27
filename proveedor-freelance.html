@@ -566,30 +566,59 @@ async function verificarHuellaP(credId){
    ═══════════════════════════════════════════════════════════════════════ */
 function PuertaPortal({ onAutenticado }){
   const [mirando, setMirando] = React.useState(true);
-  React.useEffect(()=>{
-    let vivo = true;
-    (async ()=>{
-      try{
-        const { data:s } = await window.SB.auth.getSession();
-        if(!vivo) return;
-        if(s && s.session){
-          const { data:f } = await window.SB.from("usuarios")
-            .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).maybeSingle();
-          /* una cuenta dada de baja no entra, aunque su sesión siga viva */
-          if(f && f.activo === false){ await window.SB.auth.signOut(); setMirando(false); return; }
-          onAutenticado({
-            nombre: (f && f.nombre) || s.session.user.email,
-            codigo: (f && f.usr_id) || "",
-            rol: (f && f.rol) || "",      /* el rol lo dice el padrón, no el código */
-            zona: "Sesión real", real: true, correo: s.session.user.email,
-          });
-          return;
-        }
-      }catch(e){}
-      if(vivo) setMirando(false);
-    })();
-    return ()=>{ vivo = false; };
-  },[]);
+  /* PROVEEDOR_LOGIN_PROPIO · esta app tiene su propia llave de sesión (#125), así que
+     necesita su propia puerta: correo + clave DENTRO de la app. El portal iniciaba sesión
+     en la llave por defecto y esta app nunca la encontraba (se quedaba en el login). */
+  const [correo, setCorreo] = React.useState("");
+  const [clave, setClave]   = React.useState("");
+  const [err, setErr]       = React.useState("");
+  const [entrando, setEntrando] = React.useState(false);
+
+  /* Comprueba la sesión de ESTA app (llave propia): si hay, lee el padrón y entra.
+     Se reutiliza al arrancar y justo después del login del formulario. */
+  const verificarSesion = React.useCallback(async ()=>{
+    try{
+      const { data:s } = await window.SB.auth.getSession();
+      if(s && s.session){
+        const { data:f } = await window.SB.from("usuarios")
+          .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).maybeSingle();
+        /* una cuenta dada de baja no entra, aunque su sesión siga viva */
+        if(f && f.activo === false){ await window.SB.auth.signOut(); setErr("Tu cuenta está inactiva. Habla con el freelance."); setMirando(false); return false; }
+        onAutenticado({
+          nombre: (f && f.nombre) || s.session.user.email,
+          codigo: (f && f.usr_id) || "",
+          rol: (f && f.rol) || "",      /* el rol lo dice el padrón, no el código */
+          zona: "Sesión real", real: true, correo: s.session.user.email,
+        });
+        return true;
+      }
+    }catch(e){}
+    setMirando(false);
+    return false;
+  },[onAutenticado]);
+
+  React.useEffect(()=>{ let vivo=true; (async()=>{ if(vivo) await verificarSesion(); })(); return ()=>{ vivo=false; }; },[verificarSesion]);
+
+  const ingresar = async ()=>{
+    const email=(correo||"").trim().toLowerCase();
+    if(!email || !clave){ setErr("Escribe tu correo y tu clave."); return; }
+    setErr(""); setEntrando(true);
+    try{
+      const { error } = await window.SB.auth.signInWithPassword({ email, password: clave });
+      if(error){ setErr(/invalid|credential/i.test(error.message||"") ? "Correo o clave incorrectos." : (error.message||"No se pudo entrar.")); setEntrando(false); return; }
+      /* login OK → la sesión quedó en la llave propia; volvemos a comprobar para entrar */
+      setMirando(true);
+      const ok = await verificarSesion();
+      if(!ok) setEntrando(false);   /* p.ej. sin ficha en usuarios: verificarSesion ya mostró el form */
+    }catch(e){ setErr("No se pudo entrar: revisa tu conexión."); setEntrando(false); }
+  };
+
+  const olvido = async ()=>{
+    const email=(correo||"").trim().toLowerCase();
+    if(!email){ setErr("Escribe tu correo arriba y toca otra vez «¿Olvidaste tu clave?»."); return; }
+    try{ await window.SB.auth.resetPasswordForEmail(email); setErr(""); alert("Te enviamos un correo para restablecer tu clave (revisa también spam)."); }
+    catch(e){ setErr("No se pudo enviar el correo de recuperación."); }
+  };
 
   const caja = { maxWidth:340, margin:"0 auto", textAlign:"center", padding:"0 22px" };
   if(mirando) return (
@@ -598,21 +627,32 @@ function PuertaPortal({ onAutenticado }){
       <div style={caja}><div style={{fontSize:15,opacity:.85}}>Un momento…</div></div>
     </div>
   );
+  const inp = { width:"100%", boxSizing:"border-box", padding:"14px 15px", borderRadius:12,
+    border:"1px solid rgba(255,255,255,.25)", background:"rgba(255,255,255,.10)", color:"#fff",
+    fontSize:16, marginBottom:12, outline:"none" };
   return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
       background:"linear-gradient(160deg,#123024,#1E5B3C)",color:"#fff",fontFamily:"system-ui,sans-serif"}}>
       <div style={caja}>
         <div style={{fontSize:44,marginBottom:10}}>🌾</div>
         <div style={{fontSize:26,fontWeight:800,letterSpacing:"-.02em",marginBottom:6}}>FREELANCE</div>
-        <div style={{fontSize:14.5,lineHeight:1.55,opacity:.9,marginBottom:24}}>
-          Para entrar usa tu correo y tu clave en el portal.<br/>Una sola vez, y todas tus apps te reconocen.
+        <div style={{fontSize:14.5,lineHeight:1.55,opacity:.9,marginBottom:22}}>
+          Ingresa con tu correo y tu clave.
         </div>
-        <a href="./index.html" style={{display:"block",background:"#F2A900",color:"#123024",
-          fontWeight:800,fontSize:16,padding:"15px 18px",borderRadius:14,textDecoration:"none"}}>
-          Ir al portal e ingresar
-        </a>
-        <a href="./index.html#olvido" style={{display:"inline-block",marginTop:16,color:"#CFE6D8",
-          fontSize:13.5,textDecoration:"underline"}}>¿Olvidaste tu clave?</a>
+        <input type="email" value={correo} onChange={e=>setCorreo(e.target.value)}
+          placeholder="Correo" autoCapitalize="none" autoCorrect="off" autoComplete="username"
+          inputMode="email" style={inp}/>
+        <input type="password" value={clave} onChange={e=>setClave(e.target.value)}
+          placeholder="Clave" autoComplete="current-password" style={inp}
+          onKeyDown={e=>{ if(e.key==="Enter") ingresar(); }}/>
+        {err && <div style={{color:"#FFE0D8",background:"rgba(192,57,43,.28)",borderRadius:10,
+          padding:"9px 11px",fontSize:13,marginBottom:12,lineHeight:1.4}}>{err}</div>}
+        <button onClick={ingresar} disabled={entrando}
+          style={{display:"block",width:"100%",background:"#F2A900",color:"#123024",fontWeight:800,
+          fontSize:16,padding:"15px 18px",borderRadius:14,border:"none",cursor:"pointer",opacity:entrando?.6:1}}>
+          {entrando ? "Entrando…" : "Ingresar"}</button>
+        <button onClick={olvido} style={{marginTop:16,background:"none",border:"none",color:"#CFE6D8",
+          fontSize:13.5,textDecoration:"underline",cursor:"pointer"}}>¿Olvidaste tu clave?</button>
       </div>
     </div>
   );
@@ -624,13 +664,15 @@ function PuertaPortal({ onAutenticado }){
 function salirDeVerdad(){
   try{
     if(window.SB && window.SB.auth) {
-      window.SB.auth.signOut().then(irAlPortal).catch(irAlPortal);
+      window.SB.auth.signOut().then(volverAlLogin).catch(volverAlLogin);
       return;
     }
   }catch(e){}
-  irAlPortal();
+  volverAlLogin();
 }
-function irAlPortal(){ try{ location.href = "./index.html"; }catch(e){ location.reload(); } }
+/* PROVEEDOR_LOGIN_PROPIO · al cerrar sesión se VUELVE al login propio de la app (recargar):
+   sin sesión, PuertaPortal muestra el formulario de correo + clave. Ya no se manda al portal. */
+function volverAlLogin(){ try{ location.reload(); }catch(e){ location.href = "./"; } }
 
 /* ===== FIN LOGIN UNIFICADO ===== */
 
@@ -1276,7 +1318,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"73", fecha:"27 ago 2026", desc:"Autorización de crédito: cuando un pedido pasa el cupo (o el máximo de facturas / un cheque protestado) te llega para autorizar. Al tocar «Autorizar crédito», el pedido avanza solo. La app espera la confirmación real de la base antes de marcarla aprobada/rechazada." };
+const VERSION = { n:"74", fecha:"27 ago 2026", desc:"Arreglo: la app del proveedor ya vuelve a dejar entrar. Ahora tiene su propia pantalla de ingreso con correo y clave dentro de la misma app (antes te mandaba al portal y no reconocía la sesión). Al cerrar sesión vuelves a esa misma pantalla." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
