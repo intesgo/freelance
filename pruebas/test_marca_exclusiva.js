@@ -35,6 +35,27 @@ APPS.forEach(a => {
   ok(!/marcaVisibleParaCli\(p\.id,/.test(s), a + ": NO usa p.id (producto+presentación) en el filtro");
 });
 
+/* ── 2-web) el Sistema Web (Pedidos) también cuela por el cliente elegido ──
+   Mismo criterio que el móvil, pero el id del cliente sale de `cli.id` (no de un
+   mapa por nombre). El Sistema Web SÍ escribe marca_clientes (pantalla Marcas), así
+   que el chequeo de «solo lee» NO aplica aquí. */
+const WEB = "sistema-web.html";
+const sWeb = fs.readFileSync(path.join(raiz, WEB), "utf8");
+ok(/MARCA_EXCLUSIVA_WEB/.test(sWeb), WEB + ": tiene el ancla MARCA_EXCLUSIVA_WEB");
+ok(/const EXCLUSIVA_DE = \{\};/.test(sWeb), WEB + ": declara EXCLUSIVA_DE");
+ok(/const marcaVisibleParaCli = \(prodId, cliId\) =>/.test(sWeb), WEB + ": declara marcaVisibleParaCli");
+ok(/from\("marca_clientes"\)\.select\("prod_id,cli_id"\)/.test(sWeb), WEB + ": carga marca_clientes con .select");
+ok(/marcaVisibleParaCli\(p\.prodId, cli && cli\.id\)/.test(sWeb), WEB + ": Pedidos cuela por marcaVisibleParaCli(p.prodId, cli && cli.id)");
+ok(!/marcaVisibleParaCli\(p\.id,/.test(sWeb), WEB + ": NO usa p.id (producto+presentación) en el filtro");
+/* la lógica del Sistema Web, extraída y corrida igual que la del móvil (con mutante) */
+const rWeb = correrLogica(sWeb, false);
+ok(rWeb && rWeb.sinDuenos === true && rWeb.duenoPresente === true && rWeb.duenoAusente === false
+   && rWeb.sinCliente === false && rWeb.libreSinCliente === true,
+   WEB + ": la lógica de marcaVisibleParaCli se comporta igual que el móvil");
+const mWeb = correrLogica(sWeb, true);
+ok(mWeb && mWeb !== "sin-mutar" && mWeb.duenoAusente === true && mWeb.sinCliente === true,
+   WEB + ": MUTANTE · si dejara pasar todo, las exclusivas dejarían de esconderse");
+
 /* ── 3) la lógica extraída y corrida de verdad (con mutante) ── */
 function correrLogica(fuente, mutar) {
   /* toma el bloque EXCLUSIVA_DE + marcaVisibleParaCli tal cual está en la app */
