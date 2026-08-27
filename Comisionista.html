@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"194", fecha:"25 ago 2026", desc:"Marca exclusiva por cliente: si una marca es propia de un cliente, solo aparece al armar el pedido cuando eliges a ese cliente; para los demás queda oculta. Las marcas normales se ven como siempre." };
+const VERSION = { n:"195", fecha:"27 ago 2026", desc:"Cliente con facturas vencidas: al tomar el pedido, si el cliente tiene facturas vencidas la venta se bloquea y sale el motivo claro; el pedido no queda «guardado en el teléfono» esperando subir (nunca subiría)." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4854,7 +4854,9 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
         condicion:(it.credito||it.esCredito)?"credito":"contado",promo_id:it.promoId||null,
         comision_propuesta:it.tipo==="P5"?(Number(it.comisionTotal)||0):null}))};
     const {data,error}=await window.SB.rpc("registrar_pedido_atomico",{p_payload:payload,p_op_id:opId});
-    if(error) return {ok:false,motivo:error.message||"error_pedido"};
+    /* P0C_VENCIDAS · si la base rechaza por facturas vencidas es una REGLA DE NEGOCIO (bloqueo
+       duro), no un problema de conexión: el pedido NO nació y NO sirve reintentar/encolar. */
+    if(error){ const msg=error.message||"error_pedido"; return {ok:false,motivo:msg,reglaNegocio:/vencid/i.test(msg)}; }
     const r=(data&&data[0])||data||{};
     return {ok:true,pedId:r.ped_id||opId,repetido:!!r.repetido};
   }catch(e){ return { ok:false, motivo:"error" }; }
@@ -13516,6 +13518,13 @@ function App({usuario}){
        sigue igual que siempre: el vendedor nunca se queda sin poder cerrar. */
     guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete, asumeEstibada, fechaEntrega, notaChofer}).then(r=>{ /* FE01_QUITA_COBRO */
       if(r.ok) show("✓ Pedido "+r.pedId+" guardado en el sistema");
+      else if(r.reglaNegocio){
+        /* P0C_VENCIDAS · el pedido NO nació en la base: se quita la tarjeta optimista para no
+           mostrarlo como guardado, y se avisa el motivo claro (no "quedó en el teléfono"). */
+        const idsNuevos=new Set(nuevos.map(n=>n.id));
+        setPedidos(prev=>prev.filter(p=>!idsNuevos.has(p.id)));
+        show("⛔ "+r.motivo);
+      }
       else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
         show("⚠ El pedido quedó solo en el teléfono: "+r.motivo);
     }).catch(()=>{});

@@ -1582,7 +1582,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"61", fecha:"25 ago 2026", desc:"Marca exclusiva por cliente: si una marca es propia de un cliente, solo aparece al armar el pedido cuando eliges a ese cliente; para los demás queda oculta. Las marcas normales se ven como siempre." };
+const VERSION = { n:"62", fecha:"27 ago 2026", desc:"Cliente con facturas vencidas: al tomar el pedido, si el cliente tiene facturas vencidas la venta se bloquea con el motivo claro; el pedido no se guarda ni queda en la cola esperando subir (nunca subiría)." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.
@@ -1930,7 +1930,9 @@ async function guardarPedidoEnBase({cli, prov, carrito, ubic, retiro, asumeFlete
         condicion:it.credito?"credito":"contado",promo_id:it.promoId||null,
         comision_propuesta:it.tipo==="P5"?(Number(it.comisionTotal)||0):null}))};
     const {data,error}=await window.SB.rpc("registrar_pedido_atomico",{p_payload:payload,p_op_id:opId});
-    if(error) return {ok:false,motivo:error.message||"error_pedido"};
+    /* P0C_VENCIDAS · rechazo DURO por facturas vencidas = regla de negocio, no conexión:
+       el pedido NO nació y NO sirve reintentar/encolar. */
+    if(error){ const msg=error.message||"error_pedido"; return {ok:false,motivo:msg,reglaNegocio:/vencid/i.test(msg)}; }
     const r=(data&&data[0])||data||{};
     return {ok:true,pedId:r.ped_id||opId,repetido:!!r.repetido};
   }catch(e){ return { ok:false, motivo:"error" }; }
@@ -3997,11 +3999,13 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             /* PROMO-03 · el regalo de más se frena antes de guardar nada. */
             const avisoRegalo = await revisarRegaloDePromo(items, (prov && prov.id)||null);
             if(avisoRegalo){ alert(avisoRegalo); return; }
-            guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).then(r=>{ /* FE01_QUITA_COBRO */
-              if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
-              else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
-                toast("⚠ El pedido quedó solo local: "+r.motivo);
-            }).catch(()=>{});
+            const r = await guardarPedidoEnBase({cli, prov, carrito:items, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).catch(()=>({ok:false,motivo:"error"})); /* FE01_QUITA_COBRO */
+            /* P0C_VENCIDAS · rechazo DURO por facturas vencidas: no nació en la base y no sirve
+               reintentar. Se avisa el motivo claro y NO se cierra como "guardado". */
+            if(r && r.reglaNegocio){ toast("⛔ "+r.motivo); return; }
+            if(r && r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
+            else if(r && !["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
+              toast("⚠ El pedido quedó solo local: "+r.motivo);
             toast(`Pedido guardado · ${n} producto${n>1?"s":""}.`);
             cerrarPedido();
             if(irGuardado) irGuardado(); else if(go) go("pedidos");
@@ -4069,17 +4073,19 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, paso, setPaso})
             /* PROMO-03 · y antes que la cola: el regalo de más no entra ni a la cola. */
             const avisoRegalo = await revisarRegaloDePromo(carrito, (prov && prov.id)||null);
             if(avisoRegalo){ alert(avisoRegalo); return; }
-            /* 4.4: ANTES de cualquier otra cosa, cada producto entra a la cola persistente con su op_id.
-               Si el teléfono muere aquí mismo, el pedido ya está a salvo en el almacenamiento. */
+            /* P0C_VENCIDAS · primero se pregunta a la base. Si rechaza por facturas vencidas es
+               un bloqueo DURO (regla de negocio): NO se encola —nunca subiría— y se avisa claro. */
+            const r = await guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).catch(()=>({ok:false,motivo:"error"})); /* FE01_QUITA_COBRO */
+            if(r && r.reglaNegocio){ toast("⛔ "+r.motivo); return; }
+            /* No es bloqueo de negocio (ok, sin señal o sin sesión): cada producto entra a la cola
+               persistente como respaldo — si el teléfono muere, el pedido ya está a salvo. */
             carrito.forEach(it=>colaAgregar({ op_id:opId(), tipo:"Pedido", ic:"📋",
               cli:(cli && cli.nombre) || cli || "—",
               detalle:`${it.cant || "—"} × ${it.prodNombre || it.prod || "producto"}`,
               cuando:"recién" }));
-            guardarPedidoEnBase({cli, prov, carrito, ubic:ubicPed, retiro:retiroBodegaPed, asumeFlete:asumeFletePed, asumeEstibada:asumeEstibadaPed, fechaEntrega:fechaEntregaPed, notaChofer:notaChoferPed}).then(r=>{ /* FE01_QUITA_COBRO */
-              if(r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
-              else if(!["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
-                toast("⚠ El pedido quedó solo local: "+r.motivo);
-            }).catch(()=>{});
+            if(r && r.ok) toast("✓ Pedido "+r.pedId+" guardado en la base");
+            else if(r && !["sin_conexion","sin_sesion","cliente_demo","producto_demo"].includes(r.motivo))
+              toast("⚠ El pedido quedó solo local: "+r.motivo);
             toast(`Pedido guardado · ${carrito.length} producto(s) · protegido en la cola ✓`);
             cerrarPedido();if(irGuardado)irGuardado();else if(go)go("pedidos");}}>
             Guardar pedido · {carrito.length} producto{carrito.length>1?"s":""}</button>

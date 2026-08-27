@@ -7,7 +7,7 @@ const sw=fs.readFileSync(path.join(raiz,"sw.js"),"utf8");
 let bien=0,mal=0; const prueba=(ok,msg)=>{if(ok)bien++;else{mal++;console.error("✗ "+msg);}};
 
 /* ── freelance-completo ── */
-prueba(/const VERSION = \{ n:"478"/.test(app),"Freelance debe anunciar v478");
+prueba(/const VERSION = \{ n:"479"/.test(app),"Freelance debe anunciar v479");
 prueba(!/Buenos días,\s+[A-ZÁÉÍÓÚÑ]/.test(app),"la portada no debe mostrar el saludo personalizado eliminado");
 prueba(/totalRecibir\/metaMes\*100/.test(app),"el porcentaje financiero debe salir de valor/meta");
 prueba(/valorAnimado/.test(app)&&/pctAnimado/.test(app),"valor y porcentaje deben animarse");
@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"216"/.test(web),"Sistema Web debe anunciar b216");
-prueba(/const CACHE = "freelance-v324"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v325"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -326,9 +326,9 @@ prueba((prov.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=6,"proveedor · 
 prueba((socio.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"socio · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
 prueba((comi.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"comisionista · quedan las anclas NOMBRE_CLIENTE_INTEGRIDAD_3");
 /* versiones de las tres apps tocadas */
-prueba(/const VERSION = \{ n:"72"/.test(prov),"proveedor debe anunciar v72");
-prueba(/const VERSION = \{ n:"61"/.test(socio),"socio debe anunciar v61");
-prueba(/const VERSION = \{ n:"194"/.test(comi),"comisionista debe anunciar v194");
+prueba(/const VERSION = \{ n:"73"/.test(prov),"proveedor debe anunciar v73");
+prueba(/const VERSION = \{ n:"62"/.test(socio),"socio debe anunciar v62");
+prueba(/const VERSION = \{ n:"195"/.test(comi),"comisionista debe anunciar v195");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
