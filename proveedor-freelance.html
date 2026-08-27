@@ -610,6 +610,26 @@ async function iniciarSesionUnica(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   CANDADO POR ROL · cada app deja entrar SOLO al rol que le toca.
+   Antes, una cuenta de otro rol (p. ej. un proveedor) podía abrir la app de
+   vendedor. Ahora, tras autenticar y leer usuarios.rol, si el rol no está en
+   ROLES_APP se cierra la sesión y se manda al portal con un aviso claro.
+   Defensivo: rol vacío CON sesión real = «no corresponde» (no se deja pasar).
+   ═══════════════════════════════════════════════════════════════════════ */
+var ROLES_APP = ["proveedor"];
+function rolPermitidoApp(rol){
+  var r = (rol==null?"":String(rol)).trim().toLowerCase();
+  if(!r) return false;                 /* sin rol y con sesión real → no corresponde */
+  if(r === "socio comercial") r = "socio";
+  return ROLES_APP.indexOf(r) >= 0;
+}
+function cerrarPorRolAjeno(){
+  try{ alert("Esta app no es para tu rol. Entra a la aplicación que te corresponde."); }catch(e){}
+  try{ if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(()=>{ location.assign("./index.html"); }).catch(()=>{ location.assign("./index.html"); }); return; } }catch(e){}
+  try{ location.assign("./index.html"); }catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    UNA SOLA PUERTA (26 jul 2026 · decisión de Richard)
 
    Esta app ya no tiene ingreso propio. Antes traía usuarios y claves escritos
@@ -641,6 +661,8 @@ function PuertaPortal({ onAutenticado }){
           .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).maybeSingle();
         /* una cuenta dada de baja no entra, aunque su sesión siga viva */
         if(f && f.activo === false){ await window.SB.auth.signOut(); setErr("Tu cuenta está inactiva. Habla con el freelance."); setMirando(false); return false; }
+        /* candado por rol: esta app es solo para el proveedor */
+        if(!rolPermitidoApp(f && f.rol)){ cerrarPorRolAjeno(); return false; }
         onAutenticado({
           nombre: (f && f.nombre) || s.session.user.email,
           codigo: (f && f.usr_id) || "",
@@ -1376,7 +1398,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"75", fecha:"27 ago 2026", desc:"Seguridad: tu cuenta ahora se usa en un solo teléfono a la vez. Si entras en otro equipo, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
+const VERSION = { n:"76", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Si entras con una cuenta que no es de proveedor, se cierra la sesión y te lleva al portal para que entres a la app que te corresponde." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 

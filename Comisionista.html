@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"196", fecha:"27 ago 2026", desc:"Seguridad: tu cuenta ahora se usa en un solo teléfono a la vez. Si entras en otro equipo, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
+const VERSION = { n:"197", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Si entras con una cuenta que no es de comisionista, se cierra la sesión y te lleva al portal para que entres a la app que te corresponde." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -1794,6 +1794,24 @@ async function iniciarSesionUnica(){
   }catch(e){}
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   CANDADO POR ROL · esta app deja entrar SOLO al comisionista. Tras autenticar
+   y leer usuarios.rol, si el rol no está en ROLES_APP se cierra la sesión y se
+   manda al portal. Defensivo: rol vacío CON sesión real = no corresponde.
+   ═══════════════════════════════════════════════════════════════════════ */
+var ROLES_APP = ["comisionista"];
+function rolPermitidoApp(rol){
+  var r = (rol==null?"":String(rol)).trim().toLowerCase();
+  if(!r) return false;
+  if(r === "socio comercial") r = "socio";
+  return ROLES_APP.indexOf(r) >= 0;
+}
+function cerrarPorRolAjeno(){
+  try{ alert("Esta app no es para tu rol. Entra a la aplicación que te corresponde."); }catch(e){}
+  try{ if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(()=>{ location.assign("./index.html"); }).catch(()=>{ location.assign("./index.html"); }); return; } }catch(e){}
+  try{ location.assign("./index.html"); }catch(e){}
+}
+
 function PuertaPortal({ onAutenticado }){
   const [mirando, setMirando] = React.useState(true);
   React.useEffect(()=>{
@@ -1807,6 +1825,8 @@ function PuertaPortal({ onAutenticado }){
             .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).maybeSingle();
           /* una cuenta dada de baja no entra, aunque su sesión siga viva */
           if(f && f.activo === false){ await window.SB.auth.signOut(); setMirando(false); return; }
+          /* candado por rol: esta app es solo para el comisionista */
+          if(!rolPermitidoApp(f && f.rol)){ cerrarPorRolAjeno(); return; }
           onAutenticado({
             nombre: (f && f.nombre) || s.session.user.email,
             codigo: (f && f.usr_id) || "",

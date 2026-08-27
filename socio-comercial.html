@@ -1353,6 +1353,25 @@ async function iniciarSesionUnica(){
   }catch(e){}
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   CANDADO POR ROL · esta app deja entrar SOLO al socio. Tras autenticar y leer
+   usuarios.rol, si el rol no está en ROLES_APP se cierra la sesión y se manda al
+   portal. Defensivo: rol vacío CON sesión real = no corresponde. Se acepta la
+   variante «socio comercial» por si el padrón la guarda así.
+   ═══════════════════════════════════════════════════════════════════════ */
+var ROLES_APP = ["socio"];
+function rolPermitidoApp(rol){
+  var r = (rol==null?"":String(rol)).trim().toLowerCase();
+  if(!r) return false;
+  if(r === "socio comercial") r = "socio";
+  return ROLES_APP.indexOf(r) >= 0;
+}
+function cerrarPorRolAjeno(){
+  try{ alert("Esta app no es para tu rol. Entra a la aplicación que te corresponde."); }catch(e){}
+  try{ if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(()=>{ location.assign("./index.html"); }).catch(()=>{ location.assign("./index.html"); }); return; } }catch(e){}
+  try{ location.assign("./index.html"); }catch(e){}
+}
+
 function PuertaPortal({ onAutenticado }){
   const [mirando, setMirando] = React.useState(true);
   React.useEffect(()=>{
@@ -1366,6 +1385,8 @@ function PuertaPortal({ onAutenticado }){
             .select("usr_id,nombre,rol,activo").eq("auth_uid", s.session.user.id).maybeSingle();
           /* una cuenta dada de baja no entra, aunque su sesión siga viva */
           if(f && f.activo === false){ await window.SB.auth.signOut(); setMirando(false); return; }
+          /* candado por rol: esta app es solo para el socio */
+          if(!rolPermitidoApp(f && f.rol)){ cerrarPorRolAjeno(); return; }
           onAutenticado({
             nombre: (f && f.nombre) || s.session.user.email,
             codigo: (f && f.usr_id) || "",
@@ -1632,7 +1653,7 @@ function fuerzaClaveS(txt){
     color:["#B5613C","#C9A227","#3F8F63","#2E7D52"][nivel] };
 }
 
-const VERSION = { n:"63", fecha:"27 ago 2026", desc:"Seguridad: tu cuenta ahora se usa en un solo teléfono a la vez. Si entras en otro equipo, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
+const VERSION = { n:"64", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Si entras con una cuenta que no es de socio, se cierra la sesión y te lleva al portal para que entres a la app que te corresponde." };
 
 /* ── Pila de retrocesos por módulo ──
    Cada módulo montado deja su función aquí. El botón atrás consulta del último al primero.

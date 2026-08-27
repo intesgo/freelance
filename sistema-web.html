@@ -537,7 +537,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"217", fecha:"27 ago 2026", desc:"Seguridad: cada cuenta se usa en un solo equipo a la vez. Si entras en otra computadora o teléfono, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
+const VERSION = { n:"218", fecha:"27 ago 2026", desc:"Seguridad: el Sistema Web es solo para la oficina (freelance, administrador, financiero y logística). Si entra una cuenta de otro rol, se cierra la sesión y se le pide entrar a la app que le corresponde." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5709,6 +5709,8 @@ function LoginWeb({ onAcceder }) {
         const per = (pad || [])[0];
         if (!per) { try{ await window.supa.auth.signOut(); }catch(x){} throw new Error("Tu cuenta no está vinculada en el padrón. Avisa al Freelance."); }
         if (!per.activo) { try{ await window.supa.auth.signOut(); }catch(x){} throw new Error("Cuenta desactivada."); }
+        /* candado por rol: el Sistema Web es solo para oficina (freelance/admin/financiero/logistica) */
+        if (!rolPermitidoApp(per.rol)) { try{ await window.supa.auth.signOut(); }catch(x){} throw new Error("Esta cuenta no tiene acceso al Sistema Web. Entra a la app que te corresponde."); }
         setCargando(false);
         onAcceder(resolverSesion({ usuario: id, clave: "", nombre: per.nombre,
           cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
@@ -21363,6 +21365,22 @@ async function iniciarSesionUnica(){
   }catch(e){}
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   CANDADO POR ROL · el Sistema Web (oficina) es solo para el dueño y su equipo
+   de oficina: freelance, admin, financiero y logistica. Si entra una cuenta de
+   otro rol (comisionista, socio, proveedor, transportista), se cierra la sesión
+   y se queda en el login con un aviso claro. Defensivo: rol vacío CON sesión
+   real = no corresponde. (No se redirige a «./index.html»: el Sistema Web vive
+   en /home y ese archivo es él mismo; por eso se muestra su propio login.)
+   ═══════════════════════════════════════════════════════════════════════ */
+var ROLES_APP = ["freelance","admin","financiero","logistica"];
+function rolPermitidoApp(rol){
+  var r = (rol==null?"":String(rol)).trim().toLowerCase();
+  if(!r) return false;
+  if(r === "socio comercial") r = "socio";
+  return ROLES_APP.indexOf(r) >= 0;
+}
+
 function App() {
   // ⚠ DESARROLLO: ingreso automático como admin (sin login). Para reactivar el login, poner: useState(null)
   const [sesion, setSesion] = useState(null);  // FASE 4: login normal (Supabase Auth con correo, o usuario demo de respaldo)
@@ -21382,9 +21400,15 @@ function App() {
             .select("nombre,rol,activo,org_id").eq("auth_uid", usr.id).limit(1);
           const per = (pad || [])[0];
           if (per && per.activo) {
-            setSesion(resolverSesion({ usuario: usr.email, clave: "", nombre: per.nombre,
-              cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
-            try{ iniciarSesionUnica(); }catch(e){}
+            /* candado por rol: si no es rol de oficina, se cierra y se queda en el login */
+            if (!rolPermitidoApp(per.rol)) {
+              try { await window.supa.auth.signOut(); } catch(x){}
+              try { alert("Esta cuenta no tiene acceso al Sistema Web. Entra a la app que te corresponde."); } catch(x){}
+            } else {
+              setSesion(resolverSesion({ usuario: usr.email, clave: "", nombre: per.nombre,
+                cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
+              try{ iniciarSesionUnica(); }catch(e){}
+            }
           }
         }
       } catch (e) {}

@@ -540,7 +540,7 @@ try{
   if(g!=="campo") document.documentElement.setAttribute("data-tema", g);
 }catch(e){}
 
-const VERSION = { n:"38", fecha:"27 ago 2026", desc:"Seguridad: tu cuenta ahora se usa en un solo teléfono a la vez. Si entras en otro equipo, la sesión anterior se cierra sola con un aviso. El dueño (freelance) puede seguir usando varios equipos." };
+const VERSION = { n:"39", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Si entras con una cuenta que no es de transportista, se cierra la sesión y te lleva al portal para que entres a la app que te corresponde." };
 
 /* ===========================================================
    DATOS COMPARTIDOS con la app de Logística (mismo modelo).
@@ -1242,6 +1242,24 @@ async function iniciarSesionUnica(){
   }catch(e){}
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   CANDADO POR ROL · esta app deja entrar SOLO al transportista. Tras autenticar
+   y leer usuarios.rol, si el rol no está en ROLES_APP se cierra la sesión y se
+   manda al portal. Defensivo: rol vacío CON sesión real = no corresponde.
+   ═══════════════════════════════════════════════════════════════════════ */
+var ROLES_APP = ["transportista"];
+function rolPermitidoApp(rol){
+  var r = (rol==null?"":String(rol)).trim().toLowerCase();
+  if(!r) return false;
+  if(r === "socio comercial") r = "socio";
+  return ROLES_APP.indexOf(r) >= 0;
+}
+function cerrarPorRolAjeno(){
+  try{ alert("Esta app no es para tu rol. Entra a la aplicación que te corresponde."); }catch(e){}
+  try{ if(window.SB && window.SB.auth){ window.SB.auth.signOut().then(()=>{ location.assign("./index.html"); }).catch(()=>{ location.assign("./index.html"); }); return; } }catch(e){}
+  try{ location.assign("./index.html"); }catch(e){}
+}
+
 function PuertaPortal({ onEntrar }){
   const [mirando, setMirando] = React.useState(true);
   React.useEffect(()=>{
@@ -1252,8 +1270,10 @@ function PuertaPortal({ onEntrar }){
         if(!vivo) return;
         if(s && s.session){
           const { data:f } = await window.SB.from("usuarios")
-            .select("nombre,activo").eq("auth_uid", s.session.user.id).maybeSingle();
+            .select("nombre,activo,rol").eq("auth_uid", s.session.user.id).maybeSingle();
           if(f && f.activo === false){ await window.SB.auth.signOut(); setMirando(false); return; }
+          /* candado por rol: esta app es solo para el transportista */
+          if(!rolPermitidoApp(f && f.rol)){ cerrarPorRolAjeno(); return; }
           onEntrar((f && f.nombre) || s.session.user.email, null);
           try{ iniciarSesionUnica(); }catch(e){}
           return;
