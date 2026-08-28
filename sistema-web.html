@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"228", fecha:"27 ago 2026", desc:"Configuración · Crédito: nuevo campo «Tope de crédito que aprueba el freelance». Hasta ese monto el freelance autoriza el crédito; lo que pase, lo aprueba el proveedor. Si está vacío o en 0, todo el crédito lo autoriza el proveedor." };
+const VERSION = { n:"229", fecha:"28 ago 2026", desc:"Expediente de crédito: los documentos «entregados» ya se cuentan solos según el archivo cargado (no se marca a mano). El expediente ya no bloquea guardar el cliente (el crédito se gobierna por líneas de crédito)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -19675,7 +19675,11 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
       return "";
     }
     if (i===6 && exigeExpediente) { // Expediente
-      if ((parseInt(form.docsOk)||0) < 7) return "Expediente incompleto (crédito supera Cupo 2)";
+      // F4_DOCS_DERIVADO: «entregado» = documento con archivo real (exp.subidos), no un
+      // interruptor manual. Este aviso solo pinta el ⚠/✓ de la pestaña; ya NO bloquea el
+      // guardado (ver primeraIncompleta).
+      const n = (exp.subidos||[]).length;
+      if (n < 7) return "Expediente: faltan " + (7 - n) + " de 7 documentos";
       return "";
     }
     return "";
@@ -19686,7 +19690,11 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
       for (const i of [0,1]) if (faltaEnTab(i)) return i;
       return -1;
     }
-    for (const i of [0,1,3,4,5,6]) if (faltaEnTab(i)) return i;
+    // F4: el expediente ya NO bloquea el guardado. El crédito se gobierna por líneas de crédito
+    // (aprobar_credito), y los documentos solo pueden subirse DESPUÉS de guardar el cliente, así
+    // que exigir 7/7 aquí dejaría a un cliente de crédito imposible de guardar. El ⚠ de la pestaña
+    // sigue avisando cuántos faltan, pero no impide guardar.
+    for (const i of [0,1,3,4,5]) if (faltaEnTab(i)) return i;
     return -1;
   };
 
@@ -20117,21 +20125,27 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
           <div>
             <div style={{ background:COLOR.tealLight, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
               <p style={{ fontSize:13, fontWeight:700, color:COLOR.tealDark }}>📋 Expediente de crédito — 7 documentos requeridos</p>
-              <p style={{ fontSize:12, color:COLOR.muted, marginTop:4 }}>Los sube el vendedor desde la app. Aquí el freelance/financiero los revisa antes de aprobar el cupo. Toca para marcar entregado.</p>
+              <p style={{ fontSize:12, color:COLOR.muted, marginTop:4 }}>Los sube el vendedor desde la app. Aquí el freelance/financiero los revisa y adjunta con «Subir»/«Ver». El estado de cada documento se calcula solo según el archivo cargado; ya no se marca a mano.</p>
+              {/* F4_DOCS_DERIVADO: conteo derivado de SOLO LECTURA (documentos con archivo real) */}
+              <p style={{ fontSize:12.5, fontWeight:800, color: (exp.subidos||[]).length>=7?"#1c7a44":"#b07d1a", marginTop:6 }}>{(exp.subidos||[]).length} de 7 documentos con archivo</p>
             </div>
             {DOCS_CREDITO_CLI.map((doc,i) => {
-              const ok = i < (form.docsOk||0);
+              /* F4_DOCS_DERIVADO: «entregado» = documento con archivo real (exp.subidos), NO un
+                 interruptor manual. El número y el texto ya no se tocan para marcar; el estado se
+                 sube/ve/elimina con los botones de la derecha (BotonExpediente). Mismo criterio que
+                 la ficha de solo lectura (exp.subidos.includes). */
+              const ok = (exp.subidos||[]).includes(i);
               return (
                 <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 13px", borderRadius:8, marginBottom:6, background: ok?"#E9F8EF":"#F7F9FB", border:`1px solid ${ok?"#bce5cd":COLOR.border}` }}>
-                  <div onClick={()=>set("docsOk", ok ? i : i+1)} title="Marcar o desmarcar entregado" style={{ width:26, height:26, borderRadius:6, background: ok?"#1c7a44":COLOR.border, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff", cursor:"pointer", flexShrink:0 }}>{i+1}</div>
-                  <p onClick={()=>set("docsOk", ok ? i : i+1)} style={{ flex:1, fontSize:13, color:COLOR.text, cursor:"pointer" }}>{doc}</p>
+                  <div title={ok?"Documento con archivo":"Pendiente de subir"} style={{ width:26, height:26, borderRadius:6, background: ok?"#1c7a44":COLOR.border, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff", flexShrink:0 }}>{i+1}</div>
+                  <p style={{ flex:1, fontSize:13, color:COLOR.text }}>{doc}</p>
                   <BotonExpediente exp={exp} i={i} editable={puedeEditarExp} />
                   <span style={{ fontSize:16 }}>{ok ? "✅" : "📎"}</span>
                 </div>
               );
             })}
             {!form.id && <p style={{ fontSize:11.5, color:"#b07d1a", fontWeight:700, marginTop:10 }}>Para subir los archivos, guarda primero el cliente y vuelve a esta pestaña al editarlo.</p>}
-            <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:8 }}>Toca el número para marcar el documento como entregado; usa “Subir”/“Ver” para el archivo. Los clientes de contado no requieren expediente.</p>
+            <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:8 }}>Cada documento queda «entregado» cuando tiene archivo: usa “Subir”/“Ver”/“Eliminar”. Los clientes de contado no requieren expediente.</p>
           </div>
         )}
       </div>
@@ -20222,7 +20236,7 @@ function ClientesWeb({ usuario, navegar }) {
           usado: r.usado, plazo: r.plazo, estadoCredito: r.estado_credito, condicionPago: r.condicion_pago,
           maxFacturas: r.max_facturas, tipoContribuyente: r.tipo_contribuyente, esAgente: r.es_agente,
           numResolucion: r.num_resolucion, pctRentaFuente: r.pct_renta_fuente, pctRetIVA: r.pct_ret_iva,
-          plazoRetencion: r.plazo_retencion, retencion: r.es_agente, subId: r.sub_id, docsOk: r.docs_ok,
+          plazoRetencion: r.plazo_retencion, retencion: r.es_agente, subId: r.sub_id,
           comprasTotales: r.compras_totales, numPedidos: r.num_pedidos,
           dueno: r.dueno, estadoCliente: r.estado_cliente, activo: r.activo, bloqueado: r.bloqueado, motivoBloqueo: r.motivo_bloqueo,
           principalId: r.principal_id || null,   // si está seteado, es un tercero (#7)
@@ -20341,7 +20355,9 @@ function ClientesWeb({ usuario, navegar }) {
     max_facturas: c.maxFacturas, tipo_contribuyente: c.tipoContribuyente, es_agente: c.esAgente,
     num_resolucion: c.numResolucion, pct_renta_fuente: c.pctRentaFuente, pct_ret_iva: c.pctRetIVA, plazo_retencion: c.plazoRetencion,
     sub_id: c.subId, dueno: c.dueno, estado_cliente: c.estadoCliente, principal_id: c.principalId || null,
-    docs_ok: c.docsOk || 0, compras_totales: c.comprasTotales || 0, num_pedidos: c.numPedidos || 0,
+    /* F4: docs_ok es DERIVADO en la base (trigger desde documentos_cliente) y el candado lo ignora;
+       ya no se manda desde el front. */
+    compras_totales: c.comprasTotales || 0, num_pedidos: c.numPedidos || 0,
     activo: c.activo !== false, bloqueado: c.bloqueado || false, motivo_bloqueo: c.motivoBloqueo,
   });
 
