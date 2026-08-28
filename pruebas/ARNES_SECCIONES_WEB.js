@@ -62,6 +62,7 @@ const SECCIONES_POR_DEFECTO = [
   "CobranzaWeb", "ReportesWeb", "ResumenDiaWeb", "SolicitudesWeb", "CuentasWeb",
   "ConfiguracionWeb", "NotificacionesWeb", "AvisosWeb", "ComunicacionWeb",
   "AuditoriaWeb", "EmparejarWeb", "CustodiaWeb", "ConciliacionWeb", "SocioWeb",
+  "CatalogoUnidadesWeb",
 ];
 const SECCIONES = process.argv.slice(2).length ? process.argv.slice(2) : SECCIONES_POR_DEFECTO;
 let ok=0, fallo=0;
