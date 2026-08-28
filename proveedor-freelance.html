@@ -1398,7 +1398,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"76", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Si entras con una cuenta que no es de proveedor, se cierra la sesión y te lleva al portal para que entres a la app que te corresponde." };
+const VERSION = { n:"77", fecha:"27 ago 2026", desc:"Autorización de crédito: al aprobar una solicitud de crédito ahora pides cupo, plazo, máximo de facturas y vigencia; con eso queda registrada la línea de crédito del cliente y el pedido avanza. Rechazar sigue igual." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
@@ -1965,6 +1965,9 @@ function Decisiones({ctx, datos}){
   const [ajGuardando,setAjGuardando]=useState(false);
   const [rechazo,setRechazo]=useState(null);      // {id, motivo}
   const [respondiendo,setRespondiendo]=useState(null);  // id de la devolución que se está guardando
+  /* F2_APROBAR_CREDITO · mini-formulario abierto para aprobar una excepción de crédito
+     (crea la línea de crédito del proveedor vía RPC aprobar_credito). */
+  const [formCredito,setFormCredito]=useState(null);    // {id, cupo, plazo, maxFact, vigMeses, obs}
   const [anulando,setAnulando]=useState(null);   // {id, factura, cliente, monto, motivo}
   const [anuGuardando,setAnuGuardando]=useState(false);
   const [aviso,setAviso]=useState("");
@@ -2149,6 +2152,36 @@ function Decisiones({ctx, datos}){
     if(!ok){ toca("No se pudo aprobar la solicitud: revisa la conexión e inténtalo de nuevo."); return; }
     setSolics(ss=>ss.map(x=>x.id===s.id?{...x,estado:"aprobada",motivoResp:"Aprobada"}:x));
     toca(s.tipoRaw==="excepcion_credito" ? "Crédito autorizado ✓ El pedido avanza solo." : "Solicitud aprobada · Daniel lo ve en su sistema.");
+  };
+  /* F2_APROBAR_CREDITO · aprobar una excepción de crédito capturando cupo/plazo/máx. facturas/
+     vigencia. Llama a aprobar_credito (la ÚNICA puerta para APROBAR crédito): crea la línea del
+     proveedor correcto y deja avanzar el pedido. Espera el resultado REAL antes de pintar; si la
+     base rechaza (p. ej. el cupo supera el tope del freelance) muestra el mensaje tal cual. */
+  const aprobarCredito=async()=>{
+    const fc=formCredito; if(!fc) return;
+    const cupo=Number(String(fc.cupo).replace(",", "."));
+    if(!(cupo>0)){ toca("El cupo aprobado debe ser un número mayor a 0."); return; }
+    if(!datos){
+      setSolics(ss=>ss.map(x=>x.id===fc.id?{...x,estado:"aprobada",motivoResp:"Crédito aprobado (demo)"}:x));
+      setFormCredito(null);
+      toca("Estás viendo datos de demostración: entra con tu cuenta para aprobar de verdad.");
+      return;
+    }
+    setRespondiendo(fc.id);
+    const opId="APR-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,8).toUpperCase();
+    let error=null;
+    try{
+      const r=await window.SB.rpc("aprobar_credito", {
+        p_sol_id: fc.id, p_cupo: cupo, p_plazo: Number(fc.plazo)||0,
+        p_max_facturas: Number(fc.maxFact)||0, p_vigencia_meses: Number(fc.vigMeses)||0,
+        p_obs: (fc.obs||"").trim() || null, p_op_id: opId });
+      error=r.error;
+    }catch(e){ error={message:(e&&e.message)||"error de conexión"}; }
+    setRespondiendo(null);
+    if(error){ toca("No se aprobó el crédito: "+(error.message||"error")); return; }
+    setSolics(ss=>ss.map(x=>x.id===fc.id?{...x,estado:"aprobada",motivoResp:"Crédito aprobado · cupo "+money(cupo)}:x));
+    setFormCredito(null);
+    toca("Crédito autorizado ✓ El pedido avanza solo.");
   };
   const confirmarRechazo=async()=>{
     if(!rechazo.motivo.trim()){ toca("El motivo es obligatorio: Daniel lo leerá tal cual."); return; }
@@ -2580,17 +2613,55 @@ function Decisiones({ctx, datos}){
               : s.estado==="aprobada" ? chip("var(--ok-suave)","var(--ok)","Aprobada ✓")
               : chip("#F8E3DC","#C0392B","Rechazada")}
           </div>
-          {s.estado==="pendiente" && (
-            <div style={{display:"flex",gap:8,marginTop:10}}>
-              <button style={{...btn2,color:"#C0392B",borderColor:"#E3B7A8",background:"#FBEFEA",
-                opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
-                onClick={()=>setRechazo({id:s.id,motivo:""})}>Rechazar</button>
-              <button style={{...btn2,background:"var(--ok)",color:"#fff",border:"none",
-                opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
-                onClick={()=>aprobarSol(s)}>
-                {respondiendo===s.id ? "Guardando…" : (s.tipoRaw==="devolucion" ? "Aceptar devolución ✓" : s.tipoRaw==="excepcion_credito" ? "Autorizar crédito ✓" : "Aprobar ✓")}</button>
-            </div>
-          )}
+          {s.estado==="pendiente" && (() => {
+            const enFormCredito = s.tipoRaw==="excepcion_credito" && formCredito && formCredito.id===s.id;
+            const inpC = { width:"100%", boxSizing:"border-box", padding:"9px 11px", borderRadius:9, border:"1px solid var(--linea)", fontSize:13.5, outline:"none", marginTop:4 };
+            const lblC = { fontSize:11.5, fontWeight:700, color:"#6B6455", display:"block" };
+            const setFc = (k,v)=>setFormCredito(f=>({ ...f, [k]:v }));
+            return (
+              <div style={{marginTop:10}}>
+                {!enFormCredito && (
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...btn2,color:"#C0392B",borderColor:"#E3B7A8",background:"#FBEFEA",
+                      opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
+                      onClick={()=>setRechazo({id:s.id,motivo:""})}>Rechazar</button>
+                    <button style={{...btn2,background:"var(--ok)",color:"#fff",border:"none",
+                      opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
+                      onClick={()=> s.tipoRaw==="excepcion_credito"
+                        ? setFormCredito({id:s.id,cupo:"",plazo:"",maxFact:"",vigMeses:"",obs:""})
+                        : aprobarSol(s)}>
+                      {respondiendo===s.id ? "Guardando…" : (s.tipoRaw==="devolucion" ? "Aceptar devolución ✓" : s.tipoRaw==="excepcion_credito" ? "Autorizar crédito ✓" : "Aprobar ✓")}</button>
+                  </div>
+                )}
+                {/* F2_APROBAR_CREDITO · captura cupo/plazo/máx. facturas/vigencia y crea la línea de crédito */}
+                {enFormCredito && (
+                  <div style={{border:"1px solid var(--linea)",borderRadius:12,padding:"12px 13px",background:"#FBFBF8"}}>
+                    <div style={{fontSize:13,fontWeight:800,color:"var(--tinta,#123024)",marginBottom:8}}>Autorizar crédito</div>
+                    <label style={lblC}>Cupo aprobado ($) *
+                      <input type="number" inputMode="decimal" value={formCredito.cupo} onChange={e=>setFc("cupo",e.target.value)} placeholder="Ej.: 2000" style={inpC}/></label>
+                    <div style={{display:"flex",gap:8,marginTop:10}}>
+                      <label style={{...lblC,flex:1}}>Plazo (días)
+                        <input type="number" inputMode="numeric" value={formCredito.plazo} onChange={e=>setFc("plazo",e.target.value)} placeholder="Ej.: 30" style={inpC}/></label>
+                      <label style={{...lblC,flex:1}}>Máx. facturas
+                        <input type="number" inputMode="numeric" value={formCredito.maxFact} onChange={e=>setFc("maxFact",e.target.value)} placeholder="Ej.: 3" style={inpC}/></label>
+                    </div>
+                    <label style={{...lblC,marginTop:10,display:"block"}}>Vigencia (meses · 0 = sin fin)
+                      <input type="number" inputMode="numeric" value={formCredito.vigMeses} onChange={e=>setFc("vigMeses",e.target.value)} placeholder="Ej.: 6" style={inpC}/></label>
+                    <label style={{...lblC,marginTop:10,display:"block"}}>Observación (opcional)
+                      <input value={formCredito.obs} onChange={e=>setFc("obs",e.target.value)} placeholder="Nota para el registro" style={inpC}/></label>
+                    <div style={{display:"flex",gap:8,marginTop:12}}>
+                      <button style={{...btn2,color:"#6B6455",borderColor:"var(--linea)",background:"#fff",
+                        opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
+                        onClick={()=>setFormCredito(null)}>Cancelar</button>
+                      <button style={{...btn2,background:"var(--ok)",color:"#fff",border:"none",
+                        opacity:respondiendo===s.id?.5:1}} disabled={respondiendo===s.id}
+                        onClick={aprobarCredito}>{respondiendo===s.id ? "Guardando…" : "Aprobar crédito ✓"}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       ))}
 

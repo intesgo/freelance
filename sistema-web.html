@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"227", fecha:"27 ago 2026", desc:"Productos: pantalla más clara. Sin proveedor sale un cuadro grande para elegir la piladora (con atajos); al elegir, una tarjeta «Proveedor actual» con sus conteos, y la búsqueda ahora encuentra también por marca y por código. Avisos de cargando/sin productos/sin resultados/error, y en el celular las filas se ven como tarjetas (sin barrido horizontal)." };
+const VERSION = { n:"228", fecha:"27 ago 2026", desc:"Configuración · Crédito: nuevo campo «Tope de crédito que aprueba el freelance». Hasta ese monto el freelance autoriza el crédito; lo que pase, lo aprueba el proveedor. Si está vacío o en 0, todo el crédito lo autoriza el proveedor." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -17530,6 +17530,57 @@ function PanelUsuariosCargos({ usuario, soloLectura, auditar, refrescarPadre }) 
   );
 }
 
+/* F2_TOPE_FREELANCE · «Tope de crédito que aprueba el freelance». Lee parametros_credito.limite_freelance
+   y lo guarda con la RPC fijar_limite_credito_freelance (que valida rol server-side). Si está vacío/0,
+   todo el crédito lo autoriza el proveedor. Solo front: no toca la base más allá de esa lectura/RPC. */
+function TopeCreditoFreelance({ soloLectura }) {
+  const [valor, setValor] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        if (window.supa) {
+          const { data } = await window.supa.from("parametros_credito").select("limite_freelance").limit(1).maybeSingle();
+          if (vivo && data && data.limite_freelance != null) setValor(String(data.limite_freelance));
+        }
+      } catch (e) {}
+      if (vivo) setCargando(false);
+    })();
+    return () => { vivo = false; };
+  }, []);
+  const guardar = async () => {
+    if (soloLectura || guardando || !window.supa) return;
+    setGuardando(true); setMsg("");
+    try {
+      const monto = Number(String(valor).replace(",", ".")) || 0;
+      const { error } = await window.supa.rpc("fijar_limite_credito_freelance", { p_monto: monto });
+      setMsg(error ? ("No se pudo guardar: " + (error.message || "error")) : "Guardado ✓");
+    } catch (e) { setMsg("No se pudo guardar: " + ((e && e.message) || "error")); }
+    setGuardando(false);
+    setTimeout(() => setMsg(""), 3000);
+  };
+  const inpT = { padding:"10px 12px", borderRadius:9, border:`1px solid ${COLOR.border}`, fontSize:14, fontWeight:700, width:140, textAlign:"right" };
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 0", flexWrap:"wrap" }}>
+      <div style={{ flex:1, minWidth:220 }}>
+        <p style={{ fontSize:13.5, fontWeight:700, color:COLOR.text, margin:0 }}>Tope de crédito que aprueba el freelance</p>
+        <p style={{ fontSize:11.5, color:COLOR.muted, margin:"3px 0 0", lineHeight:1.4 }}>Hasta este monto, el freelance puede autorizar el crédito. Si está vacío o en 0, todo el crédito lo autoriza el proveedor.</p>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+        <span style={{ fontSize:13, color:COLOR.muted }}>$</span>
+        <input type="number" inputMode="decimal" step="0.01" min="0" disabled={soloLectura || cargando}
+          value={valor} onChange={e=>setValor(e.target.value)} placeholder={cargando?"…":"0"} style={inpT} />
+        {!soloLectura && <button onClick={guardar} disabled={guardando || cargando}
+          style={{ padding:"9px 15px", borderRadius:9, border:"none", background:COLOR.teal, color:"#fff", fontSize:13, fontWeight:700, cursor:(guardando||cargando)?"default":"pointer", opacity:(guardando||cargando)?.6:1 }}>{guardando?"Guardando…":"Guardar"}</button>}
+        {msg && <span style={{ fontSize:12, fontWeight:700, color: msg.indexOf("No se pudo")>=0?COLOR.red:COLOR.tealDark }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 function ConfiguracionWeb({ usuario }) {
   const soloLectura = usuario.rol === "Administrador de Plataforma";
   const [, refrescar] = useState(0);
@@ -17594,6 +17645,11 @@ function ConfiguracionWeb({ usuario }) {
             Estás viendo la configuración en modo consulta. Solo el Freelance puede cambiar estos valores.</p>
         </div>
       )}
+
+      <Bloque ic="💳" titulo="Crédito"
+        sub="Cuánto crédito puede autorizar el freelance por su cuenta. Lo que pase de ese tope lo aprueba el proveedor.">
+        <TopeCreditoFreelance soloLectura={soloLectura} />
+      </Bloque>
 
       <Bloque ic="🕐" titulo="Cierre y cobranza"
         sub="La hora de corte se acuerda con el proveedor. El día cierra solo a esa hora, aunque nadie confirme.">
