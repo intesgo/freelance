@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"225", fecha:"27 ago 2026", desc:"Detalles del pedido · Precio: el resalte ahora «juega» con lo elegido. Al elegir Crédito se enciende la tarjeta CRÉDITO (verde) y se apaga CONTADO; al elegir Contado se enciende CONTADO (azul) y se apaga CRÉDITO. Solo una activa a la vez." };
+const VERSION = { n:"226", fecha:"27 ago 2026", desc:"Unidades / Presentaciones: pantalla renovada. Botón «Nueva unidad» con un cuadro que pide el peso en la unidad que quieras (libras, kilos, arrobas, toneladas…) y lo convierte solo a quintales. Tres tarjetas de resumen, tabla más limpia y flechas ↑↓ para ordenar." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8859,12 +8859,31 @@ function CatalogoUnidadesWeb({ usuario }) {
   const [filas, setFilas] = useState(null);   // null=cargando · []=vacío · [filas]=real
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
-  const [edit, setEdit] = useState(null);      // { cod, nombre, equiv, orden, variable } en edición
-  const [nuevo, setNuevo] = useState({ cod:"", nombre:"", equiv:"", orden:"", variable:false });
+  const [edit, setEdit] = useState(null);      // { cod, nombre, equiv, orden, variable, pesoVal, pesoUnidad } en edición
+  const [nuevo, setNuevo] = useState({ cod:"", nombre:"", equiv:"", orden:"", variable:false, pesoVal:"", pesoUnidad:"qq" });
   const [orgId, setOrgId] = useState(null);
+  const [modal, setModal] = useState(null);    // null | "nueva" | "editar"
 
   const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${COLOR.border}`, fontSize:13, outline:"none" };
   const btn = (bg, col) => ({ padding:"7px 12px", borderRadius:8, border:"none", background:bg, color:col, fontSize:12.5, fontWeight:700, cursor:"pointer" });
+
+  /* CAT_UNIDADES_CONV · el usuario escribe el peso en CUALQUIER unidad y se convierte a quintales (qq)
+     para guardar en equiv_qq. Conversión 100% frontend; la base recibe siempre quintales.
+     1 qq = 100 lb = 45,36 kg. */
+  const UNIDADES_PESO = [
+    { id:"qq",   label:"Quintales",   aQq:1 },
+    { id:"arr",  label:"Arrobas",     aQq:0.25 },       // 1 arroba = 25 lb
+    { id:"lb",   label:"Libras",      aQq:0.01 },       // 100 lb = 1 qq
+    { id:"kg",   label:"Kilogramos",  aQq:1/45.36 },    // 45,36 kg = 1 qq
+    { id:"g",    label:"Gramos",      aQq:1/45360 },
+    { id:"ton",  label:"Toneladas",   aQq:1000/45.36 }, // 1 ton = 1000 kg
+    { id:"oz",   label:"Onzas",       aQq:1/1600 },     // 16 oz = 1 lb
+  ];
+  const pesoAEquiv = (valor, unidadPesoId) => {
+    const n = Number(String(valor).replace(",", ".")); if(!isFinite(n)||n<=0) return 0;
+    const u = UNIDADES_PESO.find(x=>x.id===unidadPesoId) || UNIDADES_PESO[0];
+    return Math.round(n * u.aQq * 100000) / 100000;      // 5 decimales
+  };
 
   const cargar = React.useCallback(async () => {
     if (!window.supa) { setFilas([]); return; }
@@ -8896,7 +8915,7 @@ function CatalogoUnidadesWeb({ usuario }) {
       const { error:e } = await window.supa.from("catalogo_unidades")
         .insert({ cod, org_id: org, nombre, equiv_qq: nuevo.variable ? (eq>0?eq:0) : eq, peso_variable: !!nuevo.variable, orden: isFinite(orden)?orden:(filas||[]).length+1, activo: true });
       if (e) { setError("No se pudo agregar (revisa permisos): "+e.message); }
-      else { setNuevo({ cod:"", nombre:"", equiv:"", orden:"", variable:false }); await cargar(); }
+      else { setNuevo({ cod:"", nombre:"", equiv:"", orden:"", variable:false, pesoVal:"", pesoUnidad:"qq" }); setModal(null); await cargar(); }
     } catch (ex) { setError("No se pudo agregar la unidad."); }
     setGuardando(false);
   };
@@ -8912,7 +8931,7 @@ function CatalogoUnidadesWeb({ usuario }) {
       const { error:e } = await window.supa.from("catalogo_unidades")
         .update({ nombre, equiv_qq: edit.variable ? (eq>0?eq:0) : eq, peso_variable: !!edit.variable, orden: isFinite(orden)?orden:0 }).eq("cod", edit.cod).eq("org_id", org);
       if (e) { setError("No se pudo guardar (revisa permisos): "+e.message); }
-      else { setEdit(null); await cargar(); }
+      else { setEdit(null); setModal(null); await cargar(); }
     } catch (ex) { setError("No se pudo guardar el cambio."); }
     setGuardando(false);
   };
@@ -8930,65 +8949,162 @@ function CatalogoUnidadesWeb({ usuario }) {
     setGuardando(false);
   };
 
+  /* CAT_UNIDADES_ORDEN · reordenar con flechas (sin escribir números): intercambia el `orden`
+     entero con el vecino. dir: -1 sube, +1 baja. */
+  const mover = async (f, dir) => {
+    if (soloLectura || guardando) return;
+    const ord = (filas||[]).slice().sort((a,b)=>a.orden-b.orden);
+    const i = ord.findIndex(x=>x.cod===f.cod); const j = i+dir;
+    if (i<0 || j<0 || j>=ord.length) return;
+    setGuardando(true); setError("");
+    try {
+      const org = orgId || await orgActivaWeb();
+      const a = ord[i], b = ord[j];
+      await window.supa.from("catalogo_unidades").update({ orden: b.orden }).eq("cod", a.cod).eq("org_id", org);
+      await window.supa.from("catalogo_unidades").update({ orden: a.orden }).eq("cod", b.cod).eq("org_id", org);
+      await cargar();
+    } catch(e){ setError("No se pudo reordenar."); }
+    setGuardando(false);
+  };
+
+  const guardarModal = () => { if (modal==="nueva") agregar(); else guardarUnidad(); };
+
   return (
     <div style={{ padding:"22px 28px 40px", maxWidth:820 }}>
       {/* DISENO_TITULO_UNICO · el título del módulo lo pinta la cabecera del menú (Header); aquí solo la ayuda */}
-      <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 16px" }}>
-        El catálogo de unidades para crear productos. <b>El peso en quintales</b> (equivalencia) dice cuánto pesa cada unidad:
-        10 libras = <b>0,10</b> · arroba = <b>0,25</b> · quintal = <b>1</b>.
-      </p>
+      {/* CAT_UNIDADES_UI · cabecera con ayuda + botón «Nueva unidad» (abre modal) */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, marginBottom:16, flexWrap:"wrap" }}>
+        <p style={{ fontSize:13, color:COLOR.muted, margin:0, maxWidth:560 }}>
+          El catálogo de unidades para crear productos. <b>El peso en quintales</b> (equivalencia) dice cuánto pesa cada unidad:
+          10 libras = <b>0,10</b> · arroba = <b>0,25</b> · quintal = <b>1</b>.
+        </p>
+        {!soloLectura && <button onClick={()=>{ setNuevo({ cod:"", nombre:"", equiv:"", orden:"", variable:false, pesoVal:"", pesoUnidad:"qq" }); setError(""); setModal("nueva"); }}
+          style={{ ...btn(COLOR.teal, "#fff"), padding:"10px 16px", fontSize:13.5, whiteSpace:"nowrap" }}>＋ Nueva unidad</button>}
+      </div>
       {soloLectura && <div style={{ background:"#EEF1F5", color:COLOR.muted, borderRadius:10, padding:"9px 12px", fontSize:12.5, marginBottom:14 }}>👁 Solo lectura · solo el freelance puede agregar o editar unidades.</div>}
-      {error && <div style={{ background:"#fdecea", color:COLOR.red, borderRadius:10, padding:"9px 12px", fontSize:12.5, marginBottom:14 }}>{error}</div>}
+      {error && !modal && <div style={{ background:"#fdecea", color:COLOR.red, borderRadius:10, padding:"9px 12px", fontSize:12.5, marginBottom:14 }}>{error}</div>}
 
       {filas === null ? <p style={{ color:COLOR.muted, fontSize:13 }}>Cargando el catálogo…</p> : (<>
+        {/* CAT_UNIDADES_TARJETAS · tres tarjetas de resumen (datos reales) */}
+        {(() => {
+          const activas = (filas||[]).filter(f=>f.activo);
+          const nFijo = activas.filter(f=>!f.peso_variable).length;
+          const nVar  = activas.filter(f=> f.peso_variable).length;
+          const card = (n, t, col, bg, bd) => (
+            <div style={{ flex:1, minWidth:150, border:`1px solid ${bd}`, background:bg, borderRadius:12, padding:"12px 14px" }}>
+              <div className="num" style={{ fontSize:24, fontWeight:800, color:col }}>{n}</div>
+              <div style={{ fontSize:12, color:COLOR.muted, marginTop:2 }}>{t}</div>
+            </div>
+          );
+          return (
+            <div style={{ display:"flex", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+              {card(activas.length, "unidades activas", COLOR.tealDark, COLOR.tealLight, COLOR.teal)}
+              {card(nFijo, "de peso fijo", "#2b6cb0", "#eef4fb", "#b8d0ea")}
+              {card(nVar, "variables por producto", COLOR.text, "#f7f9fa", COLOR.border)}
+            </div>
+          );
+        })()}
+
+        {/* CAT_UNIDADES_TABLA · UNIDAD · TIPO · EQUIVALENCIA · ESTADO · ACCIONES */}
         <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:12, overflow:"hidden" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1.4fr .7fr .8fr .5fr auto", gap:8, padding:"10px 14px", background:"#f7f9fa", fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            <span>Nombre</span><span>Código</span><span>Peso (qq)</span><span>Orden</span><span></span>
+          <div style={{ display:"grid", gridTemplateColumns:"1.5fr .7fr .9fr .6fr auto", gap:8, padding:"10px 14px", background:"#f7f9fa", fontSize:11.5, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
+            <span>Unidad</span><span>Tipo</span><span>Equivalencia</span><span>Estado</span><span></span>
           </div>
           {filas.length === 0 && <div style={{ padding:"16px 14px", fontSize:13, color:COLOR.muted }}>Sin unidades cargadas todavía.</div>}
-          {filas.map(f => {
-            const enEd = edit && edit.cod === f.cod;
-            return (
-              <div key={f.cod} style={{ display:"grid", gridTemplateColumns:"1.4fr .7fr .8fr .5fr auto", gap:8, alignItems:"center", padding:"10px 14px", borderTop:`1px solid ${COLOR.border}`, opacity: f.activo?1:.55 }}>
-                {enEd ? <input value={edit.nombre} onChange={e=>setEdit({...edit, nombre:e.target.value})} style={inp} />
-                      : <span style={{ fontSize:13.5, fontWeight:700, color:COLOR.text }}>{f.nombre}{!f.activo && <span style={{ fontSize:11, color:COLOR.muted, fontWeight:600 }}> · oculta</span>}</span>}
-                <span style={{ fontSize:12.5, color:COLOR.muted, fontFamily:"monospace" }}>{f.cod}</span>
-                {enEd ? <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                          <input type="number" step="0.01" min="0" value={edit.variable?"":edit.equiv} disabled={edit.variable} placeholder={edit.variable?"por producto":""} onChange={e=>setEdit({...edit, equiv:e.target.value})} style={{...inp, width:80, opacity:edit.variable?.5:1}} />
-                          <label style={{ fontSize:10.5, color:COLOR.muted, display:"flex", alignItems:"center", gap:4, cursor:"pointer" }}><input type="checkbox" checked={!!edit.variable} onChange={e=>setEdit({...edit, variable:e.target.checked})} /> variable</label>
-                        </div>
-                      : <span style={{ fontSize:13, color: f.peso_variable?COLOR.muted:COLOR.text }}>{f.peso_variable ? "variable (por producto)" : <span className="num">{Number(f.equiv_qq)}</span>}</span>}
-                {enEd ? <input type="number" value={edit.orden} onChange={e=>setEdit({...edit, orden:e.target.value})} style={{...inp, width:60}} />
-                      : <span className="num" style={{ fontSize:13, color:COLOR.muted }}>{f.orden}</span>}
-                <div style={{ display:"flex", gap:6, justifyContent:"flex-end" }}>
-                  {!soloLectura && (enEd
-                    ? <><button style={btn(COLOR.teal, "#fff")} disabled={guardando} onClick={guardarUnidad}>Guardar</button>
-                        <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setEdit(null)}>Cancelar</button></>
-                    : <><button style={btn("#f3f5f7", COLOR.text)} onClick={()=>setEdit({ cod:f.cod, nombre:f.nombre, equiv:String(Number(f.equiv_qq)), orden:String(f.orden), variable:!!f.peso_variable })}>Editar</button>
-                        <button style={btn("#f3f5f7", f.activo?COLOR.orange:COLOR.tealDark)} disabled={guardando} onClick={()=>ocultar(f, f.activo)}>{f.activo?"Ocultar":"Reactivar"}</button></>)}
-                </div>
+          {filas.slice().sort((a,b)=>a.orden-b.orden).map((f, idx, arr) => (
+            <div key={f.cod} style={{ display:"grid", gridTemplateColumns:"1.5fr .7fr .9fr .6fr auto", gap:8, alignItems:"center", padding:"10px 14px", borderTop:`1px solid ${COLOR.border}`, opacity: f.activo?1:.55 }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                <span style={{ fontSize:13.5, fontWeight:700, color:COLOR.text }}>{f.nombre}</span>
+                <span style={{ fontSize:11, color:COLOR.muted, fontFamily:"monospace" }}>{f.cod}</span>
               </div>
-            );
-          })}
-        </div>
-
-        {!soloLectura && (
-          <div style={{ marginTop:18, border:`1px dashed ${COLOR.border}`, borderRadius:12, padding:"14px 16px" }}>
-            <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:"0 0 10px" }}>Agregar unidad</p>
-            <div style={{ display:"grid", gridTemplateColumns:"1.4fr .8fr .8fr .6fr auto", gap:8, alignItems:"center" }}>
-              <input placeholder="Nombre (ej.: 10 libras)" value={nuevo.nombre} onChange={e=>setNuevo({...nuevo, nombre:e.target.value})} style={inp} />
-              <input placeholder="Código (L10)" value={nuevo.cod} onChange={e=>setNuevo({...nuevo, cod:e.target.value})} style={{...inp, fontFamily:"monospace"}} />
-              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                <input type="number" step="0.01" min="0" placeholder={nuevo.variable?"por producto":"Peso qq (0.10)"} value={nuevo.variable?"":nuevo.equiv} disabled={nuevo.variable} onChange={e=>setNuevo({...nuevo, equiv:e.target.value})} style={{...inp, opacity:nuevo.variable?.5:1}} />
-                <label style={{ fontSize:10.5, color:COLOR.muted, display:"flex", alignItems:"center", gap:4, cursor:"pointer" }}><input type="checkbox" checked={!!nuevo.variable} onChange={e=>setNuevo({...nuevo, variable:e.target.checked})} /> peso variable</label>
+              <span style={{ fontSize:12.5, color: f.peso_variable?"#2b6cb0":COLOR.tealDark, fontWeight:700 }}>{f.peso_variable ? "Variable" : "Peso fijo"}</span>
+              <span style={{ fontSize:13, color: f.peso_variable?COLOR.muted:COLOR.text }}>{f.peso_variable ? "Según producto" : <span><span className="num">{Number(f.equiv_qq)}</span> qq</span>}</span>
+              <span style={{ fontSize:12.5, color: f.activo?COLOR.tealDark:COLOR.muted, fontWeight:600 }}>{f.activo ? "Activa" : "Oculta"}</span>
+              <div style={{ display:"flex", gap:6, justifyContent:"flex-end", alignItems:"center" }}>
+                {!soloLectura && <>
+                  <button title="Subir" disabled={guardando || idx===0} onClick={()=>mover(f,-1)} style={{ ...btn("#f3f5f7", COLOR.text), padding:"6px 9px", opacity:(guardando||idx===0)?.4:1, cursor:(guardando||idx===0)?"default":"pointer" }}>↑</button>
+                  <button title="Bajar" disabled={guardando || idx===arr.length-1} onClick={()=>mover(f,1)} style={{ ...btn("#f3f5f7", COLOR.text), padding:"6px 9px", opacity:(guardando||idx===arr.length-1)?.4:1, cursor:(guardando||idx===arr.length-1)?"default":"pointer" }}>↓</button>
+                  <button style={btn("#f3f5f7", COLOR.text)} onClick={()=>{ setEdit({ cod:f.cod, nombre:f.nombre, equiv:String(Number(f.equiv_qq)), orden:String(f.orden), variable:!!f.peso_variable, pesoVal:String(Number(f.equiv_qq)), pesoUnidad:"qq" }); setError(""); setModal("editar"); }}>Editar</button>
+                  <button style={btn("#f3f5f7", f.activo?COLOR.orange:COLOR.tealDark)} disabled={guardando} onClick={()=>ocultar(f, f.activo)}>{f.activo?"Ocultar":"Reactivar"}</button>
+                </>}
               </div>
-              <input type="number" placeholder="Orden" value={nuevo.orden} onChange={e=>setNuevo({...nuevo, orden:e.target.value})} style={inp} />
-              <button style={btn(COLOR.teal, "#fff")} disabled={guardando} onClick={agregar}>Agregar</button>
             </div>
-            <p style={{ fontSize:11, color:COLOR.muted, margin:"8px 0 0" }}>El código es la llave: no se cambia en una unidad ya creada (si hace falta, crea otra). Marca <b>«peso variable»</b> en envases (caja, funda, saco): su peso en quintales se escribe por producto al crearlo.</p>
-          </div>
-        )}
+          ))}
+        </div>
       </>)}
+
+      {/* CAT_UNIDADES_MODAL · nueva / editar unidad (este modal, no el de Nuevo producto) */}
+      {modal && (() => {
+        const esNueva = modal==="nueva";
+        const form = esNueva ? nuevo : edit;
+        const setForm = esNueva ? setNuevo : setEdit;
+        if (!form) return null;
+        const setPeso = (val, uni) => {
+          const pv = val!=null ? val : form.pesoVal;
+          const pu = uni!=null ? uni : form.pesoUnidad;
+          setForm({ ...form, pesoVal:pv, pesoUnidad:pu, equiv:String(pesoAEquiv(pv, pu)) });
+        };
+        const equivPreview = pesoAEquiv(form.pesoVal, form.pesoUnidad);
+        const lbl = { fontSize:11.5, fontWeight:700, color:COLOR.muted, display:"block", margin:"0 0 5px" };
+        return (
+          <div onClick={()=>setModal(null)} style={{ position:"fixed", inset:0, background:"rgba(15,25,35,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:60, padding:20 }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:16, width:460, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", padding:"22px 24px" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+                <h2 style={{ fontSize:18, fontWeight:800, color:COLOR.text, margin:0 }}>{esNueva ? "Nueva unidad" : "Editar unidad"}</h2>
+                <button onClick={()=>setModal(null)} style={{ border:"none", background:"none", fontSize:22, color:COLOR.muted, cursor:"pointer", lineHeight:1 }}>×</button>
+              </div>
+              {error && <div style={{ background:"#fdecea", color:COLOR.red, borderRadius:10, padding:"9px 12px", fontSize:12.5, marginBottom:14 }}>{error}</div>}
+
+              <label style={lbl}>Nombre</label>
+              <input value={form.nombre} onChange={e=>setForm({...form, nombre:e.target.value})} placeholder="Ej.: 10 libras" style={{ ...inp, width:"100%", boxSizing:"border-box", marginBottom:14 }} />
+
+              <label style={lbl}>Tipo</label>
+              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                {[["fijo","Peso fijo",false],["var","Peso variable",true]].map(([k,t,v])=>{
+                  const on = !!form.variable===v;
+                  return <button key={k} onClick={()=>setForm({...form, variable:v})} style={{ flex:1, padding:"10px", borderRadius:9, cursor:"pointer", fontSize:13, fontWeight:700,
+                    border:`1px solid ${on?COLOR.teal:COLOR.border}`, background: on?COLOR.tealLight:"#fff", color: on?COLOR.tealDark:COLOR.text }}>{t}</button>;
+                })}
+              </div>
+
+              {!form.variable ? (
+                <div style={{ marginBottom:14 }}>
+                  <label style={lbl}>Peso</label>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input type="number" step="0.01" min="0" value={form.pesoVal} onChange={e=>setPeso(e.target.value, null)} placeholder="Ej.: 25" style={{ ...inp, flex:1, minWidth:0 }} />
+                    <select value={form.pesoUnidad} onChange={e=>setPeso(null, e.target.value)} style={{ ...inp, width:150, cursor:"pointer" }}>
+                      {UNIDADES_PESO.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
+                    </select>
+                  </div>
+                  <p style={{ fontSize:12, color:COLOR.tealDark, fontWeight:700, margin:"7px 0 0" }}>Equivalencia: <span className="num">{equivPreview}</span> qq</p>
+                </div>
+              ) : (
+                <p style={{ fontSize:12.5, color:COLOR.muted, background:"#f7f9fa", border:`1px solid ${COLOR.border}`, borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
+                  El peso se definirá en cada producto (cajas, fundas, sacos, unidades).
+                </p>
+              )}
+
+              {esNueva ? (
+                <div style={{ marginBottom:16 }}>
+                  <label style={lbl}>Datos técnicos · código</label>
+                  <input value={form.cod} onChange={e=>setForm({...form, cod:e.target.value.toUpperCase()})} placeholder="Ej.: L10" style={{ ...inp, width:130, fontFamily:"monospace", textTransform:"uppercase" }} />
+                  <p style={{ fontSize:11, color:COLOR.muted, margin:"6px 0 0" }}>El código es la llave: no se cambia después. Si hace falta, crea otra unidad.</p>
+                </div>
+              ) : (
+                <div style={{ marginBottom:16 }}>
+                  <label style={lbl}>Código (no se cambia)</label>
+                  <span style={{ fontSize:13, color:COLOR.muted, fontFamily:"monospace" }}>{form.cod}</span>
+                </div>
+              )}
+
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={()=>setModal(null)} style={{ ...btn("#f3f5f7", COLOR.text), flex:1, padding:"11px" }}>Cerrar</button>
+                <button onClick={guardarModal} disabled={guardando} style={{ ...btn(COLOR.teal, "#fff"), flex:1, padding:"11px", opacity:guardando?.6:1, cursor:guardando?"default":"pointer" }}>{guardando?"Guardando…":"Guardar"}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
