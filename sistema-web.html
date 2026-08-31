@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"232", fecha:"28 ago 2026", desc:"Limpieza: se retiró por completo el editor de precios por piladora que ya no se usaba en la ficha de producto (código muerto). Los precios se siguen cambiando desde Piladoras · Costos y Base." };
+const VERSION = { n:"233", fecha:"28 ago 2026", desc:"Ficha del cliente: ahora muestra el crédito POR PILADORA (cupo, usado y disponible de cada línea de crédito), además del cupo global. Solo lectura; los clientes sin líneas se ven igual que antes." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -20179,13 +20179,18 @@ function ClientesWeb({ usuario, navegar }) {
           .then(r => (r && r.data) || []).catch(() => []); }
         catch (e) { return Promise.resolve([]); }
       };
-      const [peds, cart, cobs, usrs] = await Promise.all([
+      /* CREDITO_POR_PILADORA_WEB · se agregan prov_cod a la cartera y dos lecturas
+         (lineas_credito, proveedores) para el desglose por piladora. Un rol sin permiso
+         a lineas_credito recibe [] (leer traga el error) y la ficha se ve como hoy. */
+      const [peds, cart, cobs, usrs, lineas, provs] = await Promise.all([
         leer("pedidos", "ped_id,cli_id,sub_id,creado,estado,es_demo"),
-        leer("cartera_cliente", "cli_id,doc,monto,vence,estado,es_demo"),
+        leer("cartera_cliente", "cli_id,doc,monto,vence,estado,es_demo,prov_cod"),
         leer("cobros", "cli_id,factura,monto,anulado,es_demo"),
         leer("usuarios", "usr_id,nombre"),
+        leer("lineas_credito", "cli_id,prov_cod,cupo,plazo,max_facturas,estado,vigente_hasta"),
+        leer("proveedores", "prov_cod,nombre"),
       ]);
-      if (activo) setApoyo({ peds, cart, cobs, usrs });
+      if (activo) setApoyo({ peds, cart, cobs, usrs, lineas, provs });
     })();
     return () => { activo = false; };
   }, []);
@@ -20367,7 +20372,7 @@ function ClientesWeb({ usuario, navegar }) {
     const ranking = (Number(c.comprasTotales)||0) <= 0 ? null
       : { pos: pos+1, de: conCompras.length };
 
-    if (!A) return { cargando:true, disponible, cupo, ranking };
+    if (!A) return { cargando:true, disponible, cupo, ranking, lineasCred: [] };
 
     const mios = A.peds.filter(x => x.cli_id===c.id && !x.es_demo && x.estado!=="anulado")
       .map(x => ({ f: dia_(x.creado), sub: x.sub_id })).filter(x => x.f)
@@ -20397,11 +20402,29 @@ function ClientesWeb({ usuario, navegar }) {
     });
     pend = Math.round(pend*100)/100; venc = Math.round(venc*100)/100;
 
+    /* CREDITO_POR_PILADORA_WEB · desglose de cupo/usado/disponible por piladora.
+       El "usado" por proveedor sale de la cartera pendiente (saldo>0) agrupada por prov_cod. */
+    const usadoPorProv = {};
+    A.cart.filter(x => x.cli_id===c.id && !x.es_demo).forEach(x => {
+      const saldo = (Number(x.monto)||0) - (pagado[x.doc]||0);
+      if (saldo > 0.004) { const k = x.prov_cod || "—"; usadoPorProv[k] = (usadoPorProv[k]||0) + saldo; }
+    });
+    const nombreProv = cod => ((A.provs||[]).find(p=>p.prov_cod===cod)||{}).nombre || cod || "—";
+    const lineasCred = (A.lineas||[]).filter(l => l.cli_id===c.id).map(l => {
+      const cupoP = Number(l.cupo)||0;
+      const usadoP = Math.round((usadoPorProv[l.prov_cod]||0)*100)/100;
+      const vigente = !l.vigente_hasta || (""+l.vigente_hasta).slice(0,10) >= hoyISO_;
+      const activa = l.estado==="aprobada" && vigente;
+      return { provCod:l.prov_cod, prov:nombreProv(l.prov_cod), cupo:cupoP, usado:usadoP,
+               disponible:Math.max(0, Math.round((cupoP-usadoP)*100)/100),
+               estado:l.estado, vigente, activa, plazo:l.plazo, maxFact:l.max_facturas };
+    }).sort((a,b)=> (b.activa?1:0)-(a.activa?1:0));
+
     const nombreDe = id => (A.usrs.find(u => u.usr_id===id)||{}).nombre || id || null;
     const vendedor = ultima && ultima.sub ? nombreDe(ultima.sub) : (c.subId ? nombreDe(c.subId) : null);
 
     return { cargando:false, ultima, diasDesde, cadaCuanto, nCompras: mios.length,
-             pend, venc, nVenc, nPend, disponible, cupo, vendedor, ranking };
+             pend, venc, nVenc, nPend, disponible, cupo, vendedor, ranking, lineasCred };
   };
 
 
@@ -20559,6 +20582,37 @@ function ClientesWeb({ usuario, navegar }) {
                         R.cargando ? "—" : (R.vendedor || (c.dueno==="freelance" ? "Freelance (directo)" : c.dueno || "Sin asignar")),
                         R.cargando ? null : R.ultima ? "en su último pedido" : "asignado en la ficha")}
                 </div>
+
+                {/* CREDITO_POR_PILADORA_WEB · desglose de cupo/usado/disponible por piladora (solo
+                   lectura). Solo aparece si hay líneas: un rol sin permiso a lineas_credito recibe []
+                   y ve la ficha como hoy (solo el «Cupo disponible» global de arriba). */}
+                {R.lineasCred && R.lineasCred.length > 0 && (
+                  <div style={{ marginBottom:20 }}>
+                    <p style={{ fontSize:11, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.4, marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+                      <Ico name="creditCard" size={13} color={COLOR.muted} /> Crédito por piladora</p>
+                    <div style={{ display:"grid", gap:8 }}>
+                      {R.lineasCred.map(l => {
+                        const bajo = l.cupo>0 && l.disponible <= l.cupo*0.2;
+                        const colDisp = !l.activa ? COLOR.muted
+                          : (l.disponible<=0 ? "#c0392b" : (bajo ? "#8a6d1d" : COLOR.tealDark));
+                        const etiqueta = l.activa ? null
+                          : (l.estado==="en_revision" ? "En revisión" : (!l.vigente ? "Vencida" : l.estado));
+                        return (
+                          <div key={l.provCod} style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"11px 14px", opacity: l.activa?1:0.72 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                              <span style={{ display:"inline-flex", alignItems:"center", gap:6, minWidth:0, fontSize:13, fontWeight:800, color:COLOR.text, overflowWrap:"anywhere" }}><Ico name="factory" size={14} color={COLOR.muted} /> {l.prov}</span>
+                              {etiqueta && <span style={{ fontSize:10.5, fontWeight:700, color:"#8a6d1d", background:"#8a6d1d18", borderRadius:999, padding:"2px 9px", whiteSpace:"nowrap" }}>{etiqueta}</span>}
+                            </div>
+                            <p style={{ fontSize:13, marginTop:4, margin:"4px 0 0" }}>
+                              <b style={{ color:colDisp }}>Disponible {money(l.disponible)}</b>
+                              <span style={{ color:COLOR.muted }}> · usado {money(l.usado)} de {money(l.cupo)}</span>
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </>);
             })()}
 
