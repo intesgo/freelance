@@ -6144,7 +6144,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"480", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Esta app de oficina es para el dueño (freelance/administrador); si entra una cuenta de otro rol, se cierra la sesión y se la lleva al portal para entrar a la app que le corresponde." };
+const VERSION = { n:"481", fecha:"28 ago 2026", desc:"Ingreso: se quitó el parpadeo del encabezado al escribir, el usuario admite minúsculas (correo tal cual) y al completar el correo el cursor salta solo a la contraseña." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -22974,6 +22974,24 @@ function cerrarPorRolAjeno(){
   try{ location.assign("./index.html"); }catch(e){}
 }
 
+/* LOGIN_FRANJA_ESTABLE · Franja del login a NIVEL DE MÓDULO. Antes vivía dentro de
+   PantallaLogin, así que en cada tecla (setUsr) React la remontaba y repetía su animación
+   de entrada (fx-entrar) → parpadeo del encabezado. Fuera del componente tiene identidad
+   estable y NO se remonta. Solo usa identificadores de módulo (CL, StatusBar, LogoFreelance,
+   SERIF, UTIL). */
+const Franja = ({ titulo, subtitulo }) => (
+  <div className="fx-entrar pt-franja" style={{ background:`linear-gradient(160deg, ${CL.tinta} 0%, ${CL.principal} 100%)`, padding:"clamp(12px,3vh,36px) 26px clamp(8px,1.6vh,18px)", position:"relative", overflow:"hidden" }}>
+    <StatusBar light />
+    <div style={{ position:"absolute", left:0, right:0, bottom:0, height:3, background:`linear-gradient(90deg, ${CL.ambar}, ${CL.suave})` }} />
+    <div style={{ display:"flex", justifyContent:"center", marginBottom:"clamp(4px,1vh,10px)" }}>
+      <div style={{ width:"clamp(44px,7.5vh,80px)", aspectRatio:"1" }}><LogoFreelance size="100%" /></div>
+    </div>
+    <p style={{ fontFamily:SERIF, fontSize:"clamp(21px,3.2vh,30px)", fontWeight:800, color:"#fff", margin:0, letterSpacing:"0.01em", lineHeight:1.05, textAlign:"center" }}>FREELANCE</p>
+    <p style={{ fontFamily:UTIL, fontSize:"clamp(9px,1.3vh,11px)", color:"rgba(255,255,255,0.7)", margin:"4px 0 0", letterSpacing:"0.22em", textTransform:"uppercase", textAlign:"center" }}>Ventas · Distribución · Cobranza</p>
+    {titulo && <p style={{ fontFamily:SERIF, fontStyle:"italic", fontSize:"clamp(12px,1.8vh,15px)", color:"rgba(255,255,255,0.85)", margin:"clamp(5px,1vh,10px) 0 0", textAlign:"center" }}>{subtitulo}</p>}
+    <div style={{ width:64, height:4, borderRadius:2, background:"#7FD69A", margin:"clamp(6px,1.2vh,12px) auto 0" }} />
+  </div>
+);
 function PantallaLogin({ onAutenticado }) {
   const [paso, setPaso]                 = useState("login");
   const [usr, setUsr]                   = useState("");
@@ -23100,20 +23118,6 @@ function PantallaLogin({ onAutenticado }) {
     }, 2200);
   }, [paso]);
 
-  const Franja = ({ titulo, subtitulo }) => (
-    <div className="fx-entrar pt-franja" style={{ background:`linear-gradient(160deg, ${CL.tinta} 0%, ${CL.principal} 100%)`, padding:"clamp(12px,3vh,36px) 26px clamp(8px,1.6vh,18px)", position:"relative", overflow:"hidden" }}>
-      <StatusBar light />
-      
-      <div style={{ position:"absolute", left:0, right:0, bottom:0, height:3, background:`linear-gradient(90deg, ${CL.ambar}, ${CL.suave})` }} />
-      <div style={{ display:"flex", justifyContent:"center", marginBottom:"clamp(4px,1vh,10px)" }}>
-        <div style={{ width:"clamp(44px,7.5vh,80px)", aspectRatio:"1" }}><LogoFreelance size="100%" /></div>
-      </div>
-      <p style={{ fontFamily:SERIF, fontSize:"clamp(21px,3.2vh,30px)", fontWeight:800, color:"#fff", margin:0, letterSpacing:"0.01em", lineHeight:1.05, textAlign:"center" }}>FREELANCE</p>
-      <p style={{ fontFamily:UTIL, fontSize:"clamp(9px,1.3vh,11px)", color:"rgba(255,255,255,0.7)", margin:"4px 0 0", letterSpacing:"0.22em", textTransform:"uppercase", textAlign:"center" }}>Ventas · Distribución · Cobranza</p>
-      {titulo && <p style={{ fontFamily:SERIF, fontStyle:"italic", fontSize:"clamp(12px,1.8vh,15px)", color:"rgba(255,255,255,0.85)", margin:"clamp(5px,1vh,10px) 0 0", textAlign:"center" }}>{subtitulo}</p>}
-      <div style={{ width:64, height:4, borderRadius:2, background:"#7FD69A", margin:"clamp(6px,1.2vh,12px) auto 0" }} />
-    </div>
-  );
 
   if (paso === "sync") return (
     <div style={{ background:CL.fondo, minHeight:"100%", display:"flex", flexDirection:"column" }}>
@@ -23208,12 +23212,15 @@ function PantallaLogin({ onAutenticado }) {
               <input type="text" value={usr}
                 onFocus={() => setFocusField("usr")} onBlur={() => setFocusField(null)}
                 onChange={e => {
-                  const val = e.target.value.toUpperCase();
+                  const val = e.target.value;
+                  const esCorreo = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+                  const saltar = !esCorreo(usr) && esCorreo(val);   // solo cuando pasa de incompleto a válido
                   setUsr(val); setError("");
+                  if (saltar && pwdRef.current) pwdRef.current.focus();
                 }}
                 onKeyDown={e => e.key === "Enter" && pwdRef.current && pwdRef.current.focus()}
-                autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck="false"
-                style={{ ...lineInput(focusField==="usr", usrColor), textTransform:"uppercase", letterSpacing:"0.04em", paddingLeft:30 }} />
+                autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck="false"
+                style={{ ...lineInput(focusField==="usr", usrColor), letterSpacing:"0.04em", paddingLeft:30 }} />
             </div>
           </div>
 

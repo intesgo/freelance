@@ -650,6 +650,7 @@ function PuertaPortal({ onAutenticado }){
   const [clave, setClave]   = React.useState("");
   const [err, setErr]       = React.useState("");
   const [entrando, setEntrando] = React.useState(false);
+  const claveRef = React.useRef(null);   // LOGIN_SALTO_CLAVE · para saltar a la clave al completar el correo
 
   /* Comprueba la sesión de ESTA app (llave propia): si hay, lee el padrón y entra.
      Se reutiliza al arrancar y justo después del login del formulario. */
@@ -719,10 +720,17 @@ function PuertaPortal({ onAutenticado }){
         <div style={{fontSize:14.5,lineHeight:1.55,opacity:.9,marginBottom:22}}>
           Ingresa con tu correo y tu clave.
         </div>
-        <input type="email" value={correo} onChange={e=>setCorreo(e.target.value)}
+        <input type="email" value={correo}
+          onChange={e=>{
+            const val = e.target.value;
+            const esCorreo = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+            const saltar = !esCorreo(correo) && esCorreo(val);   // solo en el borde incompleto→válido
+            setCorreo(val); setErr("");
+            if (saltar && claveRef.current) claveRef.current.focus();
+          }}
           placeholder="Correo" autoCapitalize="none" autoCorrect="off" autoComplete="username"
           inputMode="email" style={inp}/>
-        <input type="password" value={clave} onChange={e=>setClave(e.target.value)}
+        <input ref={claveRef} type="password" value={clave} onChange={e=>setClave(e.target.value)}
           placeholder="Clave" autoComplete="current-password" style={inp}
           onKeyDown={e=>{ if(e.key==="Enter") ingresar(); }}/>
         {err && <div style={{color:"#FFE0D8",background:"rgba(192,57,43,.28)",borderRadius:10,
@@ -1398,7 +1406,7 @@ const CUENTAS_INI = [
    operaciones:["Depósito","Transferencia"], desde:"2023-01-10", hasta:"2025-12-31", activa:false},
 ];
 
-const VERSION = { n:"77", fecha:"27 ago 2026", desc:"Autorización de crédito: al aprobar una solicitud de crédito ahora pides cupo, plazo, máximo de facturas y vigencia; con eso queda registrada la línea de crédito del cliente y el pedido avanza. Rechazar sigue igual." };
+const VERSION = { n:"78", fecha:"28 ago 2026", desc:"Ingreso: al completar el correo el cursor salta solo a la contraseña (menos toques para entrar)." };
 
 const PROVEEDOR = { provId:"AGU", nombre:"Piladora San Agustín", contacto:"Ing. Carmen Salas", linea:"Arroz", desde:"2024-02" };
 
