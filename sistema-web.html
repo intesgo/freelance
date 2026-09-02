@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"233", fecha:"28 ago 2026", desc:"Ficha del cliente: ahora muestra el crédito POR PILADORA (cupo, usado y disponible de cada línea de crédito), además del cupo global. Solo lectura; los clientes sin líneas se ven igual que antes." };
+const VERSION = { n:"234", fecha:"28 ago 2026", desc:"Cuentas del equipo: nuevo botón «Cambiar correo» para corregir el correo de alguien que ya tiene acceso (conserva su clave e historial; el correo anterior deja de servir)." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -12968,6 +12968,9 @@ function CuentasWeb({ usuario }) {
      persona quedaba dos veces y sus pedidos viejos, huérfanos. */
   const [dando, setDando] = useState(null);        // usr_id de la fila abierta
   const [dCorreo, setDCorreo] = useState("");
+  /* CAMBIAR_CORREO_WEB · corregir el correo de alguien que YA tiene acceso */
+  const [camb, setCamb] = useState(null);          // usr_id de la fila con el cambio abierto
+  const [cCorreo, setCCorreo] = useState("");
   const [dTel, setDTel] = useState("");
   const [dPila, setDPila] = useState("");
   const [parecidos, setParecidos] = useState([]);  // homónimos sin acceso
@@ -13040,6 +13043,28 @@ function CuentasWeb({ usuario }) {
         telefono: dTel.trim() || null, prov_cod: dPila || null });
       setReciente({ nombre:g.nombre, correo:dCorreo.trim(), enlace:d.enlace, usr_id:g.usr_id });
       setDando(null); setDCorreo(""); setDTel(""); setDPila(""); cargar();
+    } catch (e) { setError(e.message); }
+    setGuardando(false);
+  };
+
+  /* CAMBIAR_CORREO_WEB · corrige el correo de una persona que YA tiene acceso.
+     Reusa la función `cuentas-equipo` (acción cambiar_correo, ya en la base). El enlace
+     que devuelve es de recuperación; la persona igual entra con su clave de siempre. */
+  const abrirCambio = (g) => {
+    setError(""); setAviso(""); setAbierto(false); setDando(null);
+    setCamb(g.usr_id); setCCorreo(g.email || "");
+  };
+  const cambiarCorreo = async (g) => {
+    setError(""); setAviso("");
+    const nuevo = cCorreo.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(nuevo)) { setError("Ese correo no se ve bien."); return; }
+    if (nuevo.toLowerCase() === (g.email||"").toLowerCase()) { setError("Ese ya es su correo actual."); return; }
+    setGuardando(true);
+    try {
+      const d = await llamar({ accion:"cambiar_correo", usr_id:g.usr_id, email:nuevo });
+      setReciente({ nombre:g.nombre, correo:nuevo, enlace:d.enlace, usr_id:g.usr_id, repetido:true });
+      setAviso("Correo cambiado. El correo anterior ya no sirve.");
+      setCamb(null); setCCorreo(""); cargar();
     } catch (e) { setError(e.message); }
     setGuardando(false);
   };
@@ -13232,6 +13257,13 @@ function CuentasWeb({ usuario }) {
                   border:"1px solid "+COLOR.bg, background:"#fff", color:COLOR.teal, fontSize:12.5,
                   fontWeight:700, cursor:"pointer" }}>Enlace de entrada</button>
               )}
+              {g.tiene_acceso && !g.es_demo && (
+                <button onClick={()=>{ if (camb===g.usr_id) setCamb(null); else abrirCambio(g); }}
+                  style={{ padding:"7px 12px", borderRadius:8, border:"1px solid "+COLOR.bg,
+                    background:"#fff", color:COLOR.teal, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>
+                  {camb===g.usr_id ? "Cancelar" : "Cambiar correo"}
+                </button>
+              )}
               {!g.tiene_acceso && !g.es_demo && g.activo && (
                 <button onClick={()=>{ if (dando === g.usr_id) setDando(null); else abrirDar(g); }}
                   style={{ padding:"7px 12px", borderRadius:8, border:"none", background:COLOR.teal,
@@ -13271,6 +13303,25 @@ function CuentasWeb({ usuario }) {
                       color:"#fff", fontSize:13.5, fontWeight:700, cursor:"pointer", opacity:guardando?.6:1 }}>
                     {guardando ? "Creando…" : "Crear acceso y generar enlace"}
                   </button>
+                </div>
+              )}
+
+              {/* CAMBIAR_CORREO_WEB · formulario en línea para corregir el correo (mismo patrón que «Dar acceso») */}
+              {camb === g.usr_id && (
+                <div style={{ width:"100%", background:COLOR.bg, borderRadius:10, padding:"12px 14px", marginTop:4 }}>
+                  <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 8px", lineHeight:1.5 }}>
+                    Corrige el correo con el que entra {g.nombre} (<b>{g.usr_id}</b>). Conserva su clave e historial.
+                  </p>
+                  <input type="email" style={{ ...inp, marginBottom:8 }} value={cCorreo} placeholder="correo@ejemplo.com"
+                    autoCapitalize="none" autoCorrect="off" onChange={e=>setCCorreo(e.target.value)} />
+                  <button onClick={()=>cambiarCorreo(g)} disabled={guardando}
+                    style={{ padding:"10px 16px", borderRadius:9, border:"none", background:COLOR.teal,
+                      color:"#fff", fontSize:13.5, fontWeight:700, cursor:"pointer", opacity:guardando?.6:1 }}>
+                    {guardando ? "Guardando…" : "Guardar correo"}
+                  </button>
+                  <p style={{ fontSize:11.5, color:COLOR.muted, margin:"8px 0 0", lineHeight:1.5 }}>
+                    El correo anterior deja de servir. Conserva su clave e historial.
+                  </p>
                 </div>
               )}
             </div>
