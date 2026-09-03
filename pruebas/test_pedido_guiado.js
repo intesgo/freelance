@@ -2,9 +2,10 @@
    DISENO_PEDIDO_GUIADO · guía gráfica paso a paso (PedidosWeb · armar)
 
    Renderiza PedidosWeb y comprueba la guía visual: la barra de pasos derivada,
-   los recuadros-guía (en vez de texto gris), el resaltado del paso activo (sin
-   pointerEvents), el destello de «Agregar», y el momento clave de después de
-   agregar un ítem (acuse que se apaga solo, «Agrega otro producto», el chip
+   el resaltado del paso activo EN EL PROPIO BUSCADOR (halo verde sobre el campo,
+   ya no en un recuadro con borde discontinuo), el resaltado sin pointerEvents,
+   el destello de «Agregar», y el momento clave de después de agregar un ítem
+   (acuse que se apaga solo, «Agrega otro producto · N en el pedido», el chip
    «Fija · un pedido = una piladora»).
 
    NO SE ESCRIBE EN LA BASE: el `supa` de aquí es un doble.
@@ -20,7 +21,7 @@ const html = fs.readFileSync(ruta, "utf-8");
 const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 const js = R.Babel.transform(jsx, { presets:["react"] }).code;
 
-const ESPERADAS = 20;
+const ESPERADAS = 28;
 let ok = 0, mal = 0;
 const comprobar = (t, c) => { if (c) { ok++; console.log("  ✓ " + t); } else { mal++; console.log("  ✗ " + t); } };
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 80));
@@ -99,6 +100,13 @@ function montar() {
     /* acuse: el ✓ que marca la línea recién agregada (span aria-hidden, fuera de la barra) */
     window.__acuseCount = function(){ return window.__c.querySelectorAll("span[data-acuse='1']").length; };
     window.__rowabHtml = function(){ var r=window.__c.querySelector(".ped-rowab"); return r?r.outerHTML:""; };
+    /* ¿el buscador de este placeholder está resaltado? halo (boxShadow 4px) + borde 2px */
+    window.__buscHalo = function(phSub){ var inp=window.__inp(phSub); if(!inp) return "no"; var bs=(inp.style&&inp.style.boxShadow)||""; return (bs && bs!=="none" && bs.indexOf("4px")>=0) ? "si" : "no"; };
+    window.__buscBorde2 = function(phSub){ var inp=window.__inp(phSub); if(!inp) return "no"; var b=(inp.style&&inp.style.border)||""; return b.indexOf("2px")>=0 ? "si" : "no"; };
+    /* cuántos buscadores están resaltados a la vez (halo de 4px sobre un input) */
+    window.__haloCount = function(){ var ins=window.__c.querySelectorAll("input"); var n=0; for(var i=0;i<ins.length;i++){ var bs=(ins[i].style&&ins[i].style.boxShadow)||""; if(bs && bs!=="none" && bs.indexOf("4px")>=0) n++; } return n; };
+    /* la columna izquierda del armador (primer hijo de .ped-cols): ¿está vacía? */
+    window.__izqVacia = function(){ var cols=window.__c.querySelector(".ped-cols"); if(!cols) return "no cols"; var izq=cols.children[0]; return (izq && (izq.textContent||"").trim()==="") ? "si" : "no"; };
   `, ctx);
   return { ctx };
 }
@@ -106,9 +114,11 @@ const corre = (m, e) => vm.runInContext(e, m.ctx);
 const txt = (m) => corre(m, `window.__txt()`);
 async function nuevoPedido(m) { corre(m, `window.__render()`); await esperar(300); corre(m, `window.__flush()`); corre(m, `window.__boton("+ Nuevo pedido")`); await esperar(160); corre(m, `window.__flush()`); }
 async function elegirCliente(m) { corre(m, `window.__buscarEscribir("cliente", "Guia Prueba")`); await esperar(140); corre(m, `window.__flush()`); corre(m, `window.__buscarOpcion("cliente", "Guia Prueba")`); await esperar(160); corre(m, `window.__flush()`); }
-async function elegirProvProd(m) {
+async function elegirProv(m) {
   corre(m, `window.__buscarEscribir("proveedor", "Piladora")`); await esperar(140); corre(m, `window.__flush()`);
   corre(m, `window.__buscarOpcion("proveedor", "Piladora Guia")`); await esperar(160); corre(m, `window.__flush()`);
+}
+async function elegirProd(m) {
   corre(m, `window.__buscarEscribir("catálogo", "Arroz Guia")`); await esperar(140); corre(m, `window.__flush()`);
   corre(m, `window.__buscarOpcion("catálogo", "Arroz Guia")`); await esperar(160); corre(m, `window.__flush()`);
 }
@@ -117,21 +127,30 @@ const ring = (m) => corre(m, `window.__ringNums()`);
 
 (async () => {
   const m = montar(); await nuevoPedido(m);
-  /* ── SIN CLIENTE ── */
+  /* ── SIN CLIENTE · el resaltado va en el buscador de CLIENTE, no en un recuadro ── */
   let t = txt(m); let r = ring(m);
   comprobar("sin cliente, el paso activo es «Cliente» (círculo 1 con aro)", r.length===1 && r[0]==="1");
-  comprobar("sin cliente, sale el recuadro-guía «Empieza por el cliente»", t.indexOf("Empieza por el cliente")>=0);
-  comprobar("ya NO aparece el texto gris «Elige un cliente arriba»", t.indexOf("Elige un cliente arriba")<0);
-  comprobar("nunca hay dos pasos marcados como ACTIVOS a la vez (sin cliente)", r.length===1);
+  comprobar("sin cliente, el buscador de CLIENTE está resaltado (halo + borde 2px)",
+    corre(m, `window.__buscHalo("cliente")`)==="si" && corre(m, `window.__buscBorde2("cliente")`)==="si");
+  comprobar("sin cliente, NO aparece el recuadro «Empieza por el cliente»", t.indexOf("Empieza por el cliente")<0);
+  comprobar("sin cliente, ningún otro buscador está resaltado (solo uno a la vez)", corre(m, `window.__haloCount()`) === 1);
 
-  /* ── CON CLIENTE, SIN PROVEEDOR ── */
+  /* ── CON CLIENTE, SIN PROVEEDOR · resaltado en el buscador de PROVEEDOR, izquierda vacía ── */
   await elegirCliente(m); t = txt(m); r = ring(m);
   comprobar("con cliente y sin proveedor, el paso activo es «Proveedor» (2)", r.length===1 && r[0]==="2");
   comprobar("una vez elegido, el nombre del cliente NO se atenúa (se sigue leyendo)", t.indexOf("Guia Prueba")>=0);
-  comprobar("con cliente, sale el recuadro-guía «Ahora el proveedor»", t.indexOf("Ahora el proveedor")>=0);
+  comprobar("con cliente, el buscador de PROVEEDOR está resaltado (halo)", corre(m, `window.__buscHalo("proveedor")`)==="si");
+  comprobar("con cliente y sin proveedor, la columna izquierda está VACÍA (sin recuadro)", corre(m, `window.__izqVacia()`)==="si");
+  comprobar("con cliente, NO aparece el recuadro «Ahora el proveedor»", t.indexOf("Ahora el proveedor")<0);
+  comprobar("con cliente, solo un buscador resaltado a la vez", corre(m, `window.__haloCount()`) === 1);
+
+  /* ── CON PROVEEDOR, SIN PRODUCTO · resaltado en el buscador de PRODUCTO ── */
+  await elegirProv(m);
+  comprobar("con proveedor y sin producto, el buscador de PRODUCTO está resaltado (halo)", corre(m, `window.__buscHalo("catálogo")`)==="si");
+  comprobar("con proveedor y sin producto, solo un buscador resaltado a la vez", corre(m, `window.__haloCount()`) === 1);
 
   /* ── CON PRODUCTO, CANTIDAD VACÍA ── */
-  await elegirProvProd(m); r = ring(m);
+  await elegirProd(m); r = ring(m);
   comprobar("con producto y cantidad vacía, el paso activo es «Cantidad y precio» (4)", r.length===1 && r[0]==="4");
   comprobar("los pasos ya cumplidos se pintan con ✓ (al menos cliente, proveedor y producto)", corre(m, `window.__cumplidosBarra()`) >= 3);
   comprobar("lo atenuado usa opacity, NUNCA pointerEvents:none", corre(m, `window.__rowabHtml()`).indexOf("pointer-events: none") < 0);
@@ -142,18 +161,25 @@ const ring = (m) => corre(m, `window.__ringNums()`);
   await setCP(m, 100, 10);
   comprobar("«Agregar al pedido» lleva anim-pulso cuando la línea es válida", corre(m, `window.__btnClass("Agregar al pedido")`).indexOf("anim-pulso") >= 0);
 
-  /* ── DESPUÉS DE AGREGAR ── */
+  /* ── DESPUÉS DE AGREGAR · el conteo pasa al rótulo, sin recuadro ── */
   corre(m, `window.__boton("Agregar al pedido")`); await esperar(160); corre(m, `window.__flush()`);
   t = txt(m);
   comprobar("con el carrito lleno, «Subir pedido» queda habilitado", corre(m, `window.__estadoBoton("Subir pedido")`) === "ok");
   comprobar("tras agregar, el rótulo del paso 3 dice «Agrega otro producto»", t.indexOf("Agrega otro producto")>=0);
-  comprobar("tras agregar, sale el recuadro «Agrega otro producto de Piladora Guia» con el conteo", t.indexOf("Agrega otro producto de Piladora Guia")>=0 && t.indexOf("con los 1 que ya tienes")>=0);
+  comprobar("tras agregar, el rótulo lleva el conteo «· 1 en el pedido»", t.indexOf("· 1 en el pedido")>=0);
+  comprobar("tras agregar, YA NO existe el recuadro «Agrega otro producto de Piladora Guia» ni «que ya tienes»",
+    t.indexOf("Agrega otro producto de Piladora Guia")<0 && t.indexOf("que ya tienes")<0);
   comprobar("la piladora sigue elegida tras agregar (no se pierde provSel)", t.indexOf("Piladora Guia")>=0);
   comprobar("con líneas en el carrito aparece el chip «Fija · un pedido = una piladora»", t.indexOf("Fija · un pedido = una piladora")>=0);
   comprobar("tras agregar, la línea nueva se marca con acuse (✓) y luego se apaga sola",
     corre(m, `window.__acuseCount()`) === 1);
   await esperar(1700); corre(m, `window.__flush()`);
   comprobar("el acuse desaparece solo a los ~1,5 s", corre(m, `window.__acuseCount()`) === 0);
+
+  /* ── INSPECCIÓN DEL FUENTE · el recuadro-guía ya no existe y las otras pantallas no cambian ── */
+  comprobar("el helper `recuadroGuia` ya no existe en el archivo", html.indexOf("recuadroGuia") < 0);
+  comprobar("el borde del buscador depende de (activo||abierto): sin `activo` queda en 1px",
+    js.indexOf("(activo||abierto) ? 2 : 1") >= 0 || html.indexOf("(activo||abierto) ? 2 : 1") >= 0);
 
   console.log("Resultado de pedido-guiado: " + ok + " ✓ · " + mal + " ✗ · " + (ok+mal) + " comprobaciones (esperadas " + ESPERADAS + ")");
   if (ok + mal !== ESPERADAS) { console.log("  ✗ AVISO: corrieron " + (ok+mal) + " y se esperaban " + ESPERADAS); process.exit(1); }

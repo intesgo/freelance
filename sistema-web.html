@@ -564,7 +564,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"240", fecha:"3 sep 2026", desc:"Productos (Sistema Web) · nueva columna «Variedad» y filtro «Sin variedad (N)»: la variedad del grano se lee de la base (grano_variedades / grano_familias) con respaldo en las constantes del archivo. El contador cuenta solo las líneas con grano. El buscador ahora también encuentra por variedad o familia. No cambia márgenes, precios ni otros módulos." };
+const VERSION = { n:"241", fecha:"3 sep 2026", desc:"Nuevo pedido (Sistema Web) · el resaltado guía va ahora en el propio buscador del paso activo (cliente, proveedor o producto): el campo donde toca escribir se enciende en verde con su halo. Se quitan los recuadros grandes con borde discontinuo que ocupaban media pantalla («Empieza por el cliente», «Ahora el proveedor», «Agrega otro producto de …»); el conteo del carrito pasa al rótulo del paso. La barra de pasos y la lista de verificación no cambian. No toca precios, cupo, condición ni permisos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -5167,7 +5167,7 @@ function Dashboard({ navegar }) {
 // ── Buscador predictivo reutilizable (escribe y filtra de una lista) ──
 // items: array de strings u objetos. label(item) = texto a mostrar; sub(item) = línea secundaria (opcional).
 // value: texto actual. onPick(item) al elegir. onText(t) al escribir.
-function BuscadorPredictivo({ items, value, onPick, onText, placeholder, label, sub, right, disabled, cat, extra }) {
+function BuscadorPredictivo({ items, value, onPick, onText, placeholder, label, sub, right, disabled, cat, extra, activo }) {
   const [abierto, setAbierto] = React.useState(false);
   const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const lbl = it => label ? label(it) : String(it);
@@ -5184,7 +5184,7 @@ function BuscadorPredictivo({ items, value, onPick, onText, placeholder, label, 
         onFocus={()=>!disabled && setAbierto(true)}
         onBlur={()=>setTimeout(()=>setAbierto(false),150)}
         placeholder={placeholder||"Escribe para buscar…"}
-        style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:`1px solid ${abierto?COLOR.teal:COLOR.border}`, fontSize:14, outline:"none", background: disabled?"#f3f5f7":"#fff" }} />
+        style={{ width:"100%", padding:"11px 13px", borderRadius:9, border:`${(activo||abierto) ? 2 : 1}px solid ${(activo||abierto) ? COLOR.teal : COLOR.border}`, boxShadow: activo ? "0 0 0 4px rgba(74,158,120,.16)" : "none", fontSize:14, outline:"none", background: disabled?"#f3f5f7":"#fff" }} />
       {value && !disabled && <button onMouseDown={e=>{ e.preventDefault(); onText(""); setAbierto(true); }} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", border:"none", background:"none", cursor:"pointer", fontSize:16, color:COLOR.muted }}>×</button>}
       {abierto && !disabled && (
         <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:0, background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.12)", maxHeight:220, overflowY:"auto", zIndex:20 }}>
@@ -6631,16 +6631,6 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
       border: est==="disponible" ? `2px dashed ${COLOR.teal}` : "none",
       color: (hecho||on) ? "#fff" : COLOR.tealDark }}>{hecho ? "✓" : (i+1)}</span>;
   };
-  /* recuadro-guía: círculo del número + título corto (borde dashed, fondo tealLight) */
-  const recuadroGuia = (k, titulo, detalle) => (
-    <div style={{ background:COLOR.tealLight, border:`2px dashed ${COLOR.teal}`, borderRadius:16, padding:"24px 22px", textAlign:"center" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:9, marginBottom: detalle?6:0 }}>
-        {numPaso(k)}<span style={{ fontSize:15.5, fontWeight:800, color:COLOR.tealDark }}>{titulo}</span>
-      </div>
-      {detalle && <p style={{ margin:0, fontSize:12.5, color:COLOR.muted }}>{detalle}</p>}
-    </div>
-  );
-
   const PROVEEDORES_LISTA = [...new Set(PRODS_PED.map(p=>p.prov))].filter(p=>p!=="POR ASIGNAR");     // proveedores disponibles
   /* MARCA_EXCLUSIVA_WEB · además del proveedor, respeta la marca exclusiva del cliente
      elegido (cli): una marca amarrada a un cliente en marca_clientes NO se ofrece a otro.
@@ -7277,6 +7267,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           {!cli ? (
             <div style={{ marginTop:4 }}>
               <BuscadorPredictivo cat="clientes" items={CLIENTES} value={cliTexto} disabled={carrito.length>0}
+                activo={pasoPed === "cliente"}
                 placeholder="Escribe para buscar un cliente…"
                 label={c=>nombreCortoCliente(c)}
                 extra={c=>(c.razonSocial||"")+" "+(c.nombre||"")+" "+(c.ruc||"")}
@@ -7302,6 +7293,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
               {!provSel ? (
                 <div style={{ marginTop:4 }}>
                   <BuscadorPredictivo cat="proveedores" items={PROVEEDORES_LISTA} value={provTexto}
+                    activo={pasoPed === "proveedor"}
                     placeholder="Escribe para buscar un proveedor…"
                     label={p=>p}
                     sub={p=>PRODS_PED.filter(x=>x.prov===p).length + " producto(s)"}
@@ -7334,22 +7326,17 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 420px", gap:22, alignItems:"start" }} className="ped-cols">
         {/* ══ IZQUIERDA ══ */}
         <div style={{ minWidth:0 }}>
-          {!cli ? recuadroGuia("cliente", "Empieza por el cliente", "Búscalo arriba para arrancar el pedido.")
+          {!cli ? null
            : cli.bloqueado ? null
-           : !provSel ? recuadroGuia("proveedor", "Ahora el proveedor", "Elígelo arriba para ver sus productos.")
+           : !provSel ? null
            : !prod ? (
-            <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:16, padding:22 }}>
+            <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:16, padding:"16px 18px" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                <label style={{ fontSize:13, fontWeight:700, color:COLOR.tealDark, display:"flex", alignItems:"center" }}>{numPaso("producto")}{carrito.length>0 ? "Agrega otro producto" : "Producto"}</label>
+                <label style={{ fontSize:13, fontWeight:700, color:COLOR.tealDark, display:"flex", alignItems:"center" }}>{numPaso("producto")}{carrito.length>0 ? "Agrega otro producto" : "Producto"}{carrito.length>0 && <span style={{ marginLeft:8, fontSize:12, fontWeight:600, color:COLOR.muted }}>· {carrito.length} en el pedido</span>}</label>
                 <button onClick={()=>setVerFavs(v=>!v)} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 13px", borderRadius:9, cursor:"pointer", border:`1px solid ${verFavs?COLOR.teal:COLOR.border}`, background: verFavs?COLOR.tealLight:"#fff", color: verFavs?COLOR.tealDark:COLOR.text, fontSize:12.5, fontWeight:700 }}><Ico name="star" size={15} color={COLOR.maiz}/> Favoritos</button>
               </div>
-              {carrito.length>0 && (
-                <div style={{ background:COLOR.tealLight, border:`2px dashed ${COLOR.teal}`, borderRadius:12, padding:"12px 14px", marginBottom:12 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:2 }}>{numPaso("producto")}<span style={{ fontSize:14, fontWeight:800, color:COLOR.tealDark }}>Agrega otro producto de {provSel}</span></div>
-                  <p style={{ margin:"6px 0 0", fontSize:12, color:COLOR.muted }}>o sube el pedido con los {carrito.length} que ya tienes.</p>
-                </div>
-              )}
               <BuscadorPredictivo cat="productos" items={productosDelProv} value={prodTexto}
+                activo={pasoPed === "producto"}
                 placeholder={"Buscar en el catálogo de "+provSel+"…"}
                 label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
                 onText={t=>{ setProdTexto(t); if(t==="") setProd(null); }}
