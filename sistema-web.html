@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"235", fecha:"28 ago 2026", desc:"Administración · Módulos y permisos: ahora se guarda de verdad (tabla permisos_web_rol). El freelance apaga o prende módulos para Contadora y Operadora y queda guardado; al entrar, cada quien ve solo sus módulos. Dashboard no se puede apagar." };
+const VERSION = { n:"236", fecha:"2 sep 2026", desc:"Cuentas del equipo · pantalla rediseñada: cada persona muestra un solo estado (Activo, Sin acceso o De baja); quien está de baja ya no ofrece enlace ni cambiar correo; dar de baja pide confirmación y no puedes darte de baja a ti mismo; los pendientes dejan de contar a los inactivos. «Nueva cuenta» se abre en un panel que empieza buscando en el padrón para no duplicar a nadie, y en el celular la lista se ve en tarjetas. Cambiar correo aclara que la persona conserva su clave." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -12964,52 +12964,119 @@ function AvisosWeb({ usuario }) {
    administrador — el rol no viaja en el token, así que no se puede fingir.
    ═══════════════════════════════════════════════════════════════════════════ */
 function CuentasWeb({ usuario }) {
+  const movil = useEsMovil(720);
   const [gente, setGente] = useState([]);
   const [piladoras, setPiladoras] = useState([]);
   const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState("");
-  const [aviso, setAviso] = useState("");
-  const [abierto, setAbierto] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  const [reciente, setReciente] = useState(null);   // { nombre, enlace }
-  const [filtro, setFiltro] = useState("");
+  const [error, setError] = useState("");        // error de CARGA (bloquea la lista)
+  const [aviso, setAviso] = useState("");        // confirmaciones sueltas (aria-live polite)
+  const [q, setQ] = useState("");
+  const [filtro, setFiltro] = useState("todos"); // todos | activos | pendientes | baja
 
+  // Panel «Nueva cuenta» (lateral/modal, NO empuja la lista)
+  const [panel, setPanel] = useState(false);
+  const [modo, setModo] = useState("padron");    // padron (recomendado, inicial) | nueva
+  const [padronQ, setPadronQ] = useState("");
   const [nombre, setNombre] = useState("");
   const [correo, setCorreo] = useState("");
-  const [rol, setRol] = useState("comisionista");   /* DES-012 · nombre oficial */
+  const [rol, setRol] = useState("");            // "" = «Selecciona un rol»
   const [pila, setPila] = useState("");
   const [tel, setTel] = useState("");
+  const [parecidos, setParecidos] = useState([]);
+  const [panelError, setPanelError] = useState("");
+  const [panelProc, setPanelProc] = useState(false);
 
-  /* v2 · dar acceso a quien YA está en el padrón (conserva su código y su
-     historial). Sin esto, el único camino era crear una ficha nueva: la misma
-     persona quedaba dos veces y sus pedidos viejos, huérfanos. */
-  const [dando, setDando] = useState(null);        // usr_id de la fila abierta
+  // Dar acceso a alguien del padrón (dentro del panel)
+  const [sel, setSel] = useState(null);          // objeto g elegido del padrón
   const [dCorreo, setDCorreo] = useState("");
-  /* CAMBIAR_CORREO_WEB · corregir el correo de alguien que YA tiene acceso */
-  const [camb, setCamb] = useState(null);          // usr_id de la fila con el cambio abierto
-  const [cCorreo, setCCorreo] = useState("");
   const [dTel, setDTel] = useState("");
   const [dPila, setDPila] = useState("");
-  const [parecidos, setParecidos] = useState([]);  // homónimos sin acceso
+
+  // Cambiar correo (modal)
+  const [cambDe, setCambDe] = useState(null);    // g
+  const [cCorreo, setCCorreo] = useState("");
+  const [cambError, setCambError] = useState("");
+  const [cambProc, setCambProc] = useState(false);
+
+  // Confirmar baja (modal)
+  const [bajaDe, setBajaDe] = useState(null);    // g
+  const [bajaProc, setBajaProc] = useState(false);
+
+  // Resultado (un solo bloque): invitación / enlace nuevo / cambio de correo
+  const [result, setResult] = useState(null);    // { nombre, usr_id, correo, enlace, tipo }
+
+  // Menú de tres puntos y proceso/errores por fila
+  const [menuFila, setMenuFila] = useState(null);   // usr_id con el menú abierto
+  const [procFila, setProcFila] = useState({});     // { usr_id: "enlace"|"baja"|"reactivar" }
+  const [errFila, setErrFila] = useState({});       // { usr_id: mensaje }
+
+  const primerCampo = React.useRef(null);
+  const nuevaBtn = React.useRef(null);
 
   const ROLES = [
-    /* DES-012 · desde aquí ya nadie se crea con el nombre viejo */
-    { k:"comisionista",    t:"Comisionista · vende en el campo" },
-    { k:"proveedor",       t:"Piladora · factura y aprueba pagos" },
-    { k:"transportista",   t:"Transportista · entrega en ruta" },
-    { k:"socio",           t:"Socio comercial" },
-    { k:"logistica",       t:"Logística · despacho y entregas" },
-    { k:"financiero",      t:"Financiero · cobranza y conciliación" },
-    { k:"freelance",       t:"Freelance · centro del negocio" },
-    { k:"admin",           t:"Administrador de la plataforma" },
+    { k:"comisionista",  t:"Comisionista · vende en el campo" },
+    { k:"transportista", t:"Transportista · entrega en ruta" },
+    { k:"socio",         t:"Socio comercial" },
+    { k:"logistica",     t:"Logística · despacho y entregas" },
+    { k:"financiero",    t:"Financiero · cobranza y conciliación" },
+    { k:"proveedor",     t:"Piladora · factura y aprueba pagos" },
+    { k:"freelance",     t:"Freelance · centro del negocio" },
+    { k:"admin",         t:"Administrador de la plataforma" },
   ];
-  const nombreRol = (r) => (ROLES.find(x => x.k === r) || {}).t || r;
+  const nombreRol = (r) => (ROLES.find(x => x.k === r) || {}).t || r || "—";
+  const rolCorto = (r) => (nombreRol(r).split(" · ")[0]);
+  // Roles agrupados para el selector (mismos valores internos de siempre)
+  const GRUPOS_ROL = [
+    { g:"Equipo de campo",  roles:["comisionista","transportista","socio"] },
+    { g:"Equipo de oficina", roles:["logistica","financiero"] },
+    { g:"Proveedores",      roles:["proveedor"] },
+    { g:"Administración",   roles:["freelance","admin"] },
+  ];
+  const ROL_PRIVILEGIADO = { freelance:true, admin:true };
+  const CORREO_OK = (c) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((c || "").trim());
+
+  // ── Identidad: la cuenta con la que entré (correo del login) manda ──
+  const miCorreo = (usuario && typeof usuario.usuario === "string" && /@/.test(usuario.usuario))
+    ? usuario.usuario.trim().toLowerCase() : "";
+  const esYo = (g) => !!miCorreo && (g.email || "").trim().toLowerCase() === miCorreo;
+
+  // ── Estado ÚNICO y excluyente de cada persona ──
+  const estadoDe = (g) => g.activo === false ? "baja" : (g.tiene_acceso === true ? "activo" : "pendiente");
+  const ESTADO_TXT = { activo:"Activo", pendiente:"Sin acceso", baja:"De baja" };
+  const ESTADO_COL = {
+    activo:    { bg:"rgba(28,122,68,.13)",  fg:"#1c7a44" },
+    pendiente: { bg:"#FBF0E4",              fg:"#b07d1a" },
+    baja:      { bg:"#fdecea",              fg:COLOR.red },
+  };
+
+  // ── Contadores derivados de la regla (una persona de baja NUNCA es pendiente) ──
+  const nBaja   = gente.filter(g => g.activo === false).length;
+  const nActivo = gente.filter(g => g.activo !== false && g.tiene_acceso === true).length;
+  const nPend   = gente.filter(g => g.activo !== false && g.tiene_acceso !== true).length;
+
+  const coincide = (g) => {
+    const t = q.trim().toLowerCase();
+    if (!t) return true;
+    return (g.nombre || "").toLowerCase().includes(t) || (g.email || "").toLowerCase().includes(t)
+      || (g.usr_id || "").toLowerCase().includes(t) || (g.rol || "").toLowerCase().includes(t)
+      || nombreRol(g.rol).toLowerCase().includes(t);
+  };
+  const lista = gente.filter(g => coincide(g) && (
+    filtro === "todos" ||
+    (filtro === "activos"    && estadoDe(g) === "activo") ||
+    (filtro === "pendientes" && estadoDe(g) === "pendiente") ||
+    (filtro === "baja"       && estadoDe(g) === "baja")));
+
+  const nombrePila = (cod) => {
+    if (!cod) return "";
+    const p = piladoras.find(x => x.prov_cod === cod);
+    return p ? p.nombre : cod;
+  };
 
   const llamar = async (cuerpo) => {
     if (!window.supa) throw new Error("Sin conexión con el servidor.");
     const { data, error: e } = await window.supa.functions.invoke("cuentas-equipo", { body: cuerpo });
     if (e) {
-      /* el mensaje útil viene en el cuerpo de la respuesta, no en el error */
       let detalle = "";
       try { detalle = (await e.context.json()).error || ""; } catch (x) {}
       throw new Error(detalle || e.message || "No se pudo completar.");
@@ -13023,93 +13090,129 @@ function CuentasWeb({ usuario }) {
     try {
       const d = await llamar({ accion:"listar" });
       setGente(d.gente || []); setPiladoras(d.piladoras || []);
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(e.message || "No se pudo cargar."); }
     setCargando(false);
   };
   React.useEffect(() => { cargar(); }, []);
 
-  const limpiar = () => { setNombre(""); setCorreo(""); setRol("comisionista"); setPila(""); setTel(""); };
+  // Escape cierra el panel/modal de arriba hacia abajo; foco al abrir el panel
+  React.useEffect(() => {
+    const onKey = (ev) => {
+      if (ev.key !== "Escape") return;
+      if (result) { setResult(null); return; }
+      if (bajaDe) { if (!bajaProc) setBajaDe(null); return; }
+      if (cambDe) { if (!cambProc) cerrarCamb(); return; }
+      if (panel) { if (!panelProc) cerrarPanel(); return; }
+      if (menuFila) { setMenuFila(null); return; }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  React.useEffect(() => {
+    if (panel && primerCampo.current) { try { primerCampo.current.focus(); } catch (e) {} }
+  }, [panel, modo, sel]);
 
-  const crear = async () => {
-    setError(""); setAviso("");
-    if (nombre.trim().length < 3) { setError("Escribe el nombre completo."); return; }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo.trim())) { setError("Ese correo no se ve bien."); return; }
-    if (rol === "proveedor" && !pila) { setError("Elige de qué piladora es esta cuenta."); return; }
-    setGuardando(true);
+  const abrirPanel = (personaPreseleccionada) => {
+    setPanelError(""); setParecidos([]); setError("");
+    setModo("padron"); setPadronQ("");
+    setNombre(""); setCorreo(""); setRol(""); setPila(""); setTel("");
+    if (personaPreseleccionada) {
+      setSel(personaPreseleccionada);
+      setDCorreo(personaPreseleccionada.email || ""); setDTel(personaPreseleccionada.telefono || "");
+      setDPila(personaPreseleccionada.prov_cod || "");
+    } else { setSel(null); setDCorreo(""); setDTel(""); setDPila(""); }
+    setPanel(true);
+  };
+  const cerrarPanel = () => {
+    setPanel(false); setSel(null); setParecidos([]); setPanelError("");
+    try { if (nuevaBtn.current) nuevaBtn.current.focus(); } catch (e) {}
+  };
+  const cerrarCamb = () => { setCambDe(null); setCCorreo(""); setCambError(""); };
+
+  const crear = async (ev) => {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    setPanelError("");
+    if (nombre.trim().length < 3) { setPanelError("Escribe el nombre completo."); return; }
+    if (!CORREO_OK(correo)) { setPanelError("Ese correo no se ve bien."); return; }
+    if (!rol) { setPanelError("Selecciona un rol para esta persona."); return; }
+    if (rol === "proveedor" && !pila) { setPanelError("Elige de qué piladora es esta cuenta."); return; }
+    setPanelProc(true);
     try {
       const d = await llamar({ accion:"crear", nombre:nombre.trim(), email:correo.trim(),
         rol, prov_cod: rol === "proveedor" ? pila : null, telefono: tel.trim() || null });
-      setReciente({ nombre: nombre.trim(), correo: correo.trim(), enlace: d.enlace, usr_id: d.usr_id });
-      setAbierto(false); limpiar(); cargar();
-    } catch (e) { setError(e.message); }
-    setGuardando(false);
+      setResult({ nombre:nombre.trim(), usr_id:d.usr_id, correo:correo.trim(), enlace:d.enlace, tipo:"invitacion_nueva" });
+      setPanel(false); setSel(null); cargar();
+    } catch (e) { setPanelError(e.message || "No se pudo crear."); }
+    setPanelProc(false);
   };
 
-  const abrirDar = (g) => {
-    setError(""); setAviso(""); setAbierto(false); setParecidos([]);
-    setDando(g.usr_id); setDCorreo(g.email || ""); setDTel(g.telefono || ""); setDPila(g.prov_cod || "");
-  };
-
-  const darAcceso = async (g) => {
-    setError(""); setAviso("");
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(dCorreo.trim())) { setError("Ese correo no se ve bien."); return; }
-    if (g.rol === "proveedor" && !g.prov_cod && !dPila) { setError("Elige de qué piladora es esta cuenta."); return; }
-    setGuardando(true);
+  const darAcceso = async (ev) => {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    const g = sel; if (!g) return;
+    setPanelError("");
+    if (!CORREO_OK(dCorreo)) { setPanelError("Ese correo no se ve bien."); return; }
+    if (g.rol === "proveedor" && !g.prov_cod && !dPila) { setPanelError("Elige de qué piladora es esta cuenta."); return; }
+    setPanelProc(true);
     try {
       const d = await llamar({ accion:"dar_acceso", usr_id:g.usr_id, email:dCorreo.trim(),
         telefono: dTel.trim() || null, prov_cod: dPila || null });
-      setReciente({ nombre:g.nombre, correo:dCorreo.trim(), enlace:d.enlace, usr_id:g.usr_id });
-      setDando(null); setDCorreo(""); setDTel(""); setDPila(""); cargar();
-    } catch (e) { setError(e.message); }
-    setGuardando(false);
+      setResult({ nombre:g.nombre, usr_id:g.usr_id, correo:dCorreo.trim(), enlace:d.enlace, tipo:"invitacion_nueva" });
+      setPanel(false); setSel(null); cargar();
+    } catch (e) { setPanelError(e.message || "No se pudo dar acceso."); }
+    setPanelProc(false);
   };
 
-  /* CAMBIAR_CORREO_WEB · corrige el correo de una persona que YA tiene acceso.
-     Reusa la función `cuentas-equipo` (acción cambiar_correo, ya en la base). El enlace
-     que devuelve es de recuperación; la persona igual entra con su clave de siempre. */
-  const abrirCambio = (g) => {
-    setError(""); setAviso(""); setAbierto(false); setDando(null);
-    setCamb(g.usr_id); setCCorreo(g.email || "");
-  };
-  const cambiarCorreo = async (g) => {
-    setError(""); setAviso("");
-    const nuevo = cCorreo.trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(nuevo)) { setError("Ese correo no se ve bien."); return; }
-    if (nuevo.toLowerCase() === (g.email||"").toLowerCase()) { setError("Ese ya es su correo actual."); return; }
-    setGuardando(true);
-    try {
-      const d = await llamar({ accion:"cambiar_correo", usr_id:g.usr_id, email:nuevo });
-      setReciente({ nombre:g.nombre, correo:nuevo, enlace:d.enlace, usr_id:g.usr_id, repetido:true });
-      setAviso("Correo cambiado. El correo anterior ya no sirve.");
-      setCamb(null); setCCorreo(""); cargar();
-    } catch (e) { setError(e.message); }
-    setGuardando(false);
-  };
-
-  /* Mientras se escribe el nombre en "Nueva cuenta", se revisa si esa persona
-     ya está en el padrón sin acceso. Es el error fácil de cometer. */
   const revisarParecidos = async (txt) => {
     if ((txt || "").trim().length < 3) { setParecidos([]); return; }
     try { const d = await llamar({ accion:"parecidos", nombre:txt }); setParecidos(d.parecidos || []); }
     catch (e) { setParecidos([]); }
   };
 
-  const cambiarEstado = async (g) => {
-    setError(""); setAviso("");
+  const cambiarCorreo = async (ev) => {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    const g = cambDe; if (!g) return;
+    setCambError("");
+    const nuevo = cCorreo.trim();
+    if (!CORREO_OK(nuevo)) { setCambError("Ese correo no se ve bien."); return; }
+    if (nuevo.toLowerCase() === (g.email || "").toLowerCase()) { setCambError("Ese ya es su correo actual."); return; }
+    setCambProc(true);
     try {
-      await llamar({ accion:"estado", usr_id:g.usr_id, activo: !g.activo });
-      setAviso(g.activo ? (g.nombre + " quedó dado de baja: ya no puede entrar.")
-                        : (g.nombre + " puede entrar otra vez."));
-      cargar();
-    } catch (e) { setError(e.message); }
+      const d = await llamar({ accion:"cambiar_correo", usr_id:g.usr_id, email:nuevo });
+      setResult({ nombre:g.nombre, usr_id:g.usr_id, correo:nuevo, enlace:d.enlace, tipo:"cambio_correo" });
+      cerrarCamb(); cargar();
+    } catch (e) { setCambError(e.message || "No se pudo cambiar el correo."); }
+    setCambProc(false);
   };
 
   const nuevoEnlace = async (g) => {
-    setError(""); setAviso("");
+    setErrFila(s => ({ ...s, [g.usr_id]:"" })); setMenuFila(null);
+    setProcFila(s => ({ ...s, [g.usr_id]:"enlace" }));
     try {
       const d = await llamar({ accion:"enlace", email:g.email });
-      setReciente({ nombre:g.nombre, correo:g.email, enlace:d.enlace, usr_id:g.usr_id, repetido:true });
-    } catch (e) { setError(e.message); }
+      setResult({ nombre:g.nombre, usr_id:g.usr_id, correo:g.email, enlace:d.enlace, tipo:"nuevo_enlace" });
+    } catch (e) { setErrFila(s => ({ ...s, [g.usr_id]: e.message || "No se pudo generar el enlace." })); }
+    setProcFila(s => { const n = { ...s }; delete n[g.usr_id]; return n; });
+  };
+
+  const confirmarBaja = async () => {
+    const g = bajaDe; if (!g) return;
+    setBajaProc(true); setErrFila(s => ({ ...s, [g.usr_id]:"" }));
+    try {
+      await llamar({ accion:"estado", usr_id:g.usr_id, activo:false });
+      setBajaDe(null); setAviso(g.nombre + " quedó dado de baja: ya no puede entrar.");
+      cargar();
+    } catch (e) { setErrFila(s => ({ ...s, [g.usr_id]: e.message || "No se pudo dar de baja." })); setBajaDe(null); }
+    setBajaProc(false);
+  };
+
+  const reactivar = async (g) => {
+    setErrFila(s => ({ ...s, [g.usr_id]:"" }));
+    setProcFila(s => ({ ...s, [g.usr_id]:"reactivar" }));
+    try {
+      await llamar({ accion:"estado", usr_id:g.usr_id, activo:true });
+      setAviso(g.nombre + " puede entrar otra vez."); cargar();
+    } catch (e) { setErrFila(s => ({ ...s, [g.usr_id]: e.message || "No se pudo reactivar." })); }
+    setProcFila(s => { const n = { ...s }; delete n[g.usr_id]; return n; });
   };
 
   const copiar = (txt) => {
@@ -13117,232 +13220,317 @@ function CuentasWeb({ usuario }) {
     catch (e) { setAviso("Selecciona el enlace y cópialo a mano."); }
   };
 
-  const lista = gente.filter(g => {
-    const t = (filtro || "").toLowerCase();
-    return !t || (g.nombre || "").toLowerCase().includes(t) || (g.email || "").toLowerCase().includes(t)
-      || (g.usr_id || "").toLowerCase().includes(t) || (g.rol || "").toLowerCase().includes(t);
-  });
-  const sinAcceso = gente.filter(g => !g.tiene_acceso).length;
+  // ── Textos del resultado según el TIPO de enlace (contrato real) ──
+  const RESULT_INFO = {
+    invitacion_nueva: {
+      titulo: (r) => "Acceso creado para " + r.nombre,
+      etiqueta: "Enlace de invitación · un solo uso",
+      leyenda: "Al abrir el enlace, la persona define su propia clave y entra a su app. Es de un solo uso: si se vence, generas otro desde la lista.",
+      wa: (r) => "Hola " + r.nombre + ", esta es tu entrada a FREELANCE. Abre el enlace y crea tu clave: " + (r.enlace || ""),
+    },
+    nuevo_enlace: {
+      titulo: (r) => "Enlace nuevo para " + r.nombre,
+      etiqueta: "Enlace de invitación · un solo uso",
+      leyenda: "Reemplaza al anterior. Al abrirlo, la persona vuelve a definir su clave. Es de un solo uso.",
+      wa: (r) => "Hola " + r.nombre + ", aquí tienes tu enlace para entrar a FREELANCE y poner tu clave: " + (r.enlace || ""),
+    },
+    cambio_correo: {
+      titulo: (r) => "Correo actualizado para " + r.nombre,
+      etiqueta: "Enlace de recuperación · opcional",
+      leyenda: "El correo anterior dejó de funcionar. La persona conserva su clave actual y entra igual que siempre. Este enlace solo sirve si quiere restablecer la clave.",
+      wa: (r) => "Hola " + r.nombre + ", actualizamos tu correo de entrada a FREELANCE. Sigues entrando con tu clave de siempre. Si necesitas restablecerla, usa este enlace: " + (r.enlace || ""),
+    },
+  };
 
-  const et = { fontSize:12, fontWeight:700, color:COLOR.sub, display:"block", marginBottom:4, marginTop:12 };
-  const inp = { width:"100%", padding:"10px 12px", borderRadius:9, border:"1px solid "+COLOR.bg,
-    fontSize:14, color:COLOR.text, background:"#fff", boxSizing:"border-box" };
+  // ── Estilos base ──
+  const et = { fontSize:12.5, fontWeight:700, color:COLOR.sub || COLOR.muted, display:"block", marginBottom:5 };
+  const inp = { width:"100%", padding: movil ? "12px 12px" : "10px 12px", borderRadius:9,
+    border:"1px solid " + COLOR.border, fontSize:16, color:COLOR.text, background:"#fff", boxSizing:"border-box" };
+  const btnPrim = { padding: movil ? "12px 16px" : "10px 16px", minHeight:44, borderRadius:9, border:"none",
+    background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" };
+  const btnSec = { padding: movil ? "11px 14px" : "9px 14px", minHeight:44, borderRadius:9,
+    border:"1px solid " + COLOR.border, background:"#fff", color:COLOR.teal, fontSize:13.5, fontWeight:700, cursor:"pointer" };
+  const chip = (col) => ({ fontSize:11.5, fontWeight:800, padding:"3px 10px", borderRadius:20,
+    background:col.bg, color:col.fg, whiteSpace:"nowrap", display:"inline-block" });
 
-  return (
-    <div>
-      <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:4 }}>
-        {/* DISENO_TITULO_UNICO · el título del módulo lo pinta la cabecera del menú (Header); aquí queda solo el estado de carga */}
-        {/* v53 · antes decia "Datos vivos" siempre, aunque la carga hubiera fallado */}
-        <span style={{ fontSize:11.5, fontWeight:700, padding:"3px 10px", borderRadius:20,
-          background: cargando ? "rgba(120,130,140,.13)" : error ? "rgba(181,67,44,.13)" : "rgba(28,122,68,.13)",
-          color: cargando ? COLOR.sub : error ? "#B5432C" : "#1c7a44" }}>
-          {cargando ? "Cargando…" : error ? "⚪ Sin conexión con el servidor" : "🟢 Datos vivos"}</span>
-      </div>
-      <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 16px" }}>
-        Cada persona entra con su propio correo y la clave que ella misma elige.
-        Tú creas la cuenta y le pasas el enlace de invitación; la clave nunca pasa por tus manos.
-      </p>
+  const conexion = cargando
+    ? { t:"Cargando…", bg:"rgba(120,130,140,.13)", fg:COLOR.muted }
+    : error
+      ? { t:"Sin conexión", bg:"rgba(181,67,44,.13)", fg:"#B5432C" }
+      : { t:"Conectado", bg:"rgba(28,122,68,.13)", fg:"#1c7a44" };
 
-      {error && <div style={{ background:"#fdecea", color:COLOR.red, padding:"10px 14px", borderRadius:9,
-        fontSize:13, fontWeight:600, marginBottom:12 }}>{error}</div>}
-      {aviso && <div style={{ background:"#eaf6ee", color:"#1c7a44", padding:"10px 14px", borderRadius:9,
-        fontSize:13, fontWeight:600, marginBottom:12 }}>{aviso}</div>}
+  // ── Menú de acciones (tres puntos) de una fila ──
+  const accionesDe = (g) => {
+    const est = estadoDe(g);
+    const acc = [];
+    if (est === "baja") return acc;   // de baja: no hay secundarias
+    if (g.email) acc.push({ k:"enlace", t:"Generar enlace", run:() => nuevoEnlace(g) });
+    if (est === "activo" && !g.es_demo) acc.push({ k:"correo", t:"Cambiar correo", run:() => { setMenuFila(null); setCambDe(g); setCCorreo(g.email || ""); setCambError(""); } });
+    if (!esYo(g)) acc.push({ k:"baja", t:"Dar de baja", peligro:true, run:() => { setMenuFila(null); setBajaDe(g); } });
+    return acc;
+  };
 
-      {/* El enlace recién generado: lo importante de la pantalla */}
-      {reciente && (
-        <div style={{ background:"#fff", border:"2px solid "+COLOR.teal, borderRadius:12, padding:"16px 18px", marginBottom:16 }}>
-          <p style={{ fontSize:14.5, fontWeight:800, color:COLOR.text, margin:"0 0 4px" }}>
-            {reciente.repetido ? "Enlace nuevo para " : "Cuenta creada para "}{reciente.nombre}
-            {reciente.usr_id ? " · " + reciente.usr_id : ""}
-          </p>
-          <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 10px" }}>
-            Pásale este enlace por WhatsApp. Al abrirlo pone su clave y ya entra a su app.
-            Es de un solo uso: si se vence, generas otro desde la lista.
-          </p>
-          <div style={{ background:COLOR.bg, borderRadius:8, padding:"9px 11px", fontSize:11.5,
-            wordBreak:"break-all", color:COLOR.text, marginBottom:10 }}>{reciente.enlace || "—"}</div>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            <button onClick={()=>copiar(reciente.enlace)} style={{ padding:"9px 14px", borderRadius:8, border:"none",
-              background:COLOR.teal, color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer" }}>Copiar enlace</button>
-            <a href={"https://wa.me/?text=" + encodeURIComponent(
-                 "Hola " + reciente.nombre + ", esta es tu entrada a FREELANCE. Abre el enlace y pon tu clave: " + (reciente.enlace||""))}
-               target="_blank" rel="noreferrer"
-               style={{ padding:"9px 14px", borderRadius:8, background:"#25D366", color:"#fff",
-                 fontSize:13, fontWeight:700, textDecoration:"none" }}>Enviar por WhatsApp</a>
-            <button onClick={()=>setReciente(null)} style={{ padding:"9px 14px", borderRadius:8,
-              border:"1px solid "+COLOR.bg, background:"#fff", color:COLOR.muted, fontSize:13,
-              fontWeight:600, cursor:"pointer" }}>Listo</button>
+  const menuTresPuntos = (g) => {
+    const acc = accionesDe(g);
+    if (!acc.length) return null;
+    const abierto = menuFila === g.usr_id;
+    return (
+      <div style={{ position:"relative" }}>
+        <button type="button" aria-haspopup="menu" aria-expanded={abierto}
+          aria-label={"Más acciones para " + g.nombre}
+          onClick={() => setMenuFila(abierto ? null : g.usr_id)}
+          style={{ ...btnSec, minWidth:44, padding:"0 12px", color:COLOR.muted }}>⋯</button>
+        {abierto && (
+          <div role="menu" style={{ position:"absolute", right:0, top:"calc(100% + 4px)", zIndex:30,
+            background:"#fff", border:"1px solid " + COLOR.border, borderRadius:10,
+            boxShadow:"0 10px 30px rgba(15,25,35,.16)", minWidth:190, overflow:"hidden" }}>
+            {acc.map(a => (
+              <button key={a.k} type="button" role="menuitem" onClick={a.run}
+                style={{ display:"block", width:"100%", textAlign:"left", padding:"12px 14px", minHeight:44,
+                  border:"none", borderBottom:"1px solid " + COLOR.bg, background:"#fff", cursor:"pointer",
+                  fontSize:13.5, fontWeight:700, color: a.peligro ? COLOR.red : COLOR.text }}>{a.t}</button>
+            ))}
           </div>
-        </div>
-      )}
-
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:14 }}>
-        <button onClick={()=>{ setAbierto(!abierto); setError(""); }} style={{ padding:"10px 16px", borderRadius:9,
-          border:"none", background:COLOR.teal, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" }}>
-          {abierto ? "Cancelar" : "＋ Nueva cuenta"}
-        </button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="Buscar por nombre, correo o rol"
-          style={{ ...inp, width:"auto", flex:1, minWidth:220 }} />
-        {sinAcceso > 0 && (
-          <span style={{ fontSize:12.5, color:"#b07d1a", fontWeight:700 }}>
-            {sinAcceso} {sinAcceso === 1 ? "persona sin acceso" : "personas sin acceso"}
-          </span>
         )}
       </div>
+    );
+  };
 
-      {abierto && (
-        <div style={{ background:"#fff", border:"1px solid "+COLOR.bg, borderRadius:12, padding:"16px 18px", marginBottom:16, maxWidth:520 }}>
-          <label style={et}>Nombre completo</label>
-          <input style={inp} value={nombre} placeholder="Carlos Andrade"
-            onChange={e=>setNombre(e.target.value)} onBlur={e=>revisarParecidos(e.target.value)} />
-          {parecidos.length > 0 && (
-            <div style={{ background:"#FBF0E4", border:"1px solid #EBD5B3", borderRadius:9,
-              padding:"10px 12px", marginTop:8 }}>
-              <p style={{ fontSize:12.5, color:"#7A5B00", margin:"0 0 8px", lineHeight:1.5 }}>
-                {parecidos.length === 1 ? "Esta persona ya está en el padrón" : "Estas personas ya están en el padrón"} sin
-                acceso. Si es la misma, dale acceso sobre su ficha: conserva su código y todo su historial.
-              </p>
-              {parecidos.map(pz => (
-                <button key={pz.usr_id} onClick={()=>{ const g = gente.find(x => x.usr_id === pz.usr_id); if (g) abrirDar(g); }}
-                  style={{ display:"block", marginBottom:6, padding:"7px 12px", borderRadius:8,
-                    border:"1px solid #EBD5B3", background:"#fff", color:"#7A5B00", fontSize:12.5,
-                    fontWeight:700, cursor:"pointer" }}>
-                  Dar acceso a {pz.nombre} · {pz.usr_id}
-                </button>
-              ))}
-            </div>
-          )}
-          <label style={et}>Correo</label>
-          <input style={inp} value={correo} onChange={e=>setCorreo(e.target.value)} placeholder="carlos@ejemplo.com" />
-          <label style={et}>¿Qué hace en el negocio?</label>
-          <select style={inp} value={rol} onChange={e=>{ setRol(e.target.value); setPila(""); }}>
-            {ROLES.map(r => <option key={r.k} value={r.k}>{r.t}</option>)}
-          </select>
-          {rol === "proveedor" && (
-            <>
-              <label style={et}>¿De qué piladora?</label>
-              <select style={inp} value={pila}
-                onChange={e=>{
-                  const pv = piladoras.find(x => x.prov_cod === e.target.value);
-                  if (pv) regUso("proveedores", pv);   /* se registra el objeto, no el código:
-                                                          el orden por uso trabaja con el nombre */
-                  setPila(e.target.value);
-                }}>
-                <option value="">Elige una…</option>
-                {ordUso("proveedores", piladoras).map(p => <option key={p.prov_cod} value={p.prov_cod}>{p.nombre}</option>)}
-              </select>
-              <p style={{ fontSize:11.5, color:COLOR.muted, margin:"6px 0 0" }}>
-                Sin esto la piladora vería los pedidos de todas. Por eso es obligatorio.
-              </p>
-            </>
-          )}
-          <label style={et}>Teléfono (opcional)</label>
-          <input style={inp} value={tel} onChange={e=>setTel(e.target.value)} placeholder="099 123 4567" />
-          <button onClick={crear} disabled={guardando} style={{ marginTop:16, width:"100%", padding:"12px",
-            borderRadius:9, border:"none", background:COLOR.teal, color:"#fff", fontSize:14.5,
-            fontWeight:700, cursor:"pointer", opacity:guardando?.6:1 }}>
-            {guardando ? "Creando…" : "Crear cuenta y generar enlace"}
-          </button>
+  // ── Acción PRINCIPAL visible según estado ──
+  const accionPrincipal = (g) => {
+    const est = estadoDe(g);
+    const proc = procFila[g.usr_id];
+    if (est === "baja") {
+      return (
+        <button type="button" disabled={!!proc} onClick={() => reactivar(g)}
+          aria-label={"Reactivar a " + g.nombre}
+          style={{ ...btnPrim, background:"#1c7a44", opacity:proc?.6:1 }}>
+          {proc === "reactivar" ? "Reactivando…" : "Reactivar"}
+        </button>
+      );
+    }
+    if (est === "pendiente") {
+      if (g.es_demo) return null;
+      return (
+        <button type="button" onClick={() => abrirPanel(g)} aria-label={"Dar acceso a " + g.nombre}
+          style={btnPrim}>Dar acceso</button>
+      );
+    }
+    // activo → la acción principal es el propio menú (ya se pinta aparte); aquí, nada extra
+    return null;
+  };
+
+  // ── Fila / tarjeta de una persona ──
+  const bloquePersona = (g) => {
+    const est = estadoDe(g);
+    const yo = esYo(g);
+    const contacto = [];
+    if (g.email) contacto.push(g.email); else contacto.push("Sin correo");
+    if (g.telefono) contacto.push(g.telefono);
+    const proc = procFila[g.usr_id];
+    const err = errFila[g.usr_id];
+    const rolTxt = g.rol === "proveedor"
+      ? (nombrePila(g.prov_cod) || "Piladora")
+      : rolCorto(g.rol);
+    const rolSub = g.rol === "proveedor" ? (g.prov_cod || "") : "";
+    return { est, yo, contacto, proc, err, rolTxt, rolSub };
+  };
+
+  const persona = (g) => {
+    const b = bloquePersona(g);
+    return (
+      <>
+        <p style={{ fontSize:14, fontWeight:800, color:COLOR.text, margin:0 }}>
+          {g.nombre}<ChipDemo si={g.es_demo}/>
+          {b.yo && <span style={{ ...chip({ bg:"rgba(74,158,120,.15)", fg:COLOR.tealDark }), marginLeft:6 }}>Tu cuenta</span>}
+        </p>
+        <p style={{ fontSize:11.5, fontWeight:600, color:COLOR.muted, margin:"2px 0 0" }}>{g.usr_id}</p>
+      </>
+    );
+  };
+
+  const filaError = (g) => {
+    const err = errFila[g.usr_id];
+    if (!err) return null;
+    return <p role="alert" style={{ width:"100%", margin:"8px 0 0", fontSize:12.5, fontWeight:700, color:COLOR.red }}>{err}</p>;
+  };
+
+  // ── Escritorio: tabla en columnas ──
+  const GC = "minmax(0,2.2fr) minmax(0,1.4fr) minmax(0,2fr) 120px 150px";
+  const filaEscritorio = (g) => {
+    const b = bloquePersona(g);
+    return (
+      <div key={g.usr_id} data-usr={g.usr_id} style={{ borderTop:"1px solid " + COLOR.bg }}>
+        <div style={{ display:"grid", gridTemplateColumns:GC, gap:12, alignItems:"center", padding:"12px 16px" }}>
+          <div style={{ minWidth:0 }}>{persona(g)}</div>
+          <div style={{ minWidth:0 }}>
+            <p style={{ fontSize:13, fontWeight:700, color:COLOR.text, margin:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.rolTxt}</p>
+            {b.rolSub && <p style={{ fontSize:11.5, color:COLOR.muted, margin:"2px 0 0" }}>{b.rolSub}</p>}
+          </div>
+          <div style={{ minWidth:0 }}>
+            <p style={{ fontSize:12.5, color: g.email ? COLOR.text : COLOR.muted, margin:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.email || "Sin correo"}</p>
+            {g.telefono && <p style={{ fontSize:11.5, color:COLOR.muted, margin:"2px 0 0" }}>{g.telefono}</p>}
+          </div>
+          <div><span style={chip(ESTADO_COL[b.est])}>{ESTADO_TXT[b.est]}</span></div>
+          <div style={{ display:"flex", gap:8, justifyContent:"flex-end", alignItems:"center" }}>
+            {b.proc && b.est !== "baja"
+              ? <span style={{ fontSize:12, color:COLOR.muted, fontWeight:700 }}>{b.proc === "enlace" ? "Generando…" : "…"}</span>
+              : accionPrincipal(g)}
+            {menuTresPuntos(g)}
+          </div>
         </div>
-      )}
+        {filaError(g)}
+      </div>
+    );
+  };
 
+  // ── Celular: tarjeta ──
+  const tarjetaMovil = (g) => {
+    const b = bloquePersona(g);
+    return (
+      <div key={g.usr_id} data-usr={g.usr_id} style={{ borderTop:"1px solid " + COLOR.bg, padding:"14px 16px" }}>
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
+          <div style={{ minWidth:0 }}>{persona(g)}</div>
+          <span style={chip(ESTADO_COL[b.est])}>{ESTADO_TXT[b.est]}</span>
+        </div>
+        <div style={{ marginTop:8, display:"grid", gridTemplateColumns:"1fr", gap:3 }}>
+          <p style={{ fontSize:12.5, color:COLOR.muted, margin:0 }}><b style={{ color:COLOR.text }}>Rol:</b> {b.rolTxt}{b.rolSub ? " · " + b.rolSub : ""}</p>
+          <p style={{ fontSize:12.5, color:COLOR.muted, margin:0, wordBreak:"break-word" }}><b style={{ color:COLOR.text }}>Correo:</b> {g.email || "Sin correo"}</p>
+          {g.telefono && <p style={{ fontSize:12.5, color:COLOR.muted, margin:0 }}><b style={{ color:COLOR.text }}>Teléfono:</b> {g.telefono}</p>}
+        </div>
+        <div style={{ marginTop:12, display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          {b.proc && b.est !== "baja"
+            ? <span style={{ fontSize:12.5, color:COLOR.muted, fontWeight:700 }}>{b.proc === "enlace" ? "Generando…" : "…"}</span>
+            : accionPrincipal(g)}
+          {menuTresPuntos(g)}
+        </div>
+        {filaError(g)}
+      </div>
+    );
+  };
+
+  // ── Filtros con contadores ──
+  const FILTROS = [
+    { k:"todos",      t:"Todos",      n:gente.length },
+    { k:"activos",    t:"Activos",    n:nActivo },
+    { k:"pendientes", t:"Pendientes", n:nPend },
+    { k:"baja",       t:"De baja",    n:nBaja },
+  ];
+
+  // ── Selector de rol agrupado ──
+  const selectorRol = (
+    <select id="nc-rol" style={inp} value={rol} onChange={e => { setRol(e.target.value); setPila(""); }}>
+      <option value="">Selecciona un rol</option>
+      {GRUPOS_ROL.map(gr => (
+        <optgroup key={gr.g} label={gr.g}>
+          {gr.roles.map(k => <option key={k} value={k}>{nombreRol(k)}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  );
+
+  // El padrón para «dar acceso» ofrece SOLO a la gente activa sin acceso (pendientes):
+  // a quien está de baja se le reactiva desde la lista, no se le da acceso desde aquí.
+  const padronResultados = (() => {
+    const t = padronQ.trim().toLowerCase();
+    const base = gente.filter(g => !g.es_demo && g.activo !== false && g.tiene_acceso !== true);
+    const filtrados = !t ? base : base.filter(g =>
+      (g.nombre || "").toLowerCase().includes(t) || (g.usr_id || "").toLowerCase().includes(t)
+      || (g.email || "").toLowerCase().includes(t) || nombreRol(g.rol).toLowerCase().includes(t));
+    return filtrados.slice(0, 20);
+  })();
+
+  const overlay = { position:"fixed", inset:0, background:"rgba(15,25,35,.42)", zIndex:1000,
+    display:"flex", alignItems: movil ? "flex-end" : "flex-start", justifyContent:"flex-end" };
+  const hoja = { background:"#fff", width: movil ? "100%" : "min(460px, 100%)",
+    maxHeight: movil ? "92vh" : "100vh", height: movil ? "auto" : "100vh",
+    overflowY:"auto", padding: movil ? "18px 16px 24px" : "22px 24px 28px",
+    borderTopLeftRadius: movil ? 16 : 0, borderTopRightRadius: movil ? 16 : 0,
+    boxShadow:"-12px 0 40px rgba(15,25,35,.18)", boxSizing:"border-box" };
+  const modalCentro = { position:"fixed", inset:0, background:"rgba(15,25,35,.42)", zIndex:1100,
+    display:"flex", alignItems:"center", justifyContent:"center", padding:16 };
+  const caja = { background:"#fff", width:"min(440px, 100%)", borderRadius:14,
+    padding: movil ? "18px 16px" : "22px 24px", boxShadow:"0 20px 50px rgba(15,25,35,.28)", boxSizing:"border-box" };
+
+  return (
+    <div style={{ padding: movil ? "14px 16px 40px" : "22px 28px 40px" }}
+      onClick={() => { if (menuFila) setMenuFila(null); }}>
+      {/* DISENO_TITULO_UNICO · el título «Cuentas del equipo» lo pinta la cabecera del menú (Header) */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:6 }}>
+        <span aria-live="polite" style={{ fontSize:11.5, fontWeight:700, padding:"3px 10px", borderRadius:20,
+          background:conexion.bg, color:conexion.fg }}>
+          <span aria-hidden="true">●</span> {conexion.t}
+        </span>
+      </div>
+      <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 16px", maxWidth:640, lineHeight:1.55 }}>
+        Administra quién puede entrar a cada aplicación. Cada persona define su propia clave con
+        un enlace de un solo uso: la clave nunca pasa por tus manos.
+      </p>
+
+      {aviso && <div role="status" aria-live="polite" style={{ background:"#eaf6ee", color:"#1c7a44",
+        padding:"10px 14px", borderRadius:9, fontSize:13, fontWeight:600, marginBottom:12,
+        display:"flex", justifyContent:"space-between", gap:10 }}>
+        <span>{aviso}</span>
+        <button type="button" onClick={() => setAviso("")} aria-label="Cerrar aviso"
+          style={{ border:"none", background:"transparent", color:"#1c7a44", cursor:"pointer", fontWeight:800 }}>✕</button>
+      </div>}
+
+      {/* ── Barra principal ── */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:12 }}>
+        <button ref={nuevaBtn} type="button" onClick={() => abrirPanel(null)} style={{ ...btnPrim, fontWeight:800 }}>
+          ＋ Nueva cuenta
+        </button>
+        <div style={{ position:"relative", flex:1, minWidth:200 }}>
+          <label htmlFor="cuentas-buscar" style={{ position:"absolute", width:1, height:1, overflow:"hidden", clip:"rect(0 0 0 0)" }}>
+            Buscar por nombre, correo, código o rol
+          </label>
+          <input id="cuentas-buscar" type="search" value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Buscar por nombre, correo, código o rol"
+            autoCapitalize="none" autoCorrect="off"
+            style={{ ...inp, paddingRight: q ? 38 : 12 }} />
+          {q && <button type="button" onClick={() => setQ("")} aria-label="Limpiar la búsqueda"
+            style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", border:"none",
+              background:"transparent", color:COLOR.muted, fontSize:16, cursor:"pointer", padding:6 }}>✕</button>}
+        </div>
+      </div>
+
+      {/* ── Filtros de estado con contadores ── */}
+      <div role="tablist" aria-label="Filtrar por estado" style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+        {FILTROS.map(f => {
+          const on = filtro === f.k;
+          return (
+            <button key={f.k} type="button" role="tab" aria-selected={on} onClick={() => setFiltro(f.k)}
+              style={{ padding:"8px 14px", minHeight:40, borderRadius:20, cursor:"pointer", fontSize:13, fontWeight:700,
+                border:"1px solid " + (on ? COLOR.teal : COLOR.border),
+                background: on ? COLOR.teal : "#fff", color: on ? "#fff" : COLOR.muted }}>
+              {f.t} <span style={{ opacity:.85 }}>· {f.n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Estado de carga / error / lista ── */}
       {cargando ? (
         <p style={{ fontSize:13.5, color:COLOR.muted }}>Cargando el padrón…</p>
+      ) : error ? (
+        <div role="alert" style={{ background:"#fdecea", border:"1px solid #f3c6bf", borderRadius:12, padding:"18px 20px" }}>
+          <p style={{ fontSize:14, fontWeight:800, color:"#B5432C", margin:"0 0 4px" }}>No se pudo cargar el padrón</p>
+          <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 12px" }}>{error}</p>
+          <button type="button" onClick={cargar} style={btnPrim}>Reintentar</button>
+        </div>
       ) : (
-        <div style={{ background:"#fff", border:"1px solid "+COLOR.bg, borderRadius:12, overflow:"hidden" }}>
-          {lista.length === 0 && <p style={{ fontSize:13.5, color:COLOR.muted, padding:"18px" }}>Nadie coincide con la búsqueda.</p>}
-          {lista.map(g => (
-            <div key={g.usr_id} style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
-              padding:"12px 16px", borderBottom:"1px solid "+COLOR.bg, opacity:g.activo?1:.55 }}>
-              <div style={{ flex:1, minWidth:200 }}>
-                <p style={{ fontSize:14, fontWeight:700, color:COLOR.text, margin:0 }}>
-                  {g.nombre}<ChipDemo si={g.es_demo}/> <span style={{ fontSize:11.5, fontWeight:600, color:COLOR.muted }}>· {g.usr_id}</span>
-                </p>
-                <p style={{ fontSize:12.5, color:COLOR.muted, margin:"2px 0 0" }}>
-                  {nombreRol(g.rol)}{g.prov_cod ? " · " + g.prov_cod : ""}{g.email ? " · " + g.email : " · sin correo"}
-                </p>
-              </div>
-              <span style={{ fontSize:11.5, fontWeight:700, padding:"3px 10px", borderRadius:20,
-                background: g.tiene_acceso ? "rgba(28,122,68,.13)" : "#FBF0E4",
-                color: g.tiene_acceso ? "#1c7a44" : "#b07d1a" }}>
-                {g.tiene_acceso ? "Con acceso" : "Sin acceso"}
-              </span>
-              {!g.activo && <span style={{ fontSize:11.5, fontWeight:700, padding:"3px 10px",
-                borderRadius:20, background:"#fdecea", color:COLOR.red }}>De baja</span>}
-              {g.tiene_acceso && g.email && (
-                <button onClick={()=>nuevoEnlace(g)} style={{ padding:"7px 12px", borderRadius:8,
-                  border:"1px solid "+COLOR.bg, background:"#fff", color:COLOR.teal, fontSize:12.5,
-                  fontWeight:700, cursor:"pointer" }}>Enlace de entrada</button>
-              )}
-              {g.tiene_acceso && !g.es_demo && (
-                <button onClick={()=>{ if (camb===g.usr_id) setCamb(null); else abrirCambio(g); }}
-                  style={{ padding:"7px 12px", borderRadius:8, border:"1px solid "+COLOR.bg,
-                    background:"#fff", color:COLOR.teal, fontSize:12.5, fontWeight:700, cursor:"pointer" }}>
-                  {camb===g.usr_id ? "Cancelar" : "Cambiar correo"}
-                </button>
-              )}
-              {!g.tiene_acceso && !g.es_demo && g.activo && (
-                <button onClick={()=>{ if (dando === g.usr_id) setDando(null); else abrirDar(g); }}
-                  style={{ padding:"7px 12px", borderRadius:8, border:"none", background:COLOR.teal,
-                    color:"#fff", fontSize:12.5, fontWeight:700, cursor:"pointer" }}>
-                  {dando === g.usr_id ? "Cancelar" : "Dar acceso"}
-                </button>
-              )}
-              <button onClick={()=>cambiarEstado(g)} style={{ padding:"7px 12px", borderRadius:8,
-                border:"1px solid "+COLOR.bg, background:"#fff",
-                color: g.activo ? COLOR.red : "#1c7a44", fontSize:12.5, fontWeight:700, cursor:"pointer" }}>
-                {g.activo ? "Dar de baja" : "Reactivar"}
-              </button>
-
-              {dando === g.usr_id && (
-                <div style={{ width:"100%", background:COLOR.bg, borderRadius:10, padding:"12px 14px", marginTop:4 }}>
-                  <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 8px", lineHeight:1.5 }}>
-                    {g.nombre} mantiene su código <b>{g.usr_id}</b> y todo lo que ya hizo.
-                    Solo hace falta el correo con el que va a entrar.
-                  </p>
-                  <input style={{ ...inp, marginBottom:8 }} value={dCorreo} placeholder="correo@ejemplo.com"
-                    onChange={e=>setDCorreo(e.target.value)} />
-                  <input style={{ ...inp, marginBottom:8 }} value={dTel} placeholder="Teléfono (opcional)"
-                    onChange={e=>setDTel(e.target.value)} />
-                  {g.rol === "proveedor" && !g.prov_cod && (
-                    <select style={{ ...inp, marginBottom:8 }} value={dPila}
-                      onChange={e=>{
-                        const pv = piladoras.find(x => x.prov_cod === e.target.value);
-                        if (pv) regUso("proveedores", pv);
-                        setDPila(e.target.value);
-                      }}>
-                      <option value="">¿De qué piladora?</option>
-                      {ordUso("proveedores", piladoras).map(pp => <option key={pp.prov_cod} value={pp.prov_cod}>{pp.nombre}</option>)}
-                    </select>
-                  )}
-                  <button onClick={()=>darAcceso(g)} disabled={guardando}
-                    style={{ padding:"10px 16px", borderRadius:9, border:"none", background:COLOR.teal,
-                      color:"#fff", fontSize:13.5, fontWeight:700, cursor:"pointer", opacity:guardando?.6:1 }}>
-                    {guardando ? "Creando…" : "Crear acceso y generar enlace"}
-                  </button>
-                </div>
-              )}
-
-              {/* CAMBIAR_CORREO_WEB · formulario en línea para corregir el correo (mismo patrón que «Dar acceso») */}
-              {camb === g.usr_id && (
-                <div style={{ width:"100%", background:COLOR.bg, borderRadius:10, padding:"12px 14px", marginTop:4 }}>
-                  <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 8px", lineHeight:1.5 }}>
-                    Corrige el correo con el que entra {g.nombre} (<b>{g.usr_id}</b>). Conserva su clave e historial.
-                  </p>
-                  <input type="email" style={{ ...inp, marginBottom:8 }} value={cCorreo} placeholder="correo@ejemplo.com"
-                    autoCapitalize="none" autoCorrect="off" onChange={e=>setCCorreo(e.target.value)} />
-                  <button onClick={()=>cambiarCorreo(g)} disabled={guardando}
-                    style={{ padding:"10px 16px", borderRadius:9, border:"none", background:COLOR.teal,
-                      color:"#fff", fontSize:13.5, fontWeight:700, cursor:"pointer", opacity:guardando?.6:1 }}>
-                    {guardando ? "Guardando…" : "Guardar correo"}
-                  </button>
-                  <p style={{ fontSize:11.5, color:COLOR.muted, margin:"8px 0 0", lineHeight:1.5 }}>
-                    El correo anterior deja de servir. Conserva su clave e historial.
-                  </p>
-                </div>
-              )}
+        <div style={{ background:"#fff", border:"1px solid " + COLOR.border, borderRadius:12, overflow:"hidden" }}>
+          {!movil && lista.length > 0 && (
+            <div style={{ display:"grid", gridTemplateColumns:GC, gap:12, padding:"11px 16px",
+              background:COLOR.bg, fontSize:11, fontWeight:800, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.4 }}>
+              <span>Persona</span><span>Rol</span><span>Contacto</span><span>Estado</span><span style={{ textAlign:"right" }}>Acciones</span>
             </div>
-          ))}
+          )}
+          {lista.length === 0
+            ? <p style={{ fontSize:13.5, color:COLOR.muted, padding:"18px" }}>
+                {q.trim() ? "Nadie coincide con la búsqueda." : "Todavía no hay cuentas en este filtro."}
+              </p>
+            : lista.map(g => movil ? tarjetaMovil(g) : filaEscritorio(g))}
         </div>
       )}
 
@@ -13350,6 +13538,238 @@ function CuentasWeb({ usuario }) {
         Dar de baja corta el acceso de inmediato, incluso si la persona tiene la sesión abierta
         en su teléfono. Nada de lo que hizo se borra: su historial queda con su nombre.
       </p>
+
+      {/* ════════ PANEL «Nueva cuenta» ════════ */}
+      {panel && (
+        <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget && !panelProc) cerrarPanel(); }}>
+          <div style={hoja} role="dialog" aria-modal="true" aria-label="Nueva cuenta" onClick={e => e.stopPropagation()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <p style={{ fontSize:17, fontWeight:800, color:COLOR.text, margin:0 }}>Nueva cuenta</p>
+              <button type="button" onClick={cerrarPanel} disabled={panelProc} aria-label="Cerrar"
+                style={{ border:"none", background:"transparent", fontSize:22, color:COLOR.muted, cursor:"pointer", lineHeight:1 }}>✕</button>
+            </div>
+
+            {/* Primera decisión: padrón (recomendado) vs nueva */}
+            <div style={{ display:"flex", gap:8, marginBottom:6 }}>
+              {[["padron","Persona del padrón"],["nueva","Persona nueva"]].map(([k,t]) => {
+                const on = modo === k;
+                return (
+                  <button key={k} type="button" onClick={() => { setModo(k); setSel(null); setPanelError(""); }}
+                    style={{ flex:1, padding:"10px 12px", minHeight:44, borderRadius:10, cursor:"pointer",
+                      fontSize:13.5, fontWeight:700, border:"1px solid " + (on ? COLOR.teal : COLOR.border),
+                      background: on ? COLOR.tealLight : "#fff", color: on ? COLOR.tealDark : COLOR.muted }}>
+                    {t}{k === "padron" ? " · recomendado" : ""}
+                  </button>
+                );
+              })}
+            </div>
+
+            {panelError && <div role="alert" style={{ background:"#fdecea", color:COLOR.red, padding:"9px 12px",
+              borderRadius:8, fontSize:12.5, fontWeight:700, margin:"8px 0" }}>{panelError}</div>}
+
+            {modo === "padron" && !sel && (
+              <div>
+                <p style={{ fontSize:12.5, color:COLOR.muted, margin:"8px 0 10px", lineHeight:1.5 }}>
+                  Busca primero a la persona en el padrón para conservar su código, pedidos e
+                  historial y evitar duplicados.
+                </p>
+                <label htmlFor="nc-padron" style={et}>Buscar en el padrón</label>
+                <input id="nc-padron" ref={primerCampo} type="search" style={inp} value={padronQ}
+                  autoCapitalize="none" autoCorrect="off"
+                  placeholder="Nombre, código o rol" onChange={e => setPadronQ(e.target.value)} />
+                <div style={{ marginTop:10, border:"1px solid " + COLOR.bg, borderRadius:10, overflow:"hidden" }}>
+                  {padronResultados.length === 0
+                    ? <p style={{ fontSize:12.5, color:COLOR.muted, padding:"12px 14px", margin:0 }}>
+                        Nadie sin acceso coincide. Si es alguien nuevo, usa «Persona nueva».
+                      </p>
+                    : padronResultados.map(g => {
+                        const sinAcc = g.activo !== false && g.tiene_acceso !== true;
+                        return (
+                          <button key={g.usr_id} type="button" onClick={() => abrirPanel(g)}
+                            style={{ display:"block", width:"100%", textAlign:"left", padding:"11px 14px", minHeight:44,
+                              border:"none", borderBottom:"1px solid " + COLOR.bg, background:"#fff", cursor:"pointer" }}>
+                            <span style={{ fontSize:13.5, fontWeight:700, color:COLOR.text }}>{g.nombre}</span>
+                            <span style={{ fontSize:12, color:COLOR.muted }}> · {g.usr_id} · {rolCorto(g.rol)}</span>
+                            <span style={{ ...chip(sinAcc ? ESTADO_COL.pendiente : ESTADO_COL.baja), marginLeft:8 }}>
+                              {sinAcc ? "Sin acceso" : "De baja"}</span>
+                          </button>
+                        );
+                      })}
+                </div>
+              </div>
+            )}
+
+            {modo === "padron" && sel && (
+              <form noValidate onSubmit={darAcceso}>
+                <button type="button" onClick={() => setSel(null)} style={{ ...btnSec, border:"none", padding:"8px 0", color:COLOR.teal }}>‹ Elegir otra persona</button>
+                <div style={{ background:COLOR.bg, borderRadius:10, padding:"12px 14px", margin:"6px 0 12px" }}>
+                  <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.text, margin:0 }}>{sel.nombre} · {sel.usr_id}</p>
+                  <p style={{ fontSize:12, color:COLOR.muted, margin:"3px 0 0" }}>
+                    {rolCorto(sel.rol)} · conserva su código, pedidos e historial.
+                  </p>
+                </div>
+                <label htmlFor="acc-correo" style={et}>Correo con el que va a entrar</label>
+                <input id="acc-correo" ref={primerCampo} type="email" style={inp} value={dCorreo}
+                  autoCapitalize="none" autoCorrect="off" placeholder="correo@ejemplo.com"
+                  onChange={e => setDCorreo(e.target.value)} />
+                <label htmlFor="acc-tel" style={{ ...et, marginTop:12 }}>Teléfono (opcional)</label>
+                <input id="acc-tel" type="tel" inputMode="tel" style={inp} value={dTel}
+                  placeholder="099 123 4567" onChange={e => setDTel(e.target.value)} />
+                {sel.rol === "proveedor" && !sel.prov_cod && (
+                  <>
+                    <label htmlFor="acc-pila" style={{ ...et, marginTop:12 }}>¿De qué piladora?</label>
+                    <select id="acc-pila" style={inp} value={dPila} onChange={e => {
+                      const pv = piladoras.find(x => x.prov_cod === e.target.value); if (pv) regUso("proveedores", pv);
+                      setDPila(e.target.value);
+                    }}>
+                      <option value="">Elige una…</option>
+                      {ordUso("proveedores", piladoras).map(pp => <option key={pp.prov_cod} value={pp.prov_cod}>{pp.nombre}</option>)}
+                    </select>
+                  </>
+                )}
+                <button type="submit" disabled={panelProc} style={{ ...btnPrim, width:"100%", marginTop:16, opacity:panelProc?.6:1 }}>
+                  {panelProc ? "Creando acceso…" : "Dar acceso y generar enlace"}
+                </button>
+              </form>
+            )}
+
+            {modo === "nueva" && (
+              <form noValidate onSubmit={crear}>
+                <label htmlFor="nc-nombre" style={{ ...et, marginTop:10 }}>Nombre completo</label>
+                <input id="nc-nombre" ref={primerCampo} style={inp} value={nombre} placeholder="Carlos Andrade"
+                  onChange={e => setNombre(e.target.value)} onBlur={e => revisarParecidos(e.target.value)} />
+                {parecidos.length > 0 && (
+                  <div style={{ background:"#FBF0E4", border:"1px solid #EBD5B3", borderRadius:9, padding:"10px 12px", marginTop:8 }}>
+                    <p style={{ fontSize:12.5, color:"#7A5B00", margin:"0 0 8px", lineHeight:1.5 }}>
+                      {parecidos.length === 1 ? "Esta persona ya está en el padrón" : "Estas personas ya están en el padrón"} sin
+                      acceso. Si es la misma, dale acceso sobre su ficha: conserva su código y todo su historial.
+                    </p>
+                    {parecidos.map(pz => (
+                      <button key={pz.usr_id} type="button"
+                        onClick={() => { const g = gente.find(x => x.usr_id === pz.usr_id); if (g) { setModo("padron"); abrirPanel(g); } }}
+                        style={{ display:"block", marginBottom:6, padding:"9px 12px", minHeight:44, borderRadius:8,
+                          border:"1px solid #EBD5B3", background:"#fff", color:"#7A5B00", fontSize:12.5, fontWeight:700, cursor:"pointer" }}>
+                        Dar acceso a {pz.nombre} · {pz.usr_id}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <label htmlFor="nc-correo" style={{ ...et, marginTop:12 }}>Correo</label>
+                <input id="nc-correo" type="email" style={inp} value={correo} placeholder="carlos@ejemplo.com"
+                  autoCapitalize="none" autoCorrect="off" onChange={e => setCorreo(e.target.value)} />
+                <label htmlFor="nc-rol" style={{ ...et, marginTop:12 }}>¿Qué hace en el negocio?</label>
+                {selectorRol}
+                {ROL_PRIVILEGIADO[rol] && (
+                  <p role="alert" style={{ fontSize:12, color:"#8a2018", background:"#FDECEA", borderRadius:8,
+                    padding:"9px 11px", margin:"8px 0 0", lineHeight:1.5 }}>
+                    ⚠️ {nombreRol(rol).split(" · ")[0]} es un rol con permisos amplios: ve y administra todo el negocio.
+                    Dáselo solo a quien de verdad lo necesita.
+                  </p>
+                )}
+                {rol === "proveedor" && (
+                  <>
+                    <label htmlFor="nc-pila" style={{ ...et, marginTop:12 }}>¿De qué piladora?</label>
+                    <select id="nc-pila" style={inp} value={pila} onChange={e => {
+                      const pv = piladoras.find(x => x.prov_cod === e.target.value); if (pv) regUso("proveedores", pv);
+                      setPila(e.target.value);
+                    }}>
+                      <option value="">Elige una…</option>
+                      {ordUso("proveedores", piladoras).map(p => <option key={p.prov_cod} value={p.prov_cod}>{p.nombre}</option>)}
+                    </select>
+                    <p style={{ fontSize:11.5, color:COLOR.muted, margin:"6px 0 0" }}>
+                      Sin esto la piladora vería los pedidos de todas. Por eso es obligatorio.
+                    </p>
+                  </>
+                )}
+                <label htmlFor="nc-tel" style={{ ...et, marginTop:12 }}>Teléfono (opcional)</label>
+                <input id="nc-tel" type="tel" inputMode="tel" style={inp} value={tel}
+                  placeholder="099 123 4567" onChange={e => setTel(e.target.value)} />
+                <button type="submit" disabled={panelProc} style={{ ...btnPrim, width:"100%", marginTop:16, opacity:panelProc?.6:1 }}>
+                  {panelProc ? "Creando…" : "Crear cuenta y generar enlace"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════ MODAL «Cambiar correo» ════════ */}
+      {cambDe && (
+        <div style={modalCentro} onClick={(e) => { if (e.target === e.currentTarget && !cambProc) cerrarCamb(); }}>
+          <div style={caja} role="dialog" aria-modal="true" aria-label="Cambiar correo" onClick={e => e.stopPropagation()}>
+            <p style={{ fontSize:16, fontWeight:800, color:COLOR.text, margin:"0 0 2px" }}>Cambiar correo</p>
+            <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 12px" }}>
+              {cambDe.nombre} · {cambDe.usr_id}
+            </p>
+            <form noValidate onSubmit={cambiarCorreo}>
+              <label style={et}>Correo actual</label>
+              <div style={{ ...inp, background:COLOR.bg, color:COLOR.muted }}>{cambDe.email || "Sin correo"}</div>
+              <label htmlFor="camb-correo" style={{ ...et, marginTop:12 }}>Nuevo correo</label>
+              <input id="camb-correo" ref={primerCampo} type="email" style={inp} value={cCorreo}
+                autoCapitalize="none" autoCorrect="off" placeholder="correo@ejemplo.com"
+                onChange={e => setCCorreo(e.target.value)} />
+              {cambError && <p role="alert" style={{ fontSize:12.5, fontWeight:700, color:COLOR.red, margin:"8px 0 0" }}>{cambError}</p>}
+              <p style={{ fontSize:11.5, color:COLOR.muted, margin:"10px 0 0", lineHeight:1.5 }}>
+                El correo anterior dejará de funcionar. La persona conserva su clave actual.
+              </p>
+              <div style={{ display:"flex", gap:8, marginTop:16, justifyContent:"flex-end" }}>
+                <button type="button" onClick={cerrarCamb} disabled={cambProc} style={btnSec}>Cancelar</button>
+                <button type="submit" disabled={cambProc} style={{ ...btnPrim, opacity:cambProc?.6:1 }}>
+                  {cambProc ? "Guardando correo…" : "Guardar correo"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ MODAL confirmar «Dar de baja» ════════ */}
+      {bajaDe && (
+        <div style={modalCentro} onClick={(e) => { if (e.target === e.currentTarget && !bajaProc) setBajaDe(null); }}>
+          <div style={caja} role="alertdialog" aria-modal="true" aria-label="Confirmar dar de baja" onClick={e => e.stopPropagation()}>
+            <p style={{ fontSize:16, fontWeight:800, color:COLOR.text, margin:"0 0 8px" }}>¿Dar de baja a {bajaDe.nombre}?</p>
+            <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 16px", lineHeight:1.55 }}>
+              La persona perderá inmediatamente el acceso a su aplicación, incluso si mantiene una
+              sesión abierta. Sus pedidos, cobros y demás historial no se eliminarán.
+            </p>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button type="button" onClick={() => setBajaDe(null)} disabled={bajaProc} style={btnSec}>Cancelar</button>
+              <button type="button" onClick={confirmarBaja} disabled={bajaProc}
+                style={{ ...btnPrim, background:COLOR.red, opacity:bajaProc?.6:1 }}>
+                {bajaProc ? "Dando de baja…" : "Confirmar baja"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ RESULTADO (un solo bloque) ════════ */}
+      {result && (() => {
+        const info = RESULT_INFO[result.tipo] || RESULT_INFO.invitacion_nueva;
+        return (
+          <div style={modalCentro} onClick={(e) => { if (e.target === e.currentTarget) setResult(null); }}>
+            <div style={{ ...caja, width:"min(480px, 100%)" }} role="dialog" aria-modal="true"
+              aria-label="Resultado" onClick={e => e.stopPropagation()}>
+              <p style={{ fontSize:16.5, fontWeight:800, color:COLOR.text, margin:"0 0 2px" }}>{info.titulo(result)}</p>
+              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"0 0 12px" }}>
+                {result.usr_id ? result.usr_id + " · " : ""}{result.correo || ""}
+              </p>
+              <span style={{ ...chip({ bg:COLOR.tealLight, fg:COLOR.tealDark }) }}>{info.etiqueta}</span>
+              <p aria-live="polite" style={{ fontSize:12.5, color:COLOR.muted, margin:"10px 0 10px", lineHeight:1.55 }}>{info.leyenda}</p>
+              <label htmlFor="result-enlace" style={et}>Enlace</label>
+              <input id="result-enlace" readOnly value={result.enlace || "—"} onFocus={e => e.target.select()}
+                style={{ ...inp, fontSize:12, background:COLOR.bg, wordBreak:"break-all" }} />
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:12 }}>
+                <button type="button" onClick={() => copiar(result.enlace)} style={btnPrim}>Copiar enlace</button>
+                <a href={"https://wa.me/?text=" + encodeURIComponent(info.wa(result))} target="_blank" rel="noreferrer"
+                  style={{ ...btnPrim, background:"#25D366", textDecoration:"none", display:"inline-flex", alignItems:"center" }}>
+                  Enviar por WhatsApp</a>
+                <button type="button" onClick={() => setResult(null)} style={btnSec}>Cerrar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
