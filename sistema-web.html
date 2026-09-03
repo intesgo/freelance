@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"234", fecha:"28 ago 2026", desc:"Cuentas del equipo: nuevo botón «Cambiar correo» para corregir el correo de alguien que ya tiene acceso (conserva su clave e historial; el correo anterior deja de servir)." };
+const VERSION = { n:"235", fecha:"28 ago 2026", desc:"Administración · Módulos y permisos: ahora se guarda de verdad (tabla permisos_web_rol). El freelance apaga o prende módulos para Contadora y Operadora y queda guardado; al entrar, cada quien ve solo sus módulos. Dashboard no se puede apagar." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -736,6 +736,23 @@ const cargoDe = (c) => CARGOS_WEB.find(x => x.cargo === c) || CARGOS_WEB[0];
 const CARGO_POR_ROL = { freelance:"freelance", logistica:"operadora", financiero:"contadora", admin:"admin" };
 // Resuelve el cargo y le inyecta rol + secciones a la sesión (así el resto del código sigue leyendo usuario.rol / usuario.secciones).
 const resolverSesion = (u) => { if (!u) return u; const c = cargoDe(u.cargo); return { ...u, rol:c.rol, secciones:c.secciones }; };
+
+/* PERMISOS_WEB_REALES · el cargo de la app → el rol canónico de la base (tabla permisos_web_rol).
+   La lista de secciones ya NO es solo el default estático de CARGOS_WEB: al iniciar sesión se lee
+   la tabla real. Si no hay conexión o no hay filas, se cae al default (comportamiento anterior). */
+const ROL_DE_CARGO = { freelance:"freelance", admin:"admin", contadora:"financiero", operadora:"logistica" };
+const rolDeCargo = (cargo) => ROL_DE_CARGO[cargo] || null;
+async function seccionesRealesRol(rolBase){
+  if(!window.supa || !rolBase) return null;
+  try{
+    const { data, error } = await window.supa.from("permisos_web_rol").select("rol,modulo,activo");
+    if(error || !data) return null;
+    const mios = data.filter(p => p.rol===rolBase && p.activo).map(p => p.modulo);
+    if(!mios.length) return null;                 // sin filas → default de CARGOS_WEB
+    if(!mios.includes("dashboard")) mios.unshift("dashboard");   // red de seguridad: dashboard siempre
+    return mios;
+  }catch(e){ return null; }
+}
 
 // ── Gestión de cargos por el Freelance (demo; en Fase 4 persiste en Supabase por usuario) ──
 // Cargos que el Freelance puede administrar: SUS empleados. Su propio cargo y el de Administrador quedan fuera.
@@ -17347,21 +17364,59 @@ function PanelUsuariosCargos({ usuario, soloLectura, auditar, refrescarPadre }) 
   const [editando, setEditando] = useState(null);   // cargo cuyas actividades se editan
   const [reemplazar, setReemplazar] = useState(null); // cargo cuya persona se reemplaza
   const [nuevoNom, setNuevoNom] = useState("");
+  /* PERMISOS_WEB_REALES · estado de los interruptores desde la tabla permisos_web_rol
+     (rol → { modulo: activo }). Si no hay conexión/filas, se cae al default de CARGOS_WEB. */
+  const [permisos, setPermisos] = useState(null);
+  const [avisoP, setAvisoP] = useState("");
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      if (!window.supa) return;
+      try {
+        const { data, error } = await window.supa.from("permisos_web_rol").select("rol,modulo,activo");
+        if (!vivo || error || !data) return;
+        const m = {};
+        data.forEach(p => { (m[p.rol] = m[p.rol] || {})[p.modulo] = !!p.activo; });
+        setPermisos(m);
+      } catch (e) {}
+    })();
+    return () => { vivo = false; };
+  }, []);
 
   const card = { background:"#fff", border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"16px 18px", marginBottom:12 };
   const puedeEditar = !soloLectura && usuario.cargo === "freelance";
 
   const cargos = CARGOS_WEB.filter(c => CARGOS_EDITABLES.includes(c.cargo));
 
-  const toggle = (cargo, key) => {
+  /* ¿está activa esta actividad para este cargo? De la tabla real si ya cargó; si no, del default. */
+  const estaActiva = (cargo, key) => {
+    const rol = rolDeCargo(cargo);
+    if (permisos && rol && permisos[rol] && (key in permisos[rol])) return !!permisos[rol][key];
+    return cargoDe(cargo).secciones.includes(key);
+  };
+  const contarActivas = (cargo) => SECCIONES.filter(s => !s.admin && estaActiva(cargo, s.key)).length;
+
+  const toggle = async (cargo, key) => {
     if (!puedeEditar) return;
-    const c = cargoDe(cargo);
-    const tenia = c.secciones.includes(key);
-    alternarSeccion(cargo, key);
+    const rol = rolDeCargo(cargo);
+    const actual = estaActiva(cargo, key);
+    const nuevo = !actual;
     const lbl = (SECCIONES.find(s => s.key === key) || {}).label || key;
-    auditar(usuario, "Configuración", "Actividad de cargo · " + c.rol,
-      cargo + "/" + key, (tenia ? "Tenía" : "No tenía") + " → " + (tenia ? "quitada" : "agregada") + " · " + lbl);
-    refrescar();
+    if (!window.supa) {
+      /* demo local: sin base se conserva el comportamiento anterior (no persiste). */
+      alternarSeccion(cargo, key);
+      auditar(usuario, "Configuración", "Actividad de cargo (demo) · " + cargoDe(cargo).rol, cargo + "/" + key, lbl);
+      refrescar();
+      return;
+    }
+    setAvisoP("");
+    try {
+      const { error } = await window.supa.rpc("permisos_web_guardar", { p_rol: rol, p_modulo: key, p_activo: nuevo });
+      if (error) { setAvisoP(error.message || "No se pudo guardar el cambio."); return; }   // NO cambiar el interruptor
+      setPermisos(prev => ({ ...(prev || {}), [rol]: { ...((prev || {})[rol] || {}), [key]: nuevo } }));
+      auditar(usuario, "Configuración", "Actividad de cargo · " + cargoDe(cargo).rol,
+        cargo + "/" + key, (actual ? "quitada" : "agregada") + " · " + lbl);
+    } catch (e) { setAvisoP((e && e.message) || "No se pudo guardar el cambio."); }
   };
 
   const guardarReemplazo = (cargo) => {
@@ -17400,7 +17455,7 @@ function PanelUsuariosCargos({ usuario, soloLectura, auditar, refrescarPadre }) 
               <div style={{ flex:1, minWidth:200 }}>
                 <p style={{ fontSize:13.5, fontWeight:800, color:COLOR.text, margin:0 }}>{c.rol}</p>
                 <p style={{ fontSize:12, color:COLOR.muted, margin:"2px 0 0" }}>
-                  {persona ? persona.nombre : "— sin asignar —"} · {c.secciones.length} actividad(es)
+                  {persona ? persona.nombre : "— sin asignar —"} · {contarActivas(c.cargo)} actividad(es)
                 </p>
               </div>
               {puedeEditar && (
@@ -17420,9 +17475,10 @@ function PanelUsuariosCargos({ usuario, soloLectura, auditar, refrescarPadre }) 
             {editando===c.cargo && puedeEditar && (
               <div style={{ marginTop:10, background:"#F7F9FB", borderRadius:10, padding:"12px 14px" }}>
                 <p style={{ fontSize:12, fontWeight:700, color:COLOR.muted, margin:"0 0 8px" }}>Marca las actividades que ve este cargo:</p>
+                {avisoP && <div style={{ background:"#FDECEA", color:"#b3271e", borderRadius:8, padding:"8px 11px", fontSize:12, fontWeight:600, marginBottom:8 }}>⚠ {avisoP}</div>}
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:"6px 12px" }}>
                   {SECCIONES.filter(s => !s.admin).map(s => {
-                    const activa = c.secciones.includes(s.key);
+                    const activa = estaActiva(c.cargo, s.key);
                     return (
                       <label key={s.key} style={{ display:"flex", alignItems:"center", gap:8, fontSize:12.5, color:COLOR.text, cursor:"pointer", padding:"4px 0" }}>
                         <input type="checkbox" checked={activa} onChange={()=>toggle(c.cargo, s.key)} />
@@ -21717,8 +21773,11 @@ function App() {
               try { await window.supa.auth.signOut(); } catch(x){}
               try { alert("Esta cuenta no tiene acceso al Sistema Web. Entra a la app que te corresponde."); } catch(x){}
             } else {
-              setSesion(resolverSesion({ usuario: usr.email, clave: "", nombre: per.nombre,
-                cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true }));
+              const base = resolverSesion({ usuario: usr.email, clave: "", nombre: per.nombre,
+                cargo: CARGO_POR_ROL[per.rol] || "operadora", empresaId: per.org_id, real: true });
+              /* PERMISOS_WEB_REALES · per.rol es el rol canónico de la base (freelance/admin/financiero/logistica) */
+              const reales = await seccionesRealesRol(per.rol);
+              setSesion(reales && reales.length ? { ...base, secciones: reales } : base);
               try{ iniciarSesionUnica(); }catch(e){}
             }
           }
@@ -21746,14 +21805,21 @@ function App() {
     : "";
 
   // Al entrar, posicionar en la primera sección permitida
-  const acceder = (u) => {
+  const acceder = async (u) => {
     auditar(u, "Sistema", "Inicio de sesión", u.usuario, "Rol " + u.rol);
-    setSesion(u);
-    const ini = u.secciones.includes("dashboard") ? "dashboard" : u.secciones[0];
+    /* PERMISOS_WEB_REALES · al entrar se leen las secciones reales del rol (tabla permisos_web_rol);
+       si no hay conexión o no hay filas, se quedan las del default de CARGOS_WEB. */
+    let uu = u;
+    try {
+      const reales = await seccionesRealesRol(rolDeCargo(u.cargo));
+      if (reales && reales.length) uu = { ...u, secciones: reales };
+    } catch (e) {}
+    setSesion(uu);
+    const ini = uu.secciones.includes("dashboard") ? "dashboard" : uu.secciones[0];
     setSeccion(ini);
     setTabs([ini]);
     /* una sola sesión por cuenta (salvo dueño): reclama y vigila · defensivo */
-    if (u && u.real) { try{ iniciarSesionUnica(); }catch(e){} }
+    if (uu && uu.real) { try{ iniciarSesionUnica(); }catch(e){} }
   };
   const salir = () => {
     /* cierra también la sesión de Supabase Auth para que el JWT no quede vivo */
