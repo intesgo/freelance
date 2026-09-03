@@ -19,7 +19,7 @@ prueba(/tab!=="inicio"/.test(app),"la burbuja de voz no debe tapar la portada");
 
 /* ── Sistema Web · versión y caché ── */
 prueba(/const VERSION = \{ n:"238"/.test(web),"Sistema Web debe anunciar b235");
-prueba(/const CACHE = "freelance-v349"/.test(sw),"la caché debe renovarse");
+prueba(/const CACHE = "freelance-v350"/.test(sw),"la caché debe renovarse");
 /* SW · version.json SIEMPRE de la red (si no, el aviso «Actualizar» del Sistema Web no sale) */
 prueba(/url\.pathname\.endsWith\("\/version\.json"\)/.test(sw)&&/e\.respondWith\(fetch\(e\.request\)\.catch\(/.test(sw),"sw · version.json se sirve solo de la red, nunca de la caché");
 
@@ -328,7 +328,7 @@ prueba((comi.match(/NOMBRE_CLIENTE_INTEGRIDAD_3/g)||[]).length>=8,"comisionista 
 /* versiones de las tres apps tocadas */
 prueba(/const VERSION = \{ n:"78"/.test(prov),"proveedor debe anunciar v78");
 prueba(/const VERSION = \{ n:"64"/.test(socio),"socio debe anunciar v64");
-prueba(/const VERSION = \{ n:"197"/.test(comi),"comisionista debe anunciar v197");
+prueba(/const VERSION = \{ n:"198"/.test(comi),"comisionista debe anunciar v197");
 
 if(mal){console.error(`Resultado CAMBIOS-422: ${bien} ✓ · ${mal} ✗`);process.exit(1);}
 console.log(`Resultado CAMBIOS-422: ${bien} ✓ · 0 ✗`);
