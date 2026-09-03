@@ -354,9 +354,11 @@ async function bateria(js, ruidoso) {
   comprobar("CRÉDITO sobre el cupo: sale el aviso «pendiente de autorización del freelance»"
     + (cSobre.paso ? " → " + cSobre.paso : ""),
     !cSobre.paso && /pendiente de autorización del freelance/.test(cSobre.txt || ""));
-  comprobar("CRÉDITO sobre el cupo: el medidor marca «Excedido»"
+  /* FIX_CUPO_AVISO_APP · el sello del medidor pasó de «Excedido» (rojo) a
+     «Se pasa · por autorizar» (ámbar): pasarse no es error, va a autorización. */
+  comprobar("CRÉDITO sobre el cupo: el medidor marca «Se pasa · por autorizar»"
     + (cSobre.paso ? " → " + cSobre.paso : ""),
-    !cSobre.paso && /Excedido/.test(cSobre.txt || ""));
+    !cSobre.paso && /Se pasa · por autorizar/.test(cSobre.txt || "") && !/Excedido/.test(cSobre.txt || ""));
   /* El NÚMERO es real: el recuadro muestra cupo $3.000,00 y deuda $1.500,00
      (usado de la cartera, no de FICHA_CLIENTE ni de clientes.usado). */
   comprobar("CRÉDITO sobre el cupo: el recuadro muestra cupo $3.000,00 y deuda $1.500,00 (cupo real + usado de cartera)"

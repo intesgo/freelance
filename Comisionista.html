@@ -1151,7 +1151,7 @@
   @keyframes sacudida{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
   .arc-sacudida{animation:sacudida .3s ease 1}
   @media (prefers-reduced-motion:reduce){.arc-sacudida{animation:none!important}}
-  .cupo-box.cupo-excede{border-color:#E8B4A0;background:#FDF6F2}
+  .cupo-box.cupo-excede{border-color:var(--maize);background:#FBF0D8}
   .cupo-head{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:700;color:var(--field);margin-bottom:6px}
   .cupo-badge{font-size:10px;font-weight:700;border-radius:20px;padding:3px 10px}
   .cupo-badge.ok{background:#E4F1E9;color:#2E7D52}
@@ -1159,7 +1159,7 @@
   .cupo-badge.bad{background:#FBE3DA;color:#B5613C}
   .cupo-barra{position:relative;height:8px;background:#EEEbE2;border-radius:6px;overflow:hidden;margin-bottom:12px}
   .cupo-fill{height:100%;background:var(--field-soft-txt);border-radius:6px;transition:width .3s}
-  .cupo-excede .cupo-fill{background:#C2603A}
+  .cupo-excede .cupo-fill{background:var(--maize-deep)}
   .cupo-lines{display:flex;flex-direction:column;gap:6px}
   /* cupo en dos columnas: medidor a la izquierda, detalle a la derecha */
   .cupo-cols{display:grid;grid-template-columns:0.92fr 1fr;gap:11px;align-items:center}
@@ -1173,7 +1173,7 @@
   .cupo-disp{border-top:1px solid var(--line);padding-top:6px;margin-top:3px;font-weight:700;font-size:12.5px}
   .cupo-disp span{color:var(--field);font-weight:700}
   .cupo-excede .cupo-disp b{color:#C2603A}
-  .cupo-aviso{margin-top:12px;background:#FBE3DA;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.5;color:#8A4A2E}
+  .cupo-aviso{margin-top:12px;background:#FBF0D8;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.5;color:var(--maize-deep)}
 
     @keyframes fxEntrar{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   .fx-entrar{animation:fxEntrar .5s cubic-bezier(.2,.8,.2,1) both}
@@ -1277,7 +1277,7 @@ const CL = {
 };
 
 /* ── VERSIÓN (único lugar donde se cambia; la leen login, encabezado e inicio) ── */
-const VERSION = { n:"197", fecha:"27 ago 2026", desc:"Seguridad: cada app es solo para su rol. Si entras con una cuenta que no es de comisionista, se cierra la sesión y te lleva al portal para que entres a la app que te corresponde." };
+const VERSION = { n:"198", fecha:"3 sep 2026", desc:"Pedido · el aviso de cupo ya no se apaga al armar una línea a contado cuando el pedido ya se pasó del cupo con líneas a crédito: sigue visible. Pasarse del cupo se muestra en ámbar («Se pasa · por autorizar»), no en rojo: se puede tomar igual y queda pendiente de autorización, como siempre." };
 
 /* CÓMO FUNCIONA: las notas explicativas viven aquí (campanilla), nunca en las pantallas. */
 const COMO_FUNCIONA = [
@@ -4625,7 +4625,9 @@ function ArcCupo({ total, usado, excede, money }){
   if(!total || total<=0) return null;
   const p = Math.max(0, Math.min(1.12, usado/total));      // la aguja se clava un poco más allá del 100%
   const pa = Math.min(1, p);                                // el arco de progreso no pasa del 100%
-  const color = excede ? "#C0392B" : p>=0.7 ? "#C77F00" : "var(--field)";
+  /* FIX_CUPO_AVISO_APP · pasarse del cupo NO es un error: el arco va en ámbar
+     (var(--maize-deep)), como el resto de la tarjeta. El rojo queda para lo que bloquea. */
+  const color = excede ? "var(--maize-deep)" : p>=0.7 ? "#C77F00" : "var(--field)";
   const ang = -90 + 180*Math.min(1, p/1.0)*1.0;             // aguja: -90° (vacío) → +90° (lleno)
   const disp = Math.round((total-usado)*100)/100;
   return (
@@ -4646,10 +4648,10 @@ function ArcCupo({ total, usado, excede, money }){
         <circle cx="100" cy="100" r="6" fill="#3A342A"/>
         {/* cifra central */}
         <text x="100" y="82" textAnchor="middle" className="num"
-          style={{fontSize:17, fontWeight:700, fill: excede?"#C0392B":"var(--field)"}}>
+          style={{fontSize:17, fontWeight:700, fill: excede?"var(--maize-deep)":"var(--field)"}}>
           {excede ? "−"+money(usado-total) : money(disp)}</text>
         <text x="100" y="95" textAnchor="middle" style={{fontSize:8.5, fill:"#6B6455", fontWeight:600, letterSpacing:".04em"}}>
-          {excede ? "EXCEDE EL CUPO" : "DISPONIBLE"}</text>
+          {excede ? "SE PASA" : "DISPONIBLE"}</text>
       </svg>
     </div>
   );
@@ -5433,6 +5435,12 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
   const expuestoTotal = Math.round((deudaActual + creditoEnCarrito + montoLinea)*100)/100;
   const excedeCupo = esCredito && cupoTotal>0 && expuestoTotal > cupoTotal;
   const excesoMonto = excedeCupo ? Math.round((expuestoTotal - cupoTotal)*100)/100 : 0;
+  /* FIX_CUPO_AVISO_APP · solo para MOSTRAR. NO alimenta la autorización:
+     esa la sigue decidiendo excedeCupo (arriba) / requiereAutorizacion (abajo). */
+  const cupoConsumido = Math.round((deudaActual + creditoEnCarrito + montoLinea)*100)/100;
+  const cupoSePasa    = cupoTotal > 0 && cupoConsumido > cupoTotal;
+  const cupoExcesoVer = cupoSePasa ? Math.round((cupoConsumido - cupoTotal)*100)/100 : 0;
+  const cupoLibre     = Math.max(0, Math.round((cupoTotal - cupoConsumido)*100)/100);
 
   const requiereAutorizacion = esP5 || excedeCupo;   // P5 o exceder cupo → requiere autorización del freelance
 
@@ -6044,21 +6052,24 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
     )}
 
     {/* Cupo de crédito: a lo ancho, debajo de las dos columnas */}
-    {prod && esCredito && fichaCli && cupoTotal>0 && (
-      <div className={"cupo-box"+(excedeCupo?" cupo-excede":"")}>
+    {/* FIX_CUPO_AVISO_APP · la caja se muestra si el cliente tiene cupo y hay
+        crédito comprometido, sea por la línea en curso o por lo que ya está en
+        el carrito: así el aviso no desaparece al armar una línea a contado. */}
+    {prod && fichaCli && cupoTotal>0 && (esCredito || creditoEnCarrito>0) && (
+      <div className={"cupo-box"+(cupoSePasa?" cupo-excede":"")}>
         <div className="cupo-head">
           <span>💳 Cupo de crédito</span>
-          {(excedeCupo || cupoDisponible<=0) && (
-            <span className={"cupo-badge "+(excedeCupo?"bad":"warn")}>
-              {excedeCupo?"Excedido":"Sin cupo"}
+          {(cupoSePasa || cupoLibre<=0) && (
+            <span className="cupo-badge warn">
+              {cupoSePasa?"Se pasa · por autorizar":"Sin cupo"}
             </span>
           )}
         </div>
         <div className="cupo-cols">
           <div className="cupo-col-arco">
-            <ArcCupo total={cupoTotal} usado={expuestoTotal} excede={excedeCupo} money={money}/>
+            <ArcCupo total={cupoTotal} usado={cupoConsumido} excede={cupoSePasa} money={money}/>
             <div className="cupo-barra">
-              <div className="cupo-fill" style={{width:Math.min(100,Math.round(expuestoTotal/cupoTotal*100))+"%"}}></div>
+              <div className="cupo-fill" style={{width:Math.min(100,Math.round(cupoConsumido/cupoTotal*100))+"%"}}></div>
             </div>
           </div>
           <div className="cupo-lines">
@@ -6067,12 +6078,12 @@ function Pedido({toast, prodInicial, onConsumir, go, irGuardado, onGuardarPedido
             {creditoEnCarrito>0 && <div className="cupo-l"><span>En este pedido</span><b className="num">{money(creditoEnCarrito)}</b></div>}
             {montoLinea>0 && <div className="cupo-l"><span>Venta</span><b className="num">{money(montoLinea)}</b></div>}
             <div className="cupo-l cupo-disp">
-              <span>{excedeCupo?"Excede en":"Disponible"}</span>
-              <b className="num">{excedeCupo?("−"+money(excesoMonto)):money(Math.round((cupoTotal-expuestoTotal)*100)/100)}</b>
+              <span>{cupoSePasa?"Se pasa por":"Disponible"}</span>
+              <b className="num">{cupoSePasa?("−"+money(cupoExcesoVer)):money(cupoLibre)}</b>
             </div>
           </div>
         </div>
-        {excedeCupo && (
+        {cupoSePasa && (
           <div className="cupo-aviso">
             ⚠️ Este pedido supera el cupo de {cli}. Puedes tomarlo, pero quedará <b>pendiente de autorización del freelance</b> para ampliar el crédito.
           </div>

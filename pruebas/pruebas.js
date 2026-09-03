@@ -142,6 +142,9 @@ const PLAN = [
   { arnes:"test_paridad_cupo_web.js", que:"PED P3-8: el cupo en la web (contado no consume; crédito excedido va a autorizar, no bloquea)", apps:[null] },
   { arnes:"test_paridad_piso_app.js", que:"PED P3-8: el piso de P5 en la app freelance (bloquea bajo costo+margen)", apps:[null] },
   { arnes:"test_paridad_cupo_app.js", que:"PED P3-8: el cupo en la app (contado no consume; crédito excedido va a autorizar, no bloquea)", apps:[null] },
+  /* FIX_CUPO_AVISO_APP · el aviso de cupo no se apaga al armar una línea a contado
+     con el carrito ya pasado; el exceso va en ámbar «por autorizar», no en rojo. */
+  { arnes:"test_cupo_aviso_app.js",   que:"FIX_CUPO_AVISO_APP: el aviso de cupo sigue visible y en ámbar (no rojo, no «Excedido»)", apps:["Comisionista"] },
   { arnes:"test_marca_exclusiva.js",  que:"MARCA_EXCLUSIVA_CLIENTE: una marca propia de un cliente solo se ofrece a él al tomar pedido (3 apps, con mutante); el vendedor solo LEE marca_clientes", apps:[null] },
   { arnes:"ARNES_SECCIONES_WEB.js",   que:"PED P3-8: cada sección del Sistema Web renderiza de verdad (caza ReferenceError de alcance)", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
