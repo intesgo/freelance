@@ -564,7 +564,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"239", fecha:"3 sep 2026", desc:"Pedidos (Sistema Web) · el armador de pedidos ahora guía paso a paso: barra de pasos (Cliente → Proveedor → Producto → Cantidad y precio → Subir), recuadros que dicen qué hacer en cada momento, el campo activo se resalta y el cursor salta solo, el botón «Agregar» late cuando la línea está lista y tras agregar sale un acuse que se apaga solo. La tarjeta de cupo cuenta solo el crédito, sigue visible aunque la línea sea a contado, muestra una sola cifra disponible (la misma del encabezado) y el exceso en ámbar «por autorizar» (no en rojo, nunca bloquea). Y la condición del pedido (contado / crédito / mixto) se ve en un chip, con la línea a contado aparte. Solo diseño: no cambia precios, cupo, comisión ni permisos." };
+const VERSION = { n:"240", fecha:"3 sep 2026", desc:"Productos (Sistema Web) · nueva columna «Variedad» y filtro «Sin variedad (N)»: la variedad del grano se lee de la base (grano_variedades / grano_familias) con respaldo en las constantes del archivo. El contador cuenta solo las líneas con grano. El buscador ahora también encuentra por variedad o familia. No cambia márgenes, precios ni otros módulos." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -7862,6 +7862,9 @@ function CatalogoWeb({ usuario }) {
   const [marcados, setMarcados] = useState([]);      /* prod_id seleccionados */
   const [lineaSel, setLineaSel] = useState("");      /* filtro por línea */
   const [soloSinProv, setSoloSinProv] = useState(false);
+  const [soloSinVariedad, setSoloSinVariedad] = useState(false);   /* DISENO_CAT_VARIEDAD */
+  const [variedades, setVariedades] = useState(null);   // null = cargando (grano_variedades)
+  const [familias,   setFamilias]   = useState(null);   // null = cargando (grano_familias)
   const [confirmar, setConfirmar] = useState(null);  /* {provCod, nombre, ids} */
   const [guardando, setGuardando] = useState(false);                 // página actual del listado (paginado)
   /* b61 · precios absorbidos desde el módulo "Precios vigentes" (R1 paso 3).
@@ -7883,6 +7886,25 @@ function CatalogoWeb({ usuario }) {
     } catch (e) { /* sin precios: el filtro de margen queda apagado */ }
   }, []);
   React.useEffect(() => { cargarPrecios(); }, [cargarPrecios]);
+
+  /* DISENO_CAT_VARIEDAD · catálogo de familias/variedades de grano leído de la base.
+     Defensivo: si la lectura falla o viene vacía, la columna cae al respaldo de las
+     constantes del archivo (VARIEDADES_GRANO / FAMILIAS_GRANO). Nunca pantalla en blanco. */
+  React.useEffect(() => { (async () => {
+    if (!window.supa) { setVariedades([]); setFamilias([]); return; }
+    try {
+      const [rv, rf] = await Promise.all([
+        window.supa.from("grano_variedades")
+          .select("variedad_cod,familia_cod,nombre,nivel_nombre,orden,activo")
+          .eq("activo", true).order("orden"),
+        window.supa.from("grano_familias")
+          .select("familia_cod,nombre,linea,orden,activo")
+          .eq("activo", true).order("orden"),
+      ]);
+      setVariedades((rv && rv.data) || []);
+      setFamilias((rf && rf.data) || []);
+    } catch (e) { setVariedades([]); setFamilias([]); }
+  })(); }, []);
 
   // Cargar productos de arroz activos + proveedores desde Supabase
   const cargarProductos = React.useCallback(async () => {
@@ -8134,6 +8156,29 @@ function CatalogoWeb({ usuario }) {
   // Fuente de productos: reales si cargaron, demo si no
   const PRODS = (fuente==="supabase" && prodsReales) ? prodsReales : PRODUCTOS_WEB;
 
+  /* DISENO_CAT_VARIEDAD \u00b7 cat\u00e1logo de familias/variedades con RESPALDO: si la base fall\u00f3 o vino
+     vac\u00eda, se usan las constantes del archivo para no mostrar c\u00f3digos pelados. */
+  const VARIEDADES_OK = (variedades && variedades.length)
+    ? variedades
+    : VARIEDADES_GRANO.map(v => ({ variedad_cod:v.cod, familia_cod:v.cod.slice(0,3), nombre:v.desc, nivel_nombre:"", orden:0 }));
+  const FAMILIAS_OK = (familias && familias.length)
+    ? familias
+    : FAMILIAS_GRANO.map(f => ({ familia_cod:f.cod, nombre:f.desc, linea:f.linea }));
+  /* Las l\u00edneas que llevan variedad de grano salen de las FAMILIAS, no de una lista a mano:
+     si ma\u00f1ana se agrega Ma\u00edz, la pantalla lo entiende sola. */
+  const LINEAS_CON_GRANO = [...new Set(FAMILIAS_OK.map(f => f.linea).filter(Boolean))];
+  const usaGrano = (p) => LINEAS_CON_GRANO.includes(p.linea || "");
+  /* Traduce el c\u00f3digo de variedad (5 caract.) a { estado, desc, cod, familia }. La familia NO se
+     deriva cortando el texto: viene en familia_cod. Un c\u00f3digo sin ficha se muestra tal cual. */
+  const variedadDe = (cod) => {
+    const c = String(cod || "").trim().toUpperCase();
+    if (!c) return { estado:"vacio" };
+    const v = VARIEDADES_OK.find(x => String(x.variedad_cod).toUpperCase() === c);
+    if (!v) return { estado:"desconocida", desc:c, cod:c, familia:"" };
+    const f = FAMILIAS_OK.find(x => x.familia_cod === v.familia_cod);
+    return { estado:"ok", desc:v.nombre, cod:v.variedad_cod, familia: f ? f.nombre : v.familia_cod };
+  };
+
   const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const TODOS_OPC = "📋 Todos los productos";
   const PROVEEDORES_LISTA = (fuente==="supabase") ? [TODOS_OPC, ...new Set(PRODS.map(p=>p.prov))] : [...new Set(PRODS.map(p=>p.prov))];
@@ -8142,6 +8187,8 @@ function CatalogoWeb({ usuario }) {
     /* filtros del modo bloque: línea y "aún sin piladora" */
     if (lineaSel && (p.linea||"") !== lineaSel) return false;
     if (soloSinProv && p.provCod) return false;
+    /* DISENO_CAT_VARIEDAD · deja solo las líneas CON grano y SIN variedad (lista de trabajo real) */
+    if (soloSinVariedad && (!usaGrano(p) || String(p.tipoGrano||"").trim())) return false;
     if (soloMargenBajo) {
       const pr = preciosVig[p.id];
       /* sin precio vigente no hay margen que juzgar: se saca de la lista */
@@ -8152,11 +8199,18 @@ function CatalogoWeb({ usuario }) {
     /* DISENO_CAT_BUSCA · además de nombre/línea, busca por marca y por código (P-00197). */
     return t.split(/\s+/).every(w =>
       norm(p.nombre).includes(w) || norm(p.linea||"").includes(w) ||
-      norm(p.marca||"").includes(w) || norm(String(p.id||"")).includes(w));
+      norm(p.marca||"").includes(w) || norm(String(p.id||"")).includes(w) ||
+      /* DISENO_CAT_VARIEDAD · también por variedad (código, nombre y familia) */
+      norm(String(p.tipoGrano||"")).includes(w) ||
+      norm(variedadDe(p.tipoGrano).desc || "").includes(w) ||
+      norm(variedadDe(p.tipoGrano).familia || "").includes(w));
   });
   /* Líneas disponibles y cuántos faltan por asignar (para ver el avance real) */
   const LINEAS_LISTA = [...new Set(PRODS.map(p=>p.linea||"").filter(Boolean))].sort();
   const totalSinProv = PRODS.filter(p=>!p.provCod).length;
+  /* DISENO_CAT_VARIEDAD · SOLO líneas con grano (las demás nunca tendrán variedad). Sobre PRODS
+     (todo el catálogo) para que el número no baile al cambiar de piladora. */
+  const totalSinVariedad = PRODS.filter(p => usaGrano(p) && !String(p.tipoGrano||"").trim()).length;
   const totalMargenBajo = PRODS.filter(p => {
     const pr = preciosVig[p.id];
     return pr && pr.margen < preMargenObjetivo();
@@ -8242,7 +8296,7 @@ function CatalogoWeb({ usuario }) {
           <div style={{ flex:"1 1 260px" }}>
             <label style={{ fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 }}>Buscar producto</label>
             <BuscadorPredictivo cat="productos" items={productosDelProv} value={busca}
-              placeholder={"Buscar dentro de "+provSel+"… (nombre, marca o código)"}
+              placeholder={"Buscar dentro de "+provSel+"… (nombre, marca, código o variedad)"}
               label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
               onText={t=>setBusca(t)} onPick={p=>setBusca(p.nombre)} />
           </div>
@@ -8279,6 +8333,15 @@ function CatalogoWeb({ usuario }) {
               background: soloSinProv?COLOR.teal:"#fff",
               color: soloSinProv?"#fff":COLOR.text }}>
             {soloSinProv ? "✓ " : ""}Sin piladora ({totalSinProv})</button>
+
+          {/* DISENO_CAT_VARIEDAD · encendido en COLOR.maiz (no teal: «Sin piladora» ya usa el verde). */}
+          <button onClick={()=>{setSoloSinVariedad(v=>!v); setPagina(0);}}
+            style={{ padding:"7px 13px", borderRadius:9, cursor:"pointer", fontSize:13,
+              fontWeight:700, fontFamily:"inherit",
+              border:`1px solid ${soloSinVariedad?COLOR.maiz:COLOR.border}`,
+              background: soloSinVariedad?COLOR.maiz:"#fff",
+              color: soloSinVariedad?"#fff":COLOR.text }}>
+            {soloSinVariedad ? "✓ " : ""}Sin variedad ({totalSinVariedad})</button>
 
           <button onClick={()=>{setSoloMargenBajo(v=>!v); setPagina(0);}}
             style={{ padding:"7px 13px", borderRadius:9, cursor:"pointer", fontSize:13,
@@ -8320,8 +8383,9 @@ function CatalogoWeb({ usuario }) {
       {provSel && (
         <div style={{ background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:14, overflow:"hidden" }}>
           {!movil && (
-          <div style={{ display:"grid", gridTemplateColumns:"2.2fr 1fr 1fr 1fr 1.4fr", gap:10, padding:"9px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
-            <span>Producto</span><span>Unidad</span><span>Presentaciones</span><span>Rentab.</span><span>Piladoras</span>
+          <div style={{ display:"grid", gridTemplateColumns:"2.2fr .8fr 1.3fr 1fr .9fr 1.4fr", gap:10, padding:"9px 18px", background:"#F7F9FB", borderBottom:`1px solid ${COLOR.border}`, fontSize:11, fontWeight:700, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.3 }}>
+            {/* DISENO_CAT_VARIEDAD · Variedad va tercera, entre Unidad y Presentaciones */}
+            <span>Producto</span><span>Unidad</span><span>Variedad</span><span>Presentaciones</span><span>Rentab.</span><span>Piladoras</span>
           </div>
           )}
           {/* DISENO_CAT_ESTADOS · error → cargando → sin productos → sin resultados → lista */}
@@ -8340,7 +8404,7 @@ function CatalogoWeb({ usuario }) {
                 const f = fichaDe(p.id); const ce = colorEstado(f.estado); const rent = rentabilidad(p.id);
                 const sinAsignar = !p.provCod;
                 return (
-                  <div key={p.id} style={{ display:"grid", gridTemplateColumns: movil ? "1fr" : "2.2fr 1fr 1fr 1fr 1.4fr", gap: movil?6:10, padding:"clamp(8px,1.1vh,12px) 18px", borderTop: i>0?`1px solid ${COLOR.border}`:"none", alignItems: movil?"stretch":"center", fontSize:13, background: f.oculto?"#FBFBFC":"#fff" }}>
+                  <div key={p.id} style={{ display:"grid", gridTemplateColumns: movil ? "1fr" : "2.2fr .8fr 1.3fr 1fr .9fr 1.4fr", gap: movil?6:10, padding:"clamp(8px,1.1vh,12px) 18px", borderTop: i>0?`1px solid ${COLOR.border}`:"none", alignItems: movil?"stretch":"center", fontSize:13, background: f.oculto?"#FBFBFC":"#fff" }}>
                     <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                       {modoSel && (
                         <input type="checkbox" checked={marcados.includes(p.id)}
@@ -8376,6 +8440,15 @@ function CatalogoWeb({ usuario }) {
                       </div>
                     </div>
                     <span className="num" style={{ color:COLOR.text }}>{movil && <span style={{ color:COLOR.muted, fontWeight:600 }}>Unidad: </span>}{p.unidad}</span>
+                    {/* DISENO_CAT_VARIEDAD · variedad (5 caract.) traducida a nombre; la familia viene en familia_cod, no se corta el texto. */}
+                    <div style={{ minWidth:0, overflowWrap:"anywhere" }}>{(() => {
+                      const vr = variedadDe(p.tipoGrano);
+                      if (vr.estado === "vacio" && !usaGrano(p)) return null;   /* línea sin grano: celda vacía, sin guion ni etiqueta */
+                      const etq = movil ? <span style={{ color:COLOR.muted, fontWeight:600 }}>Variedad: </span> : null;
+                      if (vr.estado === "ok") return (<span>{etq}<span style={{ fontSize:13, color:COLOR.text }}>{vr.desc}</span><span style={{ display:"block", fontSize:11, color:COLOR.muted }}>{vr.cod} · {vr.familia}</span></span>);
+                      if (vr.estado === "desconocida") return (<span>{etq}<span style={{ fontSize:13, color:COLOR.text }}>{vr.cod}</span> <span style={{ fontSize:10, fontWeight:700, color:"#9a6b00", background:COLOR.fieldMaiz, padding:"1px 7px", borderRadius:999 }}>sin ficha</span></span>);
+                      return (<span>{etq}<span style={{ color:COLOR.muted }}>—</span></span>);   /* vacío pero SÍ usa grano */
+                    })()}</div>
                     <span className="num" style={{ color:COLOR.text }}>{movil && <span style={{ color:COLOR.muted, fontWeight:600 }}>Presentaciones: </span>}{(() => { const n = presPorProd[p.id]||0; return n>0 ? (n + " pres.") : <span style={{ color:COLOR.muted }}>—</span>; })()}</span>
                     <span className="num" style={{ fontWeight:700, color: rent>=0?COLOR.teal:COLOR.red }}>{movil && <span style={{ color:COLOR.muted, fontWeight:600 }}>Rentab.: </span>}{rent}%</span>
                     {/* Piladoras del producto (solo información) + botón asignar (⧉) */}
