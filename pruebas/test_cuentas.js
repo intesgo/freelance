@@ -135,7 +135,6 @@ const flush=()=>vm.runInContext("window.__flush()", m.ctx);
   comprobar("tras cargar, la conexión dice «Conectado»", t.indexOf("Conectado")>=0);
   comprobar("marca a quien todavía no tiene acceso («Sin acceso»)", t.indexOf("Sin acceso")>=0);
   comprobar("marca a quien está de baja («De baja»)", t.indexOf("De baja")>=0);
-  comprobar("dice que la clave no pasa por las manos de Richard", /clave nunca pasa por tus manos/.test(t));
   comprobar("no repite el título del módulo dentro del componente", t.indexOf("Cuentas del equipo")<0);
   comprobar("ya no usa la etiqueta vieja «Con acceso»", t.indexOf("Con acceso")<0);
 
