@@ -617,13 +617,13 @@ async function paridadWeb(js, ruidoso) {
   let txt = correW(m, `window.__txt()`);
   comprobar("WEB: crédito $2.000 con usado real 1.500 → EXCEDE (mismo umbral que la app) y «Agregar» sigue habilitado"
     + " (estado=" + est + ")",
-    est === "ok" && /Excede el cupo de crédito/i.test(txt));
+    est === "ok" && /Se pasa del cupo por/i.test(txt));
 
   /* Baja la línea a 100 × $10 = $1.000. Con usado 1.500 → 2.500 < 3.000 → NO excede. */
   await webSetCantPrecio(m, 100, 10);
   txt = correW(m, `window.__txt()`);
   comprobar("WEB: crédito $1.000 con usado real 1.500 → NO excede (2.500 < 3.000), mismo umbral que la app",
-    !/Excede el cupo de crédito/i.test(txt));
+    !/Se pasa del cupo por/i.test(txt));
 
   return { ok, mal, fallos };
 }

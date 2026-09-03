@@ -270,7 +270,7 @@ async function bateria(js, ruidoso) {
   let txt = corre(m1, `window.__txt()`);
   comprobar("línea a crédito por encima del cupo: «Agregar» sigue HABILITADO y sale el aviso «Excede el cupo»"
     + " (estado=" + est + ")",
-    est === "ok" && /Excede el cupo de crédito/i.test(txt));
+    est === "ok" && /Se pasa del cupo por/i.test(txt));
 
   /* al agregarla, la línea queda «por autorizar» (requiere:true) */
   corre(m1, `window.__botonPorTexto("Agregar al pedido")`);
@@ -299,7 +299,7 @@ async function bateria(js, ruidoso) {
   await setCantPrecio(m2, 10, 10);    // crédito 10 × 10 = 100 (muy por debajo del cupo)
   txt = corre(m2, `window.__txt()`);
   comprobar("un CONTADO grande en el carrito NO consume el cupo: al armar un crédito chico no sale el aviso «Excede el cupo»",
-    !/Excede el cupo de crédito/i.test(txt));
+    !/Se pasa del cupo por/i.test(txt));
 
   return { ok, mal, fallos };
 }

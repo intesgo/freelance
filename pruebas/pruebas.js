@@ -145,6 +145,11 @@ const PLAN = [
   /* FIX_CUPO_AVISO_APP · el aviso de cupo no se apaga al armar una línea a contado
      con el carrito ya pasado; el exceso va en ámbar «por autorizar», no en rojo. */
   { arnes:"test_cupo_aviso_app.js",   que:"FIX_CUPO_AVISO_APP: el aviso de cupo sigue visible y en ámbar (no rojo, no «Excedido»)", apps:["Comisionista"] },
+  /* DISENO_PEDIDO_GUIADO/CUPO/CONDICION · el armador de pedidos del Sistema Web:
+     guía paso a paso, tarjeta de cupo (solo crédito, exceso en ámbar) y condición visible. */
+  { arnes:"test_pedido_guiado.js",    que:"DISENO_PEDIDO_GUIADO: el armador guía paso a paso (barra de pasos, recuadros-guía, foco automático, pulso y acuse que se apaga solo)", apps:[null] },
+  { arnes:"test_pedido_cupo.js",      que:"DISENO_PEDIDO_CUPO: la tarjeta de cupo cuenta solo el crédito, sigue visible en contado, muestra el exceso en ámbar «por autorizar» y una sola cifra disponible", apps:[null] },
+  { arnes:"test_pedido_condicion.js", que:"DISENO_PEDIDO_CONDICION: la condición del pedido (contado/crédito/mixto) se ve en chip, con explicación del mixto y condición por línea", apps:[null] },
   { arnes:"test_marca_exclusiva.js",  que:"MARCA_EXCLUSIVA_CLIENTE: una marca propia de un cliente solo se ofrece a él al tomar pedido (3 apps, con mutante); el vendedor solo LEE marca_clientes", apps:[null] },
   { arnes:"ARNES_SECCIONES_WEB.js",   que:"PED P3-8: cada sección del Sistema Web renderiza de verdad (caza ReferenceError de alcance)", apps:[null] },
   /* sistema-web.html ya vive junto a las apps: estos cuatro forman parte de
