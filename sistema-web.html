@@ -560,7 +560,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"237", fecha:"2 sep 2026", desc:"Cuentas del equipo (Sistema Web) · ajuste solo de escritorio: la tabla aprovecha todo el ancho, reparte mejor las columnas (Persona, Rol, Contacto, Estado, Acciones), deja de cortar nombres, roles y correos, y «Dar acceso» queda en una sola línea. Es un módulo de computadora: se retiró la vista de tarjetas para celular. Mantiene «DEMO» y «Tu cuenta» y toda la lógica y seguridad de b236." };
+const VERSION = { n:"238", fecha:"3 sep 2026", desc:"Cuentas del equipo (Sistema Web) · la columna Acciones (Dar acceso / Cambiar correo / ⋯) vuelve a estar siempre visible: si la ventana es angosta la tabla se desliza de lado para alcanzarla, y en pantalla ancha entra sin barra. Los filtros (Todos/Activos/Pendientes/De baja) van a la derecha y se quitó el texto introductorio. Módulo solo de escritorio; conserva «DEMO», «Tu cuenta» y toda la lógica y seguridad." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -13007,6 +13007,7 @@ function CuentasWeb({ usuario }) {
 
   // Menú de tres puntos y proceso/errores por fila
   const [menuFila, setMenuFila] = useState(null);   // usr_id con el menú abierto
+  const [menuPos, setMenuPos] = useState(null);     // {top,right} del menú (position:fixed, no lo recorta el scroll)
   const [procFila, setProcFila] = useState({});     // { usr_id: "enlace"|"baja"|"reactivar" }
   const [errFila, setErrFila] = useState({});       // { usr_id: mensaje }
 
@@ -13270,6 +13271,12 @@ function CuentasWeb({ usuario }) {
     return acc;
   };
 
+  const abrirMenu = (g, ev) => {
+    if (menuFila === g.usr_id) { setMenuFila(null); return; }
+    const r = ev.currentTarget.getBoundingClientRect();
+    setMenuPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+    setMenuFila(g.usr_id);
+  };
   const menuTresPuntos = (g) => {
     const acc = accionesDe(g);
     if (!acc.length) return null;
@@ -13278,10 +13285,11 @@ function CuentasWeb({ usuario }) {
       <div style={{ position:"relative" }}>
         <button type="button" aria-haspopup="menu" aria-expanded={abierto}
           aria-label={"Más acciones para " + g.nombre}
-          onClick={() => setMenuFila(abierto ? null : g.usr_id)}
+          onClick={(ev) => abrirMenu(g, ev)}
           style={{ ...btnSec, minWidth:44, padding:"0 12px", color:COLOR.muted }}>⋯</button>
-        {abierto && (
-          <div role="menu" style={{ position:"absolute", right:0, top:"calc(100% + 4px)", zIndex:30,
+        {abierto && menuPos && (
+          /* position:fixed para que el scroll horizontal de la tabla no lo recorte */
+          <div role="menu" style={{ position:"fixed", top:menuPos.top, right:menuPos.right, zIndex:1200,
             background:"#fff", border:"1px solid " + COLOR.border, borderRadius:10,
             boxShadow:"0 10px 30px rgba(15,25,35,.16)", minWidth:190, overflow:"hidden" }}>
             {acc.map(a => (
@@ -13438,10 +13446,6 @@ function CuentasWeb({ usuario }) {
           <span aria-hidden="true">●</span> {conexion.t}
         </span>
       </div>
-      <p style={{ fontSize:13, color:COLOR.muted, margin:"0 0 16px", maxWidth:640, lineHeight:1.55 }}>
-        Administra quién puede entrar a cada aplicación. Cada persona define su propia clave con
-        un enlace de un solo uso: la clave nunca pasa por tus manos.
-      </p>
 
       {aviso && <div role="status" aria-live="polite" style={{ background:"#eaf6ee", color:"#1c7a44",
         padding:"10px 14px", borderRadius:9, fontSize:13, fontWeight:600, marginBottom:12,
@@ -13471,7 +13475,7 @@ function CuentasWeb({ usuario }) {
       </div>
 
       {/* ── Filtros de estado con contadores ── */}
-      <div role="tablist" aria-label="Filtrar por estado" style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+      <div role="tablist" aria-label="Filtrar por estado" style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end", marginBottom:14 }}>
         {FILTROS.map(f => {
           const on = filtro === f.k;
           return (
@@ -13495,7 +13499,10 @@ function CuentasWeb({ usuario }) {
           <button type="button" onClick={cargar} style={btnPrim}>Reintentar</button>
         </div>
       ) : (
-        <div style={{ background:"#fff", border:"1px solid " + COLOR.border, borderRadius:12, overflow:"hidden" }}>
+        /* overflowX:auto · si la ventana es angosta (p. ej. un navegador de celular)
+           la tabla se desliza para alcanzar «Acciones»; en escritorio llena el ancho sin barra. */
+        <div onScroll={() => { if (menuFila) setMenuFila(null); }}
+          style={{ background:"#fff", border:"1px solid " + COLOR.border, borderRadius:12, overflowX:"auto" }}>
           {lista.length > 0 && (
             <div style={{ display:"grid", gridTemplateColumns:GC, gap:12, padding:"11px 16px",
               background:COLOR.bg, fontSize:11, fontWeight:800, color:COLOR.muted, textTransform:"uppercase", letterSpacing:.4 }}>
