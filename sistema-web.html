@@ -485,6 +485,9 @@ const SECCIONES = [
      Ahora las cuatro rutas viejas caen en Precios vigentes, que muestra las
      ofertas de verdad y sólo deja mover el COSTO de una piladora. */
   { key:"preciosvig", ic:"factory",   icon:"🏭", label:"Piladoras", sub:"Costos y base por piladora" },
+  /* DISENO_MODULO_PRECIOS · «Precios» reusa PiladorasWeb en modo="precios" (entra directo a costos,
+     recuerda la última piladora). Los permisos ya están en permisos_web_rol (copiados de preciosvig). */
+  { key:"precios", ic:"tag",   icon:"🏷️", label:"Precios", sub:"Actualizar costos y precios por piladora" },
   { key:"tarifasfe", ic:"mapPin",    icon:"🚛", label:"Tarifas de logística", sub:"Zonas, chóferes y estibadores" },
   { key:"documentos", ic:"fileText",   icon:"📑", label:"Documentos",           sub:"Custodia · cadena de documentos" },
   { key:"comunicacion", ic:"messageCircle", icon:"💬", label:"Mensajes",             sub:"Equipo y clientes informados" },
@@ -564,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"241", fecha:"3 sep 2026", desc:"Nuevo pedido (Sistema Web) · el resaltado guía va ahora en el propio buscador del paso activo (cliente, proveedor o producto): el campo donde toca escribir se enciende en verde con su halo. Se quitan los recuadros grandes con borde discontinuo que ocupaban media pantalla («Empieza por el cliente», «Ahora el proveedor», «Agrega otro producto de …»); el conteo del carrito pasa al rótulo del paso. La barra de pasos y la lista de verificación no cambian. No toca precios, cupo, condición ni permisos." };
+const VERSION = { n:"242", fecha:"4 sep 2026", desc:"Costos y precios (Sistema Web) · solo el Freelance los mueve: el módulo de Piladoras queda en solo lectura para los demás roles (con aviso claro). Nuevo módulo «Precios» que entra directo a costos y recuerda la última piladora. Y lo grande: se fija el precio POR VARIEDAD de grano y por piladora; al cambiarlo, cada marca se mueve la MISMA diferencia (conserva su distancia), con vista previa antes de guardar. También se clasifican marcas sin salir («Sin variedad»). En la app de la piladora se retiró la captura de costo; el historial sigue visible." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -696,7 +699,7 @@ const TODAS_LAS_SECCIONES = SECCIONES.map(s => s.key);
 const GRUPOS_MENU = [
   { titulo:"Principal",  keys:["dashboard"] },
   { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","tarifasfe","calidad"] },
-  { titulo:"Comercial",  keys:["clientes","catalogo","unidades","promos","emparejar","marcas","preciosvig","socio"] },
+  { titulo:"Comercial",  keys:["clientes","catalogo","unidades","promos","emparejar","marcas","preciosvig","precios","socio"] },
   { titulo:"Finanzas",   keys:["cobranza","pagos","comisiones","conciliacion"] },
   { titulo:"Gestión",    keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
   { titulo:"Sistema",    keys:["config","fallos","cuentas","empresas","admin"] },
@@ -10538,7 +10541,15 @@ async function versionarOfertaWeb(o, nuevos, usuario){
   return fila;
 }
 
-function PiladorasWeb({ usuario }){
+function PiladorasWeb({ usuario, modo }){
+  /* SEG_PRECIOS_SOLO_FREELANCE · solo el Freelance mueve costos y precios. El resto
+     (Contadora, Operadora, Administrador de Plataforma) ve todo en SOLO LECTURA:
+     los controles de edición no se pintan (un botón muerto parece pantalla rota). */
+  const esFreelancePil = usuario && usuario.rol === "Freelance";
+  const soloLectura = !esFreelancePil;
+  /* DISENO_MODULO_PRECIOS · el mismo componente sirve al módulo «Precios» (modo="precios",
+     entra directo a costos, recuerda la última piladora) y al de «Piladoras» (sin modo). */
+  const soloPrecios = modo === "precios";
   const [ofertas,setOfertas]=useState(null);   // null = cargando; array normalizado (preLeerOfertas)
   const [prodInfo,setProdInfo]=useState({});   // prodId -> {nombre, marca, linea}
   const [nomProv,setNomProv]=useState({});     // provCod -> nombre
@@ -10564,6 +10575,19 @@ function PiladorasWeb({ usuario }){
   const [histRows,setHistRows]=useState(null); // filas del histórico (null = cargando)
   const [guardando,setGuardando]=useState(false);
   const [error,setError]=useState("");
+  /* DISENO_PRECIO_VARIEDAD · precio por variedad y por piladora. precVar: variedad_cod -> fila vigente
+     (costo,costo_contado,base_credito,base_contado). El diálogo aplica la DIFERENCIA contra el precio
+     anterior de la variedad a cada oferta (no sobrescribe), conservando el diferencial de cada marca. */
+  const [precVar,setPrecVar]=useState({});      // variedad_cod -> fila vigente de precios_variedad
+  const [pvDlg,setPvDlg]=useState(null);        // variedad_cod con el diálogo «Actualizar precio» abierto
+  const [pvForm,setPvForm]=useState(null);      // {costo,costoCont,baseCred,baseCont} (textos; vacío = no cambia)
+  const [pvExcl,setPvExcl]=useState({});        // pid -> true: excluida de esta tanda
+  const [pvConfirm,setPvConfirm]=useState(false); // vista previa revisada (obligatoria antes de guardar)
+  const [pvSaving,setPvSaving]=useState(false);
+  const [pvResumen,setPvResumen]=useState("");  // «28 de 28 marcas actualizadas» / lista de fallos
+  const [soloSinVar,setSoloSinVar]=useState(false); // filtro «Sin variedad (N)» para clasificar
+  const [avisoMulti,setAvisoMulti]=useState("");    // aviso «esta marca la venden N piladoras» (una vez por sesión)
+  const avisoMultiRef=React.useRef(false);      // el aviso «esta marca la venden N piladoras» sale una vez por sesión
   const r2=n=>Math.round((Number(n)||0)*100)/100;
   const r4=n=>Math.round((Number(n)||0)*10000)/10000;
   const num=v=>{ const n=parseFloat(String(v==null?"":v).replace(",",".")); return isNaN(n)?null:n; };
@@ -10588,6 +10612,21 @@ function PiladorasWeb({ usuario }){
         const r=(data&&data[0]&&data[0].ruc)||"";
         if(vivo){ setRucWeb(r); setRucCargado(r); }
       }catch(e){ if(vivo){ setRucWeb(""); setRucCargado(""); } }
+    })();
+    return ()=>{ vivo=false; };
+  },[selProv]);
+  /* DISENO_PRECIO_VARIEDAD · cargar los precios por variedad de la piladora abierta.
+     Defensivo: si falla, la pantalla sigue funcionando (edición marca por marca). */
+  React.useEffect(()=>{
+    if(!selProv){ setPrecVar({}); return; }
+    let vivo=true;
+    (async()=>{
+      try{
+        const {data}=await window.supa.from("precios_variedad")
+          .select("variedad_cod,costo,costo_contado,base_credito,base_contado,vigente_desde")
+          .eq("prov_cod",selProv).is("vigente_hasta",null);
+        if(vivo){ const m={}; (data||[]).forEach(r=>{ m[r.variedad_cod]=r; }); setPrecVar(m); }
+      }catch(e){ if(vivo) setPrecVar({}); }
     })();
     return ()=>{ vivo=false; };
   },[selProv]);
@@ -10697,6 +10736,24 @@ function PiladorasWeb({ usuario }){
     return g;
   },[ofertas,prodInfo,selProv]);
 
+  /* DISENO_MODULO_PRECIOS · recordar la última piladora (solo en modo precios).
+     Todo en try/catch: con el almacenamiento bloqueado la pantalla renderiza igual. */
+  const KEY_ULT_PIL = "freelance_precios_ultima_piladora";
+  const autoPilRef = React.useRef(false);
+  const abrirPiladora=(cod)=>{ setSelProv(cod); setEdit(null); setForm(null); setAjuste(null);
+    if(soloPrecios){ try{ localStorage.setItem(KEY_ULT_PIL, cod); }catch(_){}} };
+  const cambiarPiladora=()=>{ setSelProv(null); setEdit(null); setAjuste(null);
+    if(soloPrecios){ autoPilRef.current=true; try{ localStorage.removeItem(KEY_ULT_PIL); }catch(_){}} };
+  React.useEffect(()=>{
+    if(!soloPrecios || autoPilRef.current || selProv || ofertas===null) return;
+    autoPilRef.current=true;
+    try{
+      const cod=localStorage.getItem(KEY_ULT_PIL);
+      if(cod && piladoras.some(p=>p.provCod===cod)) setSelProv(cod);
+      else if(cod) localStorage.removeItem(KEY_ULT_PIL);
+    }catch(_){}
+  },[soloPrecios,ofertas,piladoras,selProv]);
+
   /* Versiona una oferta (objeto normalizado de preLeerOfertas) en
      ofertas_piladora: cierra la vigente (vigente_hasta=hoy) e inserta una nueva
      (vigente_desde=hoy). Nunca sobrescribe. Igual patrón que ModalCostoBloque. */
@@ -10743,6 +10800,104 @@ function PiladorasWeb({ usuario }){
     await cargar();
   };
 
+  /* ═══ DISENO_PRECIO_VARIEDAD ═══ precio por variedad, propagado por DIFERENCIA a cada marca.
+     La variedad de una marca es prodInfo[pid].tipoGrano (código de 5 caracteres). */
+  const variedadDesc=(cod)=>(VARIEDADES_GRANO.find(v=>v.cod===cod)||{}).desc||cod;
+  const familiaDescDe=(cod)=>(FAMILIAS_GRANO.find(f=>f.cod===String(cod||"").slice(0,3))||{}).desc||"";
+  /* marcas (pids) de ESTA piladora colgadas de una variedad */
+  const marcasDeVariedad=(cod)=>{
+    const out=[];
+    Object.keys(granos).forEach(ln=>{ Object.keys(granos[ln]).forEach(pid=>{
+      if(((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"")===cod) out.push(pid);
+    }); });
+    return out;
+  };
+  /* pids de esta piladora SIN variedad (para el filtro «Sin variedad (N)» y su conteo) */
+  const pidsSinVariedad=()=>{
+    const out=[];
+    Object.keys(granos).forEach(ln=>{ Object.keys(granos[ln]).forEach(pid=>{
+      if(!String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").trim()) out.push(pid);
+    }); });
+    return out;
+  };
+  /* VISTA PREVIA · por marca+presentación, el precio de venta (base crédito) hoy → nuevo.
+     El nuevo = actual + (base_credito_nuevo − base_credito_anterior) × equiv_qq. */
+  const pvPreview=(cod)=>{
+    const prev=precVar[cod]||null; const f=pvForm||{};
+    const dBaseCr=(prev && num(f.baseCred)!=null) ? num(f.baseCred)-(Number(prev.base_credito)||0) : null;
+    const filas=[];
+    marcasDeVariedad(cod).filter(pid=>!pvExcl[pid]).forEach(pid=>{
+      const marca=(prodInfo[pid]&&prodInfo[pid].marca)||pid;
+      (ofertas||[]).filter(o=>o.provCod===selProv && o.prodId===pid).forEach(o=>{
+        const eq=Number(o.equivQq)||0; const hoy=Number(o.credito)||0;
+        const nuevo=dBaseCr!=null ? Math.max(0,r2(hoy + dBaseCr*eq)) : hoy;
+        filas.push({marca:marca||"(sin marca)", cod:pid, pres:o.presentacion||o.presCod, hoy, nuevo, cambia:r2(hoy)!==r2(nuevo)});
+      });
+    });
+    return filas;
+  };
+  const abrirPvDlg=(cod)=>{ setPvDlg(cod); setPvForm({costo:"",costoCont:"",baseCred:"",baseCont:""}); setPvExcl({}); setPvConfirm(false); setPvResumen(""); };
+  /* GUARDAR · escribe precios_variedad (versionado, MISMO_DIA en sitio) y propaga la diferencia a
+     cada oferta por la PUERTA ÚNICA versionarOfertaWeb. Toda la tanda comparte un solo código. */
+  const guardarPrecioVariedad=async(cod)=>{
+    const prev=precVar[cod]||null; const f=pvForm||{};
+    const nCosto=num(f.costo), nCostoC=num(f.costoCont), nBaseCr=num(f.baseCred), nBaseC=num(f.baseCont);
+    if(nCosto==null && nCostoC==null && nBaseCr==null && nBaseC==null){ setError("Escribe al menos un precio."); return; }
+    setPvSaving(true); setError("");
+    const codigo=preAu(); const hoy=preHoy();
+    const filaPV={ prov_cod:selProv, variedad_cod:cod,
+      costo: nCosto!=null?nCosto:(prev?prev.costo:null),
+      costo_contado: nCostoC!=null?nCostoC:(prev?prev.costo_contado:null),
+      base_credito: nBaseCr!=null?nBaseCr:(prev?prev.base_credito:null),
+      base_contado: nBaseC!=null?nBaseC:(prev?prev.base_contado:null) };
+    try{
+      if(prev && String(prev.vigente_desde||"").slice(0,10)===hoy){
+        const u=await window.supa.from("precios_variedad").update(filaPV)
+          .eq("prov_cod",selProv).eq("variedad_cod",cod).is("vigente_hasta",null);
+        if(u.error) throw new Error(u.error.message);
+      } else {
+        if(prev){ const c=await window.supa.from("precios_variedad").update({vigente_hasta:hoy})
+          .eq("prov_cod",selProv).eq("variedad_cod",cod).is("vigente_hasta",null); if(c.error) throw new Error(c.error.message); }
+        const ins=await window.supa.from("precios_variedad").insert({...filaPV, vigente_desde:hoy, vigente_hasta:null});
+        if(ins.error) throw new Error(ins.error.message);
+      }
+    }catch(e){ setError("No se pudo guardar el precio de la variedad: "+String((e&&e.message)||e)); setPvSaving(false); return; }
+    let okN=0, total=0; const fallos=[];
+    if(prev){
+      const dCosto = nCosto!=null ? nCosto-(Number(prev.costo)||0) : null;
+      const dCostoC= nCostoC!=null? nCostoC-(Number(prev.costo_contado)||0) : null;
+      const dBaseCr= nBaseCr!=null? nBaseCr-(Number(prev.base_credito)||0) : null;
+      const dBaseC = nBaseC!=null ? nBaseC-(Number(prev.base_contado)||0) : null;
+      for(const pid of marcasDeVariedad(cod).filter(pid=>!pvExcl[pid])){
+        const marca=(prodInfo[pid]&&prodInfo[pid].marca)||pid;
+        for(const o of (ofertas||[]).filter(o=>o.provCod===selProv && o.prodId===pid)){
+          total++; const eq=Number(o.equivQq)||0; const nuevos={operacion:"Precio por variedad", codigo};
+          if(dCosto!=null)  nuevos.costo          = Math.max(0,r4((Number(o.costo)||0)        + dCosto*eq));
+          if(dCostoC!=null) nuevos.costo_contado  = Math.max(0,r4((Number(o.costoContado)||0) + dCostoC*eq));
+          if(dBaseCr!=null) nuevos.precio_credito = Math.max(0,r4((Number(o.credito)||0)       + dBaseCr*eq));
+          if(dBaseC!=null)  nuevos.precio_contado = Math.max(0,r4((Number(o.contado)||0)       + dBaseC*eq));
+          try{ await versionarOfertaWeb(o,nuevos,usuario); okN++; }catch(e){ fallos.push(marca||"(sin marca)"); }
+        }
+      }
+    }
+    setPvSaving(false); setPvDlg(null); setPvForm(null); setPvExcl({}); setPvConfirm(false);
+    if(!prev) setPvResumen("Precio de referencia registrado. No se movió ninguna marca.");
+    else if(fallos.length) setPvResumen(`${okN} de ${total} marcas actualizadas. Fallaron: ${[...new Set(fallos)].join(", ")}`);
+    else setPvResumen(`${okN} de ${total} marcas actualizadas.`);
+    await cargar();
+    try{ const {data}=await window.supa.from("precios_variedad")
+        .select("variedad_cod,costo,costo_contado,base_credito,base_contado,vigente_desde")
+        .eq("prov_cod",selProv).is("vigente_hasta",null);
+      const m={}; (data||[]).forEach(r=>{ m[r.variedad_cod]=r; }); setPrecVar(m);
+    }catch(_){}
+  };
+  /* productos.tipo_grano es GLOBAL por marca: clasificar desde una piladora la clasifica para todas.
+     Es correcto; un aviso (una vez por sesión) evita el susto cuando la marca se vende en varias. */
+  const piladorasDeMarca=(pid)=>{ const s=new Set(); (ofertas||[]).forEach(o=>{ if(o.prodId===pid) s.add(o.provCod); }); return s.size; };
+  const abrirClasificar=(pid)=>{ setTgSel(pid);
+    if(!avisoMultiRef.current){ const n=piladorasDeMarca(pid); if(n>1){ avisoMultiRef.current=true;
+      setAvisoMulti(`Esta marca la venden ${n} piladoras; la variedad es la misma para todas.`); } } };
+
   if(ofertas===null) return <div style={{padding:20,...S.meta}}>Cargando piladoras…</div>;
 
   /* ── LISTA de piladoras ── */
@@ -10757,8 +10912,8 @@ function PiladorasWeb({ usuario }){
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar piladora…"
           style={{...S.inp,flex:1,padding:"11px 12px",fontSize:15}}/>
-        {/* ALTA_PILADORA_WEB: abrir el formulario para crear una piladora nueva */}
-        <button onClick={()=>{ setAltaOpen(v=>!v); setError(""); }} style={{...S.btn(altaOpen?"#fff":"#2E7D52",altaOpen?"#333":"#fff"),flexShrink:0,border:altaOpen?"1px solid #D8D2C4":"none"}}>{altaOpen?"Cancelar":"＋ Crear piladora"}</button>
+        {/* ALTA_PILADORA_WEB: abrir el formulario para crear una piladora nueva (en modo precios no se ofrece) */}
+        {!soloPrecios && <button onClick={()=>{ setAltaOpen(v=>!v); setError(""); }} style={{...S.btn(altaOpen?"#fff":"#2E7D52",altaOpen?"#333":"#fff"),flexShrink:0,border:altaOpen?"1px solid #D8D2C4":"none"}}>{altaOpen?"Cancelar":"＋ Crear piladora"}</button>}
       </div>
       {/* ALTA_PILADORA_WEB: formulario de alta */}
       {altaOpen && (
@@ -10775,7 +10930,7 @@ function PiladorasWeb({ usuario }){
       {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
       {piladoras.map(p=>(
         <div key={p.provCod} style={{...S.card,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}
-          onClick={()=>{ setSelProv(p.provCod); setEdit(null); setForm(null); setAjuste(null); }}>
+          onClick={()=>abrirPiladora(p.provCod)}>
           <div style={{minWidth:0}}>
             <div style={{fontWeight:800,fontSize:15}}>🏭 {p.nombre}</div>
             <div style={S.meta}>{p.n} oferta(s) vigente(s)</div>
@@ -10822,17 +10977,20 @@ function PiladorasWeb({ usuario }){
     return {costo:rango(cs), base:rango(bs)};
   };
   return (
-    <div style={{maxWidth:760,margin:"0 auto",padding:"8px 4px 40px"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,margin:"6px 2px 12px"}}>
-        <button onClick={()=>{ setSelProv(null); setEdit(null); setAjuste(null); }} style={{...S.btn("#fff","#333"),border:"1px solid #D8D2C4"}}>‹ Piladoras</button>
+    <div style={{maxWidth:soloPrecios?1040:760,margin:"0 auto",padding:"8px 4px 40px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,margin:"6px 2px 12px",flexWrap:"wrap"}}>
+        <button onClick={cambiarPiladora} style={{...S.btn("#fff","#333"),border:"1px solid #D8D2C4"}}>{soloPrecios?"‹ Cambiar piladora":"‹ Piladoras"}</button>
         <h2 style={{margin:0}}>🏭 {provNombre}</h2>
+        {/* SEG_PRECIOS_SOLO_FREELANCE · en solo lectura, un chip aclara por qué no se ve la edición */}
+        {soloLectura && <span style={{fontSize:11.5,fontWeight:700,padding:"3px 10px",borderRadius:999,background:"#E4F1E9",color:"#1F5E3D"}}>Solo lectura · los precios los mueve el freelance</span>}
       </div>
 
-      {/* Pestaña exterior: "Ficha" (datos de la piladora) y "Costos y precios" */}
+      {/* Pestaña exterior: "Ficha" (datos de la piladora) y "Costos y precios". En modo precios no se pintan: se entra directo a costos. */}
+      {!soloPrecios && (
       <div style={{display:"flex",gap:8,margin:"0 2px 14px"}}>
         <button onClick={()=>setSecW("ficha")} style={{...S.btn(secW==="ficha"?"#2E7D52":"#f3f5f7",secW==="ficha"?"#fff":"#333"),flex:1}}>Ficha</button>
         <button onClick={()=>setSecW("costos")} style={{...S.btn(secW==="costos"?"#2E7D52":"#f3f5f7",secW==="costos"?"#fff":"#333"),flex:1}}>Costos y precios</button>
-      </div>
+      </div>)}
 
       {error && <div style={{...S.meta,color:"#B5613C",margin:"0 2px 10px"}}>{error}</div>}
 
@@ -10877,17 +11035,48 @@ function PiladorasWeb({ usuario }){
         {qMarca && <button onClick={()=>setQMarca("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",fontSize:16,color:"#8A8578",cursor:"pointer"}}>×</button>}
       </div>)}
 
+      {/* DISENO_PRECIO_VARIEDAD · aviso (una vez por sesión) al clasificar una marca de varias piladoras */}
+      {avisoMulti && <div style={{...S.meta,color:"#1F5E3D",background:"#E4F1E9",borderRadius:8,padding:"8px 10px",margin:"0 2px 12px",fontSize:12}}>{avisoMulti}</div>}
+
+      {/* DISENO_PRECIO_VARIEDAD · precios por variedad (arriba de las marcas). Solo si la piladora tiene Arroz. */}
+      {granos["Arroz"] && (
+      <div style={S.card}>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:2}}>🏷️ Precios por variedad</div>
+        <div style={{...S.meta,fontSize:11.5,marginBottom:10,lineHeight:1.45}}>Al cambiar el precio de una variedad, cada marca se mueve la MISMA diferencia: conserva su distancia. Todo por piladora ({provNombre}).</div>
+        {pvResumen && <div style={{...S.meta,color:"#1F5E3D",background:"#E4F1E9",borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:12}}>{pvResumen}</div>}
+        {VARIEDADES_GRANO.map(v=>({v,marcas:marcasDeVariedad(v.cod)}))
+          .sort((a,b)=>(b.marcas.length>0)-(a.marcas.length>0))
+          .map(({v,marcas})=>{
+            const pv=precVar[v.cod]; const tienePrecio=pv && (Number(pv.base_credito)>0||Number(pv.costo)>0); const vac=marcas.length===0;
+            return (
+            <div key={v.cod} style={{border:"1px solid #EDE9DE",borderRadius:12,padding:"10px 12px",marginBottom:8,opacity:vac?0.55:1,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:13.5}}>{v.desc}</div>
+                <div style={{...S.meta,fontSize:11}}>{familiaDescDe(v.cod)} · {marcas.length} marca(s) · {tienePrecio?("base "+preMoney(Number(pv.base_credito)||0)):"Sin precio"}</div>
+              </div>
+              {!soloLectura && <button onClick={()=>abrirPvDlg(v.cod)} style={{...S.btn("#2E7D52"),flexShrink:0,fontSize:12.5,padding:"8px 11px"}}>Actualizar precio</button>}
+            </div>);
+          })}
+      </div>)}
+
+      {/* DISENO_PRECIO_VARIEDAD · filtro «Sin variedad (N)» para clasificar sin salir de la piladora */}
+      {!soloLectura && granos["Arroz"] && (()=>{ const nSin=pidsSinVariedad().length; return (
+        <div style={{margin:"0 2px 12px"}}>
+          <button onClick={()=>setSoloSinVar(v=>!v)} style={{...S.btn(soloSinVar?"#F2A900":"#f3f5f7",soloSinVar?"#fff":"#333"),fontSize:12.5,padding:"8px 12px",border:soloSinVar?"none":"1px solid #D8D2C4"}}>{soloSinVar?"✓ ":""}Sin variedad ({nSin})</button>
+        </div>); })()}
+
       {lineas.map(ln=>{
         const marcas=granos[ln];
         const pidsTodas=Object.keys(marcas).sort((a,b)=>String(marcas[a].nombre||"").localeCompare(String(marcas[b].nombre||""),"es"));
-        const pids=filtraMarcas(pidsTodas,marcas);
-        if(!pids.length) return null;   // con búsqueda activa, ocultar líneas sin coincidencias
+        let pids=filtraMarcas(pidsTodas,marcas);
+        if(soloSinVar) pids=pids.filter(pid=>!String((prodInfo[pid]&&prodInfo[pid].tipoGrano)||"").trim());  // filtro «Sin variedad»
+        if(!pids.length) return null;   // con búsqueda activa (o filtro «Sin variedad»), ocultar líneas sin coincidencias
         return (
         <div key={ln} style={S.card}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
             <div style={{fontWeight:800,fontSize:15}}>{GRANO_IC[ln]||"📦"} {ln} <span style={{...S.meta,fontWeight:600}}>· {pids.length} marca(s)</span></div>
-            <button onClick={()=>setAjuste({linea:ln,campo:"base",modo:"monto",signo:1,valor:""})}
-              style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>⚙ Ajustar por grano</button>
+            {!soloLectura && <button onClick={()=>setAjuste({linea:ln,campo:"base",modo:"monto",signo:1,valor:""})}
+              style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>⚙ Ajustar por grano</button>}
           </div>
           {pids.map(pid=>{
             const m=marcas[pid]; const exc=!!excluidas[pid];
@@ -10905,7 +11094,7 @@ function PiladorasWeb({ usuario }){
                 {/* nombre + variedad (clic en la variedad para reclasificar) */}
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{fontWeight:800,fontSize:16,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis"}}>{m.nombre}</div>
-                  <div onClick={()=>setTgSel(pid)} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"#2E7D52":"#8A8578",cursor:"pointer"}}>{subtVar}</div>
+                  <div onClick={()=>{ if(!soloLectura) abrirClasificar(pid); }} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"#2E7D52":"#8A8578",cursor:soloLectura?"default":"pointer"}}>{subtVar}</div>
                 </div>
                 {/* RESUMEN_CRED: crédito costo–base + plegar (ámbar) */}
                 <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flexShrink:0}}>
@@ -10926,7 +11115,7 @@ function PiladorasWeb({ usuario }){
                 <div key={o.ofertaId} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                     <b style={{fontSize:14}}>{o.presentacion||o.presCod}</b>
-                    {!enEd && <button onClick={()=>{ setEdit(o.ofertaId); setForm({costoCont:o.costoContado,costoCred:o.costo,baseCont:o.contado,baseCred:o.credito}); }}
+                    {!enEd && !soloLectura && <button onClick={()=>{ setEdit(o.ofertaId); setForm({costoCont:o.costoContado,costoCred:o.costo,baseCont:o.contado,baseCred:o.credito}); }}
                       style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>✎ Editar</button>}
                   </div>
                   {!enEd ? (
@@ -10989,10 +11178,10 @@ function PiladorasWeb({ usuario }){
                   )}
                 </div>);
               })}
-              {/* excluir esta marca del ajuste por grano (dentro del detalle) */}
-              <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#8A8578",marginTop:2,cursor:"pointer"}}>
+              {/* excluir esta marca del ajuste por grano (dentro del detalle) · solo freelance */}
+              {!soloLectura && <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#8A8578",marginTop:2,cursor:"pointer"}}>
                 <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir esta marca del ajuste por grano
-              </label>
+              </label>}
               </>)}
             </div>);
           })}
@@ -11138,6 +11327,65 @@ function PiladorasWeb({ usuario }){
             <div style={{display:"flex",gap:10,marginTop:6}}>
               <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Sin clasificar</button>
               <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cerrar</button>
+            </div>
+          </div>
+        </div>);
+      })()}
+
+      {/* DISENO_PRECIO_VARIEDAD · diálogo «Actualizar precio»: 4 números en $/qq, vista previa
+         obligatoria (marca · presentación · precio hoy → nuevo) y excluir marcas de la tanda. */}
+      {pvDlg && (()=>{
+        const cod=pvDlg; const prev=precVar[cod]||null; const f=pvForm||{};
+        const filas=pvPreview(cod);
+        const algo = num(f.costo)!=null || num(f.costoCont)!=null || num(f.baseCred)!=null || num(f.baseCont)!=null;
+        const nMarcas=marcasDeVariedad(cod).filter(pid=>!pvExcl[pid]).length;
+        const campo=(lbl,key,ant)=>(
+          <div>
+            <label style={{...S.meta,fontSize:10,display:"block",marginBottom:2}}>{lbl}<span style={{color:"#8A8578"}}>{ant!=null&&ant>0?(" · antes "+preMoney(ant)):" · sin dato"}</span></label>
+            <input inputMode="decimal" value={f[key]||""} onChange={e=>setPvForm(s=>({...s,[key]:e.target.value}))} placeholder="$/quintal" style={S.inp}/>
+          </div>
+        );
+        return (
+        <div onClick={()=>{ if(!pvSaving){ setPvDlg(null); setPvForm(null); } }} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2100,padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px",maxWidth:520,width:"100%",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
+            <h3 style={{margin:"0 0 2px"}}>Actualizar precio</h3>
+            <div style={{...S.meta,margin:"0 0 12px"}}>{variedadDesc(cod)} · {familiaDescDe(cod)} · {provNombre}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:6}}>
+              {campo("Costo crédito","costo",prev?Number(prev.costo):null)}
+              {campo("Costo contado","costoCont",prev?Number(prev.costo_contado):null)}
+              {campo("Base crédito","baseCred",prev?Number(prev.base_credito):null)}
+              {campo("Base contado","baseCont",prev?Number(prev.base_contado):null)}
+            </div>
+            <div style={{...S.meta,fontSize:11,marginBottom:12}}>Todo en $/quintal. Deja vacío lo que no cambie.</div>
+            <div style={{background:"#FAF8F2",border:"1px solid #E7E2D6",borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+              <div style={{...S.meta,fontSize:10,textTransform:"uppercase",letterSpacing:".03em",marginBottom:6}}>Vista previa</div>
+              {!prev
+                ? <div style={{fontSize:12.5}}>Se registra el precio de referencia. No se mueve ninguna marca.</div>
+                : !filas.length ? <div style={{...S.meta,fontSize:12}}>Esta variedad no tiene marcas en esta piladora.</div>
+                : filas.map((r,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0",opacity:r.cambia?1:0.55}}>
+                    <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{r.marca} · {r.pres}</span>
+                    <span style={{whiteSpace:"nowrap"}}>{r.hoy>0?preMoney(r.hoy):"—"} <span style={{color:"#8A8578"}}>→</span> <b style={{color:r.cambia?"#2E7D52":"inherit"}}>{r.nuevo>0?preMoney(r.nuevo):"—"}</b></span>
+                  </div>))}
+            </div>
+            {prev && !!marcasDeVariedad(cod).length && (
+            <details style={{marginBottom:12}}>
+              <summary style={{cursor:"pointer",fontSize:12.5,fontWeight:700,color:"#2E7D52"}}>Excluir marcas de esta tanda</summary>
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                {marcasDeVariedad(cod).map(pid=>(
+                  <label key={pid} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
+                    <input type="checkbox" checked={!!pvExcl[pid]} onChange={e=>setPvExcl(s=>({...s,[pid]:e.target.checked}))}/> {(prodInfo[pid]&&prodInfo[pid].marca)||pid}
+                  </label>))}
+              </div>
+            </details>)}
+            {prev && <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,marginBottom:12,cursor:"pointer"}}>
+              <input type="checkbox" checked={pvConfirm} onChange={e=>setPvConfirm(e.target.checked)}/> He revisado la vista previa.
+            </label>}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>{ setPvDlg(null); setPvForm(null); }} disabled={pvSaving} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
+              <button onClick={()=>guardarPrecioVariedad(cod)} disabled={pvSaving || !algo || (prev && !pvConfirm)}
+                style={{...S.btn((pvSaving||!algo||(prev&&!pvConfirm))?"#9DBBA9":"#2E7D52"),flex:2}}>
+                {pvSaving?"Guardando…":(!prev?"Registrar precio de referencia":`Aplicar a ${nMarcas} marca(s)`)}</button>
             </div>
           </div>
         </div>);
@@ -22525,8 +22773,9 @@ function App() {
         return <EmparejarWeb usuario={sesion} />;
       case "marcas":
         return <MarcasWeb usuario={sesion} />;
-      case "precios":     /* Fase 1 · "Precios vigentes" se fusiona en "Piladoras": la */
-      case "ofertas":     /* misma data por piladora (Grano → Marca → Presentación) con */
+      case "precios":     /* DISENO_MODULO_PRECIOS · módulo propio: entra directo a costos, recuerda piladora */
+        return <PiladorasWeb usuario={sesion} modo="precios" />;
+      case "ofertas":     /* "Piladoras": la misma data por piladora (Grano → Marca → Presentación) con */
       case "preciosvig":  /* Costo + Base + "Ajustar por grano". El Catálogo (replicar / */
       case "propuestas":  /* histórico) queda igual. */
         return <PiladorasWeb usuario={sesion} />;

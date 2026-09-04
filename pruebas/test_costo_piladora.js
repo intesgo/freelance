@@ -1,17 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   LA PILADORA CAMBIA SU COSTO DESDE SU APP · proveedor-freelance b61
+   LA PILADORA YA NO CAMBIA SU COSTO · proveedor-freelance
+   SEG_PRECIOS_SOLO_FREELANCE (04/09/2026)
 
-   Regla de Richard (26 jul): el costo lo pone la piladora desde su aplicativo,
-   rige desde la fecha que ella diga —hoy o próxima—, ENTRA SOLO (no espera
-   aprobación) y a Richard le llega el aviso.
-
-   Se comprueba contra el bundle real:
-     · con sesión, la hoja pide los DOS costos (crédito y contado) y la fecha;
-     · manda a la base el producto, la presentación y la fecha correctas;
-     · el contado vacío viaja como "sin descuento", no como cero;
-     · NO se puede elegir una fecha pasada;
-     · dice que entra solo y que el precio de venta no se mueve;
-     · sin sesión, la demostración de siempre sigue con su flujo de propuesta.
+   La regla del 26/07 («el costo lo pone la piladora desde su app») quedó REVERTIDA:
+   desde el 04/09 SOLO EL FREELANCE mueve costos y precios, sin excepciones. Este arnés
+   es la MEMORIA de ese cambio: comprueba que la app del proveedor ya NO ofrece capturar
+   costo, pero SÍ conserva el historial (en solo lectura) y una línea que dice quién lo
+   mueve ahora. En demostración (sin sesión), el flujo de propuesta sigue igual.
 
    Uso: node test_costo_piladora.js
    ═══════════════════════════════════════════════════════════════════════ */
@@ -77,6 +72,8 @@ function montar(conSesion) {
   };
   const ctx = dom.getInternalVMContext();
   vm.runInContext(R.react(), ctx); vm.runInContext(R.reactDom(), ctx); vm.runInContext(js, ctx);
+  /* una fila de historial para P-18, para comprobar que el historial SÍ se sigue viendo */
+  vm.runInContext(`try{ HIST_PRECIOS.push({ prodId:"P-18", nombre:"Arroz Dallis", de:38, a:41, desde:"2026-07-21", hasta:null, quien:"QA", motivo:"prueba", au:"AU-QA", estado:"vigente" }); }catch(e){}`, ctx);
 
   /* Se monta la HOJA de edición directamente: es donde vive la decisión. */
   vm.runInContext(`
@@ -129,61 +126,23 @@ const escribir = (m,e,v) => vm.runInContext(`window.__escribir(${JSON.stringify(
 const guardados = (m) => vm.runInContext("window.__guardados", m.ctx);
 
 (async () => {
-  console.log("═══ La piladora cambia su costo · " + nombreApp);
+  console.log("═══ La piladora YA NO cambia su costo · " + nombreApp);
 
-  /* ── CON DATOS DE VERDAD ── */
+  /* ── CON DATOS DE VERDAD (vivo=true) ── */
   const m = montar(true);
   vm.runInContext("window.__montar(true)", m.ctx);
   await esperar(200);
   let t = txt(m);
-  comprobar("pide el costo a crédito", /Costo a crédito/.test(t));
-  comprobar("y el costo de contado", /Costo si le pagan de contado/.test(t));
-  comprobar("dice que se puede dejar vacío si no hay descuento", /Déjalo vacío/.test(t));
-  comprobar("pregunta desde cuándo rige", /Desde hoy/.test(t) && /Desde una fecha/.test(t));
-  comprobar("avisa que ENTRA SOLO, sin aprobación", /entra solo/i.test(t) && !/Enviar al freelance/.test(t));
-  comprobar("y que el precio de venta no se mueve", /no cambia/.test(t));
+  comprobar("YA NO pide el costo a crédito", !/Costo a crédito/.test(t));
+  comprobar("YA NO pide el costo de contado", !/Costo si le pagan de contado/.test(t));
+  comprobar("YA NO pregunta desde cuándo rige", !/Desde una fecha/.test(t) && !/Desde cuándo rige/i.test(t));
+  comprobar("YA NO tiene el botón «Guardar costo»", !vm.runInContext(`window.__tocar("Guardar costo")`, m.ctx));
+  comprobar("dice quién mueve el costo ahora", /El costo lo actualiza el freelance\. Escríbele si cambió\./.test(t));
+  comprobar("el historial de costos SIGUE visible (solo lectura)", /historial de este precio/.test(t));
+  /* no hay forma de capturar costo: aunque el arnés pase onCambiar, nada lo dispara */
+  comprobar("no se dispara ningún guardado de costo (no hay puerta)", guardados(m).length === 0);
 
-  escribir(m, "Costo a crédito", "41");
-  escribir(m, "Costo si le pagan", "40");
-  await esperar(150);
-  tocar(m, "Guardar costo");
-  await esperar(200);
-  let g = guardados(m);
-  comprobar("guarda los dos costos y la fecha de hoy",
-    g.length === 1 && g[0].costo === 41 && String(g[0].contado) === "40" && g[0].desde === hoy);
-
-  /* ── una fecha próxima ── */
-  const m2 = montar(true);
-  vm.runInContext("window.__montar(true)", m2.ctx);
-  await esperar(200);
-  tocar(m2, "Desde una fecha");
-  await esperar(150);
-  t = txt(m2);
-  comprobar("al elegir fecha, explica que no puede ser pasada", /no se puede poner una fecha pasada/i.test(t));
-  const minFecha = vm.runInContext(`(function(){ var e=window.__campo("Rige a partir"); return e ? e.getAttribute("min") : null; })()`, m2.ctx);
-  comprobar("el calendario no deja elegir días pasados", minFecha === hoy);
-
-  escribir(m2, "Costo a crédito", "44");
-  escribir(m2, "Rige a partir", "2026-08-15");
-  await esperar(150);
-  tocar(m2, "Guardar costo");
-  await esperar(200);
-  g = guardados(m2);
-  comprobar("manda la fecha elegida, no la de hoy", g.length === 1 && g[0].desde === "2026-08-15");
-
-  /* ── contado vacío = sin descuento, no cero ── */
-  const m3 = montar(true);
-  vm.runInContext(`window.__p.contado = null; window.__montar(true);`, m3.ctx);
-  await esperar(200);
-  escribir(m3, "Costo a crédito", "39");
-  await esperar(150);
-  tocar(m3, "Guardar costo");
-  await esperar(200);
-  g = guardados(m3);
-  comprobar("sin costo de contado no manda cero, manda vacío",
-    g.length === 1 && (g[0].contado === "" || g[0].contado === null));
-
-  /* ── SIN SESIÓN: la demostración conserva su flujo ── */
+  /* ── SIN SESIÓN: la demostración conserva su flujo de propuesta ── */
   const d = montar(false);
   vm.runInContext("window.__montar(false)", d.ctx);
   await esperar(200);
