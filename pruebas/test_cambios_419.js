@@ -10,8 +10,16 @@ const probar = (ok, mensaje) => {
   else { mal++; console.error("✗ " + mensaje); }
 };
 
-probar(/const VERSION = \{ n:"481"/.test(app), "la aplicación debe anunciar v481");
-probar(/const CACHE = "freelance-v355"/.test(sw), "el service worker debe renovar la caché a v346");
+probar(/const VERSION = \{ n:"482"/.test(app), "la aplicación debe anunciar v481");
+probar(/const CACHE = "freelance-v356"/.test(sw), "el service worker debe renovar la caché a v346");
+
+/* DISENO_APP_COLUMNA · con "Sitio para computadoras" (viewport inflado) la app
+   se ve como columna centrada (480px), no estirada; y la puerta (login) queda
+   topada al mismo ancho. Solo diseño; no toca la detección JS de vw-inflado. */
+probar(/:root\.vw-inflado\{--appw:480px\}/.test(app), "en modo escritorio la app debe quedar como columna centrada (480px), no estirada");
+probar(!/:root\.vw-inflado\{--appw:100%\}/.test(app), "el blindaje vw-inflado ya no debe forzar el ancho completo");
+probar(/\.puerta\{max-width:var\(--appw\);margin-left:auto;margin-right:auto\}/.test(app), "el login (.puerta) debe quedar topado y centrado al ancho de la app");
+probar(/raiz\.classList\.toggle\("vw-inflado", inflado\)/.test(app), "la detección JS de vw-inflado NO debe cambiar (innerWidth>700 && screen.width<700)");
 
 probar(/className="busc-grande proveedor-destacado"/.test(app), "el buscador de proveedor debe estar resaltado");
 probar(/items=\{PROVS_PED\} sinLabel value=\{prov\} multiPalabra/.test(app), "el proveedor debe buscar por palabras sueltas");
