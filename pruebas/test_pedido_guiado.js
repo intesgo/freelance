@@ -21,7 +21,7 @@ const html = fs.readFileSync(ruta, "utf-8");
 const jsx = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/)[1];
 const js = R.Babel.transform(jsx, { presets:["react"] }).code;
 
-const ESPERADAS = 28;
+const ESPERADAS = 29;
 let ok = 0, mal = 0;
 const comprobar = (t, c) => { if (c) { ok++; console.log("  ✓ " + t); } else { mal++; console.log("  ✗ " + t); } };
 const esperar = (ms) => new Promise(r => setTimeout(r, ms || 80));
@@ -103,6 +103,9 @@ function montar() {
     /* ¿el buscador de este placeholder está resaltado? halo (boxShadow 4px) + borde 2px */
     window.__buscHalo = function(phSub){ var inp=window.__inp(phSub); if(!inp) return "no"; var bs=(inp.style&&inp.style.boxShadow)||""; return (bs && bs!=="none" && bs.indexOf("4px")>=0) ? "si" : "no"; };
     window.__buscBorde2 = function(phSub){ var inp=window.__inp(phSub); if(!inp) return "no"; var b=(inp.style&&inp.style.border)||""; return b.indexOf("2px")>=0 ? "si" : "no"; };
+    /* DISENO_BUSCADOR_ANGOSTO · ¿el buscador vive dentro de un contenedor con ancho máximo 460? */
+    window.__buscMaxW = function(phSub){ var inp=window.__inp(phSub); if(!inp) return "no"; var n=inp;
+      for(var i=0;i<8 && n && n!==window.__c;i++){ var mw=(n.style&&n.style.maxWidth)||""; if(mw==="460px") return "si"; n=n.parentNode; } return "no"; };
     /* cuántos buscadores están resaltados a la vez (halo de 4px sobre un input) */
     window.__haloCount = function(){ var ins=window.__c.querySelectorAll("input"); var n=0; for(var i=0;i<ins.length;i++){ var bs=(ins[i].style&&ins[i].style.boxShadow)||""; if(bs && bs!=="none" && bs.indexOf("4px")>=0) n++; } return n; };
     /* la columna izquierda del armador (primer hijo de .ped-cols): ¿está vacía? */
@@ -148,6 +151,8 @@ const ring = (m) => corre(m, `window.__ringNums()`);
   await elegirProv(m);
   comprobar("con proveedor y sin producto, el buscador de PRODUCTO está resaltado (halo)", corre(m, `window.__buscHalo("catálogo")`)==="si");
   comprobar("con proveedor y sin producto, solo un buscador resaltado a la vez", corre(m, `window.__haloCount()`) === 1);
+  comprobar("DISENO_BUSCADOR_ANGOSTO · el buscador de PRODUCTO va en una caja de ancho máximo 460 (no de lado a lado)",
+    corre(m, `window.__buscMaxW("catálogo")`)==="si");
 
   /* ── CON PRODUCTO, CANTIDAD VACÍA ── */
   await elegirProd(m); r = ring(m);
