@@ -25,10 +25,15 @@ ok(/case "ofertas":[\s\S]{0,220}case "preciosvig":[\s\S]{0,220}case "propuestas"
 ok(/function PiladorasWeb\(\{ usuario, modo \}\)\{/.test(web), "PiladorasWeb recibe `modo`");
 ok(/const soloPrecios = modo === "precios";/.test(web), "deriva soloPrecios de modo");
 
-/* 5 · en modo precios NO se pintan las pestañas; en el otro SÍ */
-ok(/\{!soloPrecios && \(\s*<div style=\{\{display:"flex",gap:8,margin:"0 2px 14px"\}\}>/.test(web) &&
-   /setSecW\("ficha"\)/.test(web),
-   "las pestañas Ficha/Costos solo se pintan fuera de modo precios");
+/* 5 · PILADORAS_SOLO_FICHA · se quitó la pestaña exterior «Ficha / Costos y precios».
+   En «Piladoras» (soloPrecios=false) se pinta SOLO la Ficha; los costos SOLO en modo
+   Precios (soloPrecios=true), que usa este mismo componente. */
+ok(!/setSecW\("costos"\)/.test(web) && !/setSecW\("ficha"\)/.test(web),
+   "ya no existe la pestaña exterior Ficha/Costos y precios (secW)");
+ok(/FICHA_AGRUPA[\s\S]{0,140}\{!soloPrecios && \(<>/.test(web),
+   "en el módulo Piladoras (sin modo precios) se pinta la Ficha");
+ok(/\{soloPrecios && \(<>\s*\{!lineas\.length/.test(web),
+   "el bloque de costos y precios solo se pinta en modo Precios");
 
 /* 6 · el botón de volver dice «Cambiar piladora» solo en modo precios */
 ok(/soloPrecios\?"‹ Cambiar piladora":"‹ Piladoras"/.test(web), "el botón de volver dice «Cambiar piladora» en modo precios");

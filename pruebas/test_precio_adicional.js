@@ -60,7 +60,7 @@ function montar(rol){
   vm.runInContext(R.reactDev(), ctx); vm.runInContext(R.reactDomDev(), ctx); vm.runInContext(js, ctx);
   vm.runInContext(`
     window.__c = document.createElement("div"); document.body.appendChild(window.__c);
-    ReactDOM.flushSync(function(){ ReactDOM.createRoot(window.__c).render(React.createElement(PiladorasWeb, { usuario:{ rol:${JSON.stringify(rol)}, nombre:"Test" } })); });
+    ReactDOM.flushSync(function(){ ReactDOM.createRoot(window.__c).render(React.createElement(PiladorasWeb, { usuario:{ rol:${JSON.stringify(rol)}, nombre:"Test" }, modo:"precios" })); });
     window.__flush=function(){ ReactDOM.flushSync(function(){}); };
     window.__txt=function(){ return (window.__c&&window.__c.textContent)||""; };
     window.__clickText=function(sub){ var all=window.__c.querySelectorAll("*"); var mejor=null; for(var i=0;i<all.length;i++){ var tx=all[i].textContent||""; if(tx.indexOf(sub)>=0 && (mejor===null||tx.length<(mejor.textContent||"").length)) mejor=all[i]; } if(mejor){ mejor.dispatchEvent(new window.MouseEvent("click",{bubbles:true})); return true; } return false; };
@@ -83,6 +83,9 @@ const run=(ctx,e)=>vm.runInContext(e,ctx);
   const ctx = montar("Freelance");
   await esperar(220); run(ctx,`window.__flush()`);
   run(ctx,`window.__clickText("Piladora Uno")`); await esperar(160); run(ctx,`window.__flush()`);
+  /* PILADORAS_SOLO_FICHA · el editor por marca vive en el módulo «Precios» (modo="precios"),
+     bajo la pestaña «Por marca» (por defecto abre en «Por variedad»). */
+  run(ctx,`window.__clickText("Por marca")`); await esperar(120); run(ctx,`window.__flush()`);
   run(ctx,`window.__clickText("Créd. costo–base")`); await esperar(120); run(ctx,`window.__flush()`);  /* despliega la marca */
 
   comprobar("1 · hay UN solo botón «Editar» por marca (no uno por presentación)",
@@ -140,6 +143,7 @@ const run=(ctx,e)=>vm.runInContext(e,ctx);
   const ctx2 = montar("Contadora");
   await esperar(220); run(ctx2,`window.__flush()`);
   run(ctx2,`window.__clickText("Piladora Uno")`); await esperar(160); run(ctx2,`window.__flush()`);
+  run(ctx2,`window.__clickText("Por marca")`); await esperar(120); run(ctx2,`window.__flush()`);
   run(ctx2,`window.__clickText("Créd. costo–base")`); await esperar(120); run(ctx2,`window.__flush()`);
   comprobar("17 · con rol distinto de Freelance NO se pinta ningún «Editar»",
     run(ctx2,`window.__count('button[data-editar-marca]')`)===0 && run(ctx2,`window.__btnCount("Editar")`)===0);
@@ -148,6 +152,7 @@ const run=(ctx,e)=>vm.runInContext(e,ctx);
   const ctxA = montar("Freelance");
   await esperar(220); run(ctxA,`window.__flush()`);
   run(ctxA,`window.__clickText("Piladora Uno")`); await esperar(160); run(ctxA,`window.__flush()`);
+  run(ctxA,`window.__clickText("Por marca")`); await esperar(120); run(ctxA,`window.__flush()`);
   run(ctxA,`window.__clickText("Créd. costo–base")`); await esperar(120); run(ctxA,`window.__flush()`);
   run(ctxA,`window.__clickSel('button[data-editar-marca]')`); await esperar(120); run(ctxA,`window.__flush()`);
   DB.auditoria.length=0; DB.ofUpd.length=0; DB.ofIns.length=0;
@@ -164,6 +169,7 @@ const run=(ctx,e)=>vm.runInContext(e,ctx);
   const ctxB = montar("Freelance");
   await esperar(220); run(ctxB,`window.__flush()`);
   run(ctxB,`window.__clickText("Piladora Uno")`); await esperar(160); run(ctxB,`window.__flush()`);
+  run(ctxB,`window.__clickText("Por marca")`); await esperar(120); run(ctxB,`window.__flush()`);
   run(ctxB,`window.__clickText("Créd. costo–base")`); await esperar(120); run(ctxB,`window.__flush()`);
   run(ctxB,`window.__clickSel('button[data-editar-marca]')`); await esperar(120); run(ctxB,`window.__flush()`);
   DB.auditoria.length=0;
