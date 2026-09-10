@@ -91,5 +91,20 @@ ok(/fallos\.push\(marca/.test(web) && /Fallaron: \$\{\[\.\.\.new Set\(fallos\)\]
 ok(/from\("precios_variedad"\)[\s\S]{0,320}\}catch\(e\)\{ if\(vivo\) setPrecVar\(\{\}\); \}/.test(web),
    "si precios_variedad no carga, precVar queda vacío y la pantalla sigue funcionando");
 
+/* 18 · DISENO_PRECIOS_TABS · en modo Precios la pantalla se parte en dos pestañas */
+ok(/const \[precTab,setPrecTab\]=useState\("variedad"\)/.test(web),
+   "existe el estado precTab (arranca en «variedad»)");
+ok(/onClick=\{\(\)=>setPrecTab\("variedad"\)\}[\s\S]{0,140}Por variedad<\/button>/.test(web) &&
+   /onClick=\{\(\)=>setPrecTab\("marca"\)\}[\s\S]{0,140}Por marca<\/button>/.test(web),
+   "el conmutador tiene los botones «Por variedad» y «Por marca»");
+ok(/\{soloPrecios && \(\s*<div style=\{\{display:"flex",gap:8/.test(web),
+   "el conmutador SOLO se muestra en modo Precios (soloPrecios)");
+ok(/\{\(!soloPrecios \|\| precTab==="variedad"\) && granos\["Arroz"\] && \(/.test(web),
+   "el bloque «Por variedad» se muestra en modo Piladoras o en la pestaña variedad");
+ok(/\{\(!soloPrecios \|\| precTab==="variedad"\) && !soloLectura && granos\["Arroz"\] && \(\(\)=>\{ const nSin=pidsSinVariedad/.test(web),
+   "el chip «Sin variedad» va con el bloque de variedad");
+ok(/\{\(!soloPrecios \|\| precTab==="marca"\) && lineas\.map\(ln=>\{/.test(web),
+   "el bloque «Por marca» se muestra en modo Piladoras o en la pestaña marca");
+
 if(m){ console.error(`PRECIO-VARIEDAD: ${b} ✓ · ${m} ✗`); process.exit(1); }
 console.log(`PRECIO-VARIEDAD: ${b} ✓ · 0 ✗`);
