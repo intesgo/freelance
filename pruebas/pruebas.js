@@ -112,6 +112,7 @@ const PLAN = [
   { arnes:"test_precios_solo_freelance.js", que:"Solo el Freelance mueve precios (web solo lectura; proveedor sin captura de costo)", apps:[null] },
   { arnes:"test_modulo_precios.js",  que:"Módulo «Precios» (PiladorasWeb modo=precios: directo a costos, recuerda piladora)", apps:[null] },
   { arnes:"test_precio_variedad.js", que:"Precio por variedad y piladora: la diferencia se propaga a cada marca", apps:[null] },
+  { arnes:"test_arrocillo.js",       que:"DISENO_ARROCILLO: clasificación dinámica del arrocillo (familia A01, 5 desplegables, busca-o-crea con RPC, panel de administración)", apps:[null] },
   { arnes:"test_base_pct.js",        que:"Base = Costo + % y el guardar del mismo día (ambas apps)", apps:[null] },
   { arnes:"test_precio_una_puerta.js", que:"El costo/base se versiona por UNA sola puerta (Piladoras, ficha, alza en bloque)", apps:[null] },
   { arnes:"test_punto2.js",          que:"Piladoras: sin leyenda, fecha en la tarjeta, historial y Antes→Ahora", apps:[null] },
