@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"246", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el modal «Variedad» ahora es de dos pasos: primero eliges «Arroz» (familias y niveles de siempre) o «Arrocillo» (5 desplegables: tipo, proceso, estado, destino, calidad); abajo se ve el nombre que quedará y «Guardar variante» crea o reutiliza la variante. El arrocillo ya se ve con su nombre comercial en la lista de marcas. Se conserva el panel «Variantes de arrocillo» del Catálogo. El arroz no cambia en nada." };
+const VERSION = { n:"247", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el modal «Variedad» quedó más claro: título con la marca y un chip «Actual: …»; el «¿Qué es?» pasó a un botón bajo Arroz/Arrocillo; un solo botón «Guardar» en los dos modos; «Sin clasificar» apartado a la izquierda; al abrir un producto ya clasificado salta a la opción marcada; y en Arrocillo aparecen chips de las variantes usadas recientemente para llenar los 5 de un toque. El arroz no cambia en nada." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -10750,9 +10750,11 @@ function PiladorasWeb({ usuario, modo }){
      elegir/crear en el modal; TODAS para decodificar el nombre comercial en la lista. */
   const [arrocVars,setArrocVars]=useState([]);
   const [tgModo,setTgModo]=useState("arroz");  // paso 1 del modal Variedad: "arroz" | "arrocillo"
+  const [tgArrozSel,setTgArrozSel]=useState(""); // el código de arroz marcado (se confirma con «Guardar»)
   const [arrSel,setArrSel]=useState({});       // los 5 desplegables del arrocillo en el modal
   const [arrBusy,setArrBusy]=useState(false);
   const [arrMsg,setArrMsg]=useState(null);
+  const tgMarkRef=React.useRef(null);          // botón de arroz marcado (para el autoscroll al abrir)
   const [qMarca,setQMarca]=useState("");       // buscador de marcas dentro de la piladora (uFuzzy)
   const [abiertas,setAbiertas]=useState({});   // prodId -> true: la marca está desplegada (detalle diferido)
   const [rucWeb,setRucWeb]=useState("");       // RUC de la piladora abierta (proveedor_fichas.ruc)
@@ -10903,7 +10905,7 @@ function PiladorasWeb({ usuario, modo }){
         window.supa.from("proveedores").select("prov_cod,nombre"),
         /* DISENO_ARROCILLO · variantes A01 (activas e inactivas) para clasificar y decodificar */
         window.supa.from("grano_variedades")
-          .select("variedad_cod,nombre,activo,arr_tipo,arr_proceso,arr_estado,arr_destino,arr_calidad")
+          .select("variedad_cod,nombre,activo,creado,arr_tipo,arr_proceso,arr_estado,arr_destino,arr_calidad")
           .eq("familia_cod","A01"),
       ]);
       const pi={}, nv={};
@@ -11008,6 +11010,11 @@ function PiladorasWeb({ usuario, modo }){
      (arrocVars), no con las constantes de arroz (que solo entienden C09/L11/F14). */
   const esArrocCod=(cod)=>String(cod||"").slice(0,3)===ARROCILLO_FAM;
   const arrocDe=(cod)=>arrocVars.find(v=>v.variedad_cod===cod)||null;
+  /* DISENO_ARROCILLO · «usados recientemente»: las variantes A01 ACTIVAS más nuevas (por creado). */
+  const arrocRecientes=React.useMemo(()=>arrocVars.filter(v=>v.activo!==false)
+    .slice().sort((a,b)=>String(b.creado||"").localeCompare(String(a.creado||""))).slice(0,3),[arrocVars]);
+  /* autoscroll: al abrir un producto ya clasificado, llevar la opción marcada a la vista */
+  React.useEffect(()=>{ if(tgSel && tgMarkRef.current){ try{ tgMarkRef.current.scrollIntoView({block:"center"}); }catch(_){}} },[tgSel,tgModo]);
   const variedadDesc=(cod)=> esArrocCod(cod) ? ((arrocDe(cod)||{}).nombre || "Arrocillo") : ((VARIEDADES_GRANO.find(v=>v.cod===cod)||{}).desc||cod);
   const familiaDescDe=(cod)=>(FAMILIAS_GRANO.find(f=>f.cod===String(cod||"").slice(0,3))||{}).desc||"";
   /* marcas (pids) de ESTA piladora colgadas de una variedad */
@@ -11105,9 +11112,9 @@ function PiladorasWeb({ usuario, modo }){
        con sus 5 valores precargados; si no, en Arroz. El dueño puede cambiar de paso. */
     const cod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
     if(esArrocCod(cod)){ const av=arrocDe(cod);
-      setTgModo("arrocillo");
+      setTgModo("arrocillo"); setTgArrozSel("");
       setArrSel(av?{tipo:av.arr_tipo,proceso:av.arr_proceso,estado:av.arr_estado,destino:av.arr_destino,calidad:av.arr_calidad}:{});
-    } else { setTgModo("arroz"); setArrSel({}); }
+    } else { setTgModo("arroz"); setArrSel({}); setTgArrozSel(cod); }
     setArrMsg(null); setArrBusy(false);
     if(!avisoMultiRef.current){ const n=piladorasDeMarca(pid); if(n>1){ avisoMultiRef.current=true;
       setAvisoMulti(`Esta marca la venden ${n} piladoras; la variedad es la misma para todas.`); } } };
@@ -11532,53 +11539,72 @@ function PiladorasWeb({ usuario, modo }){
       {tgSel && (()=>{
         const actual=(prodInfo[tgSel]&&prodInfo[tgSel].tipoGrano)||"";
         const nombreMarca=(prodInfo[tgSel]&&prodInfo[tgSel].marca)||tgSel;
-        const seg=(on)=>({flex:1,padding:"12px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:800,fontFamily:"inherit",fontSize:14,background:on?"#2E7D52":"#f3f5f7",color:on?"#fff":"#333"});
+        const actualTxt = actual ? variedadDesc(actual) : "Sin clasificar";
+        const seg=(on)=>({flex:1,padding:"8px 12px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:800,fontFamily:"inherit",fontSize:13.5,background:on?"#2E7D52":"#f3f5f7",color:on?"#fff":"#333"});
+        const puedeGuardar = tgModo==="arroz" ? !!tgArrozSel : arrocilloCompleto(arrSel);
+        const guardar = async ()=>{
+          if(tgModo==="arroz"){ if(!tgArrozSel) return; await guardarTipoGrano(tgSel,tgArrozSel); setTgSel(null); return; }
+          setArrMsg(null); setArrBusy(true); const r=await arrocilloResolver(arrSel); setArrBusy(false);
+          if(!r.ok){ setArrMsg(r.error); return; }
+          if(r.creada){ setArrocVars(prev=>[...prev,{variedad_cod:r.cod,nombre:r.nombre,activo:true,creado:new Date().toISOString(),arr_tipo:arrSel.tipo,arr_proceso:arrSel.proceso,arr_estado:arrSel.estado,arr_destino:arrSel.destino,arr_calidad:arrSel.calidad}]); }
+          await guardarTipoGrano(tgSel,r.cod); setTgSel(null);
+        };
         return (
         <div onClick={()=>setTgSel(null)}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px",maxWidth:440,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
-            <h3 style={{margin:"0 0 4px"}}>Variedad{actual?(" · "+variedadDesc(actual)):""}</h3>
-            <div style={{...S.meta,margin:"0 0 12px"}}>{nombreMarca}</div>
-            {/* PASO 1 · ¿Qué es? */}
-            <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>¿Qué es?</div>
+            {/* ENCABEZADO · icono + marca + chip «Actual: …» (sin repetir la opción marcada) */}
+            <h3 style={{margin:"0 0 5px",display:"flex",alignItems:"center",gap:8}}><span>🌾</span>{nombreMarca}</h3>
+            <div style={{marginBottom:12}}><span style={{fontSize:11.5,fontWeight:700,color:"#8A8578",background:"#f3f5f7",borderRadius:7,padding:"3px 9px"}}>Actual: {actualTxt}</span></div>
+            {/* PASO 1 · ¿Qué es? (toggle segmentado, bajo) */}
             <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <button onClick={()=>setTgModo("arroz")} style={seg(tgModo==="arroz")}>Arroz</button>
+              <button onClick={()=>setTgModo("arroz")} style={seg(tgModo==="arroz")}>{tgModo==="arroz"?"✓ ":""}Arroz</button>
               <button onClick={()=>setTgModo("arrocillo")} style={seg(tgModo==="arrocillo")}>{tgModo==="arrocillo"?"✓ ":""}Arrocillo</button>
             </div>
 
             {tgModo==="arroz" ? (
-              /* PASO 2A · Arroz (igual que siempre) */
+              /* PASO 2A · Arroz: se MARCA la variedad; «Guardar» la confirma (mismo dato de siempre) */
               FAMILIAS_GRANO.map(fam=>(
                 <div key={fam.cod} style={{marginBottom:12}}>
                   <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>{fam.desc}</div>
                   <div style={{display:"flex",gap:8}}>
-                    {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=actual===cod; return (
-                      <button key={cod} onClick={()=>{ guardarTipoGrano(tgSel,cod); setTgSel(null); }}
+                    {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=tgArrozSel===cod; return (
+                      <button key={cod} ref={on?tgMarkRef:null} onClick={()=>setTgArrozSel(cod)}
                         style={{flex:1,padding:"9px 6px",borderRadius:10,border:on?"2px solid #2E7D52":"1px solid #D8D2C4",background:on?"#F5F9F6":"#fff",fontWeight:on?800:600,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>{niv.n}</button>
                     ); })}
                   </div>
                 </div>
               ))
             ) : (
-              /* PASO 2B · Arrocillo (5 desplegables → busca-o-crea) */
+              /* PASO 2B · Arrocillo · chips recientes + 5 desplegables → busca-o-crea */
               <div style={{marginBottom:6}}>
+                {arrocRecientes.length>0 && (
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#8A8578",marginBottom:6}}>Usados recientemente</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {arrocRecientes.map(v=>(
+                        <button key={v.variedad_cod} onClick={()=>setArrSel({tipo:v.arr_tipo,proceso:v.arr_proceso,estado:v.arr_estado,destino:v.arr_destino,calidad:v.arr_calidad})}
+                          style={{border:"1px solid #D8D2C4",background:"#fff",borderRadius:999,padding:"6px 11px",fontSize:11.5,fontWeight:700,color:"#3a8262",cursor:"pointer",fontFamily:"inherit"}}>{v.nombre}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <ArrocilloCampos vals={arrSel} setVals={setArrSel} disabled={arrBusy}/>
-                <div style={{fontSize:12.5,color:arrocilloCompleto(arrSel)?"#1F5E3D":"#8A8578",margin:"10px 0 0"}}>
+                <div style={{fontSize:12.5,color:arrocilloCompleto(arrSel)?"#1F5E3D":"#8A8578",background:arrocilloCompleto(arrSel)?"#E4F1E9":"#f3f5f7",borderRadius:8,padding:"8px 10px",margin:"10px 0 0"}}>
                   Quedará: <b>{arrocilloCompleto(arrSel)?arrocilloNombre(arrSel):"elige los 5 campos"}</b></div>
                 {arrMsg && <div style={{fontSize:12,fontWeight:700,color:"#C0392B",marginTop:6}}>{arrMsg}</div>}
               </div>
             )}
 
-            <div style={{display:"flex",gap:10,marginTop:12}}>
-              <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Sin clasificar</button>
-              {tgModo==="arrocillo"
-                ? <button disabled={arrBusy||!arrocilloCompleto(arrSel)}
-                    onClick={async()=>{ setArrMsg(null); setArrBusy(true); const r=await arrocilloResolver(arrSel); setArrBusy(false);
-                      if(!r.ok){ setArrMsg(r.error); return; }
-                      if(r.creada){ setArrocVars(prev=>[...prev,{variedad_cod:r.cod,nombre:r.nombre,activo:true,arr_tipo:arrSel.tipo,arr_proceso:arrSel.proceso,arr_estado:arrSel.estado,arr_destino:arrSel.destino,arr_calidad:arrSel.calidad}]); }
-                      await guardarTipoGrano(tgSel,r.cod); setTgSel(null); }}
-                    style={{...S.btn(arrocilloCompleto(arrSel)?"#2E7D52":"#bcc6cf"),flex:1,cursor:arrocilloCompleto(arrSel)?"pointer":"not-allowed"}}>{arrBusy?"Guardando…":"Guardar variante"}</button>
-                : <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cerrar</button>}
+            {/* PIE · «Sin clasificar» apartado a la izquierda (tenue); Cancelar / Guardar a la derecha */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:14}}>
+              <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }}
+                style={{border:"none",background:"none",color:"#8A8578",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:"6px 2px"}}>Sin clasificar</button>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),border:"1px solid #D8D2C4"}}>Cancelar</button>
+                <button disabled={arrBusy||!puedeGuardar} onClick={guardar}
+                  style={{...S.btn(puedeGuardar?"#2E7D52":"#bcc6cf"),cursor:puedeGuardar?"pointer":"not-allowed"}}>{arrBusy?"Guardando…":"Guardar"}</button>
+              </div>
             </div>
           </div>
         </div>);
