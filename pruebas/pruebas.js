@@ -115,6 +115,7 @@ const PLAN = [
   { arnes:"test_arrocillo.js",       que:"DISENO_ARROCILLO: clasificación dinámica del arrocillo (familia A01, 5 desplegables, busca-o-crea con RPC, panel de administración)", apps:[null] },
   { arnes:"test_arrocillo_app.js",   que:"DISENO_ARROCILLO (app del dueño): modal Variedad de dos pasos, decodificar A01, panel de administración por window.SB", apps:[null] },
   { arnes:"test_base_pct.js",        que:"Base = Costo + % y el guardar del mismo día (ambas apps)", apps:[null] },
+  { arnes:"test_precio_adicional.js", que:"DISENO_PRECIO_ADICIONAL: un solo editor por marca; el quintal es la base y las demás presentaciones se capturan como «adicional» $/quintal (precio = (quintal+adicional)×equiv)", apps:[null] },
   { arnes:"test_precio_una_puerta.js", que:"El costo/base se versiona por UNA sola puerta (Piladoras, ficha, alza en bloque)", apps:[null] },
   { arnes:"test_punto2.js",          que:"Piladoras: sin leyenda, fecha en la tarjeta, historial y Antes→Ahora", apps:[null] },
   { arnes:"test_tipo_grano.js",      que:"Piladoras: variedades de grano (tipo_grano) en ambas apps", apps:[null] },

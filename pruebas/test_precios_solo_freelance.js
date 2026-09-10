@@ -17,8 +17,8 @@ ok(/const esFreelancePil = usuario && usuario\.rol === "Freelance";/.test(web) &
 
 /* 2 · en solo lectura sale el chip y NO se pinta «✎ Editar» */
 ok(/Solo lectura · los precios los mueve el freelance/.test(web), "sale el chip «Solo lectura»");
-ok(/\{!enEd && !soloLectura && <button onClick=\{\(\)=>\{ setEdit\(o\.ofertaId\)/.test(web),
-   "el botón «✎ Editar» de una oferta no se pinta en solo lectura");
+ok(/\{!soloLectura && edit!==pid && <button data-editar-marca=\{pid\} onClick=\{\(e\)=>\{ e\.stopPropagation\(\); abrirEditarMarca\(pid\); \}\}/.test(web),
+   "el botón «✎ Editar» de la marca no se pinta en solo lectura (DISENO_PRECIO_ADICIONAL: un solo Editar por marca)");
 
 /* 3 · en solo lectura no se ofrece «Ajustar por grano» */
 ok(/\{!soloLectura && <button onClick=\{\(\)=>setAjuste\(\{linea:ln/.test(web),
