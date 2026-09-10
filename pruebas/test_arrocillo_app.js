@@ -51,8 +51,10 @@ c("Ficha · guardarGranoCod escribe productos.tipo_grano por window.SB (cualquie
   /const guardarGranoCod = async \(cod\) =>[\s\S]{0,140}window\.SB\.from\("productos"\)\.update\(\{tipo_grano:cod\|\|null\}\)/.test(app));
 c("modal · sin clasificar, adivina el modo por el nombre de la marca (evita el error humano)",
   /const initModo = esArroc\(actual\) \? "arrocillo"[\s\S]{0,120}String\(nombreMarca\|\|""\)\.toLowerCase\(\)\.includes\("arrocillo"\)\) \? "arrocillo" : "arroz"/.test(app));
-c("panel de administración de variantes montado (AdminArrocilloSB)",
-  /function AdminArrocilloSB/.test(app) && /<AdminArrocilloSB arrocVars=\{arrocVars\} recargar=\{cargar\} \/>/.test(app));
+/* PRODUCTOS_SIN_PANEL_ARROCILLO · el panel ya NO se renderiza en la pantalla de costos;
+   el componente sigue definido y la creación vive en el modal de clasificar. */
+c("el componente AdminArrocilloSB sigue definido pero YA NO se renderiza",
+  /function AdminArrocilloSB/.test(app) && !/<AdminArrocilloSB arrocVars=\{arrocVars\} recargar=\{cargar\} \/>/.test(app));
 
 if (mal) { console.error(`ARROCILLO-APP: ${ok} ✓ · ${mal} ✗`); process.exit(1); }
 console.log(`ARROCILLO-APP: ${ok} ✓ · 0 ✗`);

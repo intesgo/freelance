@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"251", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el editor de precios por marca separa claramente CONTADO y CRÉDITO (con encabezados), los campos de llenar quedan más angostos (número a la derecha) y el atajo «Base = Costo + %» ahora es DOS porcentajes editables, uno por columna: cambiar el de contado no toca el de crédito. Solo diseño: no cambia el guardado, ni el cálculo de las demás presentaciones, ni la propagación por diferencia." };
+const VERSION = { n:"252", fecha:"10 sep 2026", desc:"Productos (Sistema Web) · se quitó el recuadro «Variantes de arrocillo» de la pantalla Productos: ya no estorba arriba del listado. Las variantes de arrocillo se siguen creando desde el modal de clasificar, igual que antes. Además, con un proveedor elegido, el buscador «Buscar producto» quedó debajo del nombre del proveedor y a lo ancho (antes iba apretado a la derecha); se ve mejor en el celular. «Cambiar proveedor» y «+ Nuevo producto» siguen junto a la tarjeta del proveedor." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8394,8 +8394,11 @@ function CatalogoWeb({ usuario }) {
       {avisoOk && (
         <div style={{ position:"fixed", top:80, left:"50%", transform:"translateX(-50%)", background:COLOR.teal, color:"#fff", padding:"11px 22px", borderRadius:999, fontSize:14, fontWeight:700, boxShadow:"0 8px 24px rgba(0,0,0,.2)", zIndex:100 }}>{avisoOk}</div>
       )}
-      {/* DISENO_ARROCILLO · administración de variantes de arrocillo (solo Freelance) */}
-      <AdminArrocillo variedades={VARIEDADES_OK} recargar={cargarGrano} usuario={usuario} />
+      {/* DISENO_ARROCILLO · el panel «Variantes de arrocillo» se quitó de Productos
+          (PRODUCTOS_SIN_PANEL_ARROCILLO). Las variantes se siguen creando desde el
+          modal de clasificar, que usa las mismas RPC (arrocillo_crear_variante /
+          arrocillo_activar_variante). El componente AdminArrocillo queda definido
+          pero ya no se renderiza aquí. */}
       {/* DISENO_CAT_BARRA · sin proveedor → estado vacío grande; con proveedor → tarjeta «Proveedor actual» */}
       {!provSel && (
         <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:16, background:COLOR.card, padding:"26px 22px", textAlign:"center", marginBottom:14 }}>
@@ -8427,27 +8430,31 @@ function CatalogoWeb({ usuario }) {
           })()}
         </div>
       )}
+      {/* DISENO_CAT_BUSCADOR_ABAJO · el proveedor actual y «+ Nuevo producto» arriba;
+          el buscador de producto debajo, a lo ancho (mejor en el celular). */}
       {provSel && (
-        <div style={{ display:"flex", gap:14, alignItems:"stretch", flexWrap:"wrap", marginBottom:12 }}>
-          <div style={{ flex:"1 1 260px", border:`1px solid ${COLOR.teal}`, background:COLOR.tealLight, borderRadius:14, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
-            <div style={{ minWidth:0 }}>
-              <p style={{ fontSize:10.5, fontWeight:800, letterSpacing:".05em", color:COLOR.tealDark, margin:0, textTransform:"uppercase" }}>Proveedor actual</p>
-              <p style={{ fontSize:16, fontWeight:800, color:COLOR.tealDark, margin:"2px 0 0", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{provSel}</p>
-              <p style={{ fontSize:12.5, color:COLOR.muted, margin:"3px 0 0" }}>
-                {productosDelProv.length} productos · {productosDelProv.reduce((s,p)=>s+(presPorProd[p.id]||0),0)} presentaciones
-              </p>
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", gap:12, alignItems:"center", flexWrap:"wrap", marginBottom:12 }}>
+            <div style={{ flex:"1 1 260px", border:`1px solid ${COLOR.teal}`, background:COLOR.tealLight, borderRadius:14, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+              <div style={{ minWidth:0 }}>
+                <p style={{ fontSize:10.5, fontWeight:800, letterSpacing:".05em", color:COLOR.tealDark, margin:0, textTransform:"uppercase" }}>Proveedor actual</p>
+                <p style={{ fontSize:16, fontWeight:800, color:COLOR.tealDark, margin:"2px 0 0", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{provSel}</p>
+                <p style={{ fontSize:12.5, color:COLOR.muted, margin:"3px 0 0" }}>
+                  {productosDelProv.length} productos · {productosDelProv.reduce((s,p)=>s+(presPorProd[p.id]||0),0)} presentaciones
+                </p>
+              </div>
+              <button onClick={()=>{ setProvSel(""); setProvTexto(""); setBusca(""); }}
+                style={{ border:`1px solid ${COLOR.tealDark}`, background:"#fff", color:COLOR.tealDark, borderRadius:10, padding:"9px 13px", fontSize:12.5, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Cambiar proveedor</button>
             </div>
-            <button onClick={()=>{ setProvSel(""); setProvTexto(""); setBusca(""); }}
-              style={{ border:`1px solid ${COLOR.tealDark}`, background:"#fff", color:COLOR.tealDark, borderRadius:10, padding:"9px 13px", fontSize:12.5, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Cambiar proveedor</button>
+            {!soloLectura && <button onClick={()=>setModalNuevo(true)} style={{ padding:"11px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700, whiteSpace:"nowrap" }}>+ Nuevo producto</button>}
           </div>
-          <div style={{ flex:"1 1 260px" }}>
+          <div>
             <label style={{ fontSize:12, fontWeight:700, color:COLOR.text, display:"block", marginBottom:6 }}>Buscar producto</label>
             <BuscadorPredictivo cat="productos" items={productosDelProv} value={busca}
               placeholder={"Buscar dentro de "+provSel+"… (nombre, marca, código o variedad)"}
               label={p=>p.ic+"  "+p.nombre} sub={p=>p.linea}
               onText={t=>setBusca(t)} onPick={p=>setBusca(p.nombre)} />
           </div>
-          {!soloLectura && <button onClick={()=>setModalNuevo(true)} style={{ alignSelf:"flex-end", padding:"11px 18px", borderRadius:10, border:"none", background:COLOR.teal, color:"#fff", cursor:"pointer", fontSize:14, fontWeight:700, whiteSpace:"nowrap" }}>+ Nuevo producto</button>}
         </div>
       )}
 
