@@ -6390,7 +6390,7 @@ const ORDEN_TIPO_SOL=["precio","credito","descuento","nc","devolucion","posfecha
    donde el flujo permite elegir la factura y los ítems exactos. */
 const TIPOS_SOL_NUEVOS=["precio","credito","posfechar","muestras","otro"];
 /* ── VERSIÓN (único lugar donde se cambia; lo leen el chip del encabezado y el drawer) ── */
-const VERSION = { n:"486", fecha:"10 sep 2026", desc:"Arrocillo · el modal «Variedad» se rediseñó (más claro y bonito): íconos redondos por sección, tarjetas grandes Arroz/Arrocillo con su check, opciones con radio, botón × para cerrar y pie con «Sin clasificar / Cancelar / Guardar». Además se abre solo en el modo correcto: si el producto aún no está clasificado y la marca se llama «Arrocillo …», arranca directo en Arrocillo; el resto en Arroz. Aplica en Costos y precios y en la ficha de marca. Evita clasificar un arrocillo como arroz por descuido." };
+const VERSION = { n:"487", fecha:"10 sep 2026", desc:"Piladoras · el editor de precios separa CONTADO y CRÉDITO (con encabezados), los campos quedan más angostos (número a la derecha) y el atajo «Base = Costo + %» ahora es dos porcentajes editables, uno por columna (independientes). Solo diseño: no cambia el guardado ni el cálculo." };
 
 const ESTADO_SOL={
   borrador:  {t:"Borrador",           col:"#6B7280", bg:"#EFF1F3"},
@@ -23585,6 +23585,9 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
   const [prodInfo,setProdInfo]=useState({});    // prod_id -> {nombre, marca, linea}
   const [edit,setEdit]=useState(null);          // oferta_id en edición por celda/fila
   const [form,setForm]=useState(null);          // {costoCont,costoCred,baseCont,baseCred}
+  /* DISENO_BASE_CALCULO_2COL · % editable por columna para «Base = Costo + %» (contado y crédito separados) */
+  const [pctCont,setPctCont]=useState(String(BASE_PCT_SOBRE_COSTO));
+  const [pctCred,setPctCred]=useState(String(BASE_PCT_SOBRE_COSTO));
   const [guardando,setGuardando]=useState(false);
   const [excluidas,setExcluidas]=useState({});  // prod_id -> true: el ajuste por grano la salta
   const [ajuste,setAjuste]=useState(null);      // {linea,campo,modo,signo,valor}
@@ -23868,7 +23871,7 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                   <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
                     <span style={{fontSize:14,fontWeight:800}}>{o.presentacion||o.pres_cod}</span>
                     {!enEd && <button className="mini-link" style={{fontSize:12.5,fontWeight:700}}
-                      onClick={()=>{ setEdit(o.oferta_id); setForm({costoCont:o.costo_contado!=null?o.costo_contado:"",costoCred:o.costo!=null?o.costo:"",baseCont:o.precio_contado!=null?o.precio_contado:"",baseCred:o.precio_credito!=null?o.precio_credito:""}); }}>✎ Editar</button>}
+                      onClick={()=>{ setEdit(o.oferta_id); setPctCont(String(BASE_PCT_SOBRE_COSTO)); setPctCred(String(BASE_PCT_SOBRE_COSTO)); setForm({costoCont:o.costo_contado!=null?o.costo_contado:"",costoCred:o.costo!=null?o.costo:"",baseCont:o.precio_contado!=null?o.precio_contado:"",baseCred:o.precio_credito!=null?o.precio_credito:""}); }}>✎ Editar</button>}
                   </div>
                   {!enEd ? (
                     <div style={{marginTop:8}}>
@@ -23893,21 +23896,36 @@ function CostosPreciosPiladora({provCod, provNombre, usuario, toast}){
                     </div>
                   ) : (
                     <div style={{marginTop:8}}>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                        {[["Costo contado","costoCont"],["Costo crédito","costoCred"],["Base contado","baseCont"],["Base crédito","baseCred"]].map(([lbl,k])=>(
-                          <div key={k}>
-                            <label className="meta" style={{fontSize:9.5,display:"block",marginBottom:2}}>{lbl}</label>
-                            <input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}
-                              style={{width:"100%",boxSizing:"border-box",padding:"8px 9px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:13,background:"var(--card)"}}/>
+                      {/* DISENO_BASE_CALCULO_2COL · CONTADO y CRÉDITO separados (encabezados), campos angostos, % editable por columna */}
+                      {(()=>{ const inpNum={width:"100%",maxWidth:140,boxSizing:"border-box",padding:"8px 9px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:13,background:"var(--card)",textAlign:"right",marginLeft:"auto",display:"block"};
+                        const HC={fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800};
+                        const HR={fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800,color:"#8A5A00"};
+                        const inpF=(k)=><input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={inpNum}/>;
+                        const pctInp={width:56,maxWidth:56,boxSizing:"border-box",padding:"8px 9px",borderRadius:8,border:"1px solid var(--line)",fontFamily:"inherit",fontSize:13,background:"var(--card)",textAlign:"right"};
+                        const pctBtn={padding:"7px 9px",borderRadius:8,border:"1px dashed var(--field)",background:"var(--card)",color:"var(--field)",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:11.5,whiteSpace:"nowrap"};
+                        return (<>
+                        <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center"}}>
+                          <div/>
+                          <div className="meta" style={HC}>Contado</div>
+                          <div style={HR}>Crédito</div>
+                          <div className="meta" style={{fontSize:12}}>Costo</div>
+                          {inpF("costoCont")}{inpF("costoCred")}
+                          <div className="meta" style={{fontSize:12}}>Base</div>
+                          {inpF("baseCont")}{inpF("baseCred")}
+                        </div>
+                        {/* dos «Base = Costo + %» EDITABLES, uno por columna (independientes) */}
+                        <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center",marginTop:8}}>
+                          <div className="meta" style={{fontSize:11}}>Base = Costo + %</div>
+                          <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center"}}>
+                            <input inputMode="decimal" value={pctCont} onChange={e=>setPctCont(e.target.value)} style={pctInp}/>
+                            <button onClick={()=>setForm(f=>({...f, baseCont:baseDesdeCosto(num(f.costoCont),num(pctCont)) }))} style={pctBtn}>Aplicar</button>
                           </div>
-                        ))}
-                      </div>
-                      {/* atajo: pone la Base = Costo + un % (arranca en BASE_PCT_SOBRE_COSTO) */}
-                      <button onClick={()=>setForm(f=>({...f,
-                        baseCont:baseDesdeCosto(num(f.costoCont),BASE_PCT_SOBRE_COSTO),
-                        baseCred:baseDesdeCosto(num(f.costoCred),BASE_PCT_SOBRE_COSTO) }))}
-                        style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px dashed var(--field)",background:"var(--card)",color:"var(--field)",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12}}>
-                        Base = Costo + {BASE_PCT_SOBRE_COSTO}%</button>
+                          <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center"}}>
+                            <input inputMode="decimal" value={pctCred} onChange={e=>setPctCred(e.target.value)} style={pctInp}/>
+                            <button onClick={()=>setForm(f=>({...f, baseCred:baseDesdeCosto(num(f.costoCred),num(pctCred)) }))} style={pctBtn}>Aplicar</button>
+                          </div>
+                        </div>
+                        </>); })()}
                       {/* ANTES_AHORA: lo que cambia, para confirmar antes de guardar */}
                       {(()=>{ const keep=(v,old)=>{ const n=num(v); return (n!=null&&n>0)?n:old; };
                         const filas=[["Costo cont",o.costo_contado,keep(form.costoCont,o.costo_contado)],

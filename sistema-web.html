@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"250", fecha:"10 sep 2026", desc:"Catálogo (Sistema Web) · el modal «Asignar / Replicar piladoras» ya no bota el botón fuera de la pantalla: ahora se arma en tres zonas (cabecera fija arriba, la lista de piladoras con scroll en el medio, y el botón Guardar SIEMPRE visible abajo). Con muchas piladoras el modal se topa a la altura de la pantalla y se desliza por dentro. De paso, todos los demás modales del Sistema Web y de la app del proveedor quedaron topados igual, para que ninguno bote su botón fuera de vista." };
+const VERSION = { n:"251", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el editor de precios por marca separa claramente CONTADO y CRÉDITO (con encabezados), los campos de llenar quedan más angostos (número a la derecha) y el atajo «Base = Costo + %» ahora es DOS porcentajes editables, uno por columna: cambiar el de contado no toca el de crédito. Solo diseño: no cambia el guardado, ni el cálculo de las demás presentaciones, ni la propagación por diferencia." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -10802,6 +10802,9 @@ function PiladorasWeb({ usuario, modo }){
   const [pvResumen,setPvResumen]=useState("");  // «28 de 28 marcas actualizadas» / lista de fallos
   const [soloSinVar,setSoloSinVar]=useState(false); // filtro «Sin variedad (N)» para clasificar
   const [avisoMulti,setAvisoMulti]=useState("");    // aviso «esta marca la venden N piladoras» (una vez por sesión)
+  /* DISENO_BASE_CALCULO_2COL · % editable por columna para «Base = Costo + %» (contado y crédito separados) */
+  const [pctCont,setPctCont]=useState(String(BASE_PCT_SOBRE_COSTO));
+  const [pctCred,setPctCred]=useState(String(BASE_PCT_SOBRE_COSTO));
   const avisoMultiRef=React.useRef(false);      // el aviso «esta marca la venden N piladoras» sale una vez por sesión
   const r2=n=>Math.round((Number(n)||0)*100)/100;
   const r4=n=>Math.round((Number(n)||0)*10000)/10000;
@@ -10997,6 +11000,7 @@ function PiladorasWeb({ usuario, modo }){
       } : { costo:"0", base:"0" };
     });
     setOkMarca(""); setEdit(pid);
+    setPctCont(String(BASE_PCT_SOBRE_COSTO)); setPctCred(String(BASE_PCT_SOBRE_COSTO));   // DISENO_BASE_CALCULO_2COL · % arranca en 12 por columna
     setForm({ costoCont:ofBase.costoContado, costoCred:ofBase.costo, baseCont:ofBase.contado, baseCred:ofBase.credito, adic });
     setAbiertas(s=>({...s,[pid]:true}));
   };
@@ -11451,25 +11455,40 @@ function PiladorasWeb({ usuario, modo }){
                 }
                 /* EN EDICIÓN · un solo editor para toda la marca */
                 return (<>
-                  {/* QUINTAL · base de cálculo (cuatro campos + atajo Base = Costo + %) */}
+                  {/* QUINTAL · base de cálculo · CONTADO y CRÉDITO separados (encabezados), con % editable por columna.
+                     DISENO_BASE_CALCULO_2COL · campos angostos (número a la derecha). */}
                   <div style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
                     <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}}>
                       <b style={{fontSize:14}}>{ofBase.presentacion||ofBase.presCod}</b>
                       <span style={{...S.meta,fontSize:10.5}}>· base de cálculo</span>
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      {[["Costo contado","costoCont"],["Costo crédito","costoCred"],["Base contado","baseCont"],["Base crédito","baseCred"]].map(([lbl,k])=>(
-                        <div key={k}>
-                          <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>{lbl}</label>
-                          <input data-q={k} inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={S.inp}/>
+                    {(()=>{ const inpNum={...S.inp,maxWidth:140,textAlign:"right",marginLeft:"auto",display:"block"};
+                      const HC={...S.meta,fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800};
+                      const HR={fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800,color:"#8A5A00"};
+                      const inpF=(k)=><input data-q={k} inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={inpNum}/>;
+                      return (<>
+                      <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center"}}>
+                        <div/>
+                        <div style={HC}>Contado</div>
+                        <div style={HR}>Crédito</div>
+                        <div style={{...S.meta,fontSize:12}}>Costo</div>
+                        {inpF("costoCont")}{inpF("costoCred")}
+                        <div style={{...S.meta,fontSize:12}}>Base</div>
+                        {inpF("baseCont")}{inpF("baseCred")}
+                      </div>
+                      {/* dos «Base = Costo + %» EDITABLES, uno por columna (independientes) */}
+                      <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center",marginTop:8}}>
+                        <div style={{...S.meta,fontSize:11}}>Base = Costo + %</div>
+                        <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center"}}>
+                          <input data-pct="cont" inputMode="decimal" value={pctCont} onChange={e=>setPctCont(e.target.value)} style={{...S.inp,maxWidth:56,textAlign:"right"}}/>
+                          <button data-basepct="cont" onClick={()=>setForm(f=>({...f, baseCont:baseDesdeCosto(num(f.costoCont),num(pctCont)) }))} style={{padding:"7px 9px",borderRadius:8,border:"1px dashed #2E7D52",background:"#fff",color:"#2E7D52",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:11.5,whiteSpace:"nowrap"}}>Aplicar</button>
                         </div>
-                      ))}
-                    </div>
-                    <button onClick={()=>setForm(f=>({...f,
-                      baseCont:baseDesdeCosto(num(f.costoCont),BASE_PCT_SOBRE_COSTO),
-                      baseCred:baseDesdeCosto(num(f.costoCred),BASE_PCT_SOBRE_COSTO) }))}
-                      style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px dashed #2E7D52",background:"#fff",color:"#2E7D52",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12}}>
-                      Base = Costo + {BASE_PCT_SOBRE_COSTO}%</button>
+                        <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center"}}>
+                          <input data-pct="cred" inputMode="decimal" value={pctCred} onChange={e=>setPctCred(e.target.value)} style={{...S.inp,maxWidth:56,textAlign:"right"}}/>
+                          <button data-basepct="cred" onClick={()=>setForm(f=>({...f, baseCred:baseDesdeCosto(num(f.costoCred),num(pctCred)) }))} style={{padding:"7px 9px",borderRadius:8,border:"1px dashed #2E7D52",background:"#fff",color:"#2E7D52",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:11.5,whiteSpace:"nowrap"}}>Aplicar</button>
+                        </div>
+                      </div>
+                      </>); })()}
                   </div>
                   {/* DEMÁS PRESENTACIONES · dos adicionales ($/quintal) + los cuatro números calculados */}
                   {ofsOtras.map(o=>{ const a=(form.adic&&form.adic[o.presCod])||{costo:"",base:""}; const c=calc(o);
@@ -11480,11 +11499,11 @@ function PiladorasWeb({ usuario, modo }){
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
                         <div>
                           <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>Adicional al costo ($/quintal)</label>
-                          <input data-adic="costo" inputMode="text" value={a.costo} onChange={e=>setA("costo",e.target.value)} style={S.inp}/>
+                          <input data-adic="costo" inputMode="text" value={a.costo} onChange={e=>setA("costo",e.target.value)} style={{...S.inp,maxWidth:140,textAlign:"right",marginLeft:"auto",display:"block"}}/>
                         </div>
                         <div>
                           <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>Adicional a la base ($/quintal)</label>
-                          <input data-adic="base" inputMode="text" value={a.base} onChange={e=>setA("base",e.target.value)} style={S.inp}/>
+                          <input data-adic="base" inputMode="text" value={a.base} onChange={e=>setA("base",e.target.value)} style={{...S.inp,maxWidth:140,textAlign:"right",marginLeft:"auto",display:"block"}}/>
                         </div>
                       </div>
                       {/* resultado en SOLO LECTURA (no son campos): se calcula en vivo */}
