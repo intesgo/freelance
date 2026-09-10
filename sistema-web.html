@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"247", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el modal «Variedad» quedó más claro: título con la marca y un chip «Actual: …»; el «¿Qué es?» pasó a un botón bajo Arroz/Arrocillo; un solo botón «Guardar» en los dos modos; «Sin clasificar» apartado a la izquierda; al abrir un producto ya clasificado salta a la opción marcada; y en Arrocillo aparecen chips de las variantes usadas recientemente para llenar los 5 de un toque. El arroz no cambia en nada." };
+const VERSION = { n:"248", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el modal «Variedad» se rediseñó (más claro y bonito): íconos redondos por sección, tarjetas grandes Arroz/Arrocillo con su check, opciones con radio, botón × para cerrar y pie con «Sin clasificar / Cancelar / Guardar». Además se abre solo en el modo correcto: si el producto aún no está clasificado y la marca se llama «Arrocillo …», arranca directo en Arrocillo; el resto en Arroz. Lo ya clasificado sigue mandando su variedad. Evita clasificar un arrocillo como arroz por descuido." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -11111,10 +11111,15 @@ function PiladorasWeb({ usuario, modo }){
     /* DISENO_ARROCILLO · atajo: si la marca ya es arrocillo (A01), el modal abre en el paso Arrocillo
        con sus 5 valores precargados; si no, en Arroz. El dueño puede cambiar de paso. */
     const cod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
+    const marca=(prodInfo[pid]&&prodInfo[pid].marca)||"";
+    /* si aún no está clasificado, adivina por el nombre para evitar el error humano:
+       una marca que se llama «Arrocillo …» abre directo en el paso Arrocillo. */
+    const pareceArroc = !cod && String(marca).toLowerCase().includes("arrocillo");
     if(esArrocCod(cod)){ const av=arrocDe(cod);
       setTgModo("arrocillo"); setTgArrozSel("");
       setArrSel(av?{tipo:av.arr_tipo,proceso:av.arr_proceso,estado:av.arr_estado,destino:av.arr_destino,calidad:av.arr_calidad}:{});
-    } else { setTgModo("arroz"); setArrSel({}); setTgArrozSel(cod); }
+    } else if(pareceArroc){ setTgModo("arrocillo"); setArrSel({}); setTgArrozSel(""); }
+    else { setTgModo("arroz"); setArrSel({}); setTgArrozSel(cod); }
     setArrMsg(null); setArrBusy(false);
     if(!avisoMultiRef.current){ const n=piladorasDeMarca(pid); if(n>1){ avisoMultiRef.current=true;
       setAvisoMulti(`Esta marca la venden ${n} piladoras; la variedad es la misma para todas.`); } } };
@@ -11540,8 +11545,20 @@ function PiladorasWeb({ usuario, modo }){
         const actual=(prodInfo[tgSel]&&prodInfo[tgSel].tipoGrano)||"";
         const nombreMarca=(prodInfo[tgSel]&&prodInfo[tgSel].marca)||tgSel;
         const actualTxt = actual ? variedadDesc(actual) : "Sin clasificar";
-        const seg=(on)=>({flex:1,padding:"8px 12px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:800,fontFamily:"inherit",fontSize:13.5,background:on?"#2E7D52":"#f3f5f7",color:on?"#fff":"#333"});
         const puedeGuardar = tgModo==="arroz" ? !!tgArrozSel : arrocilloCompleto(arrSel);
+        const FAM_IC={C09:"🌾",L11:"🌱",F14:"🌿"};
+        /* círculo pastel con un ícono (encabezado y secciones) */
+        const circ=(e)=>(<span style={{width:34,height:34,borderRadius:"50%",background:COLOR.tealLight,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{e}</span>);
+        /* pastilla con radio (opción de nivel de arroz) */
+        const pill=(on,label,onClick,rf)=>(
+          <button ref={rf} onClick={onClick} style={{flex:1,display:"flex",alignItems:"center",gap:8,padding:"11px 12px",borderRadius:12,border:on?"2px solid #2E7D52":"1px solid "+COLOR.border,background:on?"#F1F8F3":"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:on?800:600,color:COLOR.text}}>
+            <span style={{width:16,height:16,borderRadius:"50%",border:on?"5px solid #2E7D52":"2px solid #C9CFD6",boxSizing:"border-box",flexShrink:0}}/>{label}</button>);
+        /* tarjeta grande del paso 1 (Arroz / Arrocillo) */
+        const cardQ=(on,emoji,label,onClick)=>(
+          <button onClick={onClick} style={{flex:1,display:"flex",alignItems:"center",gap:10,padding:"14px 16px",borderRadius:14,border:on?"2px solid #2E7D52":"1px solid "+COLOR.border,background:on?"#2E7D52":"#fff",color:on?"#fff":COLOR.text,cursor:"pointer",fontFamily:"inherit"}}>
+            <span style={{fontSize:20}}>{emoji}</span>
+            <span style={{fontWeight:800,fontSize:15,flex:1,textAlign:"left"}}>{label}</span>
+            <span style={{width:20,height:20,borderRadius:"50%",border:on?"none":"2px solid #C9CFD6",background:on?"#fff":"transparent",display:"inline-flex",alignItems:"center",justifyContent:"center",color:"#2E7D52",fontSize:12,fontWeight:900}}>{on?"✓":""}</span></button>);
         const guardar = async ()=>{
           if(tgModo==="arroz"){ if(!tgArrozSel) return; await guardarTipoGrano(tgSel,tgArrozSel); setTgSel(null); return; }
           setArrMsg(null); setArrBusy(true); const r=await arrocilloResolver(arrSel); setArrBusy(false);
@@ -11552,58 +11569,64 @@ function PiladorasWeb({ usuario, modo }){
         return (
         <div onClick={()=>setTgSel(null)}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px",maxWidth:440,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
-            {/* ENCABEZADO · icono + marca + chip «Actual: …» (sin repetir la opción marcada) */}
-            <h3 style={{margin:"0 0 5px",display:"flex",alignItems:"center",gap:8}}><span>🌾</span>{nombreMarca}</h3>
-            <div style={{marginBottom:12}}><span style={{fontSize:11.5,fontWeight:700,color:"#8A8578",background:"#f3f5f7",borderRadius:7,padding:"3px 9px"}}>Actual: {actualTxt}</span></div>
-            {/* PASO 1 · ¿Qué es? (toggle segmentado, bajo) */}
-            <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <button onClick={()=>setTgModo("arroz")} style={seg(tgModo==="arroz")}>{tgModo==="arroz"?"✓ ":""}Arroz</button>
-              <button onClick={()=>setTgModo("arrocillo")} style={seg(tgModo==="arrocillo")}>{tgModo==="arrocillo"?"✓ ":""}Arrocillo</button>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,padding:"20px 22px",maxWidth:460,width:"100%",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 18px 50px rgba(0,0,0,.22)"}}>
+            {/* ENCABEZADO · ícono redondo + «Variedad: …» + marca + cerrar (×) */}
+            <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:16}}>
+              {circ("🌿")}
+              <div style={{flex:1,minWidth:0}}>
+                <h3 style={{margin:0,fontSize:18,fontWeight:800,color:COLOR.text}}>Variedad: {actualTxt}</h3>
+                <div style={{fontSize:13,color:COLOR.muted,marginTop:2}}>{nombreMarca}</div>
+              </div>
+              <button onClick={()=>setTgSel(null)} aria-label="Cerrar" style={{border:"none",background:"none",fontSize:24,color:COLOR.muted,cursor:"pointer",lineHeight:1,padding:2,flexShrink:0}}>×</button>
+            </div>
+            {/* PASO 1 · ¿Qué es? (dos tarjetas grandes con check) */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>{circ("🍚")}<span style={{fontWeight:800,fontSize:14,color:COLOR.text}}>¿Qué es?</span></div>
+            <div style={{display:"flex",gap:10,marginBottom:16}}>
+              {cardQ(tgModo==="arroz","🍚","Arroz",()=>setTgModo("arroz"))}
+              {cardQ(tgModo==="arrocillo","🌾","Arrocillo",()=>setTgModo("arrocillo"))}
             </div>
 
             {tgModo==="arroz" ? (
-              /* PASO 2A · Arroz: se MARCA la variedad; «Guardar» la confirma (mismo dato de siempre) */
+              /* PASO 2A · Arroz: cada familia con su ícono; niveles como pastillas con radio */
               FAMILIAS_GRANO.map(fam=>(
-                <div key={fam.cod} style={{marginBottom:12}}>
-                  <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>{fam.desc}</div>
+                <div key={fam.cod} style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>{circ(FAM_IC[fam.cod]||"🌾")}<span style={{fontWeight:800,fontSize:13.5,color:COLOR.text}}>{fam.desc}</span></div>
                   <div style={{display:"flex",gap:8}}>
-                    {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=tgArrozSel===cod; return (
-                      <button key={cod} ref={on?tgMarkRef:null} onClick={()=>setTgArrozSel(cod)}
-                        style={{flex:1,padding:"9px 6px",borderRadius:10,border:on?"2px solid #2E7D52":"1px solid #D8D2C4",background:on?"#F5F9F6":"#fff",fontWeight:on?800:600,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>{niv.n}</button>
-                    ); })}
+                    {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=tgArrozSel===cod;
+                      return pill(on,niv.n,()=>setTgArrozSel(cod),on?tgMarkRef:null); })}
                   </div>
                 </div>
               ))
             ) : (
               /* PASO 2B · Arrocillo · chips recientes + 5 desplegables → busca-o-crea */
               <div style={{marginBottom:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>{circ("🌾")}<span style={{fontWeight:800,fontSize:13.5,color:COLOR.text}}>Arrocillo</span></div>
                 {arrocRecientes.length>0 && (
                   <div style={{marginBottom:12}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#8A8578",marginBottom:6}}>Usados recientemente</div>
+                    <div style={{fontSize:11,fontWeight:700,color:COLOR.muted,marginBottom:6}}>Usados recientemente</div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                       {arrocRecientes.map(v=>(
                         <button key={v.variedad_cod} onClick={()=>setArrSel({tipo:v.arr_tipo,proceso:v.arr_proceso,estado:v.arr_estado,destino:v.arr_destino,calidad:v.arr_calidad})}
-                          style={{border:"1px solid #D8D2C4",background:"#fff",borderRadius:999,padding:"6px 11px",fontSize:11.5,fontWeight:700,color:"#3a8262",cursor:"pointer",fontFamily:"inherit"}}>{v.nombre}</button>
+                          style={{border:"1px solid "+COLOR.border,background:"#fff",borderRadius:999,padding:"6px 11px",fontSize:11.5,fontWeight:700,color:COLOR.tealDark,cursor:"pointer",fontFamily:"inherit"}}>{v.nombre}</button>
                       ))}
                     </div>
                   </div>
                 )}
                 <ArrocilloCampos vals={arrSel} setVals={setArrSel} disabled={arrBusy}/>
-                <div style={{fontSize:12.5,color:arrocilloCompleto(arrSel)?"#1F5E3D":"#8A8578",background:arrocilloCompleto(arrSel)?"#E4F1E9":"#f3f5f7",borderRadius:8,padding:"8px 10px",margin:"10px 0 0"}}>
+                <div style={{fontSize:12.5,color:arrocilloCompleto(arrSel)?"#1F5E3D":COLOR.muted,background:arrocilloCompleto(arrSel)?"#E4F1E9":"#f3f5f7",borderRadius:8,padding:"8px 10px",margin:"10px 0 0"}}>
                   Quedará: <b>{arrocilloCompleto(arrSel)?arrocilloNombre(arrSel):"elige los 5 campos"}</b></div>
                 {arrMsg && <div style={{fontSize:12,fontWeight:700,color:"#C0392B",marginTop:6}}>{arrMsg}</div>}
               </div>
             )}
 
-            {/* PIE · «Sin clasificar» apartado a la izquierda (tenue); Cancelar / Guardar a la derecha */}
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:14}}>
+            {/* PIE · «Sin clasificar» (↺, izquierda, tenue) · Cancelar · Guardar (verde ✓) */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:18,paddingTop:14,borderTop:"1px solid "+COLOR.border}}>
               <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }}
-                style={{border:"none",background:"none",color:"#8A8578",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:"6px 2px"}}>Sin clasificar</button>
+                style={{border:"1px solid "+COLOR.border,background:"#fff",color:COLOR.muted,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"10px 14px",borderRadius:11}}>↺ Sin clasificar</button>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),border:"1px solid #D8D2C4"}}>Cancelar</button>
+                <button onClick={()=>setTgSel(null)} style={{padding:"10px 16px",borderRadius:11,border:"1px solid "+COLOR.border,background:"#fff",color:COLOR.text,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Cancelar</button>
                 <button disabled={arrBusy||!puedeGuardar} onClick={guardar}
-                  style={{...S.btn(puedeGuardar?"#2E7D52":"#bcc6cf"),cursor:puedeGuardar?"pointer":"not-allowed"}}>{arrBusy?"Guardando…":"Guardar"}</button>
+                  style={{padding:"10px 18px",borderRadius:11,border:"none",background:puedeGuardar?"#2E7D52":"#bcc6cf",color:"#fff",fontWeight:800,fontFamily:"inherit",cursor:puedeGuardar?"pointer":"not-allowed"}}>{arrBusy?"Guardando…":"✓ Guardar"}</button>
               </div>
             </div>
           </div>
