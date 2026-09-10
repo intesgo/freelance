@@ -130,9 +130,10 @@ const run=(ctx,e)=>vm.runInContext(e,ctx);
   comprobar("11 · el «Antes → Ahora» es UNO solo para toda la marca",
     (run(ctx,`window.__txt()`).split("Antes → Ahora").length-1)===1);
 
-  /* 18 · atajo Base = Costo + 12% sobre el quintal (costo créd = 20 → base créd 22,40) */
-  run(ctx,`window.__clickText("Base = Costo +")`); await esperar(60); run(ctx,`window.__flush()`);
-  comprobar("18 · «Base = Costo + 12%» funciona sobre el quintal (base créd = 22.4)",
+  /* 18 · atajo «Base = Costo + %» por columna: el de CRÉDITO (12% por defecto) sobre el quintal
+     (costo créd = 20 → base créd 22,40); el % de contado es independiente y no se toca aquí */
+  run(ctx,`window.__clickSel('button[data-basepct="cred"]')`); await esperar(60); run(ctx,`window.__flush()`);
+  comprobar("18 · «Base = Costo + %» (crédito, 12%) funciona sobre el quintal (base créd = 22.4)",
     run(ctx,`window.__val('input[data-q="baseCred"]')`)==="22.4");
 
   /* 17 · rol distinto de Freelance no pinta ningún «Editar» */
