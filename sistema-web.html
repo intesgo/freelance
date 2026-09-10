@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"248", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el modal «Variedad» se rediseñó (más claro y bonito): íconos redondos por sección, tarjetas grandes Arroz/Arrocillo con su check, opciones con radio, botón × para cerrar y pie con «Sin clasificar / Cancelar / Guardar». Además se abre solo en el modo correcto: si el producto aún no está clasificado y la marca se llama «Arrocillo …», arranca directo en Arrocillo; el resto en Arroz. Lo ya clasificado sigue mandando su variedad. Evita clasificar un arrocillo como arroz por descuido." };
+const VERSION = { n:"249", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · «Por marca»: ahora es UN SOLO editor por marca. El quintal es la base (sus cuatro campos) y cada otra presentación (arroba, funda…) se captura como «adicional» en $/quintal (al costo y a la base); su precio se calcula solo: (precio del quintal + adicional) × equivalencia. Un solo Editar, un solo Guardar. Antes eran dos ediciones y dos guardados para una sola decisión. No se guarda ningún adicional: se deriva de los precios vigentes." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -10766,8 +10766,13 @@ function PiladorasWeb({ usuario, modo }){
   const [altaRuc,setAltaRuc]=useState("");
   const [creando,setCreando]=useState(false);
   const [ocultando,setOcultando]=useState(false);
-  const [edit,setEdit]=useState(null);         // ofertaId en edición
+  /* DISENO_PRECIO_ADICIONAL · un solo editor por MARCA (antes era por oferta/presentación).
+     edit = prodId (marca) en edición.
+     form = { costoCont, costoCred, baseCont, baseCred,      ← del QUINTAL (base de cálculo)
+              adic: { [presCod]: { costo:"", base:"" } } }   ← adicionales en $/quintal */
+  const [edit,setEdit]=useState(null);         // prodId (marca) en edición
   const [form,setForm]=useState(null);
+  const [okMarca,setOkMarca]=useState("");     // «Arrocillo Envejecido · 2 presentaciones actualizadas»
   const [excluidas,setExcluidas]=useState({}); // prodId -> true: el ajuste por grano la salta
   const [ajuste,setAjuste]=useState(null);     // {linea,campo,modo,signo,valor}
   const [hist,setHist]=useState(null);         // oferta cuya historia de precios se ve
@@ -10965,14 +10970,60 @@ function PiladorasWeb({ usuario, modo }){
      que hacía; nada cambia en lo visible de esta pantalla). */
   const versionar=(o,nuevos)=>versionarOfertaWeb(o,{...nuevos, operacion:"Costo/Base por piladora"},usuario);
 
+  /* DISENO_PRECIO_ADICIONAL · ofertas de una marca, ordenadas por equivalencia (quintal primero). */
+  const ofsDeMarca=(pid)=>(ofertas||[]).filter(x=>x.prodId===pid && x.provCod===selProv)
+    .slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0));
+  /* al abrir el editor de la marca: se SIEMBRAN los adicionales desde los precios vigentes
+     (desde el crédito, la columna que manda). No se guarda ningún adicional en la base. */
+  const abrirEditarMarca=(pid)=>{
+    const ofs=ofsDeMarca(pid); if(!ofs.length) return;
+    const ofBase=ofs.find(o=>Number(o.equivQq)===1)||ofs[0];
+    const adic={};
+    ofs.filter(o=>o.ofertaId!==ofBase.ofertaId).forEach(o=>{ const e=Number(o.equivQq)||0;
+      adic[o.presCod] = e>0 ? {
+        costo: String(r2((Number(o.costo)||0)/e   - (Number(ofBase.costo)||0))),
+        base:  String(r2((Number(o.credito)||0)/e - (Number(ofBase.credito)||0))),
+      } : { costo:"0", base:"0" };
+    });
+    setOkMarca(""); setEdit(pid);
+    setForm({ costoCont:ofBase.costoContado, costoCred:ofBase.costo, baseCont:ofBase.contado, baseCred:ofBase.credito, adic });
+    setAbiertas(s=>({...s,[pid]:true}));
+  };
+
+  /* DISENO_PRECIO_ADICIONAL · guarda TODA la marca en un solo golpe: el quintal con sus cuatro
+     campos y las demás presentaciones con la fórmula (precio_qq + adicional) × equiv. Solo se
+     versionan las que cambian de verdad; todas comparten el mismo código de auditoría. */
   const guardarFila=async()=>{
-    const o=(ofertas||[]).find(x=>x.ofertaId===edit); if(!o||!form) return;
+    if(!edit||!form) return;
+    const ofs=ofsDeMarca(edit); if(!ofs.length){ setEdit(null); setForm(null); return; }
+    const ofBase=ofs.find(o=>Number(o.equivQq)===1)||ofs[0];
     const keep=(v,old)=>{ const n=num(v); return (n!=null&&n>0)?n:old; };
-    setGuardando(true);
+    const qCC=keep(form.costoCont,ofBase.costoContado), qCR=keep(form.costoCred,ofBase.costo),
+          qBC=keep(form.baseCont,ofBase.contado),        qBR=keep(form.baseCred,ofBase.credito);
+    const valoresDe=(o)=>{
+      if(o.ofertaId===ofBase.ofertaId) return { cc:r2(qCC), cr:r2(qCR), bc:r2(qBC), br:r2(qBR) };
+      const e=Number(o.equivQq)||0; const a=(form.adic&&form.adic[o.presCod])||{costo:"0",base:"0"};
+      const ac=num(a.costo)||0, ab=num(a.base)||0;   /* el adicional 0 es legítimo (sin recargo), no «keep» */
+      return { cc:r2((qCC+ac)*e), cr:r2((qCR+ac)*e), bc:r2((qBC+ab)*e), br:r2((qBR+ab)*e) };
+    };
+    const codigo=preAu();   /* un solo código de auditoría para toda la marca */
+    setGuardando(true); setOkMarca("");
+    let okN=0; const fallos=[];
     try{
-      await versionar(o,{ costo:keep(form.costoCred,o.costo), costo_contado:keep(form.costoCont,o.costoContado),
-        precio_contado:keep(form.baseCont,o.contado), precio_credito:keep(form.baseCred,o.credito) });
+      for(const o of ofs){
+        const v=valoresDe(o);
+        const cambia = r2(o.costo)!==v.cr || r2(o.costoContado)!==v.cc || r2(o.contado)!==v.bc || r2(o.credito)!==v.br;
+        if(!cambia) continue;   /* no versionar lo que no cambia: no ensuciar el historial */
+        try{
+          await versionarOfertaWeb(o,{ costo:v.cr, costo_contado:v.cc, precio_contado:v.bc, precio_credito:v.br,
+            operacion:"Costo/Base por marca", codigo }, usuario);
+          okN++;
+        }catch(e){ fallos.push(o.presentacion||o.presCod); }
+      }
+      const marcaNom=(prodInfo[edit]&&prodInfo[edit].marca)||"";
       setEdit(null); setForm(null); await cargar();
+      if(fallos.length) setError("No se pudo guardar: "+fallos.join(", "));
+      else { setError(""); setOkMarca(marcaNom + " · " + okN + " presentación(es) actualizada(s)" + (okN===0?" (sin cambios)":"")); }
     }catch(e){ setError(String((e&&e.message)||e)); }
     setGuardando(false);
   };
@@ -11301,6 +11352,7 @@ function PiladorasWeb({ usuario, modo }){
           <button onClick={()=>setSoloSinVar(v=>!v)} style={{...S.btn(soloSinVar?"#F2A900":"#f3f5f7",soloSinVar?"#fff":"#333"),fontSize:12.5,padding:"8px 12px",border:soloSinVar?"none":"1px solid #D8D2C4"}}>{soloSinVar?"✓ ":""}Sin variedad ({nSin})</button>
         </div>); })()}
 
+      {(!soloPrecios || precTab==="marca") && okMarca && <div style={{...S.meta,color:"#1F5E3D",background:"#E4F1E9",borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:12}}>{okMarca}</div>}
       {(!soloPrecios || precTab==="marca") && lineas.map(ln=>{
         const marcas=granos[ln];
         const pidsTodas=Object.keys(marcas).sort((a,b)=>String(marcas[a].nombre||"").localeCompare(String(marcas[b].nombre||""),"es"));
@@ -11332,88 +11384,137 @@ function PiladorasWeb({ usuario, modo }){
                   <div style={{fontWeight:800,fontSize:16,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis"}}>{m.nombre}</div>
                   <div onClick={()=>{ if(!soloLectura) abrirClasificar(pid); }} style={{marginTop:3,fontSize:12.5,fontWeight:700,color:tgCod?"#2E7D52":"#8A8578",cursor:soloLectura?"default":"pointer"}}>{subtVar}</div>
                 </div>
-                {/* RESUMEN_CRED: crédito costo–base + plegar (ámbar) */}
-                <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flexShrink:0}}>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{...S.meta,fontSize:9,textTransform:"uppercase",letterSpacing:".03em"}}>Créd. costo–base</div>
-                    <div style={{fontWeight:800,fontSize:16,color:"#8A5A00"}}>{resumenTxt}</div>
+                {/* DISENO_PRECIO_ADICIONAL · UN solo «Editar» por MARCA (junto al resumen) + RESUMEN_CRED + plegar */}
+                <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+                  {!soloLectura && edit!==pid && <button data-editar-marca={pid} onClick={(e)=>{ e.stopPropagation(); abrirEditarMarca(pid); }}
+                    style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>✎ Editar</button>}
+                  <div onClick={()=>setAbiertas(s=>({...s,[pid]:!s[pid]}))} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{...S.meta,fontSize:9,textTransform:"uppercase",letterSpacing:".03em"}}>Créd. costo–base</div>
+                      <div style={{fontWeight:800,fontSize:16,color:"#8A5A00"}}>{resumenTxt}</div>
+                    </div>
+                    <span style={{fontSize:14,color:"#8A8578"}}>{abierta?"▾":"▸"}</span>
                   </div>
-                  <span style={{fontSize:14,color:"#8A8578"}}>{abierta?"▾":"▸"}</span>
                 </div>
               </div>
 
               {abierta && (<>
               <div style={{height:8}}/>
-              {ofsOrden.map(o=>{
-                const enEd=edit===o.ofertaId;
-                const margenK=Math.round(((Number(o.credito)||0)-(Number(o.costo)||0))*100)/100;
-                return (
-                <div key={o.ofertaId} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                    <b style={{fontSize:14}}>{o.presentacion||o.presCod}</b>
-                    {!enEd && !soloLectura && <button onClick={()=>{ setEdit(o.ofertaId); setForm({costoCont:o.costoContado,costoCred:o.costo,baseCont:o.contado,baseCred:o.credito}); }}
-                      style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>✎ Editar</button>}
+              {(()=>{
+                const editando = edit===pid;
+                const ofBase = ofsOrden.find(o=>Number(o.equivQq)===1) || ofsOrden[0];
+                const ofsOtras = ofsOrden.filter(o=>o.ofertaId!==ofBase.ofertaId);
+                const keepF=(v,old)=>{ const n=num(v); return (n!=null&&n>0)?n:old; };
+                /* números calculados de una presentación (que NO es el quintal), en vivo */
+                const calc=(o)=>{ const e=Number(o.equivQq)||0; const a=(form&&form.adic&&form.adic[o.presCod])||{costo:"0",base:"0"};
+                  const ac=num(a.costo)||0, ab=num(a.base)||0;
+                  const qCC=keepF(form.costoCont,ofBase.costoContado), qCR=keepF(form.costoCred,ofBase.costo),
+                        qBC=keepF(form.baseCont,ofBase.contado),        qBR=keepF(form.baseCred,ofBase.credito);
+                  return { costoCont:r2((qCC+ac)*e), costoCred:r2((qCR+ac)*e), baseCont:r2((qBC+ab)*e), baseCred:r2((qBR+ab)*e) };
+                };
+                if(!editando){
+                  /* SOLO LECTURA · una tarjeta por presentación (sin «Editar» por presentación) */
+                  return ofsOrden.map(o=>{ const margenK=Math.round(((Number(o.credito)||0)-(Number(o.costo)||0))*100)/100; return (
+                    <div key={o.ofertaId} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
+                      <b style={{fontSize:14}}>{o.presentacion||o.presCod}</b>
+                      <div style={{marginTop:8}}>
+                        <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center"}}>
+                          <div/>
+                          <div style={{...S.meta,fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em"}}>Contado</div>
+                          <div style={{fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800,color:"#8A5A00"}}>Crédito</div>
+                          <div style={{...S.meta,fontSize:12}}>Costo</div>
+                          <div style={celdaCont}>{o.costoContado>0?preMoney(o.costoContado):"—"}</div>
+                          <div style={celdaCred}>{o.costo>0?preMoney(o.costo):"—"}</div>
+                          <div style={{...S.meta,fontSize:12}}>Base</div>
+                          <div style={celdaCont}>{o.contado>0?preMoney(o.contado):"—"}</div>
+                          <div style={celdaCred}>{o.credito>0?preMoney(o.credito):"—"}</div>
+                        </div>
+                        <div style={{...S.meta,fontSize:10.5,marginTop:8}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"#B5613C"}}>{preMoney(margenK)}</b></div>
+                        {/* FECHA_MODIF_TARJETA: cuándo se movió por última vez, + su historia */}
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid #EDE9DE"}}>
+                          <span style={{...S.meta,fontSize:10}}>Modificado: {fmtFecha(o.desde)}</span>
+                          <button onClick={()=>verHistorial(o)} style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:11.5}}>Historial de precios ›</button>
+                        </div>
+                      </div>
+                    </div>); });
+                }
+                /* EN EDICIÓN · un solo editor para toda la marca */
+                return (<>
+                  {/* QUINTAL · base de cálculo (cuatro campos + atajo Base = Costo + %) */}
+                  <div style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}}>
+                      <b style={{fontSize:14}}>{ofBase.presentacion||ofBase.presCod}</b>
+                      <span style={{...S.meta,fontSize:10.5}}>· base de cálculo</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      {[["Costo contado","costoCont"],["Costo crédito","costoCred"],["Base contado","baseCont"],["Base crédito","baseCred"]].map(([lbl,k])=>(
+                        <div key={k}>
+                          <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>{lbl}</label>
+                          <input data-q={k} inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={S.inp}/>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={()=>setForm(f=>({...f,
+                      baseCont:baseDesdeCosto(num(f.costoCont),BASE_PCT_SOBRE_COSTO),
+                      baseCred:baseDesdeCosto(num(f.costoCred),BASE_PCT_SOBRE_COSTO) }))}
+                      style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px dashed #2E7D52",background:"#fff",color:"#2E7D52",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12}}>
+                      Base = Costo + {BASE_PCT_SOBRE_COSTO}%</button>
                   </div>
-                  {!enEd ? (
-                    <div style={{marginTop:8}}>
-                      {/* rejilla CONTADO | CRÉDITO (columnas), Costo / Base (filas); el crédito va en ámbar (CRED_AMBAR) */}
-                      <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center"}}>
+                  {/* DEMÁS PRESENTACIONES · dos adicionales ($/quintal) + los cuatro números calculados */}
+                  {ofsOtras.map(o=>{ const a=(form.adic&&form.adic[o.presCod])||{costo:"",base:""}; const c=calc(o);
+                    const setA=(campo,val)=>setForm(f=>({...f, adic:{...f.adic, [o.presCod]:{...(f.adic[o.presCod]||{costo:"",base:""}), [campo]:val}}}));
+                    return (
+                    <div key={o.ofertaId} data-pres={o.presCod} style={{background:"#FAF8F2",border:"1px solid #EDE9DE",borderRadius:12,padding:"11px 12px",marginBottom:8}}>
+                      <b style={{fontSize:14}}>{o.presentacion||o.presCod}</b>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+                        <div>
+                          <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>Adicional al costo ($/quintal)</label>
+                          <input data-adic="costo" inputMode="text" value={a.costo} onChange={e=>setA("costo",e.target.value)} style={S.inp}/>
+                        </div>
+                        <div>
+                          <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>Adicional a la base ($/quintal)</label>
+                          <input data-adic="base" inputMode="text" value={a.base} onChange={e=>setA("base",e.target.value)} style={S.inp}/>
+                        </div>
+                      </div>
+                      {/* resultado en SOLO LECTURA (no son campos): se calcula en vivo */}
+                      <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1fr",gap:"6px 8px",alignItems:"center",marginTop:8}}>
                         <div/>
                         <div style={{...S.meta,fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em"}}>Contado</div>
                         <div style={{fontSize:9.5,textAlign:"center",textTransform:"uppercase",letterSpacing:".03em",fontWeight:800,color:"#8A5A00"}}>Crédito</div>
                         <div style={{...S.meta,fontSize:12}}>Costo</div>
-                        <div style={celdaCont}>{o.costoContado>0?preMoney(o.costoContado):"—"}</div>
-                        <div style={celdaCred}>{o.costo>0?preMoney(o.costo):"—"}</div>
+                        <div data-calc="costoCont" style={{...celdaCont,background:"#F1EFE7"}}>{c.costoCont>0?preMoney(c.costoCont):"—"}</div>
+                        <div data-calc="costoCred" style={{...celdaCred,background:"#F5EBD6"}}>{c.costoCred>0?preMoney(c.costoCred):"—"}</div>
                         <div style={{...S.meta,fontSize:12}}>Base</div>
-                        <div style={celdaCont}>{o.contado>0?preMoney(o.contado):"—"}</div>
-                        <div style={celdaCred}>{o.credito>0?preMoney(o.credito):"—"}</div>
+                        <div data-calc="baseCont" style={{...celdaCont,background:"#F1EFE7"}}>{c.baseCont>0?preMoney(c.baseCont):"—"}</div>
+                        <div data-calc="baseCred" style={{...celdaCred,background:"#F5EBD6"}}>{c.baseCred>0?preMoney(c.baseCred):"—"}</div>
                       </div>
-                      <div style={{...S.meta,fontSize:10.5,marginTop:8}}>Margen (base − costo, crédito): <b style={{color:margenK>=0?"#2E7D52":"#B5613C"}}>{preMoney(margenK)}</b></div>
-                      {/* FECHA_MODIF_TARJETA: cuándo se movió por última vez, + su historia */}
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid #EDE9DE"}}>
-                        <span style={{...S.meta,fontSize:10}}>Modificado: {fmtFecha(o.desde)}</span>
-                        <button onClick={()=>verHistorial(o)} style={{background:"none",border:"none",color:"#2E7D52",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:11.5}}>Historial de precios ›</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{marginTop:8}}>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                        {[["Costo contado","costoCont"],["Costo crédito","costoCred"],["Base contado","baseCont"],["Base crédito","baseCred"]].map(([lbl,k])=>(
-                          <div key={k}>
-                            <label style={{...S.meta,fontSize:9.5,display:"block",marginBottom:2}}>{lbl}</label>
-                            <input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={S.inp}/>
-                          </div>
-                        ))}
-                      </div>
-                      {/* atajo: pone la Base = Costo + un % (arranca en BASE_PCT_SOBRE_COSTO) */}
-                      <button onClick={()=>setForm(f=>({...f,
-                        baseCont:baseDesdeCosto(num(f.costoCont),BASE_PCT_SOBRE_COSTO),
-                        baseCred:baseDesdeCosto(num(f.costoCred),BASE_PCT_SOBRE_COSTO) }))}
-                        style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px dashed #2E7D52",background:"#fff",color:"#2E7D52",fontWeight:700,fontFamily:"inherit",cursor:"pointer",fontSize:12}}>
-                        Base = Costo + {BASE_PCT_SOBRE_COSTO}%</button>
-                      {/* ANTES_AHORA: lo que cambia, para confirmar antes de guardar */}
-                      {(()=>{ const keep=(v,old)=>{ const n=num(v); return (n!=null&&n>0)?n:old; };
-                        const filas=[["Costo cont",o.costoContado,keep(form.costoCont,o.costoContado)],
-                          ["Costo créd",o.costo,keep(form.costoCred,o.costo)],
-                          ["Base cont",o.contado,keep(form.baseCont,o.contado)],
-                          ["Base créd",o.credito,keep(form.baseCred,o.credito)]];
-                        return (
-                        <div style={{marginTop:10,background:"#FAF8F2",border:"1px solid #E7E2D6",borderRadius:8,padding:"8px 10px"}}>
-                          <div style={{...S.meta,fontSize:9.5,textTransform:"uppercase",marginBottom:3}}>Antes → Ahora</div>
-                          {filas.map(([lbl,a,b])=>{ const cambia=r2(a)!==r2(b); return (
-                            <div key={lbl} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:11,padding:"1.5px 0",opacity:cambia?1:0.5}}>
-                              <span style={S.meta}>{lbl}</span>
-                              <span>{a>0?preMoney(a):"—"} <span style={{color:"#8A8578"}}>→</span> <b style={{color:cambia?"#2E7D52":"inherit"}}>{b>0?preMoney(b):"—"}</b></span>
-                            </div>); })}
-                        </div>); })()}
-                      <div style={{display:"flex",gap:8,marginTop:10}}>
-                        <button onClick={()=>{setEdit(null);setForm(null);}} disabled={guardando} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
-                        <button onClick={guardarFila} disabled={guardando} style={{...S.btn(guardando?"#9DBBA9":"#2E7D52"),flex:1}}>{guardando?"Guardando…":"Guardar"}</button>
-                      </div>
-                    </div>
-                  )}
-                </div>);
-              })}
+                      <div style={{...S.meta,fontSize:10.5,marginTop:6}}>Equivalencia: {String(o.equivQq).replace(".",",")} qq</div>
+                    </div>); })}
+                  {/* ANTES_AHORA · ANTES → AHORA una sola vez, agrupado por presentación */}
+                  <div style={{marginTop:2,marginBottom:8,background:"#FAF8F2",border:"1px solid #E7E2D6",borderRadius:8,padding:"8px 10px"}}>
+                    <div style={{...S.meta,fontSize:9.5,textTransform:"uppercase",marginBottom:4}}>Antes → Ahora</div>
+                    {ofsOrden.map(o=>{ const nu = o.ofertaId===ofBase.ofertaId
+                        ? {costoCont:keepF(form.costoCont,o.costoContado),costoCred:keepF(form.costoCred,o.costo),baseCont:keepF(form.baseCont,o.contado),baseCred:keepF(form.baseCred,o.credito)}
+                        : calc(o);
+                      const filas=[["Costo cont",o.costoContado,nu.costoCont],["Costo créd",o.costo,nu.costoCred],["Base cont",o.contado,nu.baseCont],["Base créd",o.credito,nu.baseCred]];
+                      const algoCambia=filas.some(([,a,b])=>r2(a)!==r2(b));
+                      return (
+                      <div key={o.ofertaId} style={{marginBottom:6,opacity:algoCambia?1:0.5}}>
+                        <div style={{fontWeight:700,fontSize:11.5,marginBottom:2}}>{o.presentacion||o.presCod}</div>
+                        {filas.map(([lbl,a,b])=>{ const cambia=r2(a)!==r2(b); return (
+                          <div key={lbl} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:11,padding:"1px 0 1px 8px",opacity:cambia?1:0.55}}>
+                            <span style={S.meta}>{lbl}</span>
+                            <span>{a>0?preMoney(a):"—"} <span style={{color:"#8A8578"}}>→</span> <b style={{color:cambia?"#2E7D52":"inherit"}}>{b>0?preMoney(b):"—"}</b></span>
+                          </div>); })}
+                      </div>); })}
+                  </div>
+                  {/* UN solo Cancelar / Guardar para toda la marca */}
+                  <div style={{display:"flex",gap:8,marginTop:2,marginBottom:6}}>
+                    <button onClick={()=>{setEdit(null);setForm(null);}} disabled={guardando} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cancelar</button>
+                    <button onClick={guardarFila} disabled={guardando} style={{...S.btn(guardando?"#9DBBA9":"#2E7D52"),flex:1}}>{guardando?"Guardando…":"Guardar"}</button>
+                  </div>
+                </>);
+              })()}
               {/* excluir esta marca del ajuste por grano (dentro del detalle) · solo freelance */}
               {!soloLectura && <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#8A8578",marginTop:2,cursor:"pointer"}}>
                 <input type="checkbox" checked={exc} onChange={e=>setExcluidas(s=>({...s,[pid]:e.target.checked}))}/> excluir esta marca del ajuste por grano
