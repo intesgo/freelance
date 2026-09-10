@@ -28,9 +28,11 @@ c("CostosPreciosPiladora carga las variantes A01 con creado (activas e inactivas
   /select\("variedad_cod,nombre,activo,creado,arr_tipo/.test(app));
 c("modal «Variedad» compartido de dos pasos (ModalVariedad · Arroz / Arrocillo)",
   /function ModalVariedad/.test(app) && /setModo\("arrocillo"\)/.test(app) && /modo==="arroz" \?/.test(app));
-c("modal · encabezado con la marca + chip «Actual:», toggle bajo, un solo «Guardar»",
-  /Actual: \{actualTxt\}/.test(app) && /const puede = modo==="arroz" \? !!arrozSel : arrocilloCompleto\(arrSel\)/.test(app) &&
-  /\{busy\?"Guardando…":"Guardar"\}/.test(app));
+c("modal · encabezado «Variedad: …» + marca + cerrar (×), tarjetas grandes y un solo «Guardar»",
+  /Variedad: \{actualTxt\}/.test(app) && /aria-label="Cerrar"/.test(app) &&
+  /const cardQ=\(on,emoji,label,onClick\)=>/.test(app) &&
+  /const puede = modo==="arroz" \? !!arrozSel : arrocilloCompleto\(arrSel\)/.test(app) &&
+  /\{busy\?"Guardando…":"✓ Guardar"\}/.test(app));
 c("modal · «Sin clasificar» apartado, autoscroll y chips «usados recientemente»",
   /Sin clasificar/.test(app) && /scrollIntoView\(\{block:"center"\}\)/.test(app) && /Usados recientemente/.test(app));
 c("paso Arrocillo busca-o-crea con arrocilloResolverSB; el padre guarda el cod",
@@ -47,6 +49,8 @@ c("Ficha de marca (Productos): decodifica el arrocillo y abre el mismo modal al 
   /onGuardar=\{async\(cod, nueva\)=>\{[\s\S]{0,120}await guardarGranoCod\(cod\)/.test(app));
 c("Ficha · guardarGranoCod escribe productos.tipo_grano por window.SB (cualquier variedad)",
   /const guardarGranoCod = async \(cod\) =>[\s\S]{0,140}window\.SB\.from\("productos"\)\.update\(\{tipo_grano:cod\|\|null\}\)/.test(app));
+c("modal · sin clasificar, adivina el modo por el nombre de la marca (evita el error humano)",
+  /const initModo = esArroc\(actual\) \? "arrocillo"[\s\S]{0,120}String\(nombreMarca\|\|""\)\.toLowerCase\(\)\.includes\("arrocillo"\)\) \? "arrocillo" : "arroz"/.test(app));
 c("panel de administración de variantes montado (AdminArrocilloSB)",
   /function AdminArrocilloSB/.test(app) && /<AdminArrocilloSB arrocVars=\{arrocVars\} recargar=\{cargar\} \/>/.test(app));
 

@@ -50,16 +50,23 @@ comprobar("PiladorasWeb decodifica un código A01xx con el nombre comercial de l
 comprobar("el modal es de dos pasos (Arroz / Arrocillo) y el arrocillo guarda con busca-o-crea",
   /setTgModo\("arrocillo"\)/.test(html) && /tgModo==="arroz" \?/.test(html) &&
   /const r=await arrocilloResolver\(arrSel\)/.test(html) && /await guardarTipoGrano\(tgSel,r\.cod\)/.test(html));
-comprobar("modal · encabezado con la marca + chip «Actual:» (no repite la opción marcada)",
-  /Actual: \{actualTxt\}/.test(html) && /const actualTxt = actual \? variedadDesc\(actual\) : "Sin clasificar"/.test(html));
+comprobar("modal · encabezado «Variedad: …» + marca + botón cerrar (×)",
+  /Variedad: \{actualTxt\}/.test(html) && /const actualTxt = actual \? variedadDesc\(actual\) : "Sin clasificar"/.test(html) &&
+  /aria-label="Cerrar"/.test(html));
+comprobar("modal · tarjetas grandes Arroz/Arrocillo (cardQ) y opciones con radio (pill)",
+  /const cardQ=\(on,emoji,label,onClick\)=>/.test(html) && /const pill=\(on,label,onClick,rf\)=>/.test(html) &&
+  /cardQ\(tgModo==="arroz"/.test(html));
 comprobar("modal · un solo botón «Guardar» (arroz se marca y se confirma; arrocillo hasta los 5)",
   /const puedeGuardar = tgModo==="arroz" \? !!tgArrozSel : arrocilloCompleto\(arrSel\)/.test(html) &&
-  /onClick=\{\(\)=>setTgArrozSel\(cod\)\}/.test(html) && /\{arrBusy\?"Guardando…":"Guardar"\}/.test(html));
+  /\(\)=>setTgArrozSel\(cod\)/.test(html) && /\{arrBusy\?"Guardando…":"✓ Guardar"\}/.test(html));
 comprobar("modal · «Sin clasificar» apartado (tenue) y autoscroll a lo marcado",
-  /ref=\{on\?tgMarkRef:null\}/.test(html) && /scrollIntoView\(\{block:"center"\}\)/.test(html));
+  /on\?tgMarkRef:null/.test(html) && /scrollIntoView\(\{block:"center"\}\)/.test(html));
 comprobar("modal · chips «usados recientemente» solo en arrocillo (variantes A01 por creado)",
   /Usados recientemente/.test(html) && /arrocRecientes\.length>0/.test(html) &&
   /arrocVars\.filter\(v=>v\.activo!==false\)[\s\S]{0,90}localeCompare\(String\(a\.creado/.test(html));
+comprobar("modal · sin clasificar, adivina el modo por el nombre (marca «Arrocillo…» abre en Arrocillo)",
+  /const pareceArroc = !cod && String\(marca\)\.toLowerCase\(\)\.includes\("arrocillo"\)/.test(html) &&
+  /else if\(pareceArroc\)\{ setTgModo\("arrocillo"\)/.test(html));
 comprobar("el modal NO cambió guardarTipoGrano (se reúsa tal cual)",
   /const guardarTipoGrano=async\(prodId, cod\)=>\{[\s\S]{0,220}update\(\{tipo_grano:cod\|\|null\}\)/.test(html));
 
