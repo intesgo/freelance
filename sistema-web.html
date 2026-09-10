@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"244", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · la pantalla se dividió en dos pestañas: «Por variedad» (ajuste por variedad de grano y las marcas sin clasificar) y «Por marca» (la lista detallada por marca). El selector de piladora, el buscador y la cabecera se quedan arriba; solo cambia el contenido de abajo. En «Piladoras» todo queda igual que antes. Solo diseño: no cambia ninguna lógica ni la escritura de precios." };
+const VERSION = { n:"245", fecha:"10 sep 2026", desc:"Catálogo (Sistema Web) · clasificación dinámica del arrocillo: al crear un producto puedes elegir «Arroz» (como siempre) o «Arrocillo» con 5 desplegables (tipo, proceso, estado, destino, calidad); el sistema arma el nombre comercial y crea o reutiliza la variante. Nuevo panel «Variantes de arrocillo» (solo Freelance) para crear, activar o desactivar variantes (nunca se borran; las inactivas no aparecen al clasificar pero sí en administración). Las RPCs de la base validan duplicados y listas." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -1447,6 +1447,43 @@ const VARIEDADES_GRANO = [
   { cod:"F1402", desc:"Grano Ferón bueno",          linea:"Arroz" },
   { cod:"F1403", desc:"Grano Ferón especial",       linea:"Arroz" },
 ];
+/* DISENO_ARROCILLO · clasificación dinámica del arrocillo (familia A01, línea Arroz).
+   Listas CERRADAS (sin texto libre, sin Todos/Ninguno/Otro). La base ya tiene la familia
+   A01 y las 5 columnas arr_*; las variantes se crean/desactivan con las RPCs
+   arrocillo_crear_variante / arrocillo_activar_variante (Code solo LAS USA, no toca la base).
+   El nombre comercial lo arma la RPC; aquí se replica solo para la vista previa. */
+const ARROCILLO_FAM = "A01";
+const ARROCILLO_CAMPOS = [
+  { key:"tipo",    p:"p_tipo",    label:"Tipo",    ops:["3/4","Medio","Fino"] },
+  { key:"proceso", p:"p_proceso", label:"Proceso", ops:["Selectado","No selectado"] },
+  { key:"estado",  p:"p_estado",  label:"Estado",  ops:["Envejecido","Natural"] },
+  { key:"destino", p:"p_destino", label:"Destino", ops:["Humano","Animal"] },
+  { key:"calidad", p:"p_calidad", label:"Calidad", ops:["Especial","Estándar","Económico"] },
+];
+const arrocilloCompleto = (v) => !!v && ARROCILLO_CAMPOS.every(c => v[c.key]);
+const arrocilloNombre = (v) => arrocilloCompleto(v)
+  ? "Arrocillo " + [v.tipo, v.proceso, v.estado, v.destino, v.calidad].join(" · ")
+  : "";
+/* Busca la variante viva (A01, activa) que coincide en las 5 columnas; si no existe, la
+   crea con la RPC. Devuelve { ok, cod, nombre, creada } o { ok:false, error }. */
+async function arrocilloResolver(v) {
+  if (!arrocilloCompleto(v)) return { ok:false, error:"Faltan campos del arrocillo." };
+  if (!window.supa) return { ok:false, error:"Sin conexión." };
+  try {
+    const { data:ex } = await window.supa.from("grano_variedades")
+      .select("variedad_cod,nombre")
+      .eq("familia_cod", ARROCILLO_FAM).eq("activo", true)
+      .eq("arr_tipo", v.tipo).eq("arr_proceso", v.proceso).eq("arr_estado", v.estado)
+      .eq("arr_destino", v.destino).eq("arr_calidad", v.calidad).maybeSingle();
+    if (ex && ex.variedad_cod) return { ok:true, cod:ex.variedad_cod, nombre:ex.nombre, creada:false };
+  } catch (e) { /* si la búsqueda falla, se intenta crear (la RPC rechaza duplicado) */ }
+  const { data, error } = await window.supa.rpc("arrocillo_crear_variante",
+    { p_tipo:v.tipo, p_proceso:v.proceso, p_estado:v.estado, p_destino:v.destino, p_calidad:v.calidad });
+  if (error) return { ok:false, error:error.message };
+  const r = data || {};
+  if (r.ok === false) return { ok:false, error:r.error || "No se pudo crear la variante." };
+  return { ok:true, cod:r.variedad_cod, nombre:r.nombre, creada:true };
+}
 const PRODUCTOS_WEB = [
   { id:"AC-QQ", nombre:"Arroz Conejo · Quintal (100 lb)",   prov:"Agrícola del Valle",  linea:"Arroz", variedad:"L1102", ic:"🌾", unidad:"qq", baseContado:45.00, baseCredito:45.50, promos:[{id:"PF3", nombre:"Promo flor", base:44.50, detalle:"compra 80 lleva 4"}] },
   { id:"AC-25", nombre:"Arroz Conejo · Saco 25 kg",          prov:"Agrícola del Valle",  linea:"Arroz", variedad:"L1102", ic:"🌾", unidad:"saco", baseContado:24.00, baseCredito:24.50, promos:[] },
@@ -7815,6 +7852,114 @@ function FotosProductosWeb({ usuario }){
     </div>
   );
 }
+/* DISENO_ARROCILLO · los 5 desplegables (listas cerradas). vals = {tipo,proceso,estado,destino,calidad}. */
+function ArrocilloCampos({ vals, setVals, disabled }) {
+  const v = vals || {};
+  const inp = { width:"100%", boxSizing:"border-box", padding:"9px 10px", borderRadius:9,
+    border:`1px solid ${COLOR.border}`, fontSize:14, fontFamily:"inherit",
+    background: disabled ? COLOR.bg : "#fff", cursor: disabled ? "default" : "pointer" };
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10 }}>
+      {ARROCILLO_CAMPOS.map(c => (
+        <div key={c.key}>
+          <label style={{ display:"block", fontSize:11.5, fontWeight:700, color:COLOR.muted, marginBottom:4 }}>{c.label}</label>
+          <select value={v[c.key]||""} disabled={disabled}
+            onChange={e=>setVals({ ...v, [c.key]: e.target.value })} style={inp}>
+            <option value="">— Elegir —</option>
+            {c.ops.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* DISENO_ARROCILLO · administración de variantes de arrocillo (solo Freelance).
+   Lista las variantes A01 (activas e inactivas), crea con la RPC (muestra el error de
+   duplicado/lista tal cual) y activa/desactiva. NUNCA borra. */
+function AdminArrocillo({ variedades, recargar, usuario }) {
+  const puede = usuario && usuario.rol === "Freelance";
+  const [abiertoPanel, setAbiertoPanel] = React.useState(false);
+  const [form, setForm] = React.useState(false);
+  const [nuevo, setNuevo] = React.useState({});
+  const [msg, setMsg] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const lista = (variedades || []).filter(v => v.familia_cod === ARROCILLO_FAM)
+    .slice().sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||""),"es"));
+  if (!puede) return null;
+
+  const crear = async () => {
+    setMsg(null);
+    if (!arrocilloCompleto(nuevo)) { setMsg({ err:true, t:"Elige los 5 campos." }); return; }
+    setBusy(true);
+    /* En administración se llama la RPC directo: si es duplicado o valor fuera de lista,
+       se muestra el error tal cual que devuelve la base. */
+    const { data, error } = await window.supa.rpc("arrocillo_crear_variante",
+      { p_tipo:nuevo.tipo, p_proceso:nuevo.proceso, p_estado:nuevo.estado, p_destino:nuevo.destino, p_calidad:nuevo.calidad });
+    setBusy(false);
+    if (error) { setMsg({ err:true, t: error.message }); return; }
+    const r = data || {};
+    if (r.ok === false) { setMsg({ err:true, t: r.error || "No se pudo crear la variante." }); return; }
+    setMsg({ err:false, t: "Variante creada: " + (r.nombre || "") });
+    setNuevo({}); setForm(false);
+    await recargar();
+  };
+  const toggle = async (cod, activoAhora) => {
+    setMsg(null); setBusy(true);
+    const { data, error } = await window.supa.rpc("arrocillo_activar_variante",
+      { p_variedad_cod: cod, p_activo: !activoAhora });
+    setBusy(false);
+    if (error) { setMsg({ err:true, t: error.message }); return; }
+    if (data && data.ok === false) { setMsg({ err:true, t: data.error || "No se pudo cambiar." }); return; }
+    await recargar();
+  };
+
+  const card = { background:COLOR.card, border:`1px solid ${COLOR.border}`, borderRadius:12, padding:"14px 16px", margin:"0 0 16px" };
+  return (
+    <div style={card} data-arrocillo-admin="1">
+      <div onClick={()=>setAbiertoPanel(a=>!a)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
+        <div>
+          <div style={{ fontWeight:800, fontSize:15 }}>🌾 Variantes de arrocillo</div>
+          <div style={{ fontSize:12, color:COLOR.muted }}>{lista.length} variante(s) · crea, activa o desactiva (no se borran)</div>
+        </div>
+        <span style={{ fontSize:20, color:COLOR.muted }}>{abiertoPanel ? "▾" : "▸"}</span>
+      </div>
+
+      {abiertoPanel && (<div style={{ marginTop:12 }}>
+        {msg && <div style={{ fontSize:12.5, fontWeight:700, borderRadius:8, padding:"8px 10px", marginBottom:10,
+          background: msg.err ? "#fdecec" : COLOR.tealLight, color: msg.err ? COLOR.red : COLOR.tealDark }}>{msg.t}</div>}
+
+        {!form
+          ? <button onClick={()=>{ setForm(true); setMsg(null); }} style={{ ...S_ARR.btn(COLOR.teal), marginBottom:12 }}>+ Agregar variante de arrocillo</button>
+          : (<div style={{ border:`1px dashed ${COLOR.border}`, borderRadius:10, padding:12, marginBottom:12 }}>
+              <ArrocilloCampos vals={nuevo} setVals={setNuevo} disabled={busy} />
+              {arrocilloCompleto(nuevo) && <div style={{ fontSize:12.5, color:COLOR.tealDark, marginTop:8 }}>Nombre: <b>{arrocilloNombre(nuevo)}</b></div>}
+              <div style={{ display:"flex", gap:8, marginTop:10 }}>
+                <button disabled={busy || !arrocilloCompleto(nuevo)} onClick={crear}
+                  style={{ ...S_ARR.btn(arrocilloCompleto(nuevo)?COLOR.teal:"#bcc6cf"), cursor: arrocilloCompleto(nuevo)?"pointer":"not-allowed" }}>{busy?"Creando…":"Crear variante"}</button>
+                <button disabled={busy} onClick={()=>{ setForm(false); setNuevo({}); setMsg(null); }} style={{ ...S_ARR.btn("#f3f5f7", COLOR.text) }}>Cancelar</button>
+              </div>
+            </div>)}
+
+        {!lista.length
+          ? <div style={{ fontSize:12.5, color:COLOR.muted }}>Aún no hay variantes de arrocillo.</div>
+          : lista.map(v => (
+            <div key={v.variedad_cod} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10,
+              border:`1px solid ${COLOR.border}`, borderRadius:10, padding:"9px 12px", marginBottom:8, opacity: v.activo ? 1 : 0.6 }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:13.5 }}>{v.nombre}</div>
+                <div style={{ fontSize:11, color:COLOR.muted }}>{v.variedad_cod} · {v.activo ? "Activa" : "Inactiva (no aparece al clasificar)"}</div>
+              </div>
+              <button disabled={busy} onClick={()=>toggle(v.variedad_cod, v.activo)}
+                style={{ ...S_ARR.btn(v.activo ? "#f3f5f7" : COLOR.teal, v.activo ? COLOR.text : "#fff"), flexShrink:0, fontSize:12.5 }}>
+                {v.activo ? "Desactivar" : "Reactivar"}</button>
+            </div>))}
+      </div>)}
+    </div>
+  );
+}
+const S_ARR = { btn:(bg,fg)=>({ padding:"9px 13px", borderRadius:9, border:"none", background:bg, color:fg||"#fff", fontWeight:800, fontFamily:"inherit", cursor:"pointer", fontSize:13 }) };
+
 function CatalogoWeb({ usuario }) {
   const money = n => "$" + Number(n).toLocaleString("es-EC",{minimumFractionDigits:2,maximumFractionDigits:2});
   const soloLectura = usuario.rol === "Administrador de Plataforma";
@@ -7884,13 +8029,18 @@ function CatalogoWeb({ usuario }) {
   /* DISENO_CAT_VARIEDAD · catálogo de familias/variedades de grano leído de la base.
      Defensivo: si la lectura falla o viene vacía, la columna cae al respaldo de las
      constantes del archivo (VARIEDADES_GRANO / FAMILIAS_GRANO). Nunca pantalla en blanco. */
-  React.useEffect(() => { (async () => {
+  /* DISENO_ARROCILLO · recargaGrano permite refrescar las variedades tras crear/desactivar
+     una variante de arrocillo, sin recargar la pantalla. */
+  const cargarGrano = React.useCallback(async () => {
     if (!window.supa) { setVariedades([]); setFamilias([]); return; }
     try {
       const [rv, rf] = await Promise.all([
+        /* DISENO_ARROCILLO · se traen también las columnas arr_* y las variedades INACTIVAS:
+           las inactivas se ocultan al clasificar (se filtran en la UI) pero deben verse en la
+           administración de arrocillo y seguir traduciéndose en listados/documentos viejos. */
         window.supa.from("grano_variedades")
-          .select("variedad_cod,familia_cod,nombre,nivel_nombre,orden,activo")
-          .eq("activo", true).order("orden"),
+          .select("variedad_cod,familia_cod,nombre,nivel_nombre,orden,activo,arr_tipo,arr_proceso,arr_estado,arr_destino,arr_calidad")
+          .order("orden"),
         window.supa.from("grano_familias")
           .select("familia_cod,nombre,linea,orden,activo")
           .eq("activo", true).order("orden"),
@@ -7898,7 +8048,8 @@ function CatalogoWeb({ usuario }) {
       setVariedades((rv && rv.data) || []);
       setFamilias((rf && rf.data) || []);
     } catch (e) { setVariedades([]); setFamilias([]); }
-  })(); }, []);
+  }, []);
+  React.useEffect(() => { cargarGrano(); }, [cargarGrano]);
 
   // Cargar productos de arroz activos + proveedores desde Supabase
   const cargarProductos = React.useCallback(async () => {
@@ -8243,6 +8394,8 @@ function CatalogoWeb({ usuario }) {
       {avisoOk && (
         <div style={{ position:"fixed", top:80, left:"50%", transform:"translateX(-50%)", background:COLOR.teal, color:"#fff", padding:"11px 22px", borderRadius:999, fontSize:14, fontWeight:700, boxShadow:"0 8px 24px rgba(0,0,0,.2)", zIndex:100 }}>{avisoOk}</div>
       )}
+      {/* DISENO_ARROCILLO · administración de variantes de arrocillo (solo Freelance) */}
+      <AdminArrocillo variedades={VARIEDADES_OK} recargar={cargarGrano} usuario={usuario} />
       {/* DISENO_CAT_BARRA · sin proveedor → estado vacío grande; con proveedor → tarjeta «Proveedor actual» */}
       {!provSel && (
         <div style={{ border:`1px solid ${COLOR.border}`, borderRadius:16, background:COLOR.card, padding:"26px 22px", textAlign:"center", marginBottom:14 }}>
@@ -9297,6 +9450,9 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
   const fileRef = React.useRef(null);
   /* GRANO_DESDE_EL_ALTA · el tipo de grano se elige al crear, no después. */
   const [variedad, setVariedad] = useState("");
+  /* DISENO_ARROCILLO · familia: arroz normal (mismo <select> de siempre) o arrocillo (5 desplegables). */
+  const [esArrocillo, setEsArrocillo] = useState(false);
+  const [arrVals, setArrVals] = useState({});
   /* MARCA_UNA_SOLA_FICHA · si ya existe esta marca en esta piladora, se ofrece sumar la presentación
      a esa ficha en vez de crear otro producto. */
   const [gemelo, setGemelo] = useState(null);   // { prodId, nombre, tipoGrano, pres:[{cod,nombre}] }
@@ -9444,8 +9600,19 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
       if (!(av > 0)) { setAviso("Escribe el peso en quintales de esta "+(uniSel.nombre||"unidad").toLowerCase()+" para este producto (no se asume 1)."); return; }
     }
     if (!window.supa) { setAviso("Sin conexión con el servidor."); return; }
+    /* DISENO_ARROCILLO · si es arrocillo, los 5 desplegables son obligatorios; se resuelve el
+       código de la variante (busca la viva o la crea con la RPC) y ese código es el tipo_grano. */
+    if (esArrocillo && !granoHeredado && !arrocilloCompleto(arrVals)) {
+      setAviso("Elige los 5 campos del arrocillo (tipo, proceso, estado, destino, calidad)."); return;
+    }
     setGuardando(true); setAviso("");
     try {
+      let granoCod = variedad;
+      if (esArrocillo && !granoHeredado) {
+        const ra = await arrocilloResolver(arrVals);
+        if (!ra.ok) { setGuardando(false); setAviso("Arrocillo: " + ra.error); return; }
+        granoCod = ra.cod;
+      }
       const r2 = x => Math.round(x*100)/100;
       /* CAT_UNIDADES · si hay unidad del catálogo elegida, se usa esa (con el equiv ajustado para
          este producto si el freelance lo cambió); si no, cae al selector fijo (fallback). */
@@ -9470,13 +9637,13 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
       if (sumando) {
         /* GRANO_DESDE_EL_ALTA · si la marca estaba sin clasificar y aquí se eligió el grano, se le pone
            al PRODUCTO: queda para TODAS sus presentaciones (tipo_grano vive en productos, se hereda). */
-        if (!gemelo.tipoGrano && variedad) {
-          const { error:eg } = await window.supa.from("productos").update({ tipo_grano: variedad }).eq("prod_id", prodId);
+        if (!gemelo.tipoGrano && granoCod) {
+          const { error:eg } = await window.supa.from("productos").update({ tipo_grano: granoCod }).eq("prod_id", prodId);
           if (eg) throw new Error("tipo de grano: "+eg.message);
         }
       } else {
         const { error:e1 } = await window.supa.from("productos").insert({
-          prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo", tipo_grano: variedad || null,
+          prod_id: prodId, nombre: nombre.trim(), linea: "Arroz", estado: "activo", tipo_grano: granoCod || null,
           org_id: orgId, proveedor_cod: provCod, proveedor: provNom, foto: fotoData || null, es_demo: false });
         if (e1) throw new Error("producto: "+e1.message);
       }
@@ -9551,16 +9718,34 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                     <b className="num" style={{ color:COLOR.text }}>{gemelo.tipoGrano}</b> · heredado de «{gemelo.nombre}»
                   </div>
                 ) : (
-                  <select value={variedad} onChange={e=>setVariedad(regUso("variedades",e.target.value))} style={{ ...inp, cursor:"pointer" }}>
-                    <option value="">— Sin asignar —</option>
-                    {ordUso("variedades",VARIEDADES_GRANO).map(v => <option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
-                  </select>
+                  <>
+                    {/* DISENO_ARROCILLO · familia: «Arroz» usa el mismo <select> de siempre; «Arrocillo»
+                        muestra los 5 desplegables (listas cerradas) y crea/usa la variante. */}
+                    <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                      <button type="button" onClick={()=>setEsArrocillo(false)}
+                        style={{ flex:1, padding:"9px 12px", borderRadius:9, border:"none", cursor:"pointer", fontWeight:800, fontFamily:"inherit", fontSize:13.5, background: !esArrocillo?COLOR.tealDark:"#f3f5f7", color: !esArrocillo?"#fff":COLOR.text }}>Arroz</button>
+                      <button type="button" onClick={()=>setEsArrocillo(true)}
+                        style={{ flex:1, padding:"9px 12px", borderRadius:9, border:"none", cursor:"pointer", fontWeight:800, fontFamily:"inherit", fontSize:13.5, background: esArrocillo?COLOR.tealDark:"#f3f5f7", color: esArrocillo?"#fff":COLOR.text }}>Arrocillo</button>
+                    </div>
+                    {esArrocillo ? (
+                      <ArrocilloCampos vals={arrVals} setVals={setArrVals} />
+                    ) : (
+                      <select value={variedad} onChange={e=>setVariedad(regUso("variedades",e.target.value))} style={{ ...inp, cursor:"pointer" }}>
+                        <option value="">— Sin asignar —</option>
+                        {ordUso("variedades",VARIEDADES_GRANO).map(v => <option key={v.cod} value={v.cod}>{v.cod} · {v.desc}</option>)}
+                      </select>
+                    )}
+                  </>
                 )}
-                <p style={{ fontSize:11.5, margin:"-8px 0 16px",
-                  color: granoHeredado ? COLOR.muted : (variedad ? COLOR.muted : "#b9770e"),
-                  fontWeight: (granoHeredado||variedad) ? 400 : 700 }}>
+                <p style={{ fontSize:11.5, margin: esArrocillo && !granoHeredado ? "8px 0 16px" : "-8px 0 16px",
+                  color: granoHeredado ? COLOR.muted : (esArrocillo ? (arrocilloCompleto(arrVals)?COLOR.tealDark:"#b9770e") : (variedad ? COLOR.muted : "#b9770e")),
+                  fontWeight: (granoHeredado || (esArrocillo?arrocilloCompleto(arrVals):variedad)) ? 400 : 700 }}>
                   {granoHeredado
                     ? "Es del producto, no de la presentación: ya rige para todas las de esta marca."
+                    : esArrocillo
+                      ? (arrocilloCompleto(arrVals)
+                          ? <span>Se usará (o creará) la variante <b>{arrocilloNombre(arrVals)}</b>.</span>
+                          : "⚠ Elige los 5 campos del arrocillo (tipo, proceso, estado, destino, calidad).")
                     : variedad
                       ? <span>Familia: <b className="num">{variedad.slice(0,3)}</b> — con esto el producto entra en el ajuste de precios por bloque.</span>
                       : "⚠ Sin esto el producto nace «sin clasificar» y el ajuste por bloque de Piladoras no lo alcanza."}
