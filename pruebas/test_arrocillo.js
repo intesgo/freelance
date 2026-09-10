@@ -36,8 +36,12 @@ comprobar("existe el resolver busca-o-crea con la RPC arrocillo_crear_variante",
   /async function arrocilloResolver/.test(html) && /rpc\("arrocillo_crear_variante"/.test(html));
 comprobar("el panel usa arrocillo_activar_variante para activar/desactivar (nunca borra)",
   /rpc\("arrocillo_activar_variante"/.test(html) && !/arrocillo_borrar|\.delete\(\)[\s\S]{0,40}grano_variedades/.test(html));
-comprobar("el panel AdminArrocillo se monta en el Catálogo",
-  /<AdminArrocillo variedades=\{VARIEDADES_OK\} recargar=\{cargarGrano\} usuario=\{usuario\} \/>/.test(html));
+/* PRODUCTOS_SIN_PANEL_ARROCILLO · el panel ya NO se monta en Productos; el componente
+   sigue definido (se prueba directo más abajo) y la creación vive en el modal de clasificar. */
+comprobar("el panel AdminArrocillo YA NO se monta en el Catálogo (Productos)",
+  !/<AdminArrocillo variedades=\{VARIEDADES_OK\} recargar=\{cargarGrano\} usuario=\{usuario\} \/>/.test(html));
+comprobar("el componente AdminArrocillo sigue definido (para el modal de clasificar y sus RPC)",
+  /function AdminArrocillo\(/.test(html));
 comprobar("el alta tiene el conmutador Arroz/Arrocillo y resuelve a granoCod",
   /setEsArrocillo\(true\)/.test(html) && /const ra = await arrocilloResolver\(arrVals\)/.test(html) && /tipo_grano: granoCod \|\| null/.test(html));
 comprobar("PiladorasWeb carga las variantes A01 (con creado, activas e inactivas)",
