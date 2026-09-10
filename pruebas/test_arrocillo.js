@@ -40,15 +40,26 @@ comprobar("el panel AdminArrocillo se monta en el Catálogo",
   /<AdminArrocillo variedades=\{VARIEDADES_OK\} recargar=\{cargarGrano\} usuario=\{usuario\} \/>/.test(html));
 comprobar("el alta tiene el conmutador Arroz/Arrocillo y resuelve a granoCod",
   /setEsArrocillo\(true\)/.test(html) && /const ra = await arrocilloResolver\(arrVals\)/.test(html) && /tipo_grano: granoCod \|\| null/.test(html));
-comprobar("PiladorasWeb carga las variantes A01 de la base (activas e inactivas)",
-  /window\.supa\.from\("grano_variedades"\)[\s\S]{0,140}\.eq\("familia_cod","A01"\)/.test(html) && /setArrocVars/.test(html));
+comprobar("PiladorasWeb carga las variantes A01 (con creado, activas e inactivas)",
+  /window\.supa\.from\("grano_variedades"\)[\s\S]{0,160}\.eq\("familia_cod","A01"\)/.test(html) && /setArrocVars/.test(html) &&
+  /select\("variedad_cod,nombre,activo,creado,arr_tipo/.test(html));
 comprobar("PiladorasWeb decodifica un código A01xx con el nombre comercial de la base",
   /const esArrocCod=\(cod\)=>String\(cod\|\|""\)\.slice\(0,3\)===ARROCILLO_FAM/.test(html) &&
   /const arrocDe=\(cod\)=>arrocVars\.find/.test(html) &&
   /esArrocCod\(cod\) \? \(\(arrocDe\(cod\)\|\|\{\}\)\.nombre/.test(html));
-comprobar("el modal de Variedad es de dos pasos (Arroz / Arrocillo) y el paso Arrocillo guarda con busca-o-crea",
-  /¿Qué es\?/.test(html) && /setTgModo\("arrocillo"\)/.test(html) && /tgModo==="arroz" \?/.test(html) &&
+comprobar("el modal es de dos pasos (Arroz / Arrocillo) y el arrocillo guarda con busca-o-crea",
+  /setTgModo\("arrocillo"\)/.test(html) && /tgModo==="arroz" \?/.test(html) &&
   /const r=await arrocilloResolver\(arrSel\)/.test(html) && /await guardarTipoGrano\(tgSel,r\.cod\)/.test(html));
+comprobar("modal · encabezado con la marca + chip «Actual:» (no repite la opción marcada)",
+  /Actual: \{actualTxt\}/.test(html) && /const actualTxt = actual \? variedadDesc\(actual\) : "Sin clasificar"/.test(html));
+comprobar("modal · un solo botón «Guardar» (arroz se marca y se confirma; arrocillo hasta los 5)",
+  /const puedeGuardar = tgModo==="arroz" \? !!tgArrozSel : arrocilloCompleto\(arrSel\)/.test(html) &&
+  /onClick=\{\(\)=>setTgArrozSel\(cod\)\}/.test(html) && /\{arrBusy\?"Guardando…":"Guardar"\}/.test(html));
+comprobar("modal · «Sin clasificar» apartado (tenue) y autoscroll a lo marcado",
+  /ref=\{on\?tgMarkRef:null\}/.test(html) && /scrollIntoView\(\{block:"center"\}\)/.test(html));
+comprobar("modal · chips «usados recientemente» solo en arrocillo (variantes A01 por creado)",
+  /Usados recientemente/.test(html) && /arrocRecientes\.length>0/.test(html) &&
+  /arrocVars\.filter\(v=>v\.activo!==false\)[\s\S]{0,90}localeCompare\(String\(a\.creado/.test(html));
 comprobar("el modal NO cambió guardarTipoGrano (se reúsa tal cual)",
   /const guardarTipoGrano=async\(prodId, cod\)=>\{[\s\S]{0,220}update\(\{tipo_grano:cod\|\|null\}\)/.test(html));
 
