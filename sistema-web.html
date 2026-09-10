@@ -567,7 +567,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"245", fecha:"10 sep 2026", desc:"Catálogo (Sistema Web) · clasificación dinámica del arrocillo: al crear un producto puedes elegir «Arroz» (como siempre) o «Arrocillo» con 5 desplegables (tipo, proceso, estado, destino, calidad); el sistema arma el nombre comercial y crea o reutiliza la variante. Nuevo panel «Variantes de arrocillo» (solo Freelance) para crear, activar o desactivar variantes (nunca se borran; las inactivas no aparecen al clasificar pero sí en administración). Las RPCs de la base validan duplicados y listas." };
+const VERSION = { n:"246", fecha:"10 sep 2026", desc:"Precios (Sistema Web) · el modal «Variedad» ahora es de dos pasos: primero eliges «Arroz» (familias y niveles de siempre) o «Arrocillo» (5 desplegables: tipo, proceso, estado, destino, calidad); abajo se ve el nombre que quedará y «Guardar variante» crea o reutiliza la variante. El arrocillo ya se ve con su nombre comercial en la lista de marcas. Se conserva el panel «Variantes de arrocillo» del Catálogo. El arroz no cambia en nada." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -10746,6 +10746,13 @@ function PiladorasWeb({ usuario, modo }){
   const [secW,setSecW]=useState("costos");     // pestaña exterior del detalle: "ficha" o "costos"
   const [precTab,setPrecTab]=useState("variedad");  // DISENO_PRECIOS_TABS · en modo Precios: "variedad" | "marca"
   const [tgSel,setTgSel]=useState(null);       // prodId con el modal de variedad de grano abierto
+  /* DISENO_ARROCILLO · variantes A01 leídas de la base (activas e inactivas): las activas para
+     elegir/crear en el modal; TODAS para decodificar el nombre comercial en la lista. */
+  const [arrocVars,setArrocVars]=useState([]);
+  const [tgModo,setTgModo]=useState("arroz");  // paso 1 del modal Variedad: "arroz" | "arrocillo"
+  const [arrSel,setArrSel]=useState({});       // los 5 desplegables del arrocillo en el modal
+  const [arrBusy,setArrBusy]=useState(false);
+  const [arrMsg,setArrMsg]=useState(null);
   const [qMarca,setQMarca]=useState("");       // buscador de marcas dentro de la piladora (uFuzzy)
   const [abiertas,setAbiertas]=useState({});   // prodId -> true: la marca está desplegada (detalle diferido)
   const [rucWeb,setRucWeb]=useState("");       // RUC de la piladora abierta (proveedor_fichas.ruc)
@@ -10890,14 +10897,19 @@ function PiladorasWeb({ usuario, modo }){
   const cargar=React.useCallback(async()=>{
     if(!window.supa){ setOfertas([]); setError("Sin conexión con la base."); return; }
     try{
-      const [ofs,rProds,rProvs]=await Promise.all([
+      const [ofs,rProds,rProvs,rArr]=await Promise.all([
         preLeerOfertas(),
         window.supa.from("productos").select("prod_id,nombre,marca,linea,tipo_grano").eq("estado","activo"),
         window.supa.from("proveedores").select("prov_cod,nombre"),
+        /* DISENO_ARROCILLO · variantes A01 (activas e inactivas) para clasificar y decodificar */
+        window.supa.from("grano_variedades")
+          .select("variedad_cod,nombre,activo,arr_tipo,arr_proceso,arr_estado,arr_destino,arr_calidad")
+          .eq("familia_cod","A01"),
       ]);
       const pi={}, nv={};
       ((rProds&&rProds.data)||[]).forEach(p=>{ pi[p.prod_id]={nombre:p.nombre||p.marca||p.prod_id, marca:p.marca||p.nombre||p.prod_id, linea:p.linea||"Otros", tipoGrano:p.tipo_grano||""}; });
       ((rProvs&&rProvs.data)||[]).forEach(p=>{ nv[p.prov_cod]=p.nombre||p.prov_cod; });
+      setArrocVars((rArr&&rArr.data)||[]);
       setProdInfo(pi); setNomProv(nv); setOfertas(ofs);
       setError(ofs.length?"":"No hay ofertas vigentes que mostrar.");
     }catch(e){ setOfertas([]); setError("No se pudieron leer las ofertas."); }
@@ -10992,7 +11004,11 @@ function PiladorasWeb({ usuario, modo }){
 
   /* ═══ DISENO_PRECIO_VARIEDAD ═══ precio por variedad, propagado por DIFERENCIA a cada marca.
      La variedad de una marca es prodInfo[pid].tipoGrano (código de 5 caracteres). */
-  const variedadDesc=(cod)=>(VARIEDADES_GRANO.find(v=>v.cod===cod)||{}).desc||cod;
+  /* DISENO_ARROCILLO · un código A01xx se decodifica con el nombre comercial de la base
+     (arrocVars), no con las constantes de arroz (que solo entienden C09/L11/F14). */
+  const esArrocCod=(cod)=>String(cod||"").slice(0,3)===ARROCILLO_FAM;
+  const arrocDe=(cod)=>arrocVars.find(v=>v.variedad_cod===cod)||null;
+  const variedadDesc=(cod)=> esArrocCod(cod) ? ((arrocDe(cod)||{}).nombre || "Arrocillo") : ((VARIEDADES_GRANO.find(v=>v.cod===cod)||{}).desc||cod);
   const familiaDescDe=(cod)=>(FAMILIAS_GRANO.find(f=>f.cod===String(cod||"").slice(0,3))||{}).desc||"";
   /* marcas (pids) de ESTA piladora colgadas de una variedad */
   const marcasDeVariedad=(cod)=>{
@@ -11085,6 +11101,14 @@ function PiladorasWeb({ usuario, modo }){
      Es correcto; un aviso (una vez por sesión) evita el susto cuando la marca se vende en varias. */
   const piladorasDeMarca=(pid)=>{ const s=new Set(); (ofertas||[]).forEach(o=>{ if(o.prodId===pid) s.add(o.provCod); }); return s.size; };
   const abrirClasificar=(pid)=>{ setTgSel(pid);
+    /* DISENO_ARROCILLO · atajo: si la marca ya es arrocillo (A01), el modal abre en el paso Arrocillo
+       con sus 5 valores precargados; si no, en Arroz. El dueño puede cambiar de paso. */
+    const cod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
+    if(esArrocCod(cod)){ const av=arrocDe(cod);
+      setTgModo("arrocillo");
+      setArrSel(av?{tipo:av.arr_tipo,proceso:av.arr_proceso,estado:av.arr_estado,destino:av.arr_destino,calidad:av.arr_calidad}:{});
+    } else { setTgModo("arroz"); setArrSel({}); }
+    setArrMsg(null); setArrBusy(false);
     if(!avisoMultiRef.current){ const n=piladorasDeMarca(pid); if(n>1){ avisoMultiRef.current=true;
       setAvisoMulti(`Esta marca la venden ${n} piladoras; la variedad es la misma para todas.`); } } };
 
@@ -11282,7 +11306,7 @@ function PiladorasWeb({ usuario, modo }){
             const m=marcas[pid]; const exc=!!excluidas[pid];
             const tgCod=(prodInfo[pid]&&prodInfo[pid].tipoGrano)||"";
             const abierta=!!abiertas[pid];
-            const subtVar = tgCod ? (familiaCorta(tgCod) + (nivelDe(tgCod)?(" · "+nivelDe(tgCod)):"")) : "Sin clasificar";
+            const subtVar = tgCod ? (esArrocCod(tgCod) ? ((arrocDe(tgCod)||{}).nombre || "Arrocillo") : (familiaCorta(tgCod) + (nivelDe(tgCod)?(" · "+nivelDe(tgCod)):""))) : "Sin clasificar";
             const ofsOrden=m.ofertas.slice().sort((a,b)=>(Number(b.equivQq)||0)-(Number(a.equivQq)||0));
             const top=ofsOrden[0]||{};
             const nc=numCorto(top.costo), nb=numCorto(top.credito);
@@ -11503,30 +11527,58 @@ function PiladorasWeb({ usuario, modo }){
         </div>
       )}
 
-      {/* MODAL_TG_FAMILIA: elegir la variedad de grano, agrupada por familia (Grano corriente / largo 011 / Ferón) */}
+      {/* MODAL_TG_FAMILIA · dos pasos: paso 1 «¿Qué es?» (Arroz / Arrocillo); paso 2 Arroz = familia×nivel
+         (igual que siempre); paso 2 Arrocillo = 5 desplegables (listas cerradas) que buscan-o-crean la variante. */}
       {tgSel && (()=>{
         const actual=(prodInfo[tgSel]&&prodInfo[tgSel].tipoGrano)||"";
         const nombreMarca=(prodInfo[tgSel]&&prodInfo[tgSel].marca)||tgSel;
+        const seg=(on)=>({flex:1,padding:"12px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:800,fontFamily:"inherit",fontSize:14,background:on?"#2E7D52":"#f3f5f7",color:on?"#fff":"#333"});
         return (
         <div onClick={()=>setTgSel(null)}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"18px",maxWidth:440,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:"0 10px 40px rgba(0,0,0,.2)"}}>
-            <h3 style={{margin:"0 0 4px"}}>Variedad</h3>
-            <div style={{...S.meta,margin:"0 0 12px"}}>{nombreMarca} · elige familia y nivel</div>
-            {FAMILIAS_GRANO.map(fam=>(
-              <div key={fam.cod} style={{marginBottom:12}}>
-                <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>{fam.desc}</div>
-                <div style={{display:"flex",gap:8}}>
-                  {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=actual===cod; return (
-                    <button key={cod} onClick={()=>{ guardarTipoGrano(tgSel,cod); setTgSel(null); }}
-                      style={{flex:1,padding:"9px 6px",borderRadius:10,border:on?"2px solid #2E7D52":"1px solid #D8D2C4",background:on?"#F5F9F6":"#fff",fontWeight:on?800:600,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>{niv.n}</button>
-                  ); })}
+            <h3 style={{margin:"0 0 4px"}}>Variedad{actual?(" · "+variedadDesc(actual)):""}</h3>
+            <div style={{...S.meta,margin:"0 0 12px"}}>{nombreMarca}</div>
+            {/* PASO 1 · ¿Qué es? */}
+            <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>¿Qué es?</div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <button onClick={()=>setTgModo("arroz")} style={seg(tgModo==="arroz")}>Arroz</button>
+              <button onClick={()=>setTgModo("arrocillo")} style={seg(tgModo==="arrocillo")}>{tgModo==="arrocillo"?"✓ ":""}Arrocillo</button>
+            </div>
+
+            {tgModo==="arroz" ? (
+              /* PASO 2A · Arroz (igual que siempre) */
+              FAMILIAS_GRANO.map(fam=>(
+                <div key={fam.cod} style={{marginBottom:12}}>
+                  <div style={{fontWeight:800,fontSize:12.5,marginBottom:6}}>{fam.desc}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    {NIVELES_GRANO.map(niv=>{ const cod=fam.cod+niv.cod; const on=actual===cod; return (
+                      <button key={cod} onClick={()=>{ guardarTipoGrano(tgSel,cod); setTgSel(null); }}
+                        style={{flex:1,padding:"9px 6px",borderRadius:10,border:on?"2px solid #2E7D52":"1px solid #D8D2C4",background:on?"#F5F9F6":"#fff",fontWeight:on?800:600,fontFamily:"inherit",fontSize:11.5,cursor:"pointer"}}>{niv.n}</button>
+                    ); })}
+                  </div>
                 </div>
+              ))
+            ) : (
+              /* PASO 2B · Arrocillo (5 desplegables → busca-o-crea) */
+              <div style={{marginBottom:6}}>
+                <ArrocilloCampos vals={arrSel} setVals={setArrSel} disabled={arrBusy}/>
+                <div style={{fontSize:12.5,color:arrocilloCompleto(arrSel)?"#1F5E3D":"#8A8578",margin:"10px 0 0"}}>
+                  Quedará: <b>{arrocilloCompleto(arrSel)?arrocilloNombre(arrSel):"elige los 5 campos"}</b></div>
+                {arrMsg && <div style={{fontSize:12,fontWeight:700,color:"#C0392B",marginTop:6}}>{arrMsg}</div>}
               </div>
-            ))}
-            <div style={{display:"flex",gap:10,marginTop:6}}>
+            )}
+
+            <div style={{display:"flex",gap:10,marginTop:12}}>
               <button onClick={()=>{ guardarTipoGrano(tgSel,""); setTgSel(null); }} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Sin clasificar</button>
-              <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cerrar</button>
+              {tgModo==="arrocillo"
+                ? <button disabled={arrBusy||!arrocilloCompleto(arrSel)}
+                    onClick={async()=>{ setArrMsg(null); setArrBusy(true); const r=await arrocilloResolver(arrSel); setArrBusy(false);
+                      if(!r.ok){ setArrMsg(r.error); return; }
+                      if(r.creada){ setArrocVars(prev=>[...prev,{variedad_cod:r.cod,nombre:r.nombre,activo:true,arr_tipo:arrSel.tipo,arr_proceso:arrSel.proceso,arr_estado:arrSel.estado,arr_destino:arrSel.destino,arr_calidad:arrSel.calidad}]); }
+                      await guardarTipoGrano(tgSel,r.cod); setTgSel(null); }}
+                    style={{...S.btn(arrocilloCompleto(arrSel)?"#2E7D52":"#bcc6cf"),flex:1,cursor:arrocilloCompleto(arrSel)?"pointer":"not-allowed"}}>{arrBusy?"Guardando…":"Guardar variante"}</button>
+                : <button onClick={()=>setTgSel(null)} style={{...S.btn("#fff","#333"),flex:1,border:"1px solid #D8D2C4"}}>Cerrar</button>}
             </div>
           </div>
         </div>);

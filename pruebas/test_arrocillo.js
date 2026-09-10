@@ -40,6 +40,17 @@ comprobar("el panel AdminArrocillo se monta en el Catálogo",
   /<AdminArrocillo variedades=\{VARIEDADES_OK\} recargar=\{cargarGrano\} usuario=\{usuario\} \/>/.test(html));
 comprobar("el alta tiene el conmutador Arroz/Arrocillo y resuelve a granoCod",
   /setEsArrocillo\(true\)/.test(html) && /const ra = await arrocilloResolver\(arrVals\)/.test(html) && /tipo_grano: granoCod \|\| null/.test(html));
+comprobar("PiladorasWeb carga las variantes A01 de la base (activas e inactivas)",
+  /window\.supa\.from\("grano_variedades"\)[\s\S]{0,140}\.eq\("familia_cod","A01"\)/.test(html) && /setArrocVars/.test(html));
+comprobar("PiladorasWeb decodifica un código A01xx con el nombre comercial de la base",
+  /const esArrocCod=\(cod\)=>String\(cod\|\|""\)\.slice\(0,3\)===ARROCILLO_FAM/.test(html) &&
+  /const arrocDe=\(cod\)=>arrocVars\.find/.test(html) &&
+  /esArrocCod\(cod\) \? \(\(arrocDe\(cod\)\|\|\{\}\)\.nombre/.test(html));
+comprobar("el modal de Variedad es de dos pasos (Arroz / Arrocillo) y el paso Arrocillo guarda con busca-o-crea",
+  /¿Qué es\?/.test(html) && /setTgModo\("arrocillo"\)/.test(html) && /tgModo==="arroz" \?/.test(html) &&
+  /const r=await arrocilloResolver\(arrSel\)/.test(html) && /await guardarTipoGrano\(tgSel,r\.cod\)/.test(html));
+comprobar("el modal NO cambió guardarTipoGrano (se reúsa tal cual)",
+  /const guardarTipoGrano=async\(prodId, cod\)=>\{[\s\S]{0,220}update\(\{tipo_grano:cod\|\|null\}\)/.test(html));
 
 /* ── 2 · DOBLE DE SUPABASE + CONTEXTO ── */
 const dom = new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`,
