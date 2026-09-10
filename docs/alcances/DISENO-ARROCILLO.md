@@ -46,18 +46,37 @@ entra en ese molde: su variedad se arma con 5 atributos de listas cerradas. Ahor
 - Alta `ModalNuevoProducto`: conmutador Arroz/Arrocillo; resolución a `granoCod` antes de
   escribir `tipo_grano`.
 
+## Modal «Variedad» de dos pasos (ampliación · b246 / v484)
+
+Además del alta del Catálogo, el **modal de Variedad** (donde se clasifica una marca) pasó a
+**dos pasos** en **PiladorasWeb** (Sistema Web) y en **`freelance-completo.html`** (app del dueño):
+
+- **Paso 1 · ¿Qué es?** dos botones grandes: **Arroz** / **Arrocillo**.
+- **Paso 2 · Arroz** = exactamente lo de siempre (familias C09/L11/F14 × niveles). El arroz
+  no cambia.
+- **Paso 2 · Arrocillo** = los 5 desplegables (listas cerradas), el nombre que quedará en vivo
+  y **«Guardar variante»** (busca-o-crea la variante y llama `guardarTipoGrano` **sin
+  cambiarla**). Atajo: si la marca ya es arrocillo, el modal abre en el paso Arrocillo con sus
+  5 valores precargados.
+- **Decodificación**: PiladorasWeb y la app del dueño ahora leen las variantes A01 de la base
+  (`arrocVars`, activas e inactivas) y muestran el **nombre comercial** del arrocillo en el
+  subtítulo de la marca (antes salía en blanco). El arroz se decodifica igual que siempre.
+- **Administración**: la app del dueño tiene su propio panel `AdminArrocilloSB` (dentro de
+  Piladoras · Costos y precios); el Sistema Web conserva el suyo en el Catálogo.
+- La app del dueño usa **`window.SB`** (no `window.supa`): resolver = `arrocilloResolverSB`.
+
 ## Qué NO se toca
 
 - La clasificación del **arroz** (familias C09/L11/F14) ni sus constantes.
-- **PiladorasWeb** (Piladoras y Precios): NO se tocó. Su traducción de variedad usa la
-  **constante** `VARIEDADES_GRANO`, no la base, así que el arrocillo **no aparece** aún en
-  su subtítulo de marca ni en la pestaña «Por variedad» de Precios. **Pendiente (follow-up):**
-  cablear PiladorasWeb a la lista viva de variedades para mostrar/ajustar precios del
-  arrocillo. Se dejó fuera a propósito para no dejar un «clasificar» que se vea roto.
-- **Apps móviles**: solo `freelance-completo.html` clasifica por variedad (2 puntos que
-  escriben `productos.tipo_grano`). **Pendiente (follow-up):** aplicar el mismo criterio
-  ahí. Comisionista, socio, proveedor y transportista **no clasifican por variedad** — no
-  requieren cambio.
+- `guardarTipoGrano` se **reúsa tal cual** en ambas apps (misma escritura a
+  `productos.tipo_grano`). No se toca la escritura de precios (`ofertas_piladora` /
+  `precios_variedad`), permisos, ni `registrar_pedido_atomico` / `editar_pedido_atomico`.
+- **Apps móviles**: solo `freelance-completo.html` clasifica por variedad (ya cubierto).
+  Comisionista, socio, proveedor y transportista **no clasifican por variedad** — no se
+  tocan. Nota menor: en la app del dueño, la ficha de marca (`FichaMarca`, pantalla
+  Productos) muestra el **código** A01xx del arrocillo sin su nombre largo (su editor sigue
+  siendo el buscador de arroz); la clasificación real del arrocillo se hace en el modal de
+  Costos y precios. Se puede cablear el nombre ahí en un ajuste posterior si se pide.
 - La lógica de permisos, la escritura de precios (`ofertas_piladora`/`precios_variedad`),
   `registrar_pedido_atomico`/`editar_pedido_atomico`. Los 3 arrocillos actuales
   (P-00001/2/3) quedan «pendiente de clasificación» hasta que el freelance los clasifique.
