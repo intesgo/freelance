@@ -571,7 +571,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"254", fecha:"11 sep 2026", desc:"Pedidos (Sistema Web) · la lista ya no se queda pegada en «Cargando pedidos…» para siempre. Si una petición se cuelga (conexión o token), a los ~9 segundos se corta y aparece «Reintentar» en vez de un spinner eterno; además hace un reintento solo antes de rendirse, para tranques puntuales de internet. Con buena conexión carga igual de rápido que antes. Solo front: no cambia la forma de leer ni de guardar pedidos." };
+const VERSION = { n:"255", fecha:"11 sep 2026", desc:"Productos (Sistema Web) · al crear un «Nuevo producto» con una piladora ya elegida, el modal usa ESA piladora fija (la muestra en una línea de solo lectura) en vez de volver a pedirla. En «Todos los productos» sigue dejando elegir la piladora como antes. Solo diseño: no cambia el guardado del producto ni el resto del alta." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -8666,8 +8666,14 @@ function CatalogoWeb({ usuario }) {
           onCerrar={()=>setAbierto(null)} onGuardar={guardarFicha} />
       )}
 
-      {/* Modal nuevo producto (alta simple, entra Por aprobar) */}
-      {modalNuevo && <ModalNuevoProducto money={money} usuario={usuario} onCerrar={()=>setModalNuevo(false)} />}
+      {/* Modal nuevo producto (alta simple, entra Por aprobar).
+          CAT_NUEVO_PROD_PILADORA_FIJA · si hay una piladora elegida, el modal la usa fija (no la vuelve a pedir). */}
+      {modalNuevo && (() => {
+        const provFijo = (provSel && provSel !== TODOS_OPC)
+          ? (proveedores.find(x => x.nombre === provSel) || { nombre: provSel })
+          : null;
+        return <ModalNuevoProducto money={money} usuario={usuario} provFijo={provFijo} onCerrar={()=>setModalNuevo(false)} />;
+      })()}
 
       {/* Modal: replicar producto en una o varias piladoras */}
       {replicar && (() => {
@@ -9469,10 +9475,13 @@ function CatalogoUnidadesWeb({ usuario }) {
   );
 }
 
-function ModalNuevoProducto({ money, usuario, onCerrar }) {
+function ModalNuevoProducto({ money, usuario, provFijo, onCerrar }) {
+  /* CAT_NUEVO_PROD_PILADORA_FIJA · si viene una piladora elegida, el modal la usa fija:
+     no se pinta el selector «De la lista / Piladora nueva», solo una línea de solo lectura. */
+  const provFijado = !!(provFijo && (provFijo.prov_cod || provFijo.nombre));
   const [nombre, setNombre] = useState("");
   const [provModo, setProvModo] = useState("existente");
-  const [provSel, setProvSel] = useState(null);      // { prov_cod, nombre }
+  const [provSel, setProvSel] = useState(provFijado ? provFijo : null);      // { prov_cod, nombre }
   const [provTexto, setProvTexto] = useState("");
   const [provNuevo, setProvNuevo] = useState("");
   const [unidad, setUnidad] = useState("qq");
@@ -9730,16 +9739,24 @@ function ModalNuevoProducto({ money, usuario, onCerrar }) {
                 <label style={lbl}>Nombre del producto</label>
                 <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ej: Arroz Crecedor Macareño" style={inp} />
                 <label style={lbl}>Piladora</label>
-                <div style={{ display:"flex", gap:10, marginBottom:12 }}>
-                  {[["existente","De la lista"],["nuevo","Piladora nueva"]].map(([k,t]) => (
-                    <button key={k} onClick={()=>setProvModo(k)} style={{ flex:1, padding:"11px", borderRadius:9, cursor:"pointer", fontSize:13, fontWeight:700, border:`1px solid ${provModo===k?COLOR.teal:COLOR.border}`, background: provModo===k?COLOR.tealLight:"#fff", color: provModo===k?COLOR.tealDark:COLOR.text }}>{t}</button>
-                  ))}
-                </div>
-                <div style={{ marginBottom:16 }}>
-                  {provModo==="existente"
-                    ? <BuscadorPredictivo cat="proveedores" items={provsReales} value={provTexto} placeholder="Escribe para buscar una piladora…" label={p=>p.nombre} onText={t=>{ setProvTexto(t); if(t==="") setProvSel(null); }} onPick={p=>{ setProvSel(p); setProvTexto(p.nombre); }} />
-                    : <input value={provNuevo} onChange={e=>setProvNuevo(e.target.value)} placeholder="Crear piladora nueva se hace aparte, por ahora elige de la lista" style={{ ...inp, marginBottom:0 }} />}
-                </div>
+                {provFijado
+                  ? (/* CAT_NUEVO_PROD_PILADORA_FIJA · piladora fija (la ya elegida en Productos) */
+                     <div style={{ marginBottom:16, background:COLOR.tealLight, border:`1px solid ${COLOR.teal}`, borderRadius:9, padding:"11px 13px" }}>
+                       <div style={{ fontSize:14, fontWeight:800, color:COLOR.tealDark }}>Piladora: 🏭 {provFijo.nombre}</div>
+                       <div style={{ fontSize:11.5, color:COLOR.muted, marginTop:3 }}>la que ya elegiste; el producto se crea aquí.</div>
+                     </div>)
+                  : (<>
+                    <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+                      {[["existente","De la lista"],["nuevo","Piladora nueva"]].map(([k,t]) => (
+                        <button key={k} onClick={()=>setProvModo(k)} style={{ flex:1, padding:"11px", borderRadius:9, cursor:"pointer", fontSize:13, fontWeight:700, border:`1px solid ${provModo===k?COLOR.teal:COLOR.border}`, background: provModo===k?COLOR.tealLight:"#fff", color: provModo===k?COLOR.tealDark:COLOR.text }}>{t}</button>
+                      ))}
+                    </div>
+                    <div style={{ marginBottom:16 }}>
+                      {provModo==="existente"
+                        ? <BuscadorPredictivo cat="proveedores" items={provsReales} value={provTexto} placeholder="Escribe para buscar una piladora…" label={p=>p.nombre} onText={t=>{ setProvTexto(t); if(t==="") setProvSel(null); }} onPick={p=>{ setProvSel(p); setProvTexto(p.nombre); }} />
+                        : <input value={provNuevo} onChange={e=>setProvNuevo(e.target.value)} placeholder="Crear piladora nueva se hace aparte, por ahora elige de la lista" style={{ ...inp, marginBottom:0 }} />}
+                    </div>
+                  </>)}
                 {/* MARCA_UNA_SOLA_FICHA · si ya existe esta marca en esta piladora, se avisa y se ofrece
                     sumar la presentación a esa ficha en vez de crear otro producto. */}
                 {gemelo && (
