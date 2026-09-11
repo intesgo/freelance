@@ -58,5 +58,16 @@ ok(/esFreelance && !soloLectura && \(/.test(web), "las acciones de gestión solo
 ok(/disabled=\{deudaCli>0\}/.test(web) && /Primero debe cancelar su deuda/.test(web),
    "Anular se deshabilita con deuda > 0 y explica que debe cancelar la deuda");
 
+/* 10 · FOTO_LOCAL · foto del local (contado a domicilio) con el MISMO patrón del expediente */
+ok(/function useFotoLocal\(cliId\)/.test(web), "existe el hook useFotoLocal (calcado de useExpediente)");
+ok(/const BUCKET = "expedientes-credito";[\s\S]{0,120}\/local-foto/.test(web), "useFotoLocal usa el bucket expedientes-credito y la ruta {cli_id}/local-foto");
+ok(/function BotonFotoLocal\(\{ foto \}\)/.test(web) && /accept="image\/\*"/.test(web), "existe BotonFotoLocal con accept=\"image/*\"");
+ok(/modalDomicilio && \(/.test(web) && /📷 Foto del local/.test(web), "la foto del local se muestra SOLO en contado a domicilio (PASO Sucursales)");
+ok(/const fotoFalta = modalDomicilio && !fotoLocal\.tieneFoto;/.test(web) && /if \(fotoFalta && form\.id\) faltan\.push\("foto del local"\);/.test(web),
+   "la foto es OBLIGATORIA en domicilio (bloquea cuando ya hay id; no traba el primer guardado sin id)");
+ok(/const listoOk = faltan\.length===0 && !fotoFalta;/.test(web), "«Listo para facturar» no queda verde hasta que exista la foto (tieneFoto)");
+ok(/Guarda primero para adjuntar la foto/.test(web), "sin id todavía, se pide guardar primero para adjuntar la foto");
+ok(!/pendientes\.push\("foto del local"\)/.test(web), "la foto del local ya no es un pendiente suelto (pasó a obligatorio)");
+
 if (m) { console.error(`ALTA-ASISTENTE: ${b} ✓ · ${m} ✗`); process.exit(1); }
 console.log(`ALTA-ASISTENTE: ${b} ✓ · 0 ✗`);

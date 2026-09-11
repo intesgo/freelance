@@ -975,6 +975,63 @@ function BotonExpediente({ exp, i, editable }) {
     </div>
   );
 }
+// ── FOTO_LOCAL · foto del local para el alta a domicilio · MISMO depósito y patrón que el expediente ──
+// Un solo archivo de imagen por cliente en la carpeta del cliente: {cli_id}/local-foto
+function useFotoLocal(cliId) {
+  const BUCKET = "expedientes-credito";               // el mismo bucket que ya existe (el expediente)
+  const ruta = cliId ? (cliId + "/local-foto") : "";
+  const [tieneFoto, setTieneFoto] = React.useState(false);
+  const [ocupado, setOcupado] = React.useState(false);
+  const [errPerm, setErrPerm] = React.useState("");   // si el bucket rechaza la ruta, se reporta (no se asume roto)
+  const recargar = React.useCallback(async () => {
+    if (!cliId || !window.supa || !window.supa.storage) { setTieneFoto(false); return; }
+    try {
+      const { data, error } = await window.supa.storage.from(BUCKET).list(String(cliId), { limit: 100 });
+      if (error) throw error;
+      setTieneFoto((data || []).some(f => String(f.name) === "local-foto"));
+    } catch (e) { setTieneFoto(false); }
+  }, [cliId]);
+  React.useEffect(() => { recargar(); }, [recargar]);
+  const subir = async (file) => {
+    if (!cliId) { alert("Guarda primero el cliente; luego puedes subir la foto del local."); return; }
+    if (!file) return;
+    setOcupado(true); setErrPerm("");
+    try {
+      const { error } = await window.supa.storage.from(BUCKET).upload(ruta, file, { upsert: true, contentType: file.type || undefined });
+      if (error) throw error;
+      setTieneFoto(true);
+    } catch (e) { const msg = (e && e.message) || String(e); setErrPerm(msg); alert("No se pudo subir la foto del local: " + msg); }
+    setOcupado(false);
+  };
+  const ver = async () => {
+    if (!cliId) return;
+    try { const { data, error } = await window.supa.storage.from(BUCKET).createSignedUrl(ruta, 3600); if (error) throw error; window.open(data.signedUrl, "_blank"); }
+    catch (e) { alert("No se pudo abrir la foto: " + ((e && e.message) || e)); }
+  };
+  const eliminar = async () => {
+    if (!cliId) return;
+    if (!window.confirm("¿Eliminar la foto del local? Luego podrás subir otra.")) return;
+    setOcupado(true);
+    try { const { error } = await window.supa.storage.from(BUCKET).remove([ruta]); if (error) throw error; setTieneFoto(false); }
+    catch (e) { alert("No se pudo eliminar: " + ((e && e.message) || e)); }
+    setOcupado(false);
+  };
+  return { tieneFoto, ocupado, errPerm, subir, ver, eliminar, disponible: !!cliId };
+}
+// Botón de la foto del local (mismo estilo que BotonExpediente, un solo archivo de imagen)
+function BotonFotoLocal({ foto }) {
+  const ref = React.useRef(null);
+  const btn = { fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:7, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer" };
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6 }} onClick={e=>e.stopPropagation()}>
+      <input ref={ref} type="file" style={{ display:"none" }} accept="image/*"
+        onChange={e=>{ const f = e.target.files && e.target.files[0]; if (f) foto.subir(f); e.target.value=""; }} />
+      {foto.tieneFoto && <button onClick={()=>foto.ver()} style={{ ...btn, color:COLOR.teal }}>Ver</button>}
+      <button disabled={foto.ocupado || !foto.disponible} onClick={()=>ref.current && ref.current.click()} style={{ ...btn, color: foto.disponible?COLOR.muted:"#bbb", cursor: foto.disponible?"pointer":"not-allowed" }}>{foto.ocupado ? "…" : (foto.tieneFoto ? "Cambiar" : "Subir")}</button>
+      {foto.tieneFoto && <button disabled={foto.ocupado} onClick={()=>foto.eliminar()} style={{ ...btn, color: COLOR.red||"#c0392b" }}>Eliminar</button>}
+    </div>
+  );
+}
 // El SRI entrega a las personas naturales como "APELLIDOS NOMBRES" (ej. "CASTILLO ROSERO PEDRO RODRIGO").
 // Aquí se normaliza a "NOMBRES APELLIDOS" (ej. "Pedro Rodrigo Castillo Rosero"), asumiendo 2 apellidos.
 // Las empresas se dejan igual (solo se corrigen mayúsculas, respetando siglas como S.A. o Cía.).
@@ -20893,6 +20950,7 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
   const puedeEditarExp = !!usuario && (usuario.cargo==="freelance" || usuario.cargo==="contadora" || usuario.rol==="Freelance" || usuario.rol==="Contadora");
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
   const exp = useExpediente(form.id, form.condicionPago==="Crédito");
+  const fotoLocal = useFotoLocal(form.id);   // FOTO_LOCAL · foto del local (alta a domicilio)
 
   /* ── ALTA_ASISTENTE · asistente por pasos SOLO para cliente NUEVO (esEdicion=false).
      La edición de un cliente existente conserva las pestañas de siempre (no se toca). ── */
@@ -21143,10 +21201,15 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
     if (modalCredito && !vinculado && !(cupo1w>0)) faltan.push("cupo de crédito");
     if (modalCredito && !vinculado && !(parseInt(form.plazo)>0)) faltan.push("plazo de crédito");
     if (!tercerosOkW) faltan.push("completar los datos del tercero");
+    /* FOTO_LOCAL · en domicilio la foto es OBLIGATORIA. Se sube al storage y necesita el id del
+       cliente (igual que el expediente): si todavía no hay id, no bloquea el PRIMER guardado, pero
+       el resumen NO queda «verde» hasta que exista la foto (tieneFoto === true). */
+    const fotoFalta = modalDomicilio && !fotoLocal.tieneFoto;
+    if (fotoFalta && form.id) faltan.push("foto del local");
+    const listoOk = faltan.length===0 && !fotoFalta;
     const pendientes = [];
     if (modalExpediente) pendientes.push("expediente (7 documentos)");
     if (modalGarantia) pendientes.push("garantía física");
-    if (modalDomicilio) pendientes.push("foto del local");
 
     const pasosWiz = [
       { key:"modalidad", label:"Modalidad" },
@@ -21312,7 +21375,20 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
                   onEliminar={()=>{ const arr=form.ubicaciones.filter((_,j)=>j!==i); if(arr.length && !arr.some(x=>x.principal)) arr[0].principal=true; set("ubicaciones",arr); }} />
               ))}
               <button onClick={()=>set("ubicaciones",[...(form.ubicaciones||[]), { nombre:"", principal:false, tipoEntrega:"local", contactoNombre:"", contactoTel:"", provincia:"", ciudad:"", sector:"", barrio:"", zona:"", direccion:"", lat:"", lng:"", pegaTexto:"", pegaAviso:"" }])} style={{ width:"100%", padding:"12px", borderRadius:10, border:`1.5px dashed ${COLOR.teal}`, background:COLOR.tealLight, color:COLOR.tealDark, fontSize:13.5, fontWeight:700, cursor:"pointer" }}>+ Agregar otra ubicación / sucursal</button>
-              {modalDomicilio && <p style={{ fontSize:11.5, color:"#b07d1a", fontWeight:700, marginTop:10 }}>La foto del local se sube al editar el cliente después de guardarlo.</p>}
+              {/* FOTO_LOCAL · foto del local · SOLO en contado a domicilio (obligatoria) */}
+              {modalDomicilio && (
+                <div style={{ marginTop:14, padding:"14px 16px", border:`1px solid ${fotoLocal.tieneFoto?"#bce5cd":"#e8c88a"}`, borderRadius:12, background: fotoLocal.tieneFoto?"#E9F8EF":"#FFF7E8" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12.5, fontWeight:800, color:COLOR.text }}>📷 Foto del local (obligatoria a domicilio)</span>
+                    <div style={{ flex:1 }} />
+                    {!form.id
+                      ? <span style={{ fontSize:11.5, color:"#854d0e", fontWeight:700 }}>Guarda primero para adjuntar la foto</span>
+                      : <BotonFotoLocal foto={fotoLocal} />}
+                  </div>
+                  <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:6 }}>{fotoLocal.tieneFoto ? "Foto cargada." : "Sube una foto del local (fachada) para poder facturar a domicilio."}</p>
+                  {fotoLocal.errPerm && <p style={{ fontSize:11.5, color:COLOR.red, fontWeight:700, marginTop:4 }}>El depósito rechazó la subida: {fotoLocal.errPerm}. (Cowork debe habilitar la ruta «local-foto» en el bucket.)</p>}
+                </div>
+              )}
             </div>
           )}
 
@@ -21424,9 +21500,12 @@ function PantallaCliente({ clienteInicial, clientes, usuario, onCerrar, onGuarda
               <div style={{ background: estadoInicial==="EN_REVISION"?"#FFF7E8":"#E9F8EF", border:`1px solid ${estadoInicial==="EN_REVISION"?"#e8c88a":"#bce5cd"}`, borderRadius:10, padding:12, marginBottom:14 }}>
                 <p style={{ fontSize:12.5, fontWeight:700, color: estadoInicial==="EN_REVISION"?"#854d0e":"#1c7a44" }}>Estado inicial: {estadoClienteInfo(estadoInicial).lbl}{estadoInicial==="EN_REVISION"?" · a la espera del freelance":""}</p>
               </div>
-              <div style={{ background: faltan.length?"#FDECEA":"#E9F8EF", border:`2px solid ${faltan.length?"#e7503a":"#bce5cd"}`, borderRadius:12, padding:"14px 16px" }}>
-                <p style={{ fontSize:13.5, fontWeight:800, color: faltan.length?"#b3271e":"#1c7a44" }}>{faltan.length?"⚠ Falta para poder facturar":"✓ Listo para facturar"}</p>
-                {faltan.length>0 && <ul style={{ margin:"8px 0 0", paddingLeft:18 }}>{faltan.map((f,i)=><li key={i} style={{ fontSize:12.5, color:"#8a2018" }}>{f}</li>)}</ul>}
+              <div style={{ background: listoOk?"#E9F8EF":"#FDECEA", border:`2px solid ${listoOk?"#bce5cd":"#e7503a"}`, borderRadius:12, padding:"14px 16px" }}>
+                <p style={{ fontSize:13.5, fontWeight:800, color: listoOk?"#1c7a44":"#b3271e" }}>{listoOk?"✓ Listo para facturar":"⚠ Falta para poder facturar"}</p>
+                {(faltan.length>0 || (fotoFalta && !form.id)) && <ul style={{ margin:"8px 0 0", paddingLeft:18 }}>
+                  {faltan.map((f,i)=><li key={i} style={{ fontSize:12.5, color:"#8a2018" }}>{f}</li>)}
+                  {fotoFalta && !form.id && <li style={{ fontSize:12.5, color:"#8a2018" }}>foto del local (guarda primero para adjuntarla)</li>}
+                </ul>}
                 {pendientes.length>0 && <p style={{ fontSize:11.5, color:COLOR.muted, marginTop:8 }}>Pendiente (se completa tras guardar): {pendientes.join(" · ")}</p>}
               </div>
             </div>
