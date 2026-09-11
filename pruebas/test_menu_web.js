@@ -77,6 +77,17 @@ comprobar('existe el grupo "Principal" (el que no se pliega)',
 comprobar('el Sidebar sigue tratando "Principal" como el grupo fijo',
   /g\.titulo === "Principal"/.test(html) && /t === "Principal"/.test(html));
 
+/* ── MENÚ LATERAL · FASE A · lo que este cambio promete (inspección del fuente) ── */
+const sidebar = html.slice(html.indexOf("function Sidebar("), html.indexOf("// ── Header del área de contenido"));
+comprobar("están las anclas MENU_BUSCADOR / MENU_CONTRAIDO / MENU_A11Y / MENU_DRAWER / MENU_ACTIVO",
+  /MENU_BUSCADOR/.test(html) && /MENU_CONTRAIDO/.test(html) && /MENU_A11Y/.test(html) && /MENU_DRAWER/.test(html) && /MENU_ACTIVO/.test(sidebar));
+comprobar("el Sidebar declara aria-current, aria-expanded y aria-label (Módulos y Buscar módulo)",
+  /aria-current=/.test(sidebar) && /aria-expanded=/.test(sidebar) && /aria-label="Módulos"/.test(sidebar) && /aria-label="Buscar módulo"/.test(sidebar));
+comprobar("el buscador filtra sobre la prop `secciones`, NUNCA sobre SECCIONES (mostraría módulos no permitidos)",
+  !/SECCIONES\.filter/.test(sidebar) && /secciones\.forEach/.test(sidebar));
+comprobar("GRUPOS_MENU conserva EXACTO el sello del 26 jul: 6 grupos Principal·Operación·Comercial·Finanzas·Gestión·Sistema",
+  GRUPOS.length === 6 && ["Principal","Operación","Comercial","Finanzas","Gestión","Sistema"].every((t,i)=>GRUPOS[i] && GRUPOS[i].t === t));
+
 /* ── Los cuatro cargos ─────────────────────────────────────────────── */
 const CARGOS = {
   admin: orden,
@@ -125,13 +136,22 @@ function pintar(cargo, permitidas) {
     window.__txt = function(){ return window.__c.textContent || ""; };
     /* Es un acordeón: abrir un grupo pliega el anterior. Por eso la prueba
        abre uno por uno y acumula lo visible, igual que haría una persona. */
+    /* MENU_A11Y · los encabezados de grupo pasaron a <button> y el "▶" a SVG: se buscan
+       por su texto entre los <button> del <nav> (sin el .replace("▶") de antes). */
     window.__abrirGrupo = function(titulo){
-      var ds=window.__c.querySelectorAll("nav div"),h=null;
+      var ds=window.__c.querySelectorAll("nav button"),h=null;
       for(var i=0;i<ds.length;i++) {
-        var t=(ds[i].textContent||"").replace("▶","").trim().toLowerCase();
+        var t=(ds[i].textContent||"").trim().toLowerCase();
         if(t===String(titulo).toLowerCase()) h=ds[i];
       }
       if(!h) return false; h.click(); return true;
+    };
+    /* MENU_BUSCADOR · escribir en la caja de búsqueda (input controlado de React) */
+    window.__buscar = function(txt){
+      var el = window.__c.querySelector('input[aria-label="Buscar módulo"]');
+      if(!el) return false;
+      var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set;
+      setter.call(el, txt); el.dispatchEvent(new window.Event("input",{bubbles:true})); return true;
     };
   `, ctx);
   return ctx;
@@ -163,6 +183,22 @@ for (const [cargo, permitidas] of Object.entries(CARGOS)) {
   const sinTitulo = titulosVisibles.filter((t) => texto.toUpperCase().indexOf(t.toUpperCase()) < 0);
   comprobar("y sus " + titulosVisibles.length + " títulos de grupo"
     + (sinTitulo.length ? " → falta " + sinTitulo.join(", ") : ""), sinTitulo.length === 0);
+}
+
+/* ── MENU_BUSCADOR · la búsqueda pinta de verdad, sin tildes ── */
+{
+  let ctx = null, cayo = "";
+  try { ctx = pintar("admin", CARGOS.admin); } catch (e) { cayo = String((e && e.message) || e).split("\n")[0]; }
+  comprobar("el menú con buscador se pinta sin reventar" + (cayo ? " → " + cayo : ""), !cayo);
+  if (!cayo) {
+    comprobar("hay una caja de búsqueda de módulos", vm.runInContext(`window.__buscar("auditoria")`, ctx) === true);
+    await esperar(40);
+    comprobar('buscar "auditoria" (sin tilde) deja visible "' + SEC.auditoria.lab + '"',
+      vm.runInContext("window.__txt()", ctx).indexOf(SEC.auditoria.lab) >= 0);
+    vm.runInContext(`window.__buscar("zzxqq9")`, ctx); await esperar(40);
+    comprobar('buscar un disparate muestra "No se encontraron módulos"',
+      vm.runInContext("window.__txt()", ctx).indexOf("No se encontraron módulos") >= 0);
+  }
 }
 
 console.log("Resultado del menú: " + ok + " ✓ · " + mal + " ✗");

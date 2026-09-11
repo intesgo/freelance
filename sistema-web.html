@@ -65,6 +65,8 @@
   button:active:not([disabled]){transform:translateY(1px)}
   /* PED_NUMERO_Y_MODAL · realce suave de la fila de pedido (clic abre el modal de solo lectura) */
   .ped-cabecera:hover,.ped-cabecera:focus-visible{background:#F7FAFC}
+  /* MENU_A11Y · foco visible en el menú lateral */
+  .sb-op:focus-visible{outline:2px solid #7fd3aa;outline-offset:-2px;border-radius:10px}
   /* ── Animaciones de entrada (comité UI: una por elemento, jamás en bucle) ── */
   @keyframes apSubir{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes apDona{from{opacity:0;transform:rotate(-120deg) scale(.85)}to{opacity:1;transform:rotate(0) scale(1)}}
@@ -571,7 +573,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"256", fecha:"11 sep 2026", desc:"Clientes (Sistema Web) · el alta de un cliente NUEVO ahora es un asistente guiado por pasos (modalidad de pago → datos → fiscal → sucursales → vinculación → crédito → resumen), con barra de progreso y una revisión final «Listo para facturar» que avisa qué falta. Se elige la modalidad (contado en bodega/domicilio o crédito básico/fuerte/muy fuerte) y el correo y el vendedor son obligatorios. En contado a domicilio se pide la foto del local (obligatoria). El crédito por encima del tope del freelance queda «en revisión». Editar un cliente existente sigue igual que antes. Además, en la ficha del cliente el freelance ya puede Bloquear/Desbloquear, Anular (si no tiene deuda) y Reactivar. Solo pantallas: el guardado y la base no cambian." };
+const VERSION = { n:"257", fecha:"11 sep 2026", desc:"Menú lateral (Sistema Web) · ahora tiene un BUSCADOR de módulos (Ctrl/⌘+K para saltar a él; encuentra sin importar tildes ni mayúsculas) y en la computadora se puede CONTRAER a solo iconos (queda así al recargar). El módulo abierto ya no es un bloque verde macizo: se marca con una barra verde a la izquierda, más suave y claro. Mejor accesibilidad (foco visible, lectores de pantalla, teclado). En el celular, el menú lateral cierra con Escape, no deja correr el fondo y atrapa el foco mientras está abierto. No se reorganizó el menú ni cambió ningún módulo: solo cómo se ve y se navega." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -2489,7 +2491,7 @@ const APPS_PLATAFORMA = [
 ];
 
 // ── Sidebar navegable ──
-function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambiarClave, usos }) {
+function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambiarClave, usos, compacto }) {
   // Mapa rápido de secciones permitidas por key
   const permitidasMap = {};
   secciones.forEach(s => { permitidasMap[s.key] = s; });
@@ -2525,89 +2527,211 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
   // Paleta verde bosque del menú (como la imagen de referencia)
   const SB = { bg:"#12241c", card:"#1b2f26", line:"#2a3f34", green:"#5aa886", txt:"#c6d7cd", mut:"#8aa397", label:"#7cae90" };
 
+  /* MENU_BUSCADOR · buscar un módulo por nombre o descripción. Filtra sobre `secciones`
+     (la prop, que YA viene filtrada por permisos) — NUNCA sobre SECCIONES, que mostraría
+     módulos no autorizados. */
+  const [busca, setBusca] = useState("");
+  const cajaBusca = React.useRef(null);
+  const norm = (s) => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const q = norm(busca.trim());
+  const coincide = (s) => !q || norm(s.label).includes(q) || norm(s.sub||"").includes(q);
+  const buscando = q.length > 0;
+  const esMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
+
+  /* MENU_CONTRAIDO · plegar el menú a solo iconos (preferencia visual por navegador,
+     igual que USOS_KEY: localStorage, no Supabase). Solo en escritorio (compacto). */
+  const CONTRA_KEY = "freelance_menu_contraido";
+  const [contraido, setContraido] = useState(() => {
+    try { return !!compacto && localStorage.getItem(CONTRA_KEY) === "1"; } catch(e){ return false; }
+  });
+  const plegar = (v) => { setContraido(v); try{ localStorage.setItem(CONTRA_KEY, v?"1":"0"); }catch(e){} };
+  const estaContraido = !!compacto && contraido;   // el drawer móvil (compacto=false) nunca se contrae
+
+  /* MENU_BUSCADOR · atajo de teclado. Ctrl/⌘+K enfoca el buscador (y lo expande si está
+     contraído). Escape lo limpia SOLO si tiene texto o el foco: hay modales que ya escuchan
+     Escape (líneas ~5962 y ~14110); sin este guard, cerrarían dos cosas a la vez. */
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "k") {
+        e.preventDefault();
+        if (estaContraido) plegar(false);
+        setTimeout(() => { if (cajaBusca.current) cajaBusca.current.focus(); }, estaContraido ? 60 : 0);
+        return;
+      }
+      if (e.key === "Escape" && (busca || document.activeElement === cajaBusca.current)) {
+        e.preventDefault(); e.stopPropagation();
+        setBusca("");
+        if (cajaBusca.current) cajaBusca.current.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busca, estaContraido]);
+
+  /* MENU_ACTIVO · un módulo (ítem del menú) como botón accesible. Se usa en el acordeón y en la
+     búsqueda. El activo ya no es un bloque verde sólido: barra izquierda + fondo suave + puntito. */
+  const itemBtn = (s) => {
+    const on = s.key === active;
+    return (
+      <button key={s.key} type="button" className="sb-op"
+        onClick={() => { onNav(s.key); if (busca) setBusca(""); }}
+        aria-current={on ? "page" : undefined}
+        onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=SB.card; }}
+        onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}
+        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", textAlign:"left", font:"inherit",
+          padding:"10px 12px", paddingLeft:9, minHeight:44, borderRadius:10, marginBottom:2, marginLeft:2,
+          background: on ? "rgba(90,168,134,.16)" : "transparent",
+          border:0, borderLeft: "3px solid " + (on ? SB.green : "transparent"),
+          cursor:"pointer", transition:"background .15s", boxShadow:"none" }}>
+        <span style={{ width:20, display:"flex", alignItems:"center", justifyContent:"center" }}><Ico name={s.ic} size={18} color={on ? SB.green : SB.txt} /></span>{/* DISENO_BASE_ERP · menú con iconos vectoriales */}
+        <span style={{ color: on ? "#fff" : SB.txt, fontSize:13, fontWeight: on ? 700 : 500 }}>{s.label}</span>
+        {on && <div style={{ marginLeft:"auto", width:7, height:7, borderRadius:"50%", background:"#c7f7d8" }} />}
+      </button>
+    );
+  };
+
   return (
-    <div style={{ width:248, background:SB.bg, display:"flex", flexDirection:"column", minHeight:"100vh", flexShrink:0 }}>
-      {/* Marca + empresa activa */}
-      <div style={{ padding:"20px 18px 14px", borderBottom:`1px solid ${SB.line}` }}>
-        <div style={{ display:"flex", alignItems:"center", gap:11 }}>
-          <span style={{ fontSize:30, lineHeight:1 }}>🌱</span>
-          <div style={{ minWidth:0 }}>
-            <p style={{ color:"#fff", fontSize:17, fontWeight:800, letterSpacing:.3 }}>FREELANCE</p>
-            <p style={{ color:SB.mut, fontSize:11 }}>Sistema Web · Central · <span style={{ color:SB.green, fontWeight:800 }}>b{VERSION.n}</span></p>
-            <EstadoConexion />
+    <div style={{ width: estaContraido?68:248, background:SB.bg, display:"flex", flexDirection:"column", minHeight:"100vh", flexShrink:0, transition:"width .18s ease" }}>
+      {estaContraido ? (
+        /* ── MENU_CONTRAIDO · solo iconos (escritorio) ── */
+        <>
+          <div style={{ padding:"18px 0 12px", display:"flex", justifyContent:"center", borderBottom:`1px solid ${SB.line}` }}>
+            <span style={{ fontSize:26, lineHeight:1 }}>🌱</span>
           </div>
-        </div>
-        <div style={{ marginTop:14, padding:"11px 12px", background:SB.card, borderRadius:12, border:`1px solid ${SB.line}`, display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:38, height:38, background:"#123529", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>🏢</div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <p style={{ color:SB.green, fontSize:9, fontWeight:800, textTransform:"uppercase", letterSpacing:.5 }}>Empresa activa</p>
-            <p style={{ color:"#fff", fontSize:12.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{empresa}</p>
-            <p style={{ color:SB.mut, fontSize:10.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre} · {usuario.rol}</p>
+          <div style={{ display:"flex", justifyContent:"center", padding:"10px 0 4px" }}>
+            <button type="button" className="sb-op" title="Buscar módulo" aria-label="Buscar módulo"
+              onClick={()=>{ plegar(false); setTimeout(()=>{ if(cajaBusca.current) cajaBusca.current.focus(); }, 60); }}
+              style={{ width:44, height:44, borderRadius:10, background:SB.card, border:`1px solid ${SB.line}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <Ico name="search" size={18} color={SB.txt} />
+            </button>
           </div>
-        </div>
-      </div>
-      <nav style={{ flex:1, padding:"12px 10px", overflowY:"auto" }}>
-        {gruposVisibles.map(g => {
-          const open = abiertos[g.titulo];
-          const tieneActiva = g.items.some(s => s.key === active);
-          const esPrincipal = g.titulo === "Principal";
-          const principalActiva = esPrincipal && tieneActiva;   // "Principal" hace de Dashboard (sin ítem aparte)
-          return (
-            <div key={g.titulo} style={{ marginBottom:6 }}>
-              {/* Encabezado del grupo (barra) */}
-              <div onClick={() => esPrincipal ? (g.items[0] && onNav(g.items[0].key)) : toggle(g.titulo)}
-                onMouseEnter={e=>{ if(!esPrincipal) e.currentTarget.style.borderColor=SB.green; }}
-                onMouseLeave={e=>{ if(!esPrincipal) e.currentTarget.style.borderColor=SB.line; }}
-                style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:10, background: principalActiva?SB.green:SB.card, border:`1px solid ${principalActiva?SB.green:SB.line}`, cursor:"pointer", userSelect:"none", marginBottom:4, transition:"all .15s", boxShadow: principalActiva?"0 4px 12px rgba(24,165,88,.4)":"none" }}>
-                {!esPrincipal && <span style={{ fontSize:9, color:SB.green, transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}>▶</span>}
-                <span style={{ color: principalActiva?"#fff":SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
-                {!open && tieneActiva && !esPrincipal && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green }} />}
+          <nav aria-label="Módulos" style={{ flex:1, padding:"6px 0", overflowY:"auto", display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+            {gruposVisibles.flatMap(g=>g.items).map(s => {
+              const on = s.key === active;
+              return (
+                <button key={s.key} type="button" className="sb-op" title={s.label} aria-label={s.label}
+                  aria-current={on?"page":undefined} onClick={()=>onNav(s.key)}
+                  style={{ width:44, height:44, borderRadius:10, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                    background: on?"rgba(90,168,134,.16)":"transparent", border:0, borderLeft:"3px solid "+(on?SB.green:"transparent") }}>
+                  <Ico name={s.ic} size={20} color={on?SB.green:SB.txt} />
+                </button>
+              );
+            })}
+          </nav>
+          <div style={{ padding:"8px 0 12px", display:"flex", justifyContent:"center", borderTop:`1px solid ${SB.line}` }}>
+            <button type="button" className="sb-op" title="Expandir menú" aria-label="Expandir menú" onClick={()=>plegar(false)}
+              style={{ width:44, height:44, borderRadius:10, background:SB.card, border:`1px solid ${SB.line}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:SB.txt, fontSize:18, fontWeight:800 }}>»</button>
+          </div>
+        </>
+      ) : (
+        /* ── Menú completo (escritorio expandido y drawer móvil) ── */
+        <>
+          {/* Marca + empresa activa */}
+          <div style={{ padding:"20px 18px 14px", borderBottom:`1px solid ${SB.line}` }}>
+            <div style={{ display:"flex", alignItems:"center", gap:11 }}>
+              <span style={{ fontSize:30, lineHeight:1 }}>🌱</span>
+              <div style={{ minWidth:0 }}>
+                <p style={{ color:"#fff", fontSize:17, fontWeight:800, letterSpacing:.3 }}>FREELANCE</p>
+                <p style={{ color:SB.mut, fontSize:11 }}>Sistema Web · Central · <span style={{ color:SB.green, fontWeight:800 }}>b{VERSION.n}</span></p>
+                <EstadoConexion />
               </div>
-              {/* Secciones del grupo (Principal no lista ítems: su encabezado ES el Dashboard) */}
-              {open && !esPrincipal && g.items.map(s => {
-                const on = s.key === active;
+            </div>
+            <div style={{ marginTop:14, padding:"11px 12px", background:SB.card, borderRadius:12, border:`1px solid ${SB.line}`, display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ width:38, height:38, background:"#123529", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>🏢</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ color:SB.green, fontSize:9, fontWeight:800, textTransform:"uppercase", letterSpacing:.5 }}>Empresa activa</p>
+                <p style={{ color:"#fff", fontSize:12.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{empresa}</p>
+                <p style={{ color:SB.mut, fontSize:10.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre} · {usuario.rol}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* MENU_BUSCADOR · buscador de módulos */}
+          <div style={{ padding:"12px 12px 4px" }}>
+            <div style={{ position:"relative", display:"flex", alignItems:"center", height:40, background:SB.card, border:`1px solid ${SB.line}`, borderRadius:10, padding:"0 10px" }}>
+              <Ico name="search" size={16} color={SB.mut} />
+              <input ref={cajaBusca} type="search" aria-label="Buscar módulo" value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar módulo…"
+                style={{ flex:1, minWidth:0, background:"none", border:0, outline:"none", color:"#fff", fontSize:13, marginLeft:8, font:"inherit" }} />
+              {compacto && <span style={{ color:SB.mut, fontSize:10, flexShrink:0, marginLeft:6 }}>{esMac ? "⌘ K" : "Ctrl K"}</span>}
+            </div>
+          </div>
+
+          <nav aria-label="Módulos" style={{ flex:1, padding:"12px 10px", overflowY:"auto" }}>
+            {buscando ? (
+              /* Buscando: todos los grupos con coincidencias, abiertos, solo con los ítems que coinciden.
+                 No se toca `abiertos` (el acordeón vuelve tal cual al vaciar el campo). */
+              (() => {
+                const conMatch = gruposVisibles.map(g => ({ ...g, matched: g.items.filter(coincide) })).filter(g => g.matched.length);
+                if (!conMatch.length) return <div style={{ padding:"14px 12px", color:SB.mut, fontSize:12.5 }}>No se encontraron módulos</div>;
+                return conMatch.map(g => (
+                  <div key={g.titulo} style={{ marginBottom:6 }}>
+                    <div style={{ padding:"6px 12px", color:SB.label, fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</div>
+                    <div role="group">{g.matched.map(itemBtn)}</div>
+                  </div>
+                ));
+              })()
+            ) : (
+              gruposVisibles.map((g, idx) => {
+                const open = abiertos[g.titulo];
+                const tieneActiva = g.items.some(s => s.key === active);
+                const esPrincipal = g.titulo === "Principal";
+                const principalActiva = esPrincipal && tieneActiva;   // "Principal" hace de Dashboard (sin ítem aparte)
                 return (
-                  <div key={s.key} onClick={() => onNav(s.key)}
-                    onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=SB.card; }}
-                    onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}
-                    style={{
-                    display:"flex", alignItems:"center", gap:12,
-                    padding:"10px 12px", borderRadius:10, marginBottom:2, marginLeft:2,
-                    background: on ? SB.green : "transparent", cursor:"pointer", transition:"background .15s",
-                    boxShadow: on ? "0 4px 12px rgba(24,165,88,.4)" : "none",
-                  }}>
-                    <span style={{ width:20, display:"flex", alignItems:"center", justifyContent:"center" }}><Ico name={s.ic} size={18} color={on ? "#fff" : SB.txt} /></span>{/* DISENO_BASE_ERP · menú con iconos vectoriales (color sigue el estado) */}
-                    <span style={{ color: on ? "#fff" : SB.txt, fontSize:13, fontWeight: on ? 700 : 500 }}>{s.label}</span>
-                    {on && <div style={{ marginLeft:"auto", width:7, height:7, borderRadius:"50%", background:"#c7f7d8" }} />}
+                  <div key={g.titulo} style={{ marginBottom:6 }}>
+                    {/* MENU_A11Y · encabezado del grupo como botón */}
+                    <button type="button" className="sb-op"
+                      onClick={() => esPrincipal ? (g.items[0] && onNav(g.items[0].key)) : toggle(g.titulo)}
+                      aria-expanded={esPrincipal ? undefined : !!open}
+                      aria-controls={esPrincipal ? undefined : ("gr-"+idx)}
+                      aria-current={principalActiva ? "page" : undefined}
+                      onMouseEnter={e=>{ if(!esPrincipal && !principalActiva) e.currentTarget.style.borderColor=SB.green; }}
+                      onMouseLeave={e=>{ if(!esPrincipal && !principalActiva) e.currentTarget.style.borderColor=SB.line; }}
+                      style={{ display:"flex", alignItems:"center", gap:8, width:"100%", textAlign:"left", font:"inherit",
+                        padding:"9px 12px", paddingLeft: principalActiva?9:12, minHeight:44, borderRadius:10,
+                        background: principalActiva ? "rgba(90,168,134,.16)" : SB.card,
+                        border:`1px solid ${principalActiva?SB.green:SB.line}`,
+                        borderLeft: principalActiva ? ("3px solid "+SB.green) : `1px solid ${SB.line}`,
+                        cursor:"pointer", userSelect:"none", marginBottom:4, transition:"all .15s", boxShadow:"none" }}>
+                      {!esPrincipal && <span aria-hidden="true" style={{ display:"flex", transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}><Ico name="chevronRight" size={12} color={SB.green} /></span>}
+                      <span style={{ color: tieneActiva ? SB.green : SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
+                      {!open && tieneActiva && !esPrincipal && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green }} />}
+                    </button>
+                    {/* Secciones del grupo (Principal no lista ítems: su encabezado ES el Dashboard) */}
+                    {open && !esPrincipal && <div id={"gr-"+idx} role="group">{g.items.map(itemBtn)}</div>}
                   </div>
                 );
-              })}
-            </div>
-          );
-        })}
-      </nav>
-      {/* Usuario (tarjeta) */}
-      <div style={{ padding:"10px 14px 14px", borderTop:`1px solid ${SB.line}` }}>
-        <div onClick={()=>setVerMenuUsr(v=>!v)} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 12px", background:"linear-gradient(135deg,#12362a,#0f2a20)", borderRadius:14, border:`1px solid ${SB.line}`, cursor:"pointer" }}>
-          <div style={{ width:38, height:38, background:SB.green, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#fff", flexShrink:0 }}>{iniciales}</div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <p style={{ color:"#fff", fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre}</p>
-            <p style={{ color:SB.green, fontSize:11 }}>{usuario.rol}</p>
-          </div>
-          <span style={{ color:SB.mut, fontSize:12, transform: verMenuUsr?"rotate(180deg)":"none", transition:"transform .15s" }}>▾</span>
-        </div>
-        {verMenuUsr && (
-          <div style={{ marginTop:8 }}>
-            {onCambiarClave && (
-              <button onClick={onCambiarClave} style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.txt, fontSize:12.5, fontWeight:600, cursor:"pointer", marginBottom:8 }}>🔑 Cambiar clave</button>
+              })
             )}
-            <button onClick={onSalir} style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.txt, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>⏻ Cerrar sesión</button>
+          </nav>
+
+          {/* Usuario (tarjeta) + contraer (solo escritorio) */}
+          <div style={{ padding:"10px 14px 14px", borderTop:`1px solid ${SB.line}` }}>
+            {compacto && (
+              <button type="button" className="sb-op" onClick={()=>plegar(true)}
+                style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.mut, fontSize:12, fontWeight:600, cursor:"pointer", marginBottom:10 }}>« Contraer menú</button>
+            )}
+            <button type="button" className="sb-op" onClick={()=>setVerMenuUsr(v=>!v)} style={{ display:"flex", alignItems:"center", gap:10, width:"100%", textAlign:"left", font:"inherit", padding:"11px 12px", background:"linear-gradient(135deg,#12362a,#0f2a20)", borderRadius:14, border:`1px solid ${SB.line}`, cursor:"pointer" }}>
+              <div style={{ width:38, height:38, background:SB.green, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#fff", flexShrink:0 }}>{iniciales}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ color:"#fff", fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{usuario.nombre}</p>
+                <p style={{ color:SB.green, fontSize:11 }}>{usuario.rol}</p>
+              </div>
+              <span aria-hidden="true" style={{ color:SB.mut, fontSize:12, transform: verMenuUsr?"rotate(180deg)":"none", transition:"transform .15s" }}>▾</span>
+            </button>
+            {verMenuUsr && (
+              <div style={{ marginTop:8 }}>
+                {onCambiarClave && (
+                  <button onClick={onCambiarClave} style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.txt, fontSize:12.5, fontWeight:600, cursor:"pointer", marginBottom:8 }}>🔑 Cambiar clave</button>
+                )}
+                <button onClick={onSalir} style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.txt, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>⏻ Cerrar sesión</button>
+              </div>
+            )}
+            <p style={{ color:SB.mut, fontSize:9.5, textAlign:"center", marginTop:10, lineHeight:1.4 }}>
+              Versión {VERSION.fecha} b{VERSION.n}
+            </p>
           </div>
-        )}
-        <p style={{ color:SB.mut, fontSize:9.5, textAlign:"center", marginTop:10, lineHeight:1.4 }}>
-          Versión {VERSION.fecha} b{VERSION.n}
-        </p>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -23637,6 +23761,27 @@ function App() {
   const [sesion, setSesion] = useState(null);  // FASE 4: login normal (Supabase Auth con correo, o usuario demo de respaldo)
   const esMovil = useEsMovil(900);
   const [menuAbierto, setMenuAbierto] = useState(false);
+  /* MENU_DRAWER · mientras el drawer móvil está abierto: Escape lo cierra, el fondo no se
+     desplaza (scroll bloqueado) y el foco queda atrapado dentro (mismo patrón que ModalPedido,
+     línea ~5962). */
+  const drawerRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!menuAbierto) return;
+    const antes = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); setMenuAbierto(false); return; }
+      if (e.key === "Tab" && drawerRef.current) {
+        const fs = [...drawerRef.current.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x=>!x.disabled && x.offsetParent!==null);
+        if (!fs.length) return;
+        const primero = fs[0], ultimo = fs[fs.length-1];
+        if (e.shiftKey && document.activeElement===primero) { e.preventDefault(); ultimo.focus(); }
+        else if (!e.shiftKey && document.activeElement===ultimo) { e.preventDefault(); primero.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = antes; };
+  }, [menuAbierto]);
   /* FASE 4 · Restaurar sesión: si la sesión de Auth sigue viva (recarga de página),
      se entra directo sin pedir la clave otra vez. Solo aplica a cuentas reales. */
   const [restaurando, setRestaurando] = useState(!!(window.supa && window.supa.auth));
@@ -23852,20 +23997,20 @@ function App() {
       {esMovil ? (
         <>
           {menuAbierto && <div onClick={()=>setMenuAbierto(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:190 }} />}
-          <div style={{ position:"fixed", top:0, left:0, height:"100vh", zIndex:200, transform: menuAbierto?"translateX(0)":"translateX(-100%)", transition:"transform .25s ease", boxShadow: menuAbierto?"4px 0 30px rgba(0,0,0,.4)":"none" }}>
+          <div ref={drawerRef} role="dialog" aria-modal="true" aria-label="Menú de módulos" style={{ position:"fixed", top:0, left:0, height:"100vh", zIndex:200, transform: menuAbierto?"translateX(0)":"translateX(-100%)", transition:"transform .25s ease", boxShadow: menuAbierto?"4px 0 30px rgba(0,0,0,.4)":"none" }}>
             <Sidebar active={seccionOk} onNav={(k)=>{ navegar(k); setMenuAbierto(false); }} secciones={permitidas} usuario={sesion} empresa={empresaActiva} onSalir={salir}
-              onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} />
+              onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} compacto={false} />
           </div>
         </>
       ) : (
         <Sidebar active={seccionOk} onNav={navegar} secciones={permitidas} usuario={sesion} empresa={empresaActiva} onSalir={salir}
-          onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} />
+          onCambiarClave={sesion.real ? () => setVerCambioClave(true) : null} usos={usos} compacto={true} />
       )}
       {verCambioClave && <CambioClave sesion={sesion} onCerrar={() => setVerCambioClave(false)} />}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
         {/* Barra de pestañas abiertas */}
         <div style={{ display:"flex", alignItems:"center", gap:4, padding:"7px 12px 0", background:COLOR.header, borderBottom:`1px solid ${COLOR.border}`, overflowX:"auto", flexShrink:0 }}>
-          {esMovil && <button onClick={()=>setMenuAbierto(true)} title="Menú" style={{ flexShrink:0, marginBottom:6, marginRight:4, width:38, height:38, borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:18, lineHeight:1 }}>☰</button>}
+          {esMovil && <button onClick={()=>setMenuAbierto(true)} title="Menú" aria-label="Abrir menú" aria-expanded={menuAbierto} style={{ flexShrink:0, marginBottom:6, marginRight:4, width:38, height:38, borderRadius:10, border:`1px solid ${COLOR.border}`, background:"#fff", cursor:"pointer", fontSize:18, lineHeight:1 }}>☰</button>}
           {tabsVisibles.map(key => {
             const s = SECCIONES.find(x => x.key === key) || { icon:"•", label:key };
             const on = key === seccionOk;
