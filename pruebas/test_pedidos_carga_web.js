@@ -108,7 +108,7 @@ function montar(js, opts) {
     const con = (t,c,v) => consulta(tabla, filtros.concat([[t,c,v]]));
     const enc = {
       select:()=>enc, order:()=>enc, limit:()=>enc, like:()=>enc, not:()=>enc, or:()=>enc,
-      gte:()=>enc, lte:()=>enc, is:()=>enc, filter:()=>enc,
+      gte:()=>enc, lte:()=>enc, is:()=>enc, filter:()=>enc, abortSignal:()=>enc,   /* PED_CARGA_TIMEOUT · tope de tiempo (supabase-js v2) */
       range:(a,b)=>con("range",a,b),
       eq:(c,v)=>con("eq",c,v), neq:(c,v)=>con("neq",c,v), in:(c,v)=>con("in",c,v),
       then:(ok,mal)=>resolver().then(ok,mal), catch:(f)=>resolver().catch(f),
