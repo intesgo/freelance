@@ -116,7 +116,7 @@ function montar(js, opts) {
     };
     const con = (t,c,v) => consulta(tabla, filtros.concat([[t,c,v]]));
     const enc = {
-      select:()=>enc, order:()=>enc, limit:()=>enc, not:()=>enc, is:()=>enc, filter:()=>enc, like:()=>enc,
+      select:()=>enc, order:()=>enc, limit:()=>enc, not:()=>enc, is:()=>enc, filter:()=>enc, abortSignal:()=>enc, like:()=>enc,
       range:(a,b)=>con("range",a,b), or:(s)=>con("or",s),
       eq:(c,v)=>con("eq",c,v), neq:(c,v)=>con("neq",c,v), in:(c,v)=>con("in",c,v), ilike:(c,v)=>con("ilike",c,v),
       gte:(c,v)=>con("gte",c,v), lte:(c,v)=>con("lte",c,v),

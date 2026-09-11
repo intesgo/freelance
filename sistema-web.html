@@ -146,6 +146,10 @@ function clasificarTabPed(cod, log, retiro){
   return "sin_clasificar";
 }
 const PAG_PED_WEB = 100;   /* PED_FE_002 · tamaño de página al leer pedidos del servidor (.range) */
+/* PED_CARGA_TIMEOUT · tope de tiempo por intento al leer pedidos. La base responde en ~5 ms;
+   este tope solo actúa si una petición se cuelga (token/conexión) para no dejar el spinner
+   «Cargando pedidos…» para siempre. Al vencer se corta (AbortController) y se reintenta una vez. */
+const PED_CARGA_TIMEOUT_MS = 9000;
 /* LOTE2_VENTANA · ventana de fecha por defecto para que la lista no crezca sin fin. Aplica SOLO a
    las pestañas que ACUMULAN (todos, entregados, anulados, retiros); las de trabajo (pendientes,
    por_despachar, en_ruta) muestran TODO sin límite. Se ignora si hay búsqueda o filtro de fecha manual. */
@@ -6081,16 +6085,17 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
   const cargarPedidosVivos = React.useCallback(async ({ pagina = 0, append = false } = {}) => {
     if (!window.supa || !window.supa.auth) return;
     if (append) setCargandoMas(true); else { setCargandoPed(true); setErrorPed(null); }
-    try {
+    /* PED_CARGA_TIMEOUT · UN intento con tope de tiempo (AbortController). Devuelve el
+       desenlace ("ok" | "sesion" | "demo"); si la petición se cuelga o falla por red, lanza,
+       y el bucle de abajo decide si reintentar o mostrar el estado de error con «Reintentar». */
+    const unIntento = async () => {
+      const ctl = new AbortController();
+      const tope = setTimeout(() => ctl.abort(), PED_CARGA_TIMEOUT_MS);
+      try {
         const { data: s } = await window.supa.auth.getSession();
-        if (!s || !s.session) {
-          /* PED_FE_002 · sin sesión NO se calla: en demo se queda con los datos de muestra;
-             en vivo se marca el error y se ofrece «Reintentar» (no un falso «0 pedidos»). */
-          if (MODO_DEMO_WEB) return;
-          setErrorPed({ tipo:"sesion", msg:"Tu sesión expiró. Vuelve a entrar para ver los pedidos." });
-          if (!append) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); }
-          return;
-        }
+        /* PED_FE_002 · sin sesión NO se calla: en demo se queda con los datos de muestra;
+           en vivo se marca el estado "sesion" (se decide abajo, con «Reintentar»). */
+        if (!s || !s.session) return { estado: MODO_DEMO_WEB ? "demo" : "sesion" };
         /* PED_FE_002 · paginación de servidor: se pide SOLO la página pedida (~100) con .range,
            en vez de bajar toda la base. PED_FE_003 · con búsqueda y filtros aplicados en el servidor. */
         const desde = Math.max(0, pagina) * PAG_PED_WEB;
@@ -6104,7 +6109,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           .select("ped_id,cli_id,sub_id,prov_cod,ciudad,estado,estado_comercial,estado_logistico,factura,condicion,creado,es_demo,numero_pedido,fecha_entrega,nota_chofer,retiro_bodega,asume_flete,asume_estibada,flete_cobro_qq,estibada_cobro_qq,clientes(nombre,razon_social,tipo),proveedores(nombre)")
           .order("creado", { ascending: false });
         qPed = aplicarFiltrosPed(qPed, crit, cliIds, subIds);
-        const { data: p, error: ep } = await qPed.range(desde, hasta);
+        const { data: p, error: ep } = await qPed.range(desde, hasta).abortSignal(ctl.signal);
         if (ep) throw new Error(ep.message || "no se pudieron leer los pedidos");
         if (!Array.isArray(p)) throw new Error("respuesta inesperada al leer pedidos");
         /* PED_FE_002 · las líneas SOLO de los pedidos de esta página (.in por ped_id), no un
@@ -6114,7 +6119,7 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
         if (pedIds.length) {
           const { data: itd, error: ei } = await window.supa.from("pedido_items")
             .select("item_id,ped_id,prod_id,pres_cod,promo_id,condicion,descripcion,cantidad_qq,precio_usd,tipo_precio,gratis_qq,comision_usd")
-            .in("ped_id", pedIds);
+            .in("ped_id", pedIds).abortSignal(ctl.signal);
           if (ei) throw new Error(ei.message || "no se pudieron leer las líneas");
           it = Array.isArray(itd) ? itd : [];
         }
@@ -6186,14 +6191,37 @@ function PedidosWeb({ usuario, preCliId, onConsumirPre, onIrLogistica }) {
           setActualizadoPed(horaECWeb());   // hora EC de esta carga completa
         }
         setFuentePed("vivo");
-      } catch (e) {
-        /* PED_FE_002 · se conserva la auditoría (registrarErrorWeb) Y se marca el estado de
-           error visible con «Reintentar»: un fallo de conexión/permiso NO se muestra como «0 pedidos». */
-        registrarErrorWeb("pedidos.cargar", e);
-        if (!MODO_DEMO_WEB) setErrorPed({ tipo:"conexion", msg:"No se pudieron cargar los pedidos. Revisa tu conexión e inténtalo de nuevo." });
+        return { estado: "ok" };
       } finally {
-        if (append) setCargandoMas(false); else setCargandoPed(false);
+        clearTimeout(tope);            // se limpia SIEMPRE, también cuando el intento sale bien
       }
+    };
+
+    try {
+      /* PED_CARGA_TIMEOUT · REINTENTO AUTOMÁTICO: si el primer intento se cuelga (venció el
+         tope) o falla por red, se reintenta UNA vez antes de rendirse. La sesión vencida NO
+         se reintenta (no es un tranque de conexión). */
+      let res = null;
+      for (let intento = 0; intento < 2; intento++) {
+        try { res = await unIntento(); break; }
+        catch (e) {
+          /* PED_FE_002 · se conserva la auditoría (registrarErrorWeb) en cada fallo. */
+          registrarErrorWeb("pedidos.cargar", e);
+          if (intento === 0) continue;      // primer fallo: se reintenta solo una vez
+          res = { estado: "conexion" };     // segundo fallo: se rinde y muestra «Reintentar»
+        }
+      }
+      if (res && res.estado === "sesion") {
+        setErrorPed({ tipo:"sesion", msg:"Tu sesión expiró. Vuelve a entrar para ver los pedidos." });
+        if (!append) { setPedidos([]); setItemsPorPed({}); setPedMeta({}); setFuentePed("vivo"); }
+      } else if (res && res.estado === "conexion") {
+        /* PED_FE_002 · un fallo de conexión/permiso NO se muestra como «0 pedidos». */
+        if (!MODO_DEMO_WEB) setErrorPed({ tipo:"conexion", msg:"No se pudieron cargar los pedidos. Revisa tu conexión e inténtalo de nuevo." });
+      }
+      /* estado "ok" / "demo": no hay nada que marcar. */
+    } finally {
+      if (append) setCargandoMas(false); else setCargandoPed(false);
+    }
   }, []);
   /* PED_FE_002 · CONTEOS REALES por pestaña: consulta LIVIANA aparte (sin joins ni items), con la
      MISMA lógica canónica que la lista (clasificarTabPed) para que los números cuadren con las filas.

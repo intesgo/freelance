@@ -125,7 +125,7 @@ function montarWeb(js) {
     const con = (t,c,v) => consulta(tabla, filtros.concat([[t,c,v]]));
     const enc = {
       select:()=>enc, order:()=>enc, limit:()=>enc, like:()=>enc, not:()=>enc, or:()=>enc,
-      gte:()=>enc, lte:()=>enc, is:()=>enc, range:()=>enc, filter:()=>enc,
+      gte:()=>enc, lte:()=>enc, is:()=>enc, range:()=>enc, filter:()=>enc, abortSignal:()=>enc,
       eq:(c,v)=>con("eq",c,v), neq:(c,v)=>con("neq",c,v), in:(c,v)=>con("in",c,v),
       then:(ok,mal)=>resolver().then(ok,mal), catch:(f)=>resolver().catch(f),
       maybeSingle:()=>resolver().then(r=>({ data:(r.data||[])[0]||null, error:null })),
