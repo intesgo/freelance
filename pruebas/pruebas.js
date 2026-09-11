@@ -121,6 +121,7 @@ const PLAN = [
   { arnes:"test_punto2.js",          que:"Piladoras: sin leyenda, fecha en la tarjeta, historial y Antes→Ahora", apps:[null] },
   { arnes:"test_tipo_grano.js",      que:"Piladoras: variedades de grano (tipo_grano) en ambas apps", apps:[null] },
   { arnes:"test_catalogo_variedad.js", que:"Productos (Sistema Web): columna Variedad + filtro «Sin variedad» (grano_variedades/grano_familias)", apps:[null] },
+  { arnes:"test_nuevo_prod_piladora.js", que:"Productos (Sistema Web): «Nuevo producto» usa la piladora ya elegida (provFijo)", apps:[null] },
   { arnes:"test_ficha_visual.js",    que:"Piladoras: pestaña Ficha, tarjeta de marca y modal por familia (ambas apps)", apps:[null] },
   { arnes:"test_costos_render.js",   que:"Piladoras: marca plegable, resumen de crédito, buscador uFuzzy y crédito en ámbar", apps:[null] },
   { arnes:"test_ajustar_visual.js",  que:"Piladoras: ajuste con verde suave, resumen sticky y ejemplo de impacto", apps:[null] },
