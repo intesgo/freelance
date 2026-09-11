@@ -9,9 +9,9 @@ const fs=require("fs"), path=require("path");
 const web=fs.readFileSync(path.join(__dirname,"..","sistema-web.html"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
-/* 1 · «Precios» está en SECCIONES y en el grupo Comercial */
+/* 1 · «Precios» está en SECCIONES y en un grupo del menú (hoy «Catálogo y precios») */
 ok(/\{ key:"precios", ic:"tag",/.test(web), "«Precios» está en SECCIONES");
-ok(/titulo:"Comercial",\s*keys:\[[^\]]*"preciosvig","precios"/.test(web), "«precios» está en el grupo Comercial, tras preciosvig");
+ok(/titulo:"Catálogo y precios",\s*keys:\[[^\]]*"precios"/.test(web), "«precios» está en el grupo «Catálogo y precios» del menú");
 
 /* 2 · la ruta "precios" renderiza PiladorasWeb con modo="precios" */
 ok(/case "precios":[\s\S]{0,160}return <PiladorasWeb usuario=\{sesion\} modo="precios" \/>/.test(web),
