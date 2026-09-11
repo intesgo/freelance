@@ -85,6 +85,7 @@ const PLAN = [
      maqueta del PO en ago/2026: sin sello de fuente ni conteos, veredicto binario
      con el motivo funcional, rejilla de tarjetas con dobles sintéticos y los 4 botones. */
   { arnes:"test_ficha_cliente.js",   que:"la ficha del cliente seleccionado (maqueta del PO)", apps:[null] },
+  { arnes:"test_alta_asistente.js",  que:"ALTA_ASISTENTE: alta de cliente nuevo por pasos (modalidad→datos→fiscal→sucursales→vinculación→crédito→resumen), autoridad de crédito por tope, y gestión Bloquear/Anular/Reactivar en la ficha", apps:[null] },
   /* La lista de Pedidos sacaba el nombre del cliente de la POSICIÓN de la fila
      (un setPedidos por índice que pisaba también los reales), no del pedido.
      Esta vigila que cada fila salga a nombre de SU cliente, con el maestro de
