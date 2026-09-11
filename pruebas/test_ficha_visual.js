@@ -5,8 +5,11 @@ const fc=fs.readFileSync(path.join(raiz,"freelance-completo.html"),"utf8");
 const web=fs.readFileSync(path.join(raiz,"sistema-web.html"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
-/* 1 · pestaña 'Ficha' agrupa las 3, en ambas apps */
-ok(/>Ficha</.test(fc)&&/>Ficha</.test(web),"pestaña 'Ficha' en ambas");
+/* 1 · la Ficha existe en ambas. En la app del dueño sigue siendo una pestaña
+   («Ficha»); en el Sistema Web se muestra DIRECTA — PILADORAS_SOLO_FICHA: se quitó
+   la pestaña exterior «Ficha / Costos y precios» porque los costos viven en «Precios». */
+ok(/>Ficha</.test(fc),"la app del dueño conserva la pestaña 'Ficha'");
+ok(/PILADORAS_SOLO_FICHA/.test(web),"en el Sistema Web la Ficha se muestra directa (sin pestaña de costos)");
 ok(/FICHA_AGRUPA/.test(fc)&&/FICHA_AGRUPA/.test(web),"ancla FICHA_AGRUPA (agrupa Representantes/Condiciones/Documentos)");
 /* 2 · tarjeta de marca distinguida (ancla) */
 ok(/TARJETA_MARCA/.test(fc)&&/TARJETA_MARCA/.test(web),"ancla TARJETA_MARCA");

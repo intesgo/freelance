@@ -11,7 +11,7 @@ const probar = (ok, mensaje) => {
 };
 
 probar(/const VERSION = \{ n:"488"/.test(app), "la aplicación debe anunciar v481");
-probar(/const CACHE = "freelance-v366"/.test(sw), "el service worker debe renovar la caché a v346");
+probar(/const CACHE = "freelance-v367"/.test(sw), "el service worker debe renovar la caché a v346");
 
 /* DISENO_APP_COLUMNA · con "Sitio para computadoras" (viewport inflado) la app
    se ve como columna centrada (480px), no estirada; y la puerta (login) queda
