@@ -38,6 +38,10 @@ const SEC = {}, orden = [];
 for (const m of bloqueSec.matchAll(/key:"([a-z]+)",\s*ic:"([a-zA-Z]+)",\s*icon:"[^"]*",\s*label:"([^"]*)"/g)) {
   SEC[m[1]] = { ic: m[2], lab: m[3] }; orden.push(m[1]);
 }
+/* MENU_FASE_B · etiquetas que SOLO cambian en el menú lateral (override sobre SECCIONES).
+   Debe reflejar el MENU_LABEL del código. `lab(k)` da la etiqueta efectiva del menú. */
+const MENU_LABEL = { dashboard:"Inicio", cobranza:"Cartera", pagos:"Cobros y pagos", unidades:"Presentaciones", socio:"Socios comerciales", cuentas:"Usuarios y roles" };
+const lab = (k) => MENU_LABEL[k] || (SEC[k] && SEC[k].lab) || k;
 const bloqueGr = html.slice(html.indexOf("const GRUPOS_MENU = ["), html.indexOf("// ── Empresas"));
 /* Entre el título y las claves puede haber otros campos (por ejemplo el ícono
    del grupo). El arnés no debe romperse por el orden de los campos: lee el
@@ -69,13 +73,14 @@ comprobar("todos tienen su pantalla en el router" + (sinPantalla.length ? " → 
 
 comprobar("no hay grupos vacíos en la definición", GRUPOS.every((g) => g.k.length > 0));
 
-/* El título "Principal" está escrito a mano dos veces en el Sidebar: es el
-   grupo que NO se pliega y que arranca abierto. Si alguien lo renombra, esa
-   regla deja de funcionar en silencio. Por eso se vigila el nombre exacto. */
-comprobar('existe el grupo "Principal" (el que no se pliega)',
-  GRUPOS.some((g) => g.t === "Principal"));
-comprobar('el Sidebar sigue tratando "Principal" como el grupo fijo',
-  /g\.titulo === "Principal"/.test(html) && /t === "Principal"/.test(html));
+/* MENU_FASE_B · "Inicio" es ahora un ítem SUELTO (no un grupo plegable) que abre
+   arriba del todo, y "Configuración" otro suelto al pie. El Sidebar los separa por
+   la marca `suelto` (looseTop / looseFooter). Si alguien rompe esa marca, los sueltos
+   dejarían de salir en su sitio en silencio; por eso se vigila. */
+comprobar('existe el ítem suelto "Inicio" (el que abre arriba, sin grupo)',
+  GRUPOS.some((g) => g.t === "Inicio"));
+comprobar('el Sidebar separa los ítems sueltos por la marca `suelto` (looseTop / looseFooter)',
+  /looseTop/.test(html) && /looseFooter/.test(html) && /g\.suelto/.test(html));
 
 /* ── MENÚ LATERAL · FASE A · lo que este cambio promete (inspección del fuente) ── */
 const sidebar = html.slice(html.indexOf("function Sidebar("), html.indexOf("// ── Header del área de contenido"));
@@ -85,8 +90,10 @@ comprobar("el Sidebar declara aria-current, aria-expanded y aria-label (Módulos
   /aria-current=/.test(sidebar) && /aria-expanded=/.test(sidebar) && /aria-label="Módulos"/.test(sidebar) && /aria-label="Buscar módulo"/.test(sidebar));
 comprobar("el buscador filtra sobre la prop `secciones`, NUNCA sobre SECCIONES (mostraría módulos no permitidos)",
   !/SECCIONES\.filter/.test(sidebar) && /secciones\.forEach/.test(sidebar));
-comprobar("GRUPOS_MENU conserva EXACTO el sello del 26 jul: 6 grupos Principal·Operación·Comercial·Finanzas·Gestión·Sistema",
-  GRUPOS.length === 6 && ["Principal","Operación","Comercial","Finanzas","Gestión","Sistema"].every((t,i)=>GRUPOS[i] && GRUPOS[i].t === t));
+/* MENU_FASE_B · reorganización aprobada por el dueño: el orden se fija por uso.
+   Inicio (suelto) · VENTAS · FINANZAS · OPERACIÓN · CATÁLOGO · ADMINISTRACIÓN · Configuración (suelto). */
+comprobar("GRUPOS_MENU lleva el sello de la Fase B: 7 bloques Inicio·VENTAS·FINANZAS·OPERACIÓN·CATÁLOGO·ADMINISTRACIÓN·Configuración",
+  GRUPOS.length === 7 && ["Inicio","VENTAS","FINANZAS","OPERACIÓN","CATÁLOGO","ADMINISTRACIÓN","Configuración"].every((t,i)=>GRUPOS[i] && GRUPOS[i].t === t));
 
 /* ── Los cuatro cargos ─────────────────────────────────────────────── */
 const CARGOS = {
@@ -137,12 +144,14 @@ function pintar(cargo, permitidas) {
     /* Es un acordeón: abrir un grupo pliega el anterior. Por eso la prueba
        abre uno por uno y acumula lo visible, igual que haría una persona. */
     /* MENU_A11Y · los encabezados de grupo pasaron a <button> y el "▶" a SVG: se buscan
-       por su texto entre los <button> del <nav> (sin el .replace("▶") de antes). */
+       por su texto entre los <button> del <nav> (sin el .replace("▶") de antes).
+       MENU_FASE_B · ahora el encabezado lleva TÍTULO + subtítulo dentro del mismo botón,
+       así que se compara por prefijo (empieza con el título), no por igualdad exacta. */
     window.__abrirGrupo = function(titulo){
       var ds=window.__c.querySelectorAll("nav button"),h=null;
       for(var i=0;i<ds.length;i++) {
         var t=(ds[i].textContent||"").trim().toLowerCase();
-        if(t===String(titulo).toLowerCase()) h=ds[i];
+        if(t.indexOf(String(titulo).toLowerCase())===0) h=ds[i];
       }
       if(!h) return false; h.click(); return true;
     };
@@ -165,20 +174,18 @@ for (const [cargo, permitidas] of Object.entries(CARGOS)) {
   comprobar("el menú de " + cargo + " se pinta sin reventar" + (cayo ? " → " + cayo : ""), !cayo);
   if (cayo) continue;
   /* React 18 agrupa los cambios de estado: se abre y se lee cada grupo por
-     separado. El encabezado Principal representa Dashboard y no repite su
-     etiqueta como una segunda opción. */
+     separado. MENU_FASE_B · "Inicio" y "Configuración" son ítems sueltos (siempre
+     visibles, sin plegar); los demás grupos se abren uno por uno para leerlos. */
   let texto = vm.runInContext("window.__txt()", ctx);
-  const gruposCargo = GRUPOS.filter(g => g.t!=="Principal" && g.k.some(k=>permitidas.includes(k)));
+  const gruposCargo = GRUPOS.filter(g => g.t!=="Inicio" && g.t!=="Configuración" && g.k.some(k=>permitidas.includes(k)));
   for (const g of gruposCargo) {
     vm.runInContext(`window.__abrirGrupo(${JSON.stringify(g.t)})`, ctx);
     await esperar(40);
     texto += " " + vm.runInContext("window.__txt()", ctx);
   }
-  const faltan = permitidas.filter((k) => k==="dashboard"
-    ? texto.toUpperCase().indexOf("PRINCIPAL")<0
-    : texto.indexOf(SEC[k].lab) < 0);
+  const faltan = permitidas.filter((k) => texto.indexOf(lab(k)) < 0);
   comprobar("y salen en pantalla los " + permitidas.length + " módulos de " + cargo
-    + (faltan.length ? " → falta " + faltan.map((k) => SEC[k].lab).join(", ") : ""), faltan.length === 0);
+    + (faltan.length ? " → falta " + faltan.map((k) => lab(k)).join(", ") : ""), faltan.length === 0);
   const titulosVisibles = GRUPOS.filter((g) => g.k.some((k) => permitidas.includes(k))).map((g) => g.t);
   const sinTitulo = titulosVisibles.filter((t) => texto.toUpperCase().indexOf(t.toUpperCase()) < 0);
   comprobar("y sus " + titulosVisibles.length + " títulos de grupo"
