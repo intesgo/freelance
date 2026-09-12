@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FREELANCE · Plataforma</title>
+<style>
+  /* Portal único de acceso · vanilla puro, paleta verde/maíz del ecosistema */
+  :root{ --tinta:#123B2C; --verde:#2E7D52; --maiz:#F2A900; --fondo:#F4F7F4; --papel:#fff; --linea:#E2E8E2; --gris:#5C6B60; --tenue:#8A968D; --error:#B3261E; --ok:#1c7a44; }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ font-family:-apple-system, "Segoe UI", Roboto, sans-serif; background:var(--fondo); min-height:100vh; }
+  .franja{ background:linear-gradient(160deg,#15392B 0%,#1E4D3A 100%); padding:calc(env(safe-area-inset-top,0px) + 44px) 24px 34px; text-align:center; position:relative; }
+  .franja::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(90deg,var(--maiz),#7FB89A); }
+  .logo{ width:56px; height:56px; border-radius:16px; background:rgba(255,255,255,.1); border:1.5px solid rgba(255,255,255,.25); display:flex; align-items:center; justify-content:center; font-size:28px; margin:0 auto 12px; }
+  .franja h1{ color:#fff; font-size:24px; letter-spacing:.14em; font-weight:800; }
+  .franja p{ color:rgba(255,255,255,.75); font-size:12.5px; margin-top:6px; letter-spacing:.16em; text-transform:uppercase; }
+  .franja em{ display:block; color:rgba(255,255,255,.85); font-size:14px; font-style:italic; margin-top:10px; letter-spacing:0; text-transform:none; }
+  .cuerpo{ max-width:520px; margin:-14px auto 0; padding:0 16px 40px; position:relative; }
+  .titulo-grupo{ font-size:12px; font-weight:800; color:var(--tenue); letter-spacing:.14em; text-transform:uppercase; margin:26px 4px 10px; }
+  a.app{ display:flex; align-items:center; gap:14px; background:var(--papel); border:1px solid var(--linea); border-radius:14px; padding:15px 16px; margin-bottom:10px; text-decoration:none; box-shadow:0 2px 10px rgba(18,59,44,.05); }
+  a.app:active{ transform:scale(.99); }
+  .icono{ width:46px; height:46px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+  .info{ flex:1; min-width:0; }
+  .info b{ display:block; font-size:15.5px; color:var(--tinta); font-weight:800; }
+  .info span{ display:block; font-size:12px; color:var(--gris); margin-top:2px; }
+  .ir{ color:var(--tenue); font-size:20px; }
+  .nota{ background:#FBF6E8; border:1px solid #EAD9A8; border-radius:12px; padding:12px 14px; margin-top:24px; font-size:12.5px; color:#7A5B00; line-height:1.5; }
+  .pie{ text-align:center; font-size:11px; color:var(--tenue); margin-top:26px; }
+
+  /* ── Tarjeta de acceso (portal único) ── */
+  .acceso{ background:var(--papel); border:1px solid var(--linea); border-radius:16px; padding:18px 16px; margin-top:18px; box-shadow:0 4px 16px rgba(18,59,44,.07); }
+  .acceso h2{ font-size:15px; color:var(--tinta); font-weight:800; margin-bottom:3px; }
+  .acceso .sub{ font-size:12.5px; color:var(--gris); margin-bottom:13px; }
+  .campo{ margin-bottom:10px; }
+  .campo input{ width:100%; padding:13px 14px; border-radius:11px; border:1.5px solid var(--linea); font-size:15px; outline:none; background:#FBFDFB; color:var(--tinta); }
+  .campo input:focus{ border-color:var(--verde); }
+  .btn{ width:100%; padding:13px; border:none; border-radius:11px; background:var(--verde); color:#fff; font-size:15px; font-weight:800; cursor:pointer; }
+  .btn:disabled{ opacity:.6; }
+  .btn-suave{ width:100%; padding:11px; border:1.5px solid var(--linea); border-radius:11px; background:#fff; color:var(--gris); font-size:13.5px; font-weight:700; cursor:pointer; margin-top:8px; }
+  .msj-error{ color:var(--error); font-size:12.5px; margin:6px 2px 0; min-height:16px; }
+  .sesion-chip{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .sesion-punto{ width:10px; height:10px; border-radius:50%; background:var(--ok); flex-shrink:0; }
+  .sesion-chip b{ color:var(--tinta); font-size:14.5px; }
+  .sesion-chip span{ color:var(--gris); font-size:12.5px; }
+  .oculto{ display:none; }
+</style>
+<link rel="manifest" href="./pwa/manifest.json">
+<meta name="theme-color" content="#123B2C">
+<link rel="apple-touch-icon" href="./pwa/icono-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FREELANCE">
+<script src="./lib/supabase-2.112.1.min.js"></script>
+</head>
+<body>
+  <div class="franja">
+    <div class="logo">🌾</div>
+    <h1>FREELANCE</h1>
+    <p>Ventas · Distribución · Cobranza</p>
+    <em>Conectamos el campo con tu negocio</em>
+  </div>
+  <div class="cuerpo">
+
+    <!-- ── PORTAL ÚNICO: una sola entrada con tu correo; la sesión vale para todas las apps ── -->
+    <div class="acceso" id="cajaAcceso">
+      <!-- Sin sesión: formulario -->
+      <div id="vistaLogin">
+        <h2>Entrar con tu cuenta</h2>
+        <div class="sub">Una sola clave para toda la plataforma. Tu sesión queda activa en todas las apps de este teléfono.</div>
+        <form id="formLogin">
+          <div class="campo"><input id="inCorreo" type="email" inputmode="email" autocomplete="username" placeholder="Correo" required></div>
+          <div class="campo"><input id="inClave" type="password" autocomplete="current-password" placeholder="Clave" required></div>
+          <button class="btn" id="btnEntrar" type="submit">Entrar</button>
+        </form>
+        <div class="msj-error" id="msjError"></div>
+        <button class="btn-suave" id="btnOlvido" type="button">¿Olvidaste tu clave?</button>
+      </div>
+      <!-- v2.1 · Recuperación: correo → enlace al buzón → clave nueva aquí mismo -->
+      <div id="vistaOlvido" class="oculto">
+        <h2>Recuperar tu clave</h2>
+        <div class="sub">Te enviamos un enlace a tu correo. Al abrirlo vuelves aquí y defines tu clave nueva.</div>
+        <div class="campo"><input id="inCorreoRec" type="email" inputmode="email" autocomplete="username" placeholder="Tu correo"></div>
+        <button class="btn" id="btnEnviarEnlace" type="button">Enviarme el enlace</button>
+        <button class="btn-suave" id="btnVolverLogin" type="button">Volver</button>
+        <div class="msj-error" id="msjOlvido"></div>
+      </div>
+      <div id="vistaNueva" class="oculto">
+        <h2 id="tituloNueva">Crea tu clave nueva</h2>
+        <div class="sub" id="subNueva">Mínimo 8 caracteres, con letra y número. Vale para toda la plataforma.</div>
+        <div class="campo"><input id="inNueva" type="password" autocomplete="new-password" placeholder="Clave nueva"></div>
+        <div class="campo"><input id="inNueva2" type="password" autocomplete="new-password" placeholder="Repítela"></div>
+        <button class="btn" id="btnGuardarNueva" type="button">Guardar clave nueva</button>
+        <div class="msj-error" id="msjNueva"></div>
+      </div>
+      <!-- Con sesión: continuar -->
+      <div id="vistaSesion" class="oculto">
+        <div class="sesion-chip"><span class="sesion-punto"></span>
+          <div><b id="sesNombre">—</b><br><span id="sesRol">—</span></div></div>
+        <button class="btn" id="btnMiApp">Entrar a mi app ›</button>
+        <button class="btn-suave" id="btnSalir">Cerrar sesión</button>
+        <div class="msj-error" id="msjSesion"></div>
+      </div>
+    </div>
+
+    <div class="titulo-grupo">Equipo de campo</div>
+    <a class="app" href="./Comisionista.html">
+      <div class="icono" style="background:#E7F1EA">🧑‍💼</div>
+      <div class="info"><b>Comisionista</b><span>Pedidos, cobros, cartera y clientes en campo</span></div>
+      <div class="ir">›</div>
+    </a>
+    <a class="app" href="./socio-comercial.html">
+      <div class="icono" style="background:#FBF0D8">🤝</div>
+      <div class="info"><b>Socio comercial</b><span>Captación, ventas y reparto de ganancia</span></div>
+      <div class="ir">›</div>
+    </a>
+    <a class="app" href="./transportista-app.html">
+      <div class="icono" style="background:#EAF0F6">🚛</div>
+      <div class="info"><b>Transportista</b><span>Rutas, carga y confirmación de entregas</span></div>
+      <div class="ir">›</div>
+    </a>
+
+    <div class="titulo-grupo">Dirección</div>
+    <a class="app" href="./home/">
+      <div class="icono" style="background:#EAF0F6">🖥️</div>
+      <div class="info"><b>Sistema · Oficina</b><span>Clientes, logística, cuentas y accesos del equipo</span></div>
+      <div class="ir">›</div>
+    </a>
+    <a class="app" href="./freelance-completo.html">
+      <div class="icono" style="background:#E7F1EA">🌾</div>
+      <div class="info"><b>Freelance</b><span>El centro del negocio: equipo, crédito y autorizaciones</span></div>
+      <div class="ir">›</div>
+    </a>
+    <a class="app" href="./proveedor-freelance.html">
+      <div class="icono" style="background:#F3EDE2">🏭</div>
+      <div class="info"><b>Proveedor</b><span>Red, solicitudes, catálogo y facturación</span></div>
+      <div class="ir">›</div>
+    </a>
+
+    <div class="nota">🔒 Con tu cuenta, la app <b>Freelance</b> ya trabaja con datos reales (catálogo, clientes y pedidos). Sin cuenta, todas las apps abren en modo demostración. El <b>Sistema Web central</b> sigue privado.</div>
+    <div class="pie">v2.3 · Portal único · Invitación y recuperación de clave · © 2026 FREELANCE</div>
+  </div>
+
+<script>
+/* ══ PORTAL ÚNICO (Fase 4) · vanilla puro ══
+   La sesión de Supabase vive en el almacenamiento de ESTE origen: al entrar aquí,
+   las apps del mismo dominio (freelance-completo, etc.) la encuentran y entran
+   directo. El RLS decide qué datos ve cada rol. Si el CDN falla, el portal sigue
+   funcionando como directorio simple. */
+(function(){
+  /* ══ Aterrizaje de un enlace de correo ══
+     Se lee ANTES de crear el cliente: supabase-js consume la dirección y borra
+     el trozo del final (#access_token=…&type=invite). Si no se guarda ahora,
+     después ya no hay forma de saber a qué vino la persona.
+       type=invite   → la invitación de una cuenta nueva: TIENE que crear clave.
+       type=recovery → olvidó la clave.
+       error=…       → el enlace venció o ya se usó. */
+  var trozo = (location.hash || "") + "&" + (location.search || "");
+  var tipoEnlace  = (trozo.match(/[#&?]type=([a-z_]+)/) || [])[1] || "";
+  var falloEnlace = /[#&?]error(_code)?=/.test(trozo);
+  /* v2.3 · el enlace que reparte Richard viene armado por nosotros y apunta
+     DIRECTO aquí, con un vale de un solo uso. Es más seguro que el enlace que
+     arma Supabase: aquel rebota al "Site URL" del proyecto, que estaba puesto
+     en localhost y no habría llevado a nadie a ninguna parte. */
+  var valeInv = (trozo.match(/[#&?]invitacion=([^&]+)/) || [])[1] || "";
+  var valeRec = (trozo.match(/[#&?]recuperar=([^&]+)/) || [])[1] || "";
+  var vale = valeInv || valeRec;
+  var esInvitacion = tipoEnlace === "invite" || !!valeInv;
+  var claveObligatoria = esInvitacion || tipoEnlace === "recovery" || !!valeRec;
+
+  var SB = null;
+  try{
+    SB = window.supabase.createClient(
+      "https://ztpwtddrblfvcnnhbevq.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0cHd0ZGRyYmxmdmNubmhiZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MDc0MjUsImV4cCI6MjA5ODI4MzQyNX0.v-fOFxaGzo0QQWUGGvC4Oo1kx24yMTtV-5VP7WKJEeg"
+    );
+  }catch(e){ /* sin conexión: directorio simple */ }
+
+  /* App de cada rol (7 roles canónicos del padrón) */
+  var APP_POR_ROL = {
+    freelance:       "./home/",
+    comisionista:    "./Comisionista.html",
+    socio:           "./socio-comercial.html",
+    proveedor:       "./proveedor-freelance.html",
+    transportista:   "./transportista-app.html",
+    logistica:       "./home/",
+    financiero:      "./home/",
+    admin:           "./home/"
+  };
+  var ROL_LINDO = { freelance:"Freelance · centro del negocio", comisionista:"Comisionista", socio:"Socio comercial",
+    proveedor:"Proveedor / piladora", transportista:"Transportista", logistica:"Operadora del sistema web",
+    financiero:"Contadora", admin:"Administración" };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var vistaLogin = $("vistaLogin"), vistaSesion = $("vistaSesion");
+  var estado = { rol:null };
+
+  function mostrarSesion(nombre, rol){
+    $("sesNombre").textContent = nombre;
+    $("sesRol").textContent = ROL_LINDO[rol] || rol || "—";
+    estado.rol = rol;
+    var destino = APP_POR_ROL[rol];
+    $("btnMiApp").textContent = destino ? "Entrar a mi app ›" : "Tu módulo es el Sistema Web de escritorio";
+    if(!destino){
+      $("btnMiApp").disabled = true;
+      /* sin rol = la cuenta no está vinculada al padrón: no se adivina, se avisa */
+      $("btnMiApp").textContent = rol ? "Tu módulo es el Sistema Web de escritorio" : "Tu cuenta aún no tiene app asignada";
+      $("msjSesion").textContent = rol
+        ? "El Sistema Web es privado; se abre desde el computador de la oficina."
+        : "Tu cuenta entró bien, pero todavía no está vinculada a un rol. Avísale a Richard para que la habilite.";
+    }
+    else { $("btnMiApp").disabled = false; $("msjSesion").textContent = ""; }
+    vistaLogin.classList.add("oculto");
+    vistaSesion.classList.remove("oculto");
+  }
+  function mostrarLogin(){
+    vistaSesion.classList.add("oculto");
+    vistaLogin.classList.remove("oculto");
+  }
+
+  /* OJO: si el padrón no responde o la cuenta no está vinculada, NO se asume
+     "freelance". Antes se hacía y era al revés de lo prudente: ante la duda, la
+     persona terminaba en la app con más poder del negocio. Ahora se queda sin
+     rol y la pantalla lo dice. */
+  function cargarPadron(uid, correo, listo){
+    SB.from("usuarios").select("usr_id,nombre,rol,activo").eq("auth_uid", uid).limit(1)
+      .then(function(r){ var f = (r.data && r.data[0]) || null;
+        if(f && f.activo === false){ SB.auth.signOut(); listo(correo, ""); return; }
+        listo((f && f.nombre) || correo, (f && f.rol) || ""); })
+      .catch(function(){ listo(correo, ""); });
+  }
+
+  /* Al abrir: ¿ya hay sesión?
+     OJO: si la persona viene de un enlace de invitación o de recuperación, SÍ
+     tiene sesión válida, pero NO se la manda a su app: primero crea su clave.
+     Sin esto, el invitado entraba una vez y nunca más podía volver a entrar. */
+  if(SB){
+    SB.auth.getSession().then(function(r){
+      var s = r.data && r.data.session;
+      if(claveObligatoria) return;
+      if(s) cargarPadron(s.user.id, s.user.email || "Cuenta activa", mostrarSesion);
+    }).catch(function(){});
+  } else {
+    $("cajaAcceso").classList.add("oculto");   /* sin CDN: solo directorio */
+  }
+
+  $("formLogin").addEventListener("submit", function(ev){
+    ev.preventDefault();
+    if(!SB){ $("msjError").textContent = "Sin conexión con el servidor."; return; }
+    var correo = $("inCorreo").value.trim().toLowerCase(), clave = $("inClave").value;
+    $("btnEntrar").disabled = true; $("msjError").textContent = "";
+    SB.auth.signInWithPassword({ email: correo, password: clave }).then(function(r){
+      $("btnEntrar").disabled = false;
+      if(r.error || !r.data || !r.data.session){ $("msjError").textContent = "Correo o clave incorrectos."; return; }
+      cargarPadron(r.data.session.user.id, correo, function(nombre, rol){
+        var destino = APP_POR_ROL[rol];
+        if(destino){ location.href = destino; }        /* directo a tu app */
+        else mostrarSesion(nombre, rol);               /* Diana/Marcia: aviso */
+      });
+    }).catch(function(){ $("btnEntrar").disabled = false; $("msjError").textContent = "No se pudo conectar. Intenta de nuevo."; });
+  });
+
+  $("btnMiApp").addEventListener("click", function(){
+    var destino = APP_POR_ROL[estado.rol];
+    if(destino) location.href = destino;
+  });
+  $("btnSalir").addEventListener("click", function(){
+    if(SB){ SB.auth.signOut().then(mostrarLogin).catch(mostrarLogin); } else mostrarLogin();
+  });
+
+  /* ══ v2.1 · RECUPERACIÓN DE CLAVE ══
+     1) "¿Olvidaste tu clave?" → correo → SB manda el enlace al buzón.
+     2) El enlace vuelve a este portal: SB avisa PASSWORD_RECOVERY → formulario
+        de clave nueva → updateUser. La clave vale para toda la plataforma. */
+  var vistaOlvido = $("vistaOlvido"), vistaNueva = $("vistaNueva");
+  function soloVista(v){
+    [vistaLogin, vistaSesion, vistaOlvido, vistaNueva].forEach(function(x){ x.classList.add("oculto"); });
+    v.classList.remove("oculto");
+  }
+  $("btnOlvido").addEventListener("click", function(){
+    $("inCorreoRec").value = $("inCorreo").value.trim();
+    $("msjOlvido").textContent = "";
+    soloVista(vistaOlvido);
+  });
+  $("btnVolverLogin").addEventListener("click", function(){ soloVista(vistaLogin); });
+  $("btnEnviarEnlace").addEventListener("click", function(){
+    if(!SB){ $("msjOlvido").textContent = "Sin conexión con el servidor."; return; }
+    var correo = $("inCorreoRec").value.trim().toLowerCase();
+    if(!correo || correo.indexOf("@") < 1){ $("msjOlvido").textContent = "Escribe tu correo."; return; }
+    $("btnEnviarEnlace").disabled = true; $("msjOlvido").textContent = "";
+    SB.auth.resetPasswordForEmail(correo, { redirectTo: location.origin + location.pathname })
+      .then(function(r){
+        $("btnEnviarEnlace").disabled = false;
+        if(r.error){ $("msjOlvido").textContent = "No se pudo enviar: " + (r.error.message || "error"); return; }
+        $("msjOlvido").style.color = "var(--ok)";
+        $("msjOlvido").textContent = "Enlace enviado ✓ Revisa tu correo (también la carpeta de no deseados).";
+      })
+      .catch(function(){ $("btnEnviarEnlace").disabled = false; $("msjOlvido").textContent = "No se pudo conectar. Intenta de nuevo."; });
+  });
+  function fuerzaOk(t){ return t.length >= 8 && /[a-zA-Z]/.test(t) && /[0-9]/.test(t); }
+  $("btnGuardarNueva").addEventListener("click", function(){
+    var c1 = $("inNueva").value, c2 = $("inNueva2").value;
+    if(!fuerzaOk(c1)){ $("msjNueva").textContent = "Mínimo 8 caracteres, con letra y número."; return; }
+    if(c1 !== c2){ $("msjNueva").textContent = "Las dos claves no coinciden."; return; }
+    $("btnGuardarNueva").disabled = true; $("msjNueva").textContent = "";
+    /* Antes de intentar guardar hay que tener sesión: si el enlace venció o ya
+       se usó, updateUser respondería un error técnico. Mejor decirlo claro. */
+    SB.auth.getSession().then(function(p){
+      if(!(p.data && p.data.session)){
+        $("btnGuardarNueva").disabled = false;
+        $("msjNueva").textContent = "El enlace ya se usó o venció. Pide uno nuevo y ábrelo desde este mismo teléfono.";
+        return;
+      }
+      return SB.auth.updateUser({ password: c1 }).then(function(r){
+        $("btnGuardarNueva").disabled = false;
+        if(r.error){ $("msjNueva").textContent = "No se pudo guardar: " + (r.error.message || "error"); return; }
+        SB.auth.getSession().then(function(s){
+          var ses = s.data && s.data.session;
+          if(ses) cargarPadron(ses.user.id, ses.user.email || "Cuenta activa", function(nombre, rol){
+            /* Recién invitado: ya tiene clave, se lo lleva derecho a su app. */
+            var destino = APP_POR_ROL[rol];
+            if(esInvitacion && destino){ location.href = destino; return; }
+            mostrarSesion(nombre, rol);
+            $("msjSesion").style.color = "var(--ok)";
+            $("msjSesion").textContent = esInvitacion
+              ? "Listo ✓ Tu clave ya sirve para entrar cuando quieras."
+              : "Clave actualizada ✓ Ya vale en todas las apps.";
+          });
+          else soloVista(vistaLogin);
+        });
+      });
+    }).catch(function(){ $("btnGuardarNueva").disabled = false; $("msjNueva").textContent = "No se pudo conectar."; });
+  });
+
+  /* ══ Qué pantalla se ve al aterrizar de un enlace ══ */
+  if(esInvitacion){
+    $("tituloNueva").textContent = "Crea tu clave para entrar";
+    $("subNueva").textContent = "Bienvenido a FREELANCE. Elige una clave de mínimo 8 caracteres, con letra y número. Solo la sabes tú.";
+    $("btnGuardarNueva").textContent = "Guardar mi clave y entrar";
+  }
+  if(claveObligatoria) soloVista(vistaNueva);
+  /* Canjear el vale por una sesión. Hasta que responda, el botón espera: sin
+     sesión, guardar la clave fallaría con un error técnico. */
+  if(vale && SB){
+    $("btnGuardarNueva").disabled = true;
+    $("msjNueva").textContent = "Comprobando tu enlace…";
+    SB.auth.verifyOtp({ type: valeInv ? "invite" : "recovery", token_hash: decodeURIComponent(vale) })
+      .then(function(r){
+        if(r.error || !r.data || !r.data.session){
+          soloVista(vistaLogin);
+          $("msjError").textContent = "Ese enlace ya se usó o venció. Pide uno nuevo, o entra con tu correo y clave.";
+          return;
+        }
+        $("btnGuardarNueva").disabled = false;
+        $("msjNueva").textContent = "";
+      })
+      .catch(function(){
+        soloVista(vistaLogin);
+        $("msjError").textContent = "No se pudo comprobar el enlace. Revisa tu internet e intenta de nuevo.";
+      });
+  }
+  if(falloEnlace && !claveObligatoria){
+    $("msjError").textContent = "Ese enlace ya se usó o venció. Pide uno nuevo, o entra con tu correo y clave.";
+  }
+  if(SB){
+    /* Respaldo: si el trozo de la dirección llegó distinto, supabase-js igual
+       avisa cuando reconoce un enlace de recuperación. */
+    SB.auth.onAuthStateChange(function(evento){
+      if(evento === "PASSWORD_RECOVERY") soloVista(vistaNueva);
+    });
+  }
+  /* las apps mandan aquí con #olvido desde su enlace "¿Olvidó su contraseña?" */
+  if(location.hash === "#olvido") soloVista(vistaOlvido);
+})();
+</script>
+</body>
+</html>
+<!-- v95 portal único b3 · el enlace apunta aquí -->
