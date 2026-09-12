@@ -9,9 +9,13 @@ const fs=require("fs"), path=require("path");
 const web=fs.readFileSync(path.join(__dirname,"..","sistema-web.html"),"utf8");
 let b=0,m=0; const ok=(c,x)=>{ if(c)b++; else{m++;console.error("✗ "+x);} };
 
-/* 1 · «Precios» está en SECCIONES y en el grupo Comercial */
+/* 1 · «Precios» está en SECCIONES y en el menú lateral.
+   MENU_FASE_B · el menú se reorganizó por uso: «precios» ahora vive en el grupo VENTAS
+   (junto a pedidos y clientes) y «preciosvig» (Piladoras) en ADMINISTRACIÓN. Solo cambió
+   la ubicación en el menú; el módulo y su ruta se quedan igual. */
 ok(/\{ key:"precios", ic:"tag",/.test(web), "«Precios» está en SECCIONES");
-ok(/titulo:"Comercial",\s*keys:\[[^\]]*"preciosvig","precios"/.test(web), "«precios» está en el grupo Comercial, tras preciosvig");
+ok(/titulo:"VENTAS",[\s\S]{0,120}?keys:\[[^\]]*"precios"/.test(web), "«precios» está en el grupo VENTAS");
+ok(/titulo:"ADMINISTRACIÓN",[\s\S]{0,140}?keys:\[[^\]]*"preciosvig"/.test(web), "«preciosvig» (Piladoras) está en el grupo ADMINISTRACIÓN");
 
 /* 2 · la ruta "precios" renderiza PiladorasWeb con modo="precios" */
 ok(/case "precios":[\s\S]{0,160}return <PiladorasWeb usuario=\{sesion\} modo="precios" \/>/.test(web),

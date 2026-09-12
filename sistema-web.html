@@ -573,7 +573,7 @@ const ordUso = (cat, lista) => {
 /* ══ SELLO DE VERSIÓN ══
    Formato del proyecto: "Versión DD mmm YYYY bN · descripción".
    Se muestra al pie del menú lateral para saber siempre qué copia se está probando. */
-const VERSION = { n:"257", fecha:"11 sep 2026", desc:"Menú lateral (Sistema Web) · ahora tiene un BUSCADOR de módulos (Ctrl/⌘+K para saltar a él; encuentra sin importar tildes ni mayúsculas) y en la computadora se puede CONTRAER a solo iconos (queda así al recargar). El módulo abierto ya no es un bloque verde macizo: se marca con una barra verde a la izquierda, más suave y claro. Mejor accesibilidad (foco visible, lectores de pantalla, teclado). En el celular, el menú lateral cierra con Escape, no deja correr el fondo y atrapa el foco mientras está abierto. No se reorganizó el menú ni cambió ningún módulo: solo cómo se ve y se navega." };
+const VERSION = { n:"258", fecha:"12 sep 2026", desc:"Menú lateral (Sistema Web) · REORGANIZADO por uso, sin perder ningún módulo. Ahora arranca con «Inicio» arriba y los bloques en orden: VENTAS (pedidos, clientes y precios), FINANZAS (cartera, cobros y comisiones), OPERACIÓN (inventario, compras y logística), CATÁLOGO (productos, marcas y presentaciones) y ADMINISTRACIÓN (empresas, usuarios y auditoría); «Configuración» queda al pie. Cada bloque lleva un subtítulo que dice qué hay dentro. Al abrir solo se despliegan Ventas y Finanzas (lo más usado); los demás se abren con un clic y quedan como los dejaste. El módulo en el que estás abre su bloque solo. El buscador (Ctrl/⌘+K) encuentra cualquier módulo aunque su bloque esté cerrado. No cambió ningún módulo, permiso ni pantalla: solo el orden y los nombres del menú." };
 if(typeof window!=="undefined") window.__APPVER = VERSION.n;
 
 /* ══ AYUDA POR MÓDULO (campanilla del encabezado) ══
@@ -699,17 +699,28 @@ const TODAS_LAS_SECCIONES = SECCIONES.map(s => s.key);
    no decide qué pantalla se abre (eso lo hace el router por `key`) y no existe en
    Supabase. Mover una clave de grupo no cambia nada más que dónde se ve.
 
-   OJO: el título "Principal" está escrito a mano en el Sidebar — es el grupo que
-   no se pliega. Si algún día se renombra, hay que cambiarlo también allá o la
-   regla deja de funcionar en silencio. */
+   MENU_FASE_B (11 sep 2026, con orden expresa del dueño) · reorganización por frecuencia
+   de uso: Inicio (suelto) · VENTAS · FINANZAS · OPERACIÓN · CATÁLOGO · ADMINISTRACIÓN ·
+   Configuración (suelto, al pie). Reemplaza el sello del 26 jul. `suelto:true` = ítem sin
+   grupo (no se pliega); `pie:true` = va al pie. CERO HUÉRFANOS: todos los módulos siguen
+   presentes. Los módulos que no tenían grupo natural en la nueva estructura (documentos,
+   mensajes, avisos, notificaciones, fallos, reportes) se colocaron en el grupo más cercano
+   (ADMINISTRACIÓN) y se reportan. No cambia rutas, keys ni permisos. */
 const GRUPOS_MENU = [
-  { titulo:"Principal",  keys:["dashboard"] },
-  { titulo:"Operación",  keys:["pedidos","solicitudes","trazabilidad","tarifasfe","calidad"] },
-  { titulo:"Comercial",  keys:["clientes","catalogo","unidades","promos","emparejar","marcas","preciosvig","precios","socio"] },
-  { titulo:"Finanzas",   keys:["cobranza","pagos","comisiones","conciliacion"] },
-  { titulo:"Gestión",    keys:["documentos","comunicacion","notifgob","avisos","auditoria","reportes"] },
-  { titulo:"Sistema",    keys:["config","fallos","cuentas","empresas","admin"] },
+  { titulo:"Inicio", keys:["dashboard"], suelto:true },
+  { titulo:"VENTAS",         sub:"Pedidos, clientes y precios",        keys:["pedidos","clientes","solicitudes","precios","promos"] },
+  { titulo:"FINANZAS",       sub:"Cartera, cobros y comisiones",       keys:["cobranza","pagos","comisiones","conciliacion","documentos"] },
+  { titulo:"OPERACIÓN",      sub:"Inventario, compras y logística",    keys:["trazabilidad","tarifasfe","calidad"] },
+  { titulo:"CATÁLOGO",       sub:"Productos, marcas y presentaciones", keys:["catalogo","unidades","marcas","emparejar"] },
+  { titulo:"ADMINISTRACIÓN", sub:"Empresas, usuarios y auditoría",     keys:["empresas","socio","preciosvig","cuentas","admin","auditoria","comunicacion","avisos","notifgob","fallos","reportes"] },
+  { titulo:"Configuración", keys:["config"], suelto:true, pie:true },
 ];
+/* MENU_FASE_B · etiqueta SOLO en el menú lateral (no toca SECCIONES, así las pestañas y el
+   Header conservan su nombre). Si no hay override, se usa s.label. */
+const MENU_LABEL = {
+  dashboard:"Inicio", cobranza:"Cartera", pagos:"Cobros y pagos",
+  unidades:"Presentaciones", socio:"Socios comerciales", cuentas:"Usuarios y roles",
+};
 
 // ── Empresas (cada licencia = una empresa). Las gestiona el Administrador ──
 const EMPRESAS_INI = [
@@ -2501,26 +2512,28 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
     .filter(g => g.items.length > 0);
 
   // (Grupo "Frecuentes"/Accesos rápidos eliminado a pedido: cada módulo aparece una sola vez)
-  const gruposVisibles = gruposNormales;
+  const gruposVisibles = gruposNormales;   // MENU_FASE_B_5 · un grupo sin ítems permitidos NO se dibuja
 
-  // Por defecto: el grupo "Principal" siempre desplegado; de los demás, solo el de la sección activa
+  /* MENU_FASE_B · ítems SUELTOS (sin grupo, no se pliegan): Inicio arriba, Configuración al pie */
+  const looseTop    = gruposVisibles.filter(g => g.suelto && !g.pie);
+  const looseFooter = gruposVisibles.filter(g => g.suelto && g.pie);
+  const gruposColapsables = gruposVisibles.filter(g => !g.suelto);
+  const grupoDe = (key) => (gruposColapsables.find(g => g.items.some(s => s.key === key)) || {}).titulo;
+
+  /* MENU_FASE_B_2 · abiertos por defecto SOLO VENTAS y FINANZAS; más el grupo del módulo activo.
+     Multi-abierto (cada grupo se abre/cierra por su cuenta) y el estado dura la sesión (estado React). */
   const [abiertos, setAbiertos] = useState(() => {
     const init = {};
-    gruposNormales.forEach(g => { init[g.titulo] = g.titulo === "Principal" || g.items.some(s => s.key === active); });
+    gruposColapsables.forEach(g => { init[g.titulo] = (g.titulo === "VENTAS" || g.titulo === "FINANZAS" || g.items.some(s => s.key === active)); });
     return init;
   });
-  // Acordeón: solo un grupo desplegado a la vez. "Principal" queda siempre visible (Dashboard).
-  // Al abrir un grupo, los demás se pliegan; si tocas el que ya está abierto, se cierra.
-  const toggle = (t) => {
-    if (t === "Principal") return;
-    setAbiertos(prev => {
-      const yaAbierto = !!prev[t];
-      const next = {};
-      gruposNormales.forEach(g => { next[g.titulo] = (g.titulo === "Principal"); });
-      if (!yaAbierto) next[t] = true;
-      return next;
-    });
-  };
+  const toggle = (t) => setAbiertos(prev => ({ ...prev, [t]: !prev[t] }));
+  /* MENU_FASE_B_2 · si el módulo activo cae en un grupo colapsado (al cargar o al navegar desde el
+     buscador), ese grupo se abre solo — sin cerrar los demás. */
+  React.useEffect(() => {
+    const gt = grupoDe(active);
+    if (gt) setAbiertos(prev => prev[gt] ? prev : { ...prev, [gt]: true });
+  }, [active]);
 
   const [verMenuUsr, setVerMenuUsr] = useState(false);
   const iniciales = ((usuario.nombre||"?").split(/\s+/).filter(Boolean).map(w=>w[0]).slice(0,2).join("").toUpperCase()) || "?";
@@ -2533,8 +2546,11 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
   const [busca, setBusca] = useState("");
   const cajaBusca = React.useRef(null);
   const norm = (s) => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const labelDe = (s) => (MENU_LABEL[s.key] || s.label);   // MENU_FASE_B \u00b7 etiqueta del men\u00fa (override o SECCIONES)
   const q = norm(busca.trim());
-  const coincide = (s) => !q || norm(s.label).includes(q) || norm(s.sub||"").includes(q);
+  /* El buscador se alimenta de TODOS los m\u00f3dulos permitidos (no solo los visibles) y busca por
+     la etiqueta del men\u00fa y por la descripci\u00f3n \u2014 as\u00ed encuentra aunque el grupo est\u00e9 cerrado. */
+  const coincide = (s) => !q || norm(labelDe(s)).includes(q) || norm(s.sub||"").includes(q);
   const buscando = q.length > 0;
   const esMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
 
@@ -2584,7 +2600,9 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
           border:0, borderLeft: "3px solid " + (on ? SB.green : "transparent"),
           cursor:"pointer", transition:"background .15s", boxShadow:"none" }}>
         <span style={{ width:20, display:"flex", alignItems:"center", justifyContent:"center" }}><Ico name={s.ic} size={18} color={on ? SB.green : SB.txt} /></span>{/* DISENO_BASE_ERP · menú con iconos vectoriales */}
-        <span style={{ color: on ? "#fff" : SB.txt, fontSize:13, fontWeight: on ? 700 : 500 }}>{s.label}</span>
+        <span style={{ color: on ? "#fff" : SB.txt, fontSize:13, fontWeight: on ? 700 : 500 }}>{labelDe(s)}</span>
+        {/* MENU_FASE_B_6 · contador de pendientes (p.ej. «Emparejar códigos»): agregar AQUÍ solo si el
+            dato ya llega al Sidebar por props/estado. Hoy no llega, así que no se dibuja ni se consulta. */}
         {on && <div style={{ marginLeft:"auto", width:7, height:7, borderRadius:"50%", background:"#c7f7d8" }} />}
       </button>
     );
@@ -2609,7 +2627,7 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
             {gruposVisibles.flatMap(g=>g.items).map(s => {
               const on = s.key === active;
               return (
-                <button key={s.key} type="button" className="sb-op" title={s.label} aria-label={s.label}
+                <button key={s.key} type="button" className="sb-op" title={labelDe(s)} aria-label={labelDe(s)}
                   aria-current={on?"page":undefined} onClick={()=>onNav(s.key)}
                   style={{ width:44, height:44, borderRadius:10, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
                     background: on?"rgba(90,168,134,.16)":"transparent", border:0, borderLeft:"3px solid "+(on?SB.green:"transparent") }}>
@@ -2671,41 +2689,43 @@ function Sidebar({ active, onNav, secciones, usuario, empresa, onSalir, onCambia
                 ));
               })()
             ) : (
-              gruposVisibles.map((g, idx) => {
-                const open = abiertos[g.titulo];
-                const tieneActiva = g.items.some(s => s.key === active);
-                const esPrincipal = g.titulo === "Principal";
-                const principalActiva = esPrincipal && tieneActiva;   // "Principal" hace de Dashboard (sin ítem aparte)
-                return (
-                  <div key={g.titulo} style={{ marginBottom:6 }}>
-                    {/* MENU_A11Y · encabezado del grupo como botón */}
-                    <button type="button" className="sb-op"
-                      onClick={() => esPrincipal ? (g.items[0] && onNav(g.items[0].key)) : toggle(g.titulo)}
-                      aria-expanded={esPrincipal ? undefined : !!open}
-                      aria-controls={esPrincipal ? undefined : ("gr-"+idx)}
-                      aria-current={principalActiva ? "page" : undefined}
-                      onMouseEnter={e=>{ if(!esPrincipal && !principalActiva) e.currentTarget.style.borderColor=SB.green; }}
-                      onMouseLeave={e=>{ if(!esPrincipal && !principalActiva) e.currentTarget.style.borderColor=SB.line; }}
-                      style={{ display:"flex", alignItems:"center", gap:8, width:"100%", textAlign:"left", font:"inherit",
-                        padding:"9px 12px", paddingLeft: principalActiva?9:12, minHeight:44, borderRadius:10,
-                        background: principalActiva ? "rgba(90,168,134,.16)" : SB.card,
-                        border:`1px solid ${principalActiva?SB.green:SB.line}`,
-                        borderLeft: principalActiva ? ("3px solid "+SB.green) : `1px solid ${SB.line}`,
-                        cursor:"pointer", userSelect:"none", marginBottom:4, transition:"all .15s", boxShadow:"none" }}>
-                      {!esPrincipal && <span aria-hidden="true" style={{ display:"flex", transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}><Ico name="chevronRight" size={12} color={SB.green} /></span>}
-                      <span style={{ color: tieneActiva ? SB.green : SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
-                      {!open && tieneActiva && !esPrincipal && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green }} />}
-                    </button>
-                    {/* Secciones del grupo (Principal no lista ítems: su encabezado ES el Dashboard) */}
-                    {open && !esPrincipal && <div id={"gr-"+idx} role="group">{g.items.map(itemBtn)}</div>}
-                  </div>
-                );
-              })
+              <>
+                {/* MENU_FASE_B · Inicio (ítem suelto, sin grupo, arriba) */}
+                {looseTop.map(g => g.items.map(itemBtn))}
+                {looseTop.length>0 && gruposColapsables.length>0 && <div style={{ height:8 }} />}
+                {gruposColapsables.map((g, idx) => {
+                  const open = abiertos[g.titulo];
+                  const tieneActiva = g.items.some(s => s.key === active);
+                  return (
+                    <div key={g.titulo} style={{ marginBottom:6 }}>
+                      {/* MENU_A11Y · encabezado del grupo (título + subtítulo) como botón */}
+                      <button type="button" className="sb-op"
+                        onClick={() => toggle(g.titulo)}
+                        aria-expanded={!!open} aria-controls={"gr-"+idx}
+                        onMouseEnter={e=>{ if(!tieneActiva) e.currentTarget.style.borderColor=SB.green; }}
+                        onMouseLeave={e=>{ if(!tieneActiva) e.currentTarget.style.borderColor=SB.line; }}
+                        style={{ display:"flex", alignItems:"center", gap:8, width:"100%", textAlign:"left", font:"inherit",
+                          padding:"9px 12px", minHeight:44, borderRadius:10,
+                          background: SB.card, border:`1px solid ${tieneActiva?SB.green:SB.line}`,
+                          cursor:"pointer", userSelect:"none", marginBottom:4, transition:"all .15s", boxShadow:"none" }}>
+                        <span aria-hidden="true" style={{ display:"flex", flexShrink:0, transform: open?"rotate(90deg)":"rotate(0deg)", transition:"transform .15s" }}><Ico name="chevronRight" size={12} color={SB.green} /></span>
+                        <span style={{ flex:1, minWidth:0 }}>
+                          <span style={{ display:"block", color: tieneActiva ? SB.green : SB.label, fontSize:10.5, fontWeight:800, textTransform:"uppercase", letterSpacing:.6 }}>{g.titulo}</span>
+                          {g.sub && <span style={{ display:"block", color:SB.mut, fontSize:9.5, fontWeight:600, marginTop:1 }}>{g.sub}</span>}
+                        </span>
+                        {!open && tieneActiva && <div style={{ marginLeft:"auto", width:6, height:6, borderRadius:"50%", background:SB.green, flexShrink:0 }} />}
+                      </button>
+                      {open && <div id={"gr-"+idx} role="group">{g.items.map(itemBtn)}</div>}
+                    </div>
+                  );
+                })}
+              </>
             )}
           </nav>
 
-          {/* Usuario (tarjeta) + contraer (solo escritorio) */}
+          {/* MENU_FASE_B · Configuración (ítem suelto, al pie) + Usuario (tarjeta) + contraer (solo escritorio) */}
           <div style={{ padding:"10px 14px 14px", borderTop:`1px solid ${SB.line}` }}>
+            {!buscando && looseFooter.map(g => g.items.map(itemBtn))}
             {compacto && (
               <button type="button" className="sb-op" onClick={()=>plegar(true)}
                 style={{ width:"100%", padding:"9px", borderRadius:9, border:`1px solid ${SB.line}`, background:"transparent", color:SB.mut, fontSize:12, fontWeight:600, cursor:"pointer", marginBottom:10 }}>« Contraer menú</button>
